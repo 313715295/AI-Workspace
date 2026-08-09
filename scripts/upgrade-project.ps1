@@ -154,14 +154,7 @@ function Assert-TargetBootstrapContract {
 
     $legacyRootLocator = '`scripts/check-task-card.ps1`'
     if ($FrameworkVersion -eq '1.3.0') {
-        $rootChecker = Join-ChildPath $Workspace 'scripts/check-task-card.ps1'
-        if (-not (Test-Path -LiteralPath $rootChecker -PathType Leaf)) {
-            throw "Framework 1.3.0 compatibility checker does not exist: $rootChecker"
-        }
-        if (-not $Content.Contains($legacyRootLocator)) {
-            throw 'Framework 1.3.0 Bootstrap does not contain its published root checker locator.'
-        }
-        return
+        throw 'Framework 1.3.0 runtime compatibility is retired; it is retained for history and as an upgrade source, but cannot be selected as an upgrade target.'
     }
 
     $versionedChecker = Join-ChildPath $TargetFramework 'scripts/check-task-card.ps1'

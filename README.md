@@ -6,7 +6,7 @@
 
 `AI-Workspace`长期只保存通用Framework、版本、中立模板和初始化工具。真实项目的稳定上下文、当前状态、任务卡与报告应进入项目自己的版本控制边界，通过项目`BOOTSTRAP.md`连接固定Framework版本。
 
-当前默认分支不携带具体项目控制面；`projects/`只保留中央legacy发现所需的兼容占位，`archive/`只保留通用的只读归档入口。项目资料及迁移原始证据属于对应项目仓，不得继续写入通用Framework历史。
+当前默认分支不携带具体项目控制面，也不跟踪空的`projects/`占位；`archive/`只保留通用的只读归档入口。项目资料及迁移原始证据属于对应项目仓，不得继续写入通用Framework历史。只有本地确实挂载旧中央项目时，发现流程才把未跟踪的`projects/<project-id>/`作为legacy输入读取。
 
 ## 它解决什么
 
@@ -24,7 +24,6 @@
 ```text
 AI-Workspace/
 ├─ framework/                   # 通用角色、流程、审核与固定版本
-├─ projects/<project-id>/       # 中央legacy兼容库存；不再作为新项目默认落点
 ├─ scripts/                     # 跨版本register / upgrade机械入口
 └─ archive/                     # 一次性迁移的原始历史资料
 
@@ -34,11 +33,11 @@ AI-Workspace/
 
 项目仓库的`.ai-workspace`保存该项目的资料、状态、任务和Bootstrap，但不复制整套Framework；Bootstrap从当前挂载工作区唯一定位固定版本。项目根的薄入口可以指向`.ai-workspace/BOOTSTRAP.md`。
 
-与Framework语义绑定的checker、tests、templates和examples随版本存放；跨版本入口`register-project.ps1`与`upgrade-project.ps1`留在根`scripts`。register只创建全新repo-local控制面；upgrade只做同布局版本升级，两者默认预览且不stage/commit。root checker只兼容已发布1.3.0 Bootstrap，不是未来默认。中央legacy项目搬到repo-local是各项目另行授权的一次性操作，不是Framework通用命令，也不由upgrade自动完成。
+与Framework语义绑定的checker、tests、templates和examples随版本存放；跨版本入口`register-project.ps1`与`upgrade-project.ps1`留在根`scripts`。register只创建全新repo-local控制面；upgrade只做同布局版本升级，两者默认预览且不stage/commit。已退役的1.3.0根checker不再随仓库分发；1.3.0目录只保留历史字节与向较新中央版本升级时的源模板，不能再作为运行或升级目标。中央legacy项目搬到repo-local是各项目另行授权的一次性操作，不是Framework通用命令，也不由upgrade自动完成。
 
 `AI-Workspace`同时是开发与发行仓，默认分支在`framework/versions/`下保留全部稳定版本，供项目pin、普通Git检出、ZIP下载和本地升级直接使用。`framework/CURRENT`只决定新项目默认版本，不改变已有项目pin。tag可以作为可选审计或下载标记，但Framework注册、恢复和升级不得依赖tag；固定版本目录缺失时明确拒绝，不从tag或当前HEAD猜测历史模板。
 
-Framework版本按`DRAFT / REVIEW / STABLE / RETIRED`理解：开发中的候选可以返工；版本进入STABLE即不可原位修改，修正一律通过新的patch版本发布，例如`1.3.1 → 1.3.2`。是否已被项目消费只影响保留或退休策略，不影响不可变性；`RETIRED`版本仍保留供旧项目恢复，只是不再作为新项目默认版本。
+Framework版本按`DRAFT / REVIEW / STABLE / RETIRED`理解：开发中的候选可以返工；版本进入STABLE即不可原位修改，修正一律通过新的patch版本发布，例如`1.3.1 → 1.3.2`。是否已被项目消费只影响保留或退休策略，不影响不可变性；`RETIRED`版本可以只保留历史内容而不继续提供运行入口。1.3.0即为这种历史保留版本，旧项目应先升级到仍受支持的固定版本。
 
 ## 怎么使用
 
