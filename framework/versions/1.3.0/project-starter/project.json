@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "id": {{PROJECT_ID_JSON}},
+  "displayName": {{DISPLAY_NAME_JSON}},
+  "repositoryPath": {{REPOSITORY_PATH_JSON}},
+  "frameworkVersion": {{FRAMEWORK_VERSION_JSON}}
+}
