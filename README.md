@@ -32,7 +32,8 @@ AI-Workspace/
 ## 当前版本策略
 
 - `framework/CURRENT`仍为`1.4.1`，只影响新项目默认选择。
-- Framework 1.5.1为`STABLE / OPT_IN`兼容热修；1.5.0继续保留为不可变稳定基线，已有项目不会自动升级。
+- Framework 1.5.2为`STABLE / OPT_IN`安全热修，严格落实授权JSON类型与候选写入/独立审核互斥；1.5.1继续保留为不可变稳定基线，已有项目不会自动升级。
+- 多远程仓库的逐远程授权、结果与部分成功恢复计划在1.5.3实现，不混入1.5.2安全热修。
 - 已发布`framework/versions/<version>/`不可原位修改；修正发布新的patch版本。
 - `FULL_RELEASE`用于公共合同、模块/starter拓扑、根事务或不兼容schema变化。
 - `PATCH_HOTFIX`用于兼容的文档、模板、checker或局部脚本修正，只验证受影响范围；不机械重复完整迁移、全角色矩阵或自然样本。

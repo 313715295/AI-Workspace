@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "version": "1.5.2",
+  "lifecycle": "STABLE",
+  "releaseClass": "PATCH_HOTFIX",
+  "scope": "all version files except RELEASE_MANIFEST.json",
+  "algorithm": "Ordinal relative path; path|byteLength|UPPER_SHA256; UTF-8 LF join without trailing LF; SHA256 payload",
+  "fileCount": 31,
+  "totalBytes": 194871,
+  "canonical": "3DB3DB7DD90780C0E66203C5F31A4D77B9FDCDCEB206E3A9743C2EE2156A6AA0",
+  "baseline": "1.5.1",
+  "sourceReview": "FOCUSED_REVIEW_1_APPROVED",
+  "sourceCandidate": "3404829B87CC46AB6CC31E3360A998EC9C55B5C2FAAD4C4C8958C51458F0564B",
+  "releaseIntegration": "HOTFIX_TESTS_PASS_37_AND_FRAMEWORK_TESTS_PASS",
+  "current": "1.4.1",
+  "projectPinsChanged": false
+}
