@@ -39,6 +39,8 @@ AI-Workspace/
 
 Framework版本按`DRAFT / REVIEW / STABLE / RETIRED`理解：开发中的候选可以返工；版本进入STABLE即不可原位修改，修正一律通过新的patch版本发布，例如`1.3.1 → 1.3.2`。是否已被项目消费只影响保留或退休策略，不影响不可变性；`RETIRED`版本可以只保留历史内容而不继续提供运行入口。1.3.0即为这种历史保留版本，旧项目应先升级到仍受支持的固定版本。
 
+Framework 1.5.0现作为`STABLE / OPT_IN`固定版本发布，提供通用恢复核心、确定性按需模块、分级阶段授权和风险相称的审核/证据机制。`framework/CURRENT`仍为1.4.1，因此默认注册和任何已有项目pin都不会自动变化；项目只有在独立升级任务中显式选择1.5.0才会消费它。
+
 ## 怎么使用
 
 先做三件事：让 AI 从项目 `BOOTSTRAP.md` 恢复固定版本，按下面的风险边界选择工作档位，再在该档位内调查、修改和验证。用户不需要运行 Framework 脚本或手工维护机械字段。
@@ -76,7 +78,7 @@ Framework版本按`DRAFT / REVIEW / STABLE / RETIRED`理解：开发中的候选
 
 让 AI 会话先从项目Git根发现`.ai-workspace/BOOTSTRAP.md`；只有它不存在时才读中央legacy `projects/<project-id>/BOOTSTRAP.md`。再按Bootstrap顺序恢复固定Framework、项目资料、当前状态和任务卡。现有项目升级必须保持原拓扑；中央→repo-local只能走独立迁移任务，不由用户手工改版本指针或复制目录。
 
-日常协作中，用户主要与项目主控讨论目标和产品取舍；主控负责跨域路线、顺序和冲突，领域分管长期持有领域上下文并闭环大部分任务。执行者和独立审核者只在具体任务中临时挂载，不是第三层管理者。具体权责、审核和 Git 规则以项目固定 Framework 与 `BOOTSTRAP.md` 为准，本 README 不复制第二套完整流程。
+日常协作中，用户主要与项目主控讨论目标和产品取舍；主控负责跨域路线、顺序和冲突，领域分管长期持有领域上下文并闭环大部分任务。执行者和独立审核者只在具体任务中临时挂载，不是第三层管理者。具体权责、审核和 Git 规则以项目固定 Framework 与 `BOOTSTRAP.md` 为准，本 README 不复制第二套完整流程。1.4.x项目按固定版本的`GOVERNANCE / WORKFLOW / REVIEW`文档恢复；1.5.x项目先读`RECOVERY_CORE.md`，再由固定版本loader按role/profile/phase/host完整加载所需模块。
 
 AI会话首次进入项目/角色，或无法证明之前的恢复基线时，会从Bootstrap做完整冷恢复；这是首次建立可信基线的成本，不是每张任务的默认步骤。同一健康会话处理新任务、Review返工或idle后唤醒时，默认按档位只增量核对必要权威、新任务卡、变化事实、真实状态和重新授权；一旦身份、权限、保护边界或影响面不确定，就回到完整冷恢复。日常增量不会继承旧任务权限，也不降低审核或验证。
 
@@ -84,7 +86,7 @@ AI会话首次进入项目/角色，或无法证明之前的恢复基线时，�
 
 审核绑定稳定内容对象；候选变化时只重审真正受影响的部分，影响不明仍完整复审。内容提交后还有外部发布的任务会保持active，直到真实发布结果落账才关闭。用户不需要运行检查脚本或维护这些机械字段。
 
-独立任务默认依靠主动回传，不靠轮询维持进度感。具体任务、消息、等待和可选actor/notifier字段属于宿主适配，不进入核心治理；使用Codex时读取项目固定版本的`HOST_ADAPTER_CODEX.md`。其他宿主应提供等价适配，但不得改变唯一owner、审核独立性、范围、Git或外部权限。
+独立任务默认依靠主动回传，不靠轮询维持进度感。具体任务、消息、等待和可选actor/notifier字段属于宿主适配，不进入核心治理；使用Codex时，1.4.x读取固定版本的`HOST_ADAPTER_CODEX.md`，1.5.x由固定版本loader加载`HOST_CODEX.md`。其他宿主应提供等价适配，但不得改变唯一owner、审核独立性、范围、Git或外部权限。
 
 ### 用户何时需要介入
 
@@ -155,7 +157,7 @@ AI会话首次进入项目/角色，或无法证明之前的恢复基线时，�
 ### 权威、版本与维护边界
 
 - 本 README 同时是唯一用户入口和完整初始化执行权威；不得另建跳转入口或复制第二套初始化合同。
-- 通用角色、流程、审核、Git 和会话规则仍只由项目固定版本的 `GOVERNANCE.md`、`WORKFLOW_PLAYBOOK.md`、`REVIEW_CHECKLIST.md` 与 `TASK_TEMPLATE.md` 持有；本 README 只提供简明工作方式介绍。
+- 通用角色、流程、审核、Git 和会话规则只由项目固定版本持有：1.4.x使用`GOVERNANCE.md`、`WORKFLOW_PLAYBOOK.md`、`REVIEW_CHECKLIST.md`与`TASK_TEMPLATE.md`；1.5.x使用`RECOVERY_CORE.md`及loader选出的完整模块。本 README 只提供简明工作方式介绍。
 - 每个项目在 `project.json` 中固定 `frameworkVersion`；`framework/CURRENT`只是新项目默认版本，不强制现有项目升级，也不会让中央修改自动改变项目 pin。
 - `project-starter`只提供中立骨架；现有项目不自动重建、迁移或被模板反向覆盖。
 - 项目稳定事实进入 `PROJECT.md`，当前状态进入 `STATUS.md`；需要持久记录的工作进入唯一owner任务卡，合格无卡`MICRO`由owner当轮记录结果。聊天历史不是事实来源。

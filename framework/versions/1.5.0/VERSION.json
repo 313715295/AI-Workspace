@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "version": "1.5.0",
+  "lifecycle": "STABLE",
+  "consumable": true,
+  "baseline": "1.4.1",
+  "currentEligible": false,
+  "projectPinEligible": true
+}

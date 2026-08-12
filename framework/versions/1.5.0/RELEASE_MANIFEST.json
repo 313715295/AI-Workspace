@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "version": "1.5.0",
+  "lifecycle": "STABLE",
+  "scope": "all version files except RELEASE_MANIFEST.json",
+  "algorithm": "Ordinal relative path; path|byteLength|UPPER_SHA256; UTF-8 LF join without trailing LF; SHA256 payload",
+  "fileCount": 30,
+  "totalBytes": 162641,
+  "canonical": "43C70D25BAC3033821D2CE2BFB5F5CE54D7202E7CF21242099C4554A8D9627AF",
+  "baseline": "1.4.1",
+  "sourceReview": "REVIEW_FOCUSED_3_APPROVED",
+  "sourceCandidate": "B25377FB43685E3776C08C488D842AE4F6518B92CFC69FC9ACE377F4A7DAB30F",
+  "releaseIntegration": "FRAMEWORK_TESTS_PASS",
+  "current": "1.4.1",
+  "projectPinsChanged": false
+}
