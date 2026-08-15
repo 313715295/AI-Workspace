@@ -1,6 +1,6 @@
 # AIW-FW-1.6.0-FULL-RELEASE-001 — Framework 1.6.0 全量发行父任务
 
-- 状态：FRAMEWORK_1.6.0_STABLE_RELEASED / LIVE_ROOT_ACCEPTED / CURRENT_REMAINS_1.4.1 / ROOT_README_SYNC_ACCEPTED / GIT_CHECKPOINT_READY / WRITER_NONE / REVIEWER_NONE
+- 状态：FRAMEWORK_1.6.0_RELEASE_COMPLETE / LIVE_ROOT_ACCEPTED / CURRENT_REMAINS_1.4.1 / ROOT_README_SYNC_ACCEPTED / LOCAL_GIT_CHECKPOINT_COMPLETE / WRITER_NONE / REVIEWER_NONE
 - Task schema: 1.5.2
 - 档位：CRITICAL；理由：修改共享 Framework 公共治理合同、模块与迁移边界，影响多个项目且失败代价高
 - Owner: 019ffe25-9941-7490-808a-a5fbd8bbe23a
@@ -39,7 +39,8 @@
 - Root README sync：正式版发布后发现根入口仍把1.6.0描述为规划中；已用exact1内容修正为`STABLE / NOT_CURRENT / PIN_ELIGIBLE`及真实知识/采用边界。该同步不改stable version、live root、CURRENT或任何机制。
 - Root README focused Review=`APPROVED / 0 finding / RELEASED`；owner接受单文件同步，stable metadata、`CURRENT=1.4.1`、知识能力边界、draft不可消费与稳定版不可原位修改均一致。
 - Git inventory：AI-Workspace `main`，HEAD=`f238746d8f145bc14f003221fffcc94fa442a9ab`；current dirty exact172全部位于本次1.6.0发行范围，范围外dirty=`0`，index=`0`。checkpoint保留正式版、live root、控制卡与审计快照；不执行整仓暂存，不含CURRENT变化、tag、push或Pocket文件。
-- 唯一下一动作：fresh exact172本地`GIT_STAGE`与`GIT_COMMIT`包由唯一Git closer消费；tag/push和Pocket采用仍分别处理，push/external继续关闭。
+- Local Git checkpoint：exact172已由唯一Git closer精确stage并提交到AI-Workspace `main`，commit=`83431fceda58922885e1a2da0054c247d63bccab`，提交后index/dirty=`0/0`。未使用`git add .`，未改CURRENT，未tag、push或触碰Pocket。
+- 唯一下一动作：Framework任务不再启动实现或Review；后续若用户授权remote发布再单独处理push/tag。Pocket采用由Pocket current controller另立项目升级任务，按“升级pin/control schema → routine exclusion → 项目术语权威 → 知识初始化 → 显式启用 → 去重瘦身 → FULL_COLD → 恢复产品任务”推进。
 
 ### Minimal implementation Review-1 verdict
 
