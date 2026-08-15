@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-workspace.local/schema/remote-batch-1.json",
+  "title": "One-attempt multi-remote batch",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "kind",
+    "batchId",
+    "projectId",
+    "taskId",
+    "candidateIdentity",
+    "gitCloser",
+    "authorizationLocator",
+    "authorizationIdentity",
+    "projectConfigIdentity",
+    "remotes"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "kind": {"const": "REMOTE_BATCH"},
+    "batchId": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$"},
+    "projectId": {"type": "string", "minLength": 1},
+    "taskId": {"type": "string", "minLength": 1},
+    "candidateIdentity": {"type": "string", "pattern": "^[0-9]+\\|[A-F0-9]{64}$"},
+    "gitCloser": {"type": "string", "minLength": 1},
+    "authorizationLocator": {"type": "string", "minLength": 1},
+    "authorizationIdentity": {"type": "string", "pattern": "^[0-9]+\\|[A-F0-9]{64}$"},
+    "projectConfigIdentity": {"type": "string", "pattern": "^[0-9]+\\|[A-F0-9]{64}$"},
+    "remotes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "remoteId",
+          "endpointFingerprint",
+          "action",
+          "refspec",
+          "expectedLocalHead",
+          "expectedRemoteHead",
+          "attempted",
+          "status"
+        ],
+        "properties": {
+          "remoteId": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"},
+          "endpointFingerprint": {"type": "string", "pattern": "^[A-F0-9]{64}$"},
+          "action": {"const": "PUSH_REF"},
+          "refspec": {"type": "string", "minLength": 3},
+          "expectedLocalHead": {"type": "string", "pattern": "^[A-F0-9]{40}([A-F0-9]{24})?$"},
+          "expectedRemoteHead": {"type": "string", "pattern": "^(ABSENT|[A-F0-9]{40}([A-F0-9]{24})?)$"},
+          "attempted": {"type": "boolean"},
+          "status": {"enum": ["PENDING", "SUCCEEDED", "FAILED", "UNKNOWN"]},
+          "observedRemoteHead": {"type": "string", "pattern": "^(ABSENT|[A-F0-9]{40}([A-F0-9]{24})?)$"},
+          "receipt": {"type": "string", "minLength": 1, "maxLength": 512},
+          "errorClass": {"enum": ["AUTHORIZATION_REJECTED", "HEAD_DRIFT", "REFSPEC_REJECTED", "REMOTE_REJECTED", "NETWORK_FAILURE", "REMOTE_STATE_UNKNOWN"]}
+        }
+      }
+    }
+  }
+}

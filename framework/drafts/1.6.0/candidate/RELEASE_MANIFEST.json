@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "version": "1.6.0",
+  "lifecycle": "DRAFT",
+  "releaseClass": "FULL_RELEASE",
+  "consumable": false,
+  "scope": "A_C_G implementation candidate; release inventory is not frozen",
+  "algorithm": "Ordinal relative path; path|byteLength|UPPER_SHA256; UTF-8 LF join without trailing LF; SHA256 payload",
+  "fileCount": null,
+  "totalBytes": null,
+  "canonical": null,
+  "baseline": "1.5.2",
+  "sourceReleaseManifest": "699|840130FCC94485BC358796152DAB3619756BECA4E8FDB253EA9133964CA783B3",
+  "sourceReview": "NOT_APPLICABLE_TO_DRAFT",
+  "sourceCandidate": null,
+  "releaseIntegration": "NOT_RUN",
+  "current": "1.4.1",
+  "projectPinsChanged": false,
+  "releaseStatus": "NOT_CONSUMABLE",
+  "unimplementedSlices": ["D", "E", "F", "H", "INTEGRATION", "REVIEW", "RELEASE"]
+}

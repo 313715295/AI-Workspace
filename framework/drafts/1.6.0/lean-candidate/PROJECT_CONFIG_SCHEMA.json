@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-workspace.local/schema/project-config-3.json",
+  "title": "AI-Workspace project configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "displayName",
+    "controlPlaneLayout",
+    "repositoryRoot",
+    "frameworkVersion",
+    "protectedPaths",
+    "frameworkCapabilities"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 3},
+    "id": {"type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+    "displayName": {"type": "string", "minLength": 1},
+    "controlPlaneLayout": {"const": "repo-local"},
+    "repositoryRoot": {"const": ".."},
+    "frameworkVersion": {"type": "string", "pattern": "^[0-9A-Za-z][0-9A-Za-z._-]*$"},
+    "protectedPaths": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "deny"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "deny": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {"enum": ["visibility", "read", "hash", "diff", "index", "write"]}
+          }
+        }
+      }
+    },
+    "frameworkCapabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "maxProperties": 0
+    }
+  }
+}

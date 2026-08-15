@@ -12,12 +12,14 @@ param(
     [ValidateNotNullOrEmpty()]
     [string]$RepositoryPath,
 
+    [string]$ControllerId,
+
     [ValidatePattern('^[0-9A-Za-z][0-9A-Za-z._-]*$')]
     [string]$FrameworkVersion,
 
-    [string]$ControllerId,
-
     [switch]$Apply,
+
+    [switch]$AllowDraftCandidate,
 
     [string]$WorkspaceRoot
 )
@@ -76,58 +78,6 @@ function Write-Utf8NoBom {
         $normalized += "`n"
     }
     [System.IO.File]::WriteAllText($Path, $normalized, $utf8NoBom)
-}
-
-function Test-JsonInteger($Value) {
-    return $Value -is [byte] -or $Value -is [sbyte] -or $Value -is [int16] -or
-        $Value -is [uint16] -or $Value -is [int32] -or $Value -is [uint32] -or
-        $Value -is [int64] -or $Value -is [uint64]
-}
-
-function Assert-ExactObjectFields($Object,[string]$Raw,[string[]]$Expected,[string]$Label) {
-    if (-not ($Object -is [pscustomobject])) { throw "$Label must be a JSON object." }
-    $names = @($Object.PSObject.Properties.Name)
-    if ($names.Count -ne $Expected.Count -or @($Expected | Where-Object { $_ -cnotin $names }).Count -ne 0) { throw "$Label field set mismatch." }
-    foreach ($name in $Expected) { if ([regex]::Matches($Raw,'"'+[regex]::Escape($name)+'"\s*:').Count -ne 1) { throw "$Label duplicate or missing field: $name" } }
-}
-
-function ConvertTo-FrameworkLocator([string]$Value) {
-    if ([string]::IsNullOrWhiteSpace($Value) -or $Value -cne $Value.Trim()) { throw 'Framework capability locator is empty or has outer whitespace.' }
-    $path=$Value.Replace('\','/')
-    if ([regex]::IsMatch($path,'[<>"|?*]') -or [IO.Path]::IsPathRooted($path) -or $path.StartsWith('/') -or $path.Contains(':')) { throw 'Framework capability locator must be a repo-relative literal path.' }
-    if (-not [string]::Equals($path,$path.Normalize([Text.NormalizationForm]::FormC),[StringComparison]::Ordinal)) { throw 'Framework capability locator must be NFC.' }
-    $parts=$path.Split('/')
-    foreach($part in $parts){
-        if([string]::IsNullOrEmpty($part)-or$part-in@('.','..')-or$part.EndsWith('.')-or$part.EndsWith(' ')-or[regex]::IsMatch($part,'[\x00-\x1F]')){throw 'Framework capability locator has an invalid component.'}
-        if($part.Split('.')[0]-match'^(?i:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$'){throw 'Framework capability locator has a reserved component.'}
-    }
-    return [string]::Join('/',$parts)
-}
-
-function Assert-FrameworkCapabilities($Capabilities,[string]$Raw,[string]$Label) {
-    if (-not ($Capabilities -is [pscustomobject])) { throw "$Label must be an object." }
-    $names=@($Capabilities.PSObject.Properties|ForEach-Object{$_.Name})
-    if($names.Count-eq0){return}
-    if($names.Count-ne1-or$names[0]-cne'KNOWLEDGE_REFERENCE'-or[regex]::Matches($Raw,'"KNOWLEDGE_REFERENCE"\s*:').Count-ne1){throw "$Label contains an unknown or duplicate capability."}
-    $knowledge=$Capabilities.KNOWLEDGE_REFERENCE
-    if(-not($knowledge-is[pscustomobject])){throw "$Label KNOWLEDGE_REFERENCE must be an object."}
-    $fields=@($knowledge.PSObject.Properties|ForEach-Object{$_.Name})
-    if($fields.Count-eq1-and$fields[0]-ceq'enabled'-and$knowledge.enabled-is[bool]-and-not[bool]$knowledge.enabled){
-        if([regex]::Matches($Raw,'"enabled"\s*:').Count-ne1){throw "$Label KNOWLEDGE_REFERENCE has a duplicate field."}
-        return
-    }
-    if($fields.Count-ne2-or$fields-cnotcontains'enabled'-or$fields-cnotcontains'indexLocator'-or-not($knowledge.enabled-is[bool])-or-not[bool]$knowledge.enabled-or-not($knowledge.indexLocator-is[string])-or[regex]::Matches($Raw,'"enabled"\s*:').Count-ne1-or[regex]::Matches($Raw,'"indexLocator"\s*:').Count-ne1){throw "$Label KNOWLEDGE_REFERENCE fields are invalid."}
-    $null=ConvertTo-FrameworkLocator ([string]$knowledge.indexLocator)
-}
-
-function New-TemplateMap([string]$Version) {
-    $map=[ordered]@{
-        '.gitattributes'='.gitattributes'; 'project.json'='project.json'; 'BOOTSTRAP.md'='BOOTSTRAP.md';
-        'PROJECT.md'='PROJECT.md'; 'REVIEW_PROFILE.md'='REVIEW_PROFILE.md'; 'RELATIONSHIPS.md'='RELATIONSHIPS.md';
-        'STATUS.md'='STATUS.md'; 'tasks/README.md'='tasks/README.md'
-    }
-    if ($Version -ceq '1.6.0') { $map['controller.json']='controller.json' }
-    return $map
 }
 
 function Invoke-GitCapture {
@@ -239,29 +189,49 @@ function Get-RepoLocalStarter {
     )
 
     $frameworkPath = Join-ChildPath $FrameworkRoot "versions/$FrameworkVersion"
+    $metadataPath = Join-ChildPath $frameworkPath 'VERSION.json'
+    if (Test-Path -LiteralPath $metadataPath -PathType Leaf) {
+        try { $metadata = (Read-StrictUtf8Template $metadataPath) | ConvertFrom-Json } catch { throw "Framework version metadata is invalid: $metadataPath" }
+        if ([string]$metadata.version -cne $FrameworkVersion) { throw "Framework version metadata identity mismatch: $metadataPath" }
+        if ([string]$metadata.lifecycle -cne 'STABLE' -and -not ($AllowDraftCandidate -and [string]$metadata.lifecycle -ceq 'DRAFT')) {
+            throw "Framework version is not consumable: $FrameworkVersion"
+        }
+    }
+    elseif (@('1.4.0', '1.4.1') -cnotcontains $FrameworkVersion) {
+        throw "Framework version metadata does not exist: $metadataPath"
+    }
     $templateRoot = Join-ChildPath $frameworkPath 'project-starter'
     if (-not (Test-Path -LiteralPath $templateRoot -PathType Container)) {
         throw "Framework project starter does not exist: $templateRoot"
     }
     Assert-NoReparseTree $templateRoot
+    $projectTemplateText = Read-StrictUtf8Template (Join-ChildPath $templateRoot 'project.json')
+    $isControllerStarter = $projectTemplateText.Contains('"schemaVersion": 3')
+    $isLegacyStarter = $projectTemplateText.Contains('"schemaVersion": 2')
+    if ((-not $isControllerStarter -and -not $isLegacyStarter) -or
+        -not $projectTemplateText.Contains('"controlPlaneLayout": "repo-local"') -or
+        -not $projectTemplateText.Contains('"repositoryRoot": ".."') -or
+        ($isControllerStarter -and -not $projectTemplateText.Contains('"frameworkCapabilities": {}'))) {
+        throw "$Selection does not publish a repo-local project starter. Select Framework 1.4.0 or later explicitly until CURRENT is activated."
+    }
+    if ($isControllerStarter) {
+        if ([string]::IsNullOrWhiteSpace($ControllerId) -or $ControllerId -cne $ControllerId.Trim() -or $ControllerId.Length -gt 256) {
+            throw "$Selection requires -ControllerId for controller epoch 1 initialization."
+        }
+        $TemplateMap['controller.json'] = 'controller.json'
+    }
     foreach ($relativeTemplate in $TemplateMap.Keys) {
         $templatePath = Join-ChildPath $templateRoot $relativeTemplate
         if (-not (Test-Path -LiteralPath $templatePath -PathType Leaf)) {
             throw "Required project template is missing: $templatePath"
         }
     }
-    $projectTemplateText = Read-StrictUtf8Template (Join-ChildPath $templateRoot 'project.json')
-    $expectedSchema = if ($FrameworkVersion -ceq '1.6.0') { '"schemaVersion": 3' } else { '"schemaVersion": 2' }
-    if (-not $projectTemplateText.Contains($expectedSchema) -or
-        -not $projectTemplateText.Contains('"controlPlaneLayout": "repo-local"') -or
-        -not $projectTemplateText.Contains('"repositoryRoot": ".."')) {
-        throw "$Selection does not publish a repo-local project starter. Select Framework 1.4.0 or later explicitly until CURRENT is activated."
-    }
     $bootstrapTemplate = Read-StrictUtf8Template (Join-ChildPath $templateRoot 'BOOTSTRAP.md')
     $null = Get-RepoLocalBootstrapRegions $bootstrapTemplate (Join-ChildPath $templateRoot 'BOOTSTRAP.md')
     return [pscustomobject]@{
         TemplateRoot = $templateRoot
         BootstrapTemplate = $bootstrapTemplate
+        RequiresController = $isControllerStarter
     }
 }
 
@@ -313,10 +283,10 @@ function Assert-RepoLocalProject {
         [Parameter(Mandatory = $true)][string]$ExpectedProjectId,
         [Parameter(Mandatory = $true)][string]$ExpectedDisplayName,
         [Parameter(Mandatory = $true)][string]$ExpectedFrameworkVersion,
+        [AllowEmptyString()][string]$ExpectedControllerId,
         [Parameter(Mandatory = $true)][string[]]$RequiredFiles,
         [Parameter(Mandatory = $true)][string[]]$RequiredDirectories,
-        [Parameter(Mandatory = $true)][string]$ExpectedBootstrapTemplate,
-        [string]$ExpectedControllerId
+        [Parameter(Mandatory = $true)][string]$ExpectedBootstrapTemplate
     )
 
     Assert-NoReparseTree $ControlRoot
@@ -336,48 +306,47 @@ function Assert-RepoLocalProject {
     }
     $projectFile = Join-Path $ControlRoot 'project.json'
     $bootstrapFile = Join-Path $ControlRoot 'BOOTSTRAP.md'
+    $requiresController = -not [string]::IsNullOrWhiteSpace($ExpectedControllerId)
+    $controllerFile = Join-Path $ControlRoot 'controller.json'
     if (-not (Test-Path -LiteralPath $projectFile -PathType Leaf) -or
-        -not (Test-Path -LiteralPath $bootstrapFile -PathType Leaf)) {
+        -not (Test-Path -LiteralPath $bootstrapFile -PathType Leaf) -or
+        ($requiresController -and -not (Test-Path -LiteralPath $controllerFile -PathType Leaf))) {
         throw "Existing .ai-workspace is partial; refusing to merge or overwrite: $ControlRoot"
     }
     try {
-        $configRaw = Read-StrictUtf8Template $projectFile
-        $config = $configRaw | ConvertFrom-Json
+        $config = (Read-StrictUtf8Template $projectFile) | ConvertFrom-Json
     }
     catch {
         throw "Existing repo-local project.json is invalid: $projectFile"
     }
-    $baseFields=@('schemaVersion','id','displayName','controlPlaneLayout','repositoryRoot','frameworkVersion')
-    $schema3 = $ExpectedFrameworkVersion -ceq '1.6.0'
-    $expectedFields = if ($schema3) { @($baseFields + @('routineExcludedPaths','frameworkCapabilities')) } else { $baseFields }
-    Assert-ExactObjectFields $config $configRaw $expectedFields 'Existing project.json'
-    $expectedSchema = if ($schema3) { 3 } else { 2 }
-    if (-not (Test-JsonInteger $config.schemaVersion) -or [int]$config.schemaVersion -ne $expectedSchema -or
-        -not ($config.controlPlaneLayout -is [string]) -or [string]$config.controlPlaneLayout -cne 'repo-local' -or
-        -not ($config.repositoryRoot -is [string]) -or [string]$config.repositoryRoot -cne '..' -or
-        -not ($config.id -is [string]) -or [string]$config.id -cne $ExpectedProjectId -or
-        -not ($config.displayName -is [string]) -or [string]$config.displayName -cne $ExpectedDisplayName -or
-        -not ($config.frameworkVersion -is [string]) -or [string]$config.frameworkVersion -cne $ExpectedFrameworkVersion) {
+    $expectedSchemaVersion = if ($requiresController) { 3 } else { 2 }
+    if ([int]$config.schemaVersion -ne $expectedSchemaVersion -or
+        [string]$config.controlPlaneLayout -cne 'repo-local' -or
+        [string]$config.repositoryRoot -cne '..' -or
+        [string]$config.id -cne $ExpectedProjectId -or
+        [string]$config.displayName -cne $ExpectedDisplayName -or
+        [string]$config.frameworkVersion -cne $ExpectedFrameworkVersion) {
         throw "Existing .ai-workspace identity conflicts with the requested project: $ControlRoot"
     }
-    if ($schema3) {
-        if (-not ($config.routineExcludedPaths -is [System.Array]) -or -not ($config.frameworkCapabilities -is [pscustomobject])) { throw "Existing project.json routine exclusions or capabilities are invalid: $projectFile" }
-        Assert-FrameworkCapabilities $config.frameworkCapabilities $configRaw 'Existing project.json frameworkCapabilities'
-        $routinePaths = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
-        foreach ($pathValue in @($config.routineExcludedPaths)) {
-            if (-not ($pathValue -is [string]) -or [string]::IsNullOrWhiteSpace([string]$pathValue) -or -not $routinePaths.Add([string]$pathValue)) { throw "Existing project.json routine exclusions are invalid: $projectFile" }
+    if ($requiresController) {
+        if ($config.PSObject.Properties.Name -notcontains 'frameworkCapabilities' -or
+            $null -eq $config.frameworkCapabilities -or
+            @($config.frameworkCapabilities.PSObject.Properties).Count -ne 0) {
+            throw "Existing .ai-workspace capability contract conflicts with the requested project: $ControlRoot"
         }
-        $controllerFile=Join-Path $ControlRoot 'controller.json'
-        $controllerRaw=Read-StrictUtf8Template $controllerFile
-        try { $controller=$controllerRaw|ConvertFrom-Json } catch { throw "Existing controller.json is invalid: $controllerFile" }
-        $controllerFields=@('schemaVersion','projectId','controllerId','controllerEpoch','state')
-        Assert-ExactObjectFields $controller $controllerRaw $controllerFields 'Existing controller.json'
-        if (-not (Test-JsonInteger $controller.schemaVersion) -or [int]$controller.schemaVersion -ne 1 -or
-            -not ($controller.projectId -is [string]) -or [string]$controller.projectId -cne $ExpectedProjectId -or
-            -not ($controller.controllerId -is [string]) -or [string]::IsNullOrWhiteSpace([string]$controller.controllerId) -or
-            -not (Test-JsonInteger $controller.controllerEpoch) -or [int64]$controller.controllerEpoch -lt 1 -or
-            -not ($controller.state -is [string]) -or [string]$controller.state -cne 'CURRENT' -or
-            (-not [string]::IsNullOrWhiteSpace($ExpectedControllerId) -and [string]$controller.controllerId -cne $ExpectedControllerId)) { throw "Existing controller.json conflicts with the requested project: $controllerFile" }
+        $controllerText = Read-StrictUtf8Template $controllerFile
+        try { $controller = $controllerText | ConvertFrom-Json } catch { throw "Existing controller.json is invalid: $controllerFile" }
+        $controllerNames = @($controller.PSObject.Properties.Name)
+        $controllerRequired = @('schemaVersion','projectId','controllerId','controllerEpoch','state')
+        if (@(Compare-Object -ReferenceObject $controllerRequired -DifferenceObject $controllerNames -CaseSensitive).Count -ne 0 -or
+            [int]$controller.schemaVersion -ne 1 -or [string]$controller.projectId -cne $ExpectedProjectId -or
+            [string]$controller.controllerId -cne $ExpectedControllerId -or [string]$controller.controllerId -cne ([string]$controller.controllerId).Trim() -or ([string]$controller.controllerId).Length -gt 256 -or
+            -not ($controller.controllerEpoch -is [int64] -or $controller.controllerEpoch -is [int32]) -or [int64]$controller.controllerEpoch -lt 1 -or
+            [string]$controller.state -cne 'CURRENT') {
+            throw "Existing controller identity conflicts with the requested controller: $controllerFile"
+        }
+        $canonicalController = ([ordered]@{schemaVersion=1;projectId=$ExpectedProjectId;controllerId=$ExpectedControllerId;controllerEpoch=[int64]$controller.controllerEpoch;state='CURRENT'} | ConvertTo-Json -Compress) + "`n"
+        if ($controllerText -cne $canonicalController) { throw "Existing controller identity is not canonical: $controllerFile" }
     }
     $bootstrap = Read-StrictUtf8Template $bootstrapFile
     $actualRegions = Get-RepoLocalBootstrapRegions $bootstrap $bootstrapFile
@@ -385,6 +354,42 @@ function Assert-RepoLocalProject {
     $expectedRegions = Get-RepoLocalBootstrapRegions $expectedBootstrap 'pinned Framework starter'
     if ($actualRegions.ManagedText -cne $expectedRegions.ManagedText) {
         throw "Existing repo-local Bootstrap managed block was customized; refusing ALREADY_REGISTERED: $bootstrapFile"
+    }
+}
+
+function Remove-SafeInitializationDirectory {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$RepositoryRoot,
+        [Parameter(Mandatory = $true)][string]$ExpectedProjectId,
+        [Parameter(Mandatory = $true)][string[]]$AllowedRelativeFiles
+    )
+
+    $resolvedRepo = [System.IO.Path]::GetFullPath($RepositoryRoot).TrimEnd('\')
+    $resolvedPath = [System.IO.Path]::GetFullPath($Path).TrimEnd('\')
+    $prefix = $resolvedRepo + [System.IO.Path]::DirectorySeparatorChar
+    $name = Split-Path -Leaf $resolvedPath
+    $pattern = '^\.' + [regex]::Escape($ExpectedProjectId) + '\.ai-workspace-init\.[0-9a-f]{32}$'
+    if (-not $resolvedPath.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase) -or
+        $name -notmatch $pattern) {
+        throw "Refusing to remove an unexpected initialization path: $resolvedPath"
+    }
+    if (Test-Path -LiteralPath $resolvedPath -PathType Container) {
+        foreach ($directory in Get-ChildItem -LiteralPath $resolvedPath -Recurse -Directory -Force) {
+            if (($directory.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw "Unknown reparse point appeared in initialization staging; preserving bytes: $($directory.FullName)"
+            }
+        }
+        foreach ($file in Get-ChildItem -LiteralPath $resolvedPath -Recurse -File -Force) {
+            if (($file.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw "Unknown reparse point appeared in initialization staging; preserving bytes: $($file.FullName)"
+            }
+            $relative = $file.FullName.Substring($resolvedPath.Length + 1).Replace('\', '/')
+            if ($relative -notin $AllowedRelativeFiles) {
+                throw "Unknown live bytes appeared in initialization staging; preserving bytes: $relative"
+            }
+        }
+        [System.IO.Directory]::Delete($resolvedPath, $true)
     }
 }
 
@@ -405,6 +410,16 @@ if (-not (Test-Path -LiteralPath $RepositoryPath -PathType Container)) {
 }
 $repo = Get-GitRepositoryRoot ([System.IO.Path]::GetFullPath((Resolve-Path -LiteralPath $RepositoryPath).ProviderPath))
 
+$templateMap = [ordered]@{
+    '.gitattributes' = '.gitattributes'
+    'project.json' = 'project.json'
+    'BOOTSTRAP.md' = 'BOOTSTRAP.md'
+    'PROJECT.md' = 'PROJECT.md'
+    'REVIEW_PROFILE.md' = 'REVIEW_PROFILE.md'
+    'RELATIONSHIPS.md' = 'RELATIONSHIPS.md'
+    'STATUS.md' = 'STATUS.md'
+    'tasks/README.md' = 'tasks/README.md'
+}
 $requiredProjectDirectories = @('tasks', 'tasks/active', 'tasks/archive')
 $projectRoot = Join-Path $repo '.ai-workspace'
 $legacyRoot = Join-ChildPath $workspace "projects/$ProjectId"
@@ -432,10 +447,16 @@ if (Test-Path -LiteralPath $projectRoot) {
         throw "Existing .ai-workspace Framework pin conflicts with the explicitly requested Framework: $projectRoot"
     }
     $FrameworkVersion = $existingVersion
-    $templateMap=New-TemplateMap $FrameworkVersion
-    $requiredProjectFiles=@($templateMap.Values)
+    if ($existingVersion -ceq '1.6.0' -and [string]::IsNullOrWhiteSpace($ControllerId)) {
+        $existingControllerFile = Join-Path $projectRoot 'controller.json'
+        if (-not (Test-Path -LiteralPath $existingControllerFile -PathType Leaf)) { throw "Existing 1.6.0 project is missing controller.json: $existingControllerFile" }
+        try { $existingController = (Read-StrictUtf8Template $existingControllerFile) | ConvertFrom-Json } catch { throw "Existing controller.json is invalid: $existingControllerFile" }
+        $ControllerId = [string]$existingController.controllerId
+    }
     $existingStarter = Get-RepoLocalStarter $frameworkRoot $FrameworkVersion $templateMap "Framework $FrameworkVersion"
-    Assert-RepoLocalProject $projectRoot $ProjectId $DisplayName $FrameworkVersion $requiredProjectFiles $requiredProjectDirectories $existingStarter.BootstrapTemplate $ControllerId
+    $effectiveControllerId = if ($existingStarter.RequiresController) { $ControllerId } else { '' }
+    $requiredProjectFiles = @($templateMap.Values)
+    Assert-RepoLocalProject $projectRoot $ProjectId $DisplayName $FrameworkVersion $effectiveControllerId $requiredProjectFiles $requiredProjectDirectories $existingStarter.BootstrapTemplate
     if (Test-Path -LiteralPath $legacyRoot) {
         Assert-CompatibleCentralCollision $legacyRoot $ProjectId $repo
     }
@@ -455,11 +476,19 @@ if (-not $frameworkVersionWasExplicit) {
     $FrameworkVersion = (Read-StrictUtf8Template $currentFile).Trim()
 }
 $selection = if ($frameworkVersionWasExplicit) { "Framework $FrameworkVersion" } else { "framework/CURRENT ($FrameworkVersion)" }
-$templateMap=New-TemplateMap $FrameworkVersion
-$requiredProjectFiles=@($templateMap.Values)
-if ($FrameworkVersion -ceq '1.6.0' -and [string]::IsNullOrWhiteSpace($ControllerId)) { throw 'ControllerId is required when registering Framework 1.6.0.' }
 $starter = Get-RepoLocalStarter $frameworkRoot $FrameworkVersion $templateMap $selection
 $templateRoot = $starter.TemplateRoot
+$effectiveControllerId = if ($starter.RequiresController) { $ControllerId } else { '' }
+$requiredProjectFiles = @($templateMap.Values)
+
+$statusResult = Invoke-GitCapture @('-C', $repo, '-c', 'core.excludesFile=', 'status', '--porcelain=v1', '--untracked-files=all')
+$dirty = @($statusResult.Output)
+if ($statusResult.ExitCode -ne 0) {
+    throw "Unable to inspect repository status: $repo"
+}
+if ($dirty.Count -ne 0) {
+    throw "Repository working tree must be clean for new project registration: $repo"
+}
 
 $createdDate = Get-Date -Format 'yyyy-MM-dd'
 $markdownTokens = [ordered]@{
@@ -467,12 +496,13 @@ $markdownTokens = [ordered]@{
     '{{DISPLAY_NAME}}' = $DisplayName
     '{{FRAMEWORK_VERSION}}' = $FrameworkVersion
     '{{CREATED_DATE}}' = $createdDate
+    '{{CONTROLLER_ID}}' = $effectiveControllerId
 }
 $jsonTokens = [ordered]@{
     '{{PROJECT_ID_JSON}}' = ($ProjectId | ConvertTo-Json -Compress)
     '{{DISPLAY_NAME_JSON}}' = ($DisplayName | ConvertTo-Json -Compress)
     '{{FRAMEWORK_VERSION_JSON}}' = ($FrameworkVersion | ConvertTo-Json -Compress)
-    '{{CONTROLLER_ID_JSON}}' = ($ControllerId | ConvertTo-Json -Compress)
+    '{{CONTROLLER_ID_JSON}}' = ($effectiveControllerId | ConvertTo-Json -Compress)
 }
 
 if (-not $Apply -or -not $PSCmdlet.ShouldProcess($projectRoot, 'Create repository-local project control plane')) {
@@ -506,7 +536,7 @@ try {
         if ($content -match '\{\{[A-Z0-9_]+\}\}') {
             throw "Unresolved template token in: $sourcePath"
         }
-        if ($entry.Value -in @('project.json','controller.json')) {
+        if ($entry.Value -eq 'project.json') {
             $null = $content | ConvertFrom-Json
         }
 
@@ -514,20 +544,25 @@ try {
         $null = Read-StrictUtf8Template $destinationPath
     }
 
-    Assert-RepoLocalProject $stagingRoot $ProjectId $DisplayName $FrameworkVersion $requiredProjectFiles $requiredProjectDirectories $starter.BootstrapTemplate $ControllerId
+    Assert-RepoLocalProject $stagingRoot $ProjectId $DisplayName $FrameworkVersion $effectiveControllerId $requiredProjectFiles $requiredProjectDirectories $starter.BootstrapTemplate
     [System.IO.Directory]::Move($stagingRoot, $projectRoot)
 }
 catch {
     if (Test-Path -LiteralPath $stagingRoot -PathType Container) {
-        throw "Registration failed; initialization staging was preserved at $stagingRoot. $($_.Exception.Message)"
+        Remove-SafeInitializationDirectory $stagingRoot $repo $ProjectId -AllowedRelativeFiles @($templateMap.Values)
     }
     throw
 }
 
-[pscustomobject]@{
+$result = [ordered]@{
     status = 'CREATED'
     projectRoot = $projectRoot
     frameworkVersion = $FrameworkVersion
     createdFiles = @($templateMap.Values)
     nextAction = 'AI session completes project-specific facts, validates repo-local FULL_COLD_RECOVERY, then reports READY or NEEDS_INPUT.'
 }
+if ($starter.RequiresController) {
+    $result['controllerId'] = $effectiveControllerId
+    $result['controllerEpoch'] = 1
+}
+[pscustomobject]$result

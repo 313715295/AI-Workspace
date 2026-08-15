@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-workspace.local/schema/controller-1.json",
+  "title": "AI-Workspace current project controller",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "projectId", "controllerId", "controllerEpoch", "state"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "projectId": {"type": "string", "minLength": 1},
+    "controllerId": {"type": "string", "minLength": 1},
+    "controllerEpoch": {"type": "integer", "minimum": 1},
+    "state": {"const": "CURRENT"}
+  }
+}

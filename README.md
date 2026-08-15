@@ -32,8 +32,10 @@ AI-Workspace/
 ## 当前版本策略
 
 - `framework/CURRENT`仍为`1.4.1`，只影响新项目默认选择。
-- Framework 1.5.2为`STABLE / OPT_IN`安全热修，严格落实授权JSON类型与候选写入/独立审核互斥；1.5.1继续保留为不可变稳定基线，已有项目不会自动升级。
-- 多远程仓库的逐远程授权、结果与部分成功恢复计划在1.5.3实现，不混入1.5.2安全热修。
+- Framework 1.6.0现为`STABLE / CONSUMABLE / NOT_CURRENT / PIN_ELIGIBLE`的功能版本；1.5.2继续作为不可变稳定基线，已有项目不会自动升级。
+- 1.6.0采用减法后的协调治理：多remote只记录逐项真实结果与诚实部分成功，不实现跨仓库原子事务、自动retry或自动compensation；日常Git排除、独占串行升级、controller epoch与统一语言治理均保持最小机制。
+- 1.6.0已包含默认关闭的项目级按需知识合同、schema、checker与可选loader selector；项目不启用、没有知识库或使用空索引均为受支持状态。知识内容、common聚合与具体项目初始化仍由项目独立采用，两个项目的自然证据只约束未来common知识晋升。
+- 1.5.3仅保留给保持公共合同、模块/starter拓扑和根事务不变的真正兼容`PATCH_HOTFIX`；没有适用热修时直接跳过。
 - 已发布`framework/versions/<version>/`不可原位修改；修正发布新的patch版本。
 - `FULL_RELEASE`用于公共合同、模块/starter拓扑、根事务或不兼容schema变化。
 - `PATCH_HOTFIX`用于兼容的文档、模板、checker或局部脚本修正，只验证受影响范围；不机械重复完整迁移、全角色矩阵或自然样本。
@@ -113,5 +115,7 @@ AI-Workspace/
 ## Framework维护
 
 维护前读取目标版本的`FRAMEWORK_RELEASE.md`。稳定版本不可原位修改：开发先进入候选目录，按`FULL_RELEASE`或`PATCH_HOTFIX`验证，通过后生成新的稳定version与manifest。
+
+Framework 1.6.0稳定版位于`framework/versions/1.6.0/`；`framework/drafts/1.6.0/`只保留本次设计、实现与审核审计记录，不再作为可消费入口。后续修正必须另建patch或minor候选，不能原位修改稳定版。
 
 根README是用户短入口，不承载完整初始化算法、版本迁移矩阵或运行时治理正文。新项目初始化读取`INITIALIZATION.md`；项目运行读取固定Framework；发行对比材料只在维护任务中按需读取。
