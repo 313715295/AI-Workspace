@@ -1,11 +1,12 @@
-# AI Workspace Claude Entry
+# AI Workspace Framework entry
 
-本仓库是多项目 AI 协作控制面，不是项目源码仓库。
+本仓库只保存通用Framework、根集成工具和不可变版本，不保存真实项目状态。
 
 - 先读 `README.md`。
-- 处理具体项目时，先确认项目Git顶层并优先读取完整有效的`.ai-workspace/BOOTSTRAP.md`；repo-local不存在时才可回退匹配的中央legacy `projects/<project-id>/BOOTSTRAP.md`，身份冲突必须停止。
-- 已发布的 `framework/versions/<version>/` 不得原位修改；规则升级必须新建版本并显式更新项目指针。
-- 项目源码与repo-local控制面改动在对应项目仓库完成；中央legacy搬迁是项目专属的一次性操作，不是Framework命令，项目仓提交并冷恢复通过前中央仍是权威。任务所有权、审核和 Git 收口遵守固定版本治理文件。
-- `archive/` 只用于追溯，不是当前权威。
+- Framework维护权威来自专用Maintenance控制仓的repo-local `.ai-workspace/BOOTSTRAP.md`。
+- 已发布的 `framework/versions/<version>/` 不得原位修改；新版本直接在最终版本目录开发，冻结、独立Review和稳定封印前不可消费。
+- Framework没有全局默认版本。新项目显式选择版本并复制该版本的 `project-starter`；已有项目只认自己的repo-local pin。
+- Framework发布不会发现或升级consumer，也不记录真实项目身份、路径、Controller、任务或采用状态。
+- source、test、Review、Git、push和external分别授权。
 
 系统指令、当前用户指令和宿主环境约束优先。

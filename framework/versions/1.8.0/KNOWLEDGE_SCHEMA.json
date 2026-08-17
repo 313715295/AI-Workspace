@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AI-Workspace project knowledge reference index",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "projectId", "entries"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "projectId": { "type": "string", "minLength": 1 },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "state", "title", "summary", "locator", "identity", "authorityLocator", "authorityIdentity", "verifiedAt", "invalidatesOn", "tokenEstimate"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9._-]*$" },
+          "state": { "enum": ["CURRENT", "STALE", "HISTORICAL"] },
+          "title": { "type": "string", "minLength": 1 },
+          "summary": { "type": "string", "minLength": 1 },
+          "locator": { "type": "string", "minLength": 1 },
+          "identity": { "type": "string", "pattern": "^[0-9]+\\|[A-F0-9]{64}$" },
+          "authorityLocator": { "type": "string", "minLength": 1 },
+          "authorityIdentity": { "type": "string", "pattern": "^[0-9]+\\|[A-F0-9]{64}$" },
+          "verifiedAt": { "type": "string", "format": "date-time", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$" },
+          "invalidatesOn": { "const": ["LOCATOR_IDENTITY_CHANGE", "AUTHORITY_IDENTITY_CHANGE"] },
+          "tokenEstimate": { "type": "integer", "minimum": 1, "maximum": 4096 }
+        }
+      }
+    }
+  }
+}

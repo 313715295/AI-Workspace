@@ -12,6 +12,7 @@ param(
     [ValidateNotNullOrEmpty()]
     [string]$RepositoryPath,
 
+    [Parameter(Mandatory = $true)]
     [ValidatePattern('^[0-9A-Za-z][0-9A-Za-z._-]*$')]
     [string]$FrameworkVersion,
 
@@ -126,7 +127,7 @@ function New-TemplateMap([string]$Version) {
         'PROJECT.md'='PROJECT.md'; 'REVIEW_PROFILE.md'='REVIEW_PROFILE.md'; 'RELATIONSHIPS.md'='RELATIONSHIPS.md';
         'STATUS.md'='STATUS.md'; 'tasks/README.md'='tasks/README.md'
     }
-    if ($Version -in @('1.6.0','1.6.1')) { $map['controller.json']='controller.json' }
+    if ($Version -in @('1.6.0','1.6.1','1.7.0','1.8.0')) { $map['controller.json']='controller.json' }
     return $map
 }
 
@@ -230,6 +231,64 @@ function Render-RepoLocalBootstrap {
     return $rendered
 }
 
+function Get-UpperSha256Bytes([byte[]]$Bytes) {
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { return ([BitConverter]::ToString($sha.ComputeHash($Bytes))).Replace('-','') }
+    finally { $sha.Dispose() }
+}
+
+function Assert-StableFrameworkRelease {
+    param(
+        [Parameter(Mandatory = $true)][string]$FrameworkPath,
+        [Parameter(Mandatory = $true)][string]$ExpectedVersion
+    )
+
+    if (-not (Test-Path -LiteralPath $FrameworkPath -PathType Container)) {
+        throw "Framework version does not exist: $FrameworkPath"
+    }
+    Assert-NoReparseTree $FrameworkPath
+    $versionPath = Join-ChildPath $FrameworkPath 'VERSION.json'
+    $manifestPath = Join-ChildPath $FrameworkPath 'RELEASE_MANIFEST.json'
+    if (-not (Test-Path -LiteralPath $versionPath -PathType Leaf) -or -not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+        throw "FRAMEWORK_RELEASE_METADATA_MISSING|$ExpectedVersion"
+    }
+    try {
+        $version = (Read-StrictUtf8Template $versionPath) | ConvertFrom-Json
+        $manifest = (Read-StrictUtf8Template $manifestPath) | ConvertFrom-Json
+    } catch { throw "FRAMEWORK_RELEASE_METADATA_INVALID|$ExpectedVersion|$($_.Exception.Message)" }
+    if (-not ($version.version -is [string]) -or [string]$version.version -cne $ExpectedVersion -or
+        -not ($version.lifecycle -is [string]) -or [string]$version.lifecycle -cne 'STABLE' -or
+        -not ($version.consumable -is [bool]) -or -not [bool]$version.consumable -or
+        -not ($version.projectPinEligible -is [bool]) -or -not [bool]$version.projectPinEligible) {
+        throw "FRAMEWORK_VERSION_NOT_CONSUMABLE|$ExpectedVersion"
+    }
+    if (-not ($manifest.version -is [string]) -or [string]$manifest.version -cne $ExpectedVersion -or
+        -not ($manifest.lifecycle -is [string]) -or [string]$manifest.lifecycle -cne 'STABLE' -or
+        -not ($manifest.sourceReview -is [string]) -or [string]$manifest.sourceReview -cne 'APPROVED' -or
+        -not ($manifest.releaseIntegration -is [string]) -or [string]::IsNullOrWhiteSpace([string]$manifest.releaseIntegration) -or [string]$manifest.releaseIntegration -ceq 'PENDING' -or
+        -not (Test-JsonInteger $manifest.fileCount) -or -not (Test-JsonInteger $manifest.totalBytes) -or
+        -not ($manifest.canonical -is [string]) -or [string]$manifest.canonical -cnotmatch '^[A-F0-9]{64}$') {
+        throw "FRAMEWORK_RELEASE_NOT_SEALED|$ExpectedVersion"
+    }
+
+    $rows = New-Object 'System.Collections.Generic.List[string]'
+    [int64]$totalBytes = 0
+    foreach ($file in @(Get-ChildItem -LiteralPath $FrameworkPath -Recurse -File -Force)) {
+        $relative = $file.FullName.Substring($FrameworkPath.Length + 1).Replace('\','/')
+        if ($relative -ceq 'RELEASE_MANIFEST.json') { continue }
+        $bytes = [IO.File]::ReadAllBytes($file.FullName)
+        $totalBytes += $bytes.Length
+        $rows.Add($relative + '|' + $bytes.Length + '|' + (Get-UpperSha256Bytes $bytes))
+    }
+    $ordered = @($rows)
+    [Array]::Sort($ordered, [StringComparer]::Ordinal)
+    $payloadBytes = $utf8NoBom.GetBytes([string]::Join("`n", $ordered))
+    $canonical = Get-UpperSha256Bytes $payloadBytes
+    if ([int64]$manifest.fileCount -ne $ordered.Count -or [int64]$manifest.totalBytes -ne $totalBytes -or [string]$manifest.canonical -cne $canonical) {
+        throw "FRAMEWORK_RELEASE_MANIFEST_DRIFT|$ExpectedVersion"
+    }
+}
+
 function Get-RepoLocalStarter {
     param(
         [Parameter(Mandatory = $true)][string]$FrameworkRoot,
@@ -239,6 +298,7 @@ function Get-RepoLocalStarter {
     )
 
     $frameworkPath = Join-ChildPath $FrameworkRoot "versions/$FrameworkVersion"
+    Assert-StableFrameworkRelease $frameworkPath $FrameworkVersion
     $templateRoot = Join-ChildPath $frameworkPath 'project-starter'
     if (-not (Test-Path -LiteralPath $templateRoot -PathType Container)) {
         throw "Framework project starter does not exist: $templateRoot"
@@ -251,59 +311,17 @@ function Get-RepoLocalStarter {
         }
     }
     $projectTemplateText = Read-StrictUtf8Template (Join-ChildPath $templateRoot 'project.json')
-    $expectedSchema = if ($FrameworkVersion -in @('1.6.0','1.6.1')) { '"schemaVersion": 3' } else { '"schemaVersion": 2' }
+    $expectedSchema = if ($FrameworkVersion -in @('1.6.0','1.6.1','1.7.0','1.8.0')) { '"schemaVersion": 3' } else { '"schemaVersion": 2' }
     if (-not $projectTemplateText.Contains($expectedSchema) -or
         -not $projectTemplateText.Contains('"controlPlaneLayout": "repo-local"') -or
         -not $projectTemplateText.Contains('"repositoryRoot": ".."')) {
-        throw "$Selection does not publish a repo-local project starter. Select Framework 1.4.0 or later explicitly until CURRENT is activated."
+        throw "$Selection does not publish a valid repo-local project starter."
     }
     $bootstrapTemplate = Read-StrictUtf8Template (Join-ChildPath $templateRoot 'BOOTSTRAP.md')
     $null = Get-RepoLocalBootstrapRegions $bootstrapTemplate (Join-ChildPath $templateRoot 'BOOTSTRAP.md')
     return [pscustomobject]@{
         TemplateRoot = $templateRoot
         BootstrapTemplate = $bootstrapTemplate
-    }
-}
-
-function Assert-CompatibleCentralCollision {
-    param(
-        [Parameter(Mandatory = $true)][string]$LegacyRoot,
-        [Parameter(Mandatory = $true)][string]$ExpectedProjectId,
-        [Parameter(Mandatory = $true)][string]$ExpectedRepository
-    )
-
-    if (-not (Test-Path -LiteralPath $LegacyRoot -PathType Container)) {
-        throw "A central legacy collision exists but is not a directory; refusing to ignore it: $LegacyRoot"
-    }
-    Assert-NoReparseTree $LegacyRoot
-    foreach ($relativeFile in @('project.json', 'BOOTSTRAP.md', 'PROJECT.md', 'REVIEW_PROFILE.md', 'RELATIONSHIPS.md', 'STATUS.md', 'tasks/README.md')) {
-        if (-not (Test-Path -LiteralPath (Join-ChildPath $LegacyRoot $relativeFile) -PathType Leaf)) {
-            throw "Repo-local and central legacy control planes coexist, but the central control plane is partial: $LegacyRoot"
-        }
-    }
-    foreach ($relativeDirectory in @('tasks', 'tasks/active', 'tasks/archive')) {
-        if (-not (Test-Path -LiteralPath (Join-ChildPath $LegacyRoot $relativeDirectory) -PathType Container)) {
-            throw "Repo-local and central legacy control planes coexist, but the central control plane is partial: $LegacyRoot"
-        }
-    }
-    $legacyProjectFile = Join-Path $LegacyRoot 'project.json'
-    if (-not (Test-Path -LiteralPath $legacyProjectFile -PathType Leaf)) {
-        throw "Repo-local and central legacy control planes coexist, but the central identity is incomplete: $LegacyRoot"
-    }
-    try {
-        $legacyConfig = (Read-StrictUtf8Template $legacyProjectFile) | ConvertFrom-Json
-    }
-    catch {
-        throw "Repo-local and central legacy control planes coexist, but the central identity is invalid: $legacyProjectFile"
-    }
-    if ($legacyConfig.PSObject.Properties.Name -notcontains 'repositoryPath' -or
-        [string]::IsNullOrWhiteSpace([string]$legacyConfig.repositoryPath)) {
-        throw 'Repo-local and central legacy identities conflict; refusing to choose an authority.'
-    }
-    $legacyRepository = [System.IO.Path]::GetFullPath([string]$legacyConfig.repositoryPath).TrimEnd('\')
-    if ([string]$legacyConfig.id -cne $ExpectedProjectId -or
-        -not $legacyRepository.Equals($ExpectedRepository, [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw 'Repo-local and central legacy identities conflict; refusing to choose an authority.'
     }
 }
 
@@ -348,7 +366,7 @@ function Assert-RepoLocalProject {
         throw "Existing repo-local project.json is invalid: $projectFile"
     }
     $baseFields=@('schemaVersion','id','displayName','controlPlaneLayout','repositoryRoot','frameworkVersion')
-    $schema3 = $ExpectedFrameworkVersion -in @('1.6.0','1.6.1')
+    $schema3 = $ExpectedFrameworkVersion -in @('1.6.0','1.6.1','1.7.0','1.8.0')
     $expectedFields = if ($schema3) { @($baseFields + @('routineExcludedPaths','frameworkCapabilities')) } else { $baseFields }
     Assert-ExactObjectFields $config $configRaw $expectedFields 'Existing project.json'
     $expectedSchema = if ($schema3) { 3 } else { 2 }
@@ -407,8 +425,6 @@ $repo = Get-GitRepositoryRoot ([System.IO.Path]::GetFullPath((Resolve-Path -Lite
 
 $requiredProjectDirectories = @('tasks', 'tasks/active', 'tasks/archive')
 $projectRoot = Join-Path $repo '.ai-workspace'
-$legacyRoot = Join-ChildPath $workspace "projects/$ProjectId"
-$frameworkVersionWasExplicit = -not [string]::IsNullOrWhiteSpace($FrameworkVersion)
 if (Test-Path -LiteralPath $projectRoot) {
     if (-not (Test-Path -LiteralPath $projectRoot -PathType Container)) {
         throw "Project control-plane target exists but is not a directory: $projectRoot"
@@ -428,7 +444,7 @@ if (Test-Path -LiteralPath $projectRoot) {
     if ([string]::IsNullOrWhiteSpace($existingVersion) -or $existingVersion -notmatch '^[0-9A-Za-z][0-9A-Za-z._-]*$') {
         throw "Existing repo-local project.json has an invalid Framework pin: $existingProjectFile"
     }
-    if ($frameworkVersionWasExplicit -and $FrameworkVersion -cne $existingVersion) {
+    if ($FrameworkVersion -cne $existingVersion) {
         throw "Existing .ai-workspace Framework pin conflicts with the explicitly requested Framework: $projectRoot"
     }
     $FrameworkVersion = $existingVersion
@@ -436,9 +452,6 @@ if (Test-Path -LiteralPath $projectRoot) {
     $requiredProjectFiles=@($templateMap.Values)
     $existingStarter = Get-RepoLocalStarter $frameworkRoot $FrameworkVersion $templateMap "Framework $FrameworkVersion"
     Assert-RepoLocalProject $projectRoot $ProjectId $DisplayName $FrameworkVersion $requiredProjectFiles $requiredProjectDirectories $existingStarter.BootstrapTemplate $ControllerId
-    if (Test-Path -LiteralPath $legacyRoot) {
-        Assert-CompatibleCentralCollision $legacyRoot $ProjectId $repo
-    }
     [pscustomobject]@{
         status = 'ALREADY_REGISTERED'
         projectRoot = $projectRoot
@@ -446,18 +459,11 @@ if (Test-Path -LiteralPath $projectRoot) {
     }
     return
 }
-if (Test-Path -LiteralPath $legacyRoot) {
-    throw "A central legacy project with this id already exists; registration cannot change layout. Request a separately authorized project-specific relocation: $legacyRoot"
-}
 
-if (-not $frameworkVersionWasExplicit) {
-    $currentFile = Join-ChildPath $frameworkRoot 'CURRENT'
-    $FrameworkVersion = (Read-StrictUtf8Template $currentFile).Trim()
-}
-$selection = if ($frameworkVersionWasExplicit) { "Framework $FrameworkVersion" } else { "framework/CURRENT ($FrameworkVersion)" }
+$selection = "Framework $FrameworkVersion"
 $templateMap=New-TemplateMap $FrameworkVersion
 $requiredProjectFiles=@($templateMap.Values)
-if ($FrameworkVersion -in @('1.6.0','1.6.1') -and [string]::IsNullOrWhiteSpace($ControllerId)) { throw 'ControllerId is required when registering Framework 1.6.x.' }
+if ($FrameworkVersion -in @('1.6.0','1.6.1','1.7.0','1.8.0') -and [string]::IsNullOrWhiteSpace($ControllerId)) { throw 'ControllerId is required when registering a schema3 Framework version.' }
 $starter = Get-RepoLocalStarter $frameworkRoot $FrameworkVersion $templateMap $selection
 $templateRoot = $starter.TemplateRoot
 

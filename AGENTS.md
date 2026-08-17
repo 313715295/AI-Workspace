@@ -1,9 +1,11 @@
-# AI Workspace Framework Repository
+# AI Workspace Framework repository
 
-This repository contains the AI-Workspace Framework source and immutable releases. It is not a consumer product repository and, in the final sibling topology, it does not own the dynamic maintenance control plane.
+This repository contains generic Framework source, root integration tools and immutable releases. It is not a consumer project and does not own real consumer state.
 
-Before editing, read `README.md`. During the approved separation only, a complete local `.ai-workspace/` remains authoritative while its current migration task explicitly says the handoff is incomplete. Otherwise, Framework maintenance authority must come from the sibling `AI-Workspace-Maintenance/.ai-workspace/BOOTSTRAP.md`; if that entry is missing, partial, or conflicting, stop instead of creating a replacement control plane here.
+Before editing, read `README.md`. Framework maintenance authority comes from the dedicated Maintenance control repository's repo-local `.ai-workspace/BOOTSTRAP.md`. If that authority is missing, partial or conflicting, stop rather than creating a replacement control plane here.
 
-Never modify an existing released directory under `framework/versions/`; create and independently review a new version. Framework release, root `CURRENT`, Git publication, and each consumer project's pin are separate actions. Preserve task ownership and do not turn chat history, archived material, or the Framework repository itself into maintenance authority.
+Never modify an existing released directory under `framework/versions/`. Create a new version directly in its final version directory, keep it non-consumable until frozen and independently reviewed, then seal it. There is no Framework-global version selector. Release, root integration, Git publication and each project's explicit pin adoption are separate actions.
 
-System, developer, and current user instructions take precedence.
+Do not add real consumer identities, paths, tasks, pins or adoption state to Framework. Preserve exact ownership, protected paths, one-writer and Review/Git/external boundaries.
+
+System, developer and current user instructions take precedence.
