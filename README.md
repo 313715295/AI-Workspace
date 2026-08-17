@@ -10,7 +10,7 @@ AI-Workspace 是多会话协作 Framework 的开发与发行仓。真实项目�
 - source/test、测试/browser/device、Review、Git、push和external分开授权。
 - 保留唯一owner、保护路径、范围闭包、重大方案、用户试玩、必要独立审核和外部动作硬门。
 
-它不是源码仓、聊天记录仓或自动运行的“AI公司”。工具可用不等于已经授权；Framework也不会在没有权限时自动修改代码、Git、设备、账号或外部状态。
+它不是产品源码仓、聊天记录仓或自动运行的“AI公司”；本仓本身就是Framework源码与发行仓。工具可用不等于已经授权；Framework也不会在没有权限时自动修改代码、Git、设备、账号或外部状态。
 
 ## 目录
 
@@ -20,6 +20,7 @@ AI-Workspace/
 ├─ INITIALIZATION.md          # 仅新项目/新机器/初始化故障时按需读取
 ├─ framework/
 │  ├─ CURRENT                # 新项目默认版本，不改变已有项目pin
+│  ├─ ROADMAP.md             # 未选入具体版本的唯一规划池；不可消费
 │  └─ versions/<version>/    # 已发布稳定版本
 └─ scripts/                   # register / upgrade机械入口
 
@@ -29,18 +30,23 @@ AI-Workspace/
 
 普通项目会话不加载本README、版本对比或发行证据；它从项目`.ai-workspace/BOOTSTRAP.md`开始，再由固定版本loader按角色、风险、阶段和宿主加载必要模块。
 
+Framework维护采用平级双仓：纯Framework仓不跟踪`.ai-workspace/`；动态维护控制面放在同一专用父目录下的`AI-Workspace-Maintenance`仓。普通consumer项目仍保留自己的repo-local控制面，不受该维护拓扑影响。
+
 ## 当前版本策略
 
-- `framework/CURRENT`仍为`1.4.1`，只影响新项目默认选择。
-- Framework 1.6.0现为`STABLE / CONSUMABLE / NOT_CURRENT / PIN_ELIGIBLE`的功能版本；1.5.2继续作为不可变稳定基线，已有项目不会自动升级。
+- `framework/CURRENT`为`1.6.1`，只影响新项目默认选择；显式1.6.1与省略`FrameworkVersion`的CURRENT-default preview/apply/repeat均已通过，并完成pre/post-projection独立复审。
+- Framework 1.6.1现为`STABLE / CONSUMABLE / CURRENT / PIN_ELIGIBLE`的兼容补丁；1.6.0继续作为不可变稳定基线，已有项目不会自动升级。
+- Framework 1.7.0现为`STABLE / CONSUMABLE / NOT_CURRENT / PIN_ELIGIBLE`的维护拓扑功能版本；它允许维护控制项目与Framework源码仓平级分离，但不会自动改变根CURRENT或任何consumer pin。
+- 根级CURRENT选择资格只取`lifecycle=STABLE + consumable=true + projectPinEligible=true + 有效project-starter/register smoke`。已发布版本中的`currentEligible`是不可变的发布时快照，已弃用为live selector，不能覆盖上述root合同；未来版本应移除该冗余字段或赋予单一可验证语义。稳定发布与选择CURRENT始终是两个原子动作。
 - 1.6.0采用减法后的协调治理：多remote只记录逐项真实结果与诚实部分成功，不实现跨仓库原子事务、自动retry或自动compensation；日常Git排除、独占串行升级、controller epoch与统一语言治理均保持最小机制。
 - 1.6.0已包含默认关闭的项目级按需知识合同、schema、checker与可选loader selector；项目不启用、没有知识库或使用空索引均为受支持状态。知识内容、common聚合与具体项目初始化仍由项目独立采用，两个项目的自然证据只约束未来common知识晋升。
+- 1.6.1只为现有知识checker增加可选的1～3个显式Entry ID选择；不传参数时保留1.6.0按ID返回前三条的兼容行为，且仍先复证完整索引与全部CURRENT reference/authority。补丁不增加搜索、排名、缓存、后台维护或第二入口。
 - 1.5.3仅保留给保持公共合同、模块/starter拓扑和根事务不变的真正兼容`PATCH_HOTFIX`；没有适用热修时直接跳过。
 - 已发布`framework/versions/<version>/`不可原位修改；修正发布新的patch版本。
 - `FULL_RELEASE`用于公共合同、模块/starter拓扑、根事务或不兼容schema变化。
 - `PATCH_HOTFIX`用于兼容的文档、模板、checker或局部脚本修正，只验证受影响范围；不机械重复完整迁移、全角色矩阵或自然样本。
 
-项目升级始终另立项目任务：先预览并验证真实控制面、owner、保护路径、热任务和Git状态，再显式修改pin。Framework发布成功不自动授权项目采用、CURRENT切换、commit或push。
+项目升级始终另立项目任务：先预览并验证真实控制面、owner、保护路径、热任务和Git状态，再显式修改pin。Framework稳定发布、根CURRENT、Git publication和项目pin采用互不自动授权。
 
 ## 怎么使用
 
@@ -114,8 +120,8 @@ AI-Workspace/
 
 ## Framework维护
 
-维护前读取目标版本的`FRAMEWORK_RELEASE.md`。稳定版本不可原位修改：开发先进入候选目录，按`FULL_RELEASE`或`PATCH_HOTFIX`验证，通过后生成新的稳定version与manifest。
+维护前读取目标版本的`FRAMEWORK_RELEASE.md`。尚未选入版本的通用方向只进入[framework/ROADMAP.md](framework/ROADMAP.md)；选定发布批次后才投影到对应draft。稳定版本不可原位修改：开发先进入候选目录，按`FULL_RELEASE`或`PATCH_HOTFIX`验证，通过后生成新的稳定version与manifest。
 
-Framework 1.6.0稳定版位于`framework/versions/1.6.0/`；`framework/drafts/1.6.0/`只保留本次设计、实现与审核审计记录，不再作为可消费入口。后续修正必须另建patch或minor候选，不能原位修改稳定版。
+Framework 1.7.0稳定版位于`framework/versions/1.7.0/`，但根CURRENT仍是1.6.1；`framework/drafts/1.7.0/`只保留设计、实现与审核审计记录，不是可消费入口。后续修正必须另建patch或minor候选，不能原位修改稳定版。
 
 根README是用户短入口，不承载完整初始化算法、版本迁移矩阵或运行时治理正文。新项目初始化读取`INITIALIZATION.md`；项目运行读取固定Framework；发行对比材料只在维护任务中按需读取。

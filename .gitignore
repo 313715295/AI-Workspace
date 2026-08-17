@@ -2,3 +2,5 @@
 Thumbs.db
 .tmp/
 *.log
+.ai-workspace/
+.ai-workspace-migration/

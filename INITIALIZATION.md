@@ -5,7 +5,7 @@
 ## 1. 先识别已有项目
 
 1. 从AI-Workspace根和用户提供的源码路径识别真实Git顶层；非Git、子目录或身份不明时停止。
-2. 严格读取`<project-git-root>/.ai-workspace/project.json`和`BOOTSTRAP.md`。完整schema2 repo-local控制面优先。
+2. 严格读取`<project-git-root>/.ai-workspace/project.json`和`BOOTSTRAP.md`，再按其固定Framework版本验证完整inventory与schema。1.6.0/1.6.1使用schema3并要求`controller.json`；1.4/1.5兼容路线使用schema2。符合固定版本合同的完整repo-local控制面优先。
 3. partial、reparse、不可读、项目ID/repository/pin冲突或未知live bytes立即`NEEDS_INPUT`；不得覆盖、补洞或回退到猜测。
 4. repo-local完全不存在时，才检查已挂载的中央legacy `projects/<project-id>/`。匹配的legacy存在时按其Bootstrap恢复，禁止register。
 5. repo-local与legacy并存且身份一致时，repo-local是唯一入口、legacy冻结只读；身份冲突时停止。
@@ -61,12 +61,13 @@
 5. 项目owner把稳定身份、目标与架构边界写入`PROJECT.md`，项目特有审核重点写入`REVIEW_PROFILE.md`，current/未验证写入`STATUS.md`，仅将已批准关系写入`RELATIONSHIPS.md`。
 6. 不创建无真实工作的任务卡，不把建议、示例或聊天升级为机制权威。
 
-生成inventory至少包括：
+生成inventory必须逐项匹配所选稳定版本的`project-starter`。当前默认1.6.1生成schema3 exact9：
 
 ```text
 .ai-workspace/
 ├─ .gitattributes
 ├─ project.json
+├─ controller.json
 ├─ BOOTSTRAP.md
 ├─ PROJECT.md
 ├─ REVIEW_PROFILE.md
@@ -82,7 +83,7 @@
 
 至少验证：
 
-- `project.json`可解析，schema2、项目ID、display name、`repo-local`、`repositoryRoot=..`和Framework pin一致；
+- `project.json`可解析，schema/inventory与所选稳定版本一致，且项目ID、display name、`repo-local`、`repositoryRoot=..`和Framework pin一致；当前默认1.6.1必须是schema3 exact9，并验证`controller.json`的project ID、非空ControllerId、正整数epoch与`CURRENT`状态；
 - 文本严格UTF-8无BOM、无NUL/U+FFFD、LF并以换行结束；
 - 无未替换模板、本机绝对Framework路径或示例项目泄漏；
 - Bootstrap能从项目配置唯一定位固定Framework，并按恢复核心、loader模块、项目资料、current任务和任务权威顺序恢复；
@@ -132,5 +133,9 @@ WARM不继承旧任务权限，也不重复未变化核心/模块；任何冲突
 显式注册1.6.0时必须提供ControllerId。starter inventory由schema2的exact8变为schema3 exact9，新增`controller.json`；`project.json`新增`routineExcludedPaths=[]`与`frameworkCapabilities={}`。默认注册不创建knowledge目录或索引。CURRENT仍指向旧版本或显式选择1.4/1.5时，注册保持原schema2兼容且不要求ControllerId。注册不为判断dirty而扫描整个仓库。
 
 1.4.1/1.5.0/1.5.1/1.5.2 repo-local项目直升1.6.0时，必须提供ControllerId与冻结的routine-exclusion migration输入。current controller先进入独占维护窗口，关闭其他writer、Review、Git、external与控制写；已有事务即拒绝第二次启动。升级复用现有恢复骨架处理`project.json / BOOTSTRAP.md / controller.json`并保留Bootstrap自定义区；中断或未知状态保留恢复材料，不在脚本内递归清理。不扫描source树、不枚举旧授权包、不生成撤销账本，也不执行stage/commit/push。重复调用只有在schema3 project、current controller与Bootstrap受管区全部健康时才返回`ALREADY_UPGRADED`。
+
+## 11. Framework 1.6.1兼容补丁
+
+1.6.1继续使用schema3与同一`controller.json`；当前默认注册和显式1.6.1注册都生成exact9并要求ControllerId。1.6.0项目升级到1.6.1时只变更`project.json.frameworkVersion`与Bootstrap受管区，current controller必须健康且ID匹配，但不被重写；现有单一两对象事务负责中断恢复并保留Bootstrap自定义区。更旧schema2项目先按上一节升级到1.6.0，不允许绕过schema3迁移直接跳到1.6.1。补丁不创建知识内容、不改变capability形状，也不执行Git、CURRENT或项目采用。
 
 Framework发布后，采用项目按“升级pin/control schema → 配置routine exclusions → 指定项目术语权威 → 初始化项目知识 → 显式启用`KNOWLEDGE_REFERENCE` → 去重瘦身 → FULL_COLD → 恢复产品任务”的顺序收口。术语权威是authority，知识条目只能引用它；旧项目升级默认保持能力关闭，不创建索引，也不需要自然查询样本才能升级。

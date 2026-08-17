@@ -147,9 +147,11 @@ function Assert-TargetBootstrapContract {
         if (-not (Test-Path -LiteralPath $versionedChecker -PathType Leaf)) {
             throw "Target Framework checker does not exist: $versionedChecker"
         }
+        $hasVersionedChecker = $Content.Contains("framework/versions/$FrameworkVersion/scripts/check-task-card.ps1") -or
+            ($Content.Contains("framework/versions/$FrameworkVersion/RECOVERY_CORE.md") -and $Content.Contains('<FW>/scripts/resolve-load-plan.ps1'))
         if (-not $Content.Contains('<!-- FRAMEWORK-MANAGED:BEGIN -->') -or
             -not $Content.Contains('<!-- FRAMEWORK-MANAGED:END -->') -or
-            -not $Content.Contains("framework/versions/$FrameworkVersion/scripts/check-task-card.ps1")) {
+            -not $hasVersionedChecker) {
             throw "Target repo-local Bootstrap does not contain its managed block and versioned checker locator."
         }
         if ($Content -match '(?i)[A-Z]:\\[^\r\n]*framework\\versions') {
@@ -390,8 +392,29 @@ function Read-UpgradeTransaction([string]$Root,[string]$ProjectId) {
     return $state
 }
 
-function Recover-UpgradeTransaction([string]$Root,[string]$ProjectRoot,[string]$ProjectFile,[string]$BootstrapFile,[string]$ControllerFile,[string]$ProjectId) {
+function Recover-UpgradeTransaction([string]$Root,[string]$ProjectRoot,[string]$ProjectFile,[string]$BootstrapFile,[string]$ControllerFile,[string]$ProjectId,[string]$ControllerId,[string]$RequestedTarget,[switch]$Preview) {
     $state=Read-UpgradeTransaction $Root $ProjectId
+    if([string]$state.toVersion-cne$RequestedTarget){throw 'Requested target does not match the active upgrade transaction.'}
+    if([string]$state.controllerMode-ceq'CREATE'){
+        if([string]$state.toVersion-cne'1.6.0'-or[string]$state.fromVersion-cnotin@('1.4.1','1.5.0','1.5.1','1.5.2')){throw 'Unsupported upgrade recovery matrix combination.'}
+        if([string]::IsNullOrWhiteSpace($ControllerId)){throw 'ControllerId is required for Framework 1.6.0 transaction recovery.'}
+        $frozenControllerPath=Join-ChildPath $Root 'new/controller.json'
+        if(-not(Test-Path -LiteralPath $frozenControllerPath -PathType Leaf)){throw 'Frozen recovery controller.json is missing.'}
+        Assert-NoReparsePoint $frozenControllerPath
+        $frozenControllerRaw=Read-StrictUtf8NoBom $frozenControllerPath
+        try{$frozenController=$frozenControllerRaw|ConvertFrom-Json}catch{throw 'Frozen recovery controller.json is invalid.'}
+        Assert-MinimalController $frozenController $frozenControllerRaw $ProjectId $ControllerId
+    }elseif([string]$state.fromVersion-ceq'1.6.0'-and[string]$state.toVersion-ceq'1.6.1'){
+        if([string]::IsNullOrWhiteSpace($ControllerId)){throw 'ControllerId is required for Framework 1.6.0 to 1.6.1 transaction recovery.'}
+        if(-not(Test-Path -LiteralPath $ControllerFile -PathType Leaf)){throw 'Schema3 patch recovery controller.json is missing.'}
+        Assert-NoReparsePoint $ControllerFile
+        $currentControllerRaw=Read-StrictUtf8NoBom $ControllerFile
+        try{$currentController=$currentControllerRaw|ConvertFrom-Json}catch{throw 'Schema3 patch recovery controller.json is invalid.'}
+        Assert-MinimalController $currentController $currentControllerRaw $ProjectId $ControllerId
+    }elseif([string]$state.toVersion-cin@('1.6.0','1.6.1')){
+        throw 'Unsupported upgrade recovery matrix combination.'
+    }
+    if($Preview){return ('RECOVERY_REQUIRED|from='+[string]$state.fromVersion+'|to='+[string]$state.toVersion+'|controllerMode='+[string]$state.controllerMode)}
     $live=Get-UpgradeLiveState $ProjectFile $BootstrapFile $ControllerFile $state
     if($live.Status-ceq'UNKNOWN'){throw 'Unknown live bytes during upgrade recovery; transaction preserved.'}
     if($live.Status-ceq'NEW'){$completed=Complete-UpgradeTransaction $Root $ProjectRoot $state;return "RECOVERED_COMMIT|recovery=$completed"}
@@ -436,8 +459,9 @@ function New-UpgradeTransaction([string]$Root,[string]$ProjectRoot,[string]$Proj
     }catch{throw "Transaction preparation failed; staging preserved at $staging. $($_.Exception.Message)"}
 }
 
-function Commit-UpgradeTransaction([string]$Root,[string]$ProjectRoot,[string]$ProjectFile,[string]$BootstrapFile,[string]$ControllerFile,[string]$ProjectId) {
+function Commit-UpgradeTransaction([string]$Root,[string]$ProjectRoot,[string]$ProjectFile,[string]$BootstrapFile,[string]$ControllerFile,[string]$ProjectId,[string]$ControllerId,[string]$RequestedTarget) {
     $state=Read-UpgradeTransaction $Root $ProjectId
+    if([string]$state.toVersion-cne$RequestedTarget){throw 'Requested target does not match the prepared upgrade transaction.'}
     try{
         Set-UpgradeFile (Join-ChildPath $Root 'new/project.json') $ProjectFile ([string]$state.oldProjectIdentity) ([string]$state.newProjectIdentity)
         Set-UpgradeFile (Join-ChildPath $Root 'new/BOOTSTRAP.md') $BootstrapFile ([string]$state.oldBootstrapIdentity) ([string]$state.newBootstrapIdentity)
@@ -447,7 +471,7 @@ function Commit-UpgradeTransaction([string]$Root,[string]$ProjectRoot,[string]$P
         return Complete-UpgradeTransaction $Root $ProjectRoot $state
     }catch{
         $failure=$_
-        try{$null=Recover-UpgradeTransaction $Root $ProjectRoot $ProjectFile $BootstrapFile $ControllerFile $ProjectId}catch{throw "Upgrade failed and recovery is incomplete; transaction preserved. Commit: $($failure.Exception.Message); recovery: $($_.Exception.Message)"}
+        try{$null=Recover-UpgradeTransaction $Root $ProjectRoot $ProjectFile $BootstrapFile $ControllerFile $ProjectId $ControllerId $RequestedTarget}catch{throw "Upgrade failed and recovery is incomplete; transaction preserved. Commit: $($failure.Exception.Message); recovery: $($_.Exception.Message)"}
         throw "Upgrade failed and was rolled back: $($failure.Exception.Message)"
     }
 }
@@ -457,14 +481,6 @@ function Invoke-Framework16Upgrade([string]$ProjectRoot,[string]$Repo,[string]$L
     if([string]::IsNullOrWhiteSpace($ControllerId)){throw 'ControllerId is required for Framework 1.6.0.'}
     $projectFile=Join-Path $ProjectRoot 'project.json';$bootstrapFile=Join-Path $ProjectRoot 'BOOTSTRAP.md';$controllerFile=Join-Path $ProjectRoot 'controller.json'
     $transactionRoot=Join-Path $ProjectRoot '.framework-upgrade-transaction'
-    $preparations=@(Get-ChildItem -LiteralPath $ProjectRoot -Directory -Force -Filter '.fwu-prep-*' -ErrorAction SilentlyContinue)
-    if($preparations.Count-ne 0){throw 'Abandoned upgrade preparation exists; preserve it and perform exact manual housekeeping before retrying.'}
-    if(Test-Path -LiteralPath $transactionRoot){
-        if(-not(Test-Path -LiteralPath $transactionRoot -PathType Container)){throw 'Upgrade transaction path is not a directory.'}
-        if(-not$Apply){Write-Output 'WHAT_IF|RECOVERY_REQUIRED';return}
-        $result=Recover-UpgradeTransaction $transactionRoot $ProjectRoot $projectFile $bootstrapFile $controllerFile $ProjectId
-        Write-Output $result;return
-    }
     $raw=Read-StrictUtf8NoBom $projectFile
     try{$config=$raw|ConvertFrom-Json}catch{throw 'Project configuration is invalid JSON.'}
     if([string]$config.frameworkVersion-ceq'1.6.0'){
@@ -529,7 +545,7 @@ function Invoke-Framework16Upgrade([string]$ProjectRoot,[string]$Repo,[string]$L
     $targetController=Normalize-Text ($newController|ConvertTo-Json -Depth 5)
     if(-not$Apply){Write-Output ("WHAT_IF|from="+[string]$config.frameworkVersion+"|to=1.6.0|objects=3");return}
     $null=New-UpgradeTransaction $transactionRoot $ProjectRoot $projectFile $bootstrapFile $controllerFile $ProjectId ([string]$config.frameworkVersion) '1.6.0' $targetProject $targetBootstrap 'CREATE' $targetController $RoutineExcludedPathsMigrationPath $ExpectedRoutineExcludedPathsMigrationIdentity
-    $completed=Commit-UpgradeTransaction $transactionRoot $ProjectRoot $projectFile $bootstrapFile $controllerFile $ProjectId
+    $completed=Commit-UpgradeTransaction $transactionRoot $ProjectRoot $projectFile $bootstrapFile $controllerFile $ProjectId $ControllerId '1.6.0'
     Write-Output "UPGRADED|objects=3|recovery=$completed"
 }
 
@@ -601,17 +617,9 @@ else {
     throw "Unknown project. Supply RepositoryPath for repo-local projects: $ProjectId"
 }
 Assert-NoReparseTree $projectRoot
-
-if ($ToVersion -ceq '1.6.0') {
-    Invoke-Framework16Upgrade $projectRoot $repo $layout $frameworkRoot
-    return
-}
-
 $projectFile = Join-ChildPath $projectRoot 'project.json'
 $bootstrapFile = Join-ChildPath $projectRoot 'BOOTSTRAP.md'
 $controllerFile = Join-ChildPath $projectRoot 'controller.json'
-$targetFramework = Join-ChildPath $frameworkRoot "versions/$ToVersion"
-
 if (-not (Test-Path -LiteralPath $projectFile -PathType Leaf)) {
     throw "Unknown project: $ProjectId"
 }
@@ -621,21 +629,28 @@ if (-not (Test-Path -LiteralPath $bootstrapFile -PathType Leaf)) {
 
 $transactionRoot = Join-Path $projectRoot '.framework-upgrade-transaction'
 $abandonedPreparations = @(Get-ChildItem -LiteralPath $projectRoot -Directory -Force -Filter '.fwu-prep-*' -ErrorAction SilentlyContinue)
-if (Test-Path -LiteralPath $transactionRoot) {
+$hasActiveTransaction = Test-Path -LiteralPath $transactionRoot
+if ($hasActiveTransaction) {
     if (-not (Test-Path -LiteralPath $transactionRoot -PathType Container)) {
         throw 'Upgrade transaction path is not a directory.'
     }
-    if (-not $Apply) {
-        Write-Host 'Preview only. An active upgrade transaction requires recovery before a new request.'
-        return
-    }
-    $recoveryResult = Recover-UpgradeTransaction $transactionRoot $projectRoot $projectFile $bootstrapFile $controllerFile $ProjectId
-    Write-Host "Recovered previous Framework upgrade transaction: $recoveryResult"
-    return
 }
 if ($abandonedPreparations.Count -ne 0) {
     throw 'Abandoned upgrade preparation exists; preserve it and perform exact manual housekeeping before retrying.'
 }
+if ($hasActiveTransaction) {
+    $recoveryResult = Recover-UpgradeTransaction $transactionRoot $projectRoot $projectFile $bootstrapFile $controllerFile $ProjectId $ControllerId $ToVersion -Preview:(-not $Apply)
+    if ($Apply) { Write-Host "Recovered previous Framework upgrade transaction: $recoveryResult" }
+    else { Write-Host "Preview only. Active Framework upgrade transaction: $recoveryResult" }
+    return
+}
+
+if ($ToVersion -ceq '1.6.0') {
+    Invoke-Framework16Upgrade $projectRoot $repo $layout $frameworkRoot
+    return
+}
+
+$targetFramework = Join-ChildPath $frameworkRoot "versions/$ToVersion"
 
 if (-not (Test-Path -LiteralPath $targetFramework -PathType Container)) {
     throw "Framework version does not exist: $ToVersion"
@@ -662,7 +677,29 @@ if ($layout -eq 'repo-local') {
             throw "Repo-local project configuration is missing a required property: $property"
         }
     }
-    if ([int]$config.schemaVersion -ne 2 -or
+    $schema3Patch = $ToVersion -ceq '1.6.1' -and
+        (Test-MinimalJsonInteger $config.schemaVersion) -and [int]$config.schemaVersion -eq 3 -and
+        ($config.frameworkVersion -is [string]) -and [string]$config.frameworkVersion -in @('1.6.0','1.6.1')
+    if ($schema3Patch) {
+        Assert-MinimalExactFields $config $configText @('schemaVersion','id','displayName','controlPlaneLayout','repositoryRoot','frameworkVersion','routineExcludedPaths','frameworkCapabilities') 'Schema3 patch source project.json'
+        if (-not ($config.id -is [string]) -or [string]$config.id -cne $ProjectId -or
+            -not ($config.displayName -is [string]) -or [string]::IsNullOrWhiteSpace([string]$config.displayName) -or
+            -not ($config.controlPlaneLayout -is [string]) -or [string]$config.controlPlaneLayout -cne 'repo-local' -or
+            -not ($config.repositoryRoot -is [string]) -or [string]$config.repositoryRoot -cne '..' -or
+            -not ($config.routineExcludedPaths -is [System.Array]) -or
+            -not ($config.frameworkCapabilities -is [pscustomobject])) { throw "Schema3 patch source project.json is unhealthy: $projectFile" }
+        $routinePaths=New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+        foreach($pathValue in @($config.routineExcludedPaths)){if(-not($pathValue-is[string])-or[string]::IsNullOrWhiteSpace([string]$pathValue)-or-not$routinePaths.Add([string]$pathValue)){throw 'Schema3 patch source routine exclusions are invalid.'}}
+        Assert-MinimalFrameworkCapabilities $config.frameworkCapabilities $configText 'Schema3 patch source frameworkCapabilities'
+        if([string]::IsNullOrWhiteSpace($ControllerId)){throw 'ControllerId is required for Framework 1.6.0 to 1.6.1 upgrade.'}
+        if(-not(Test-Path -LiteralPath $controllerFile -PathType Leaf)){throw 'Schema3 patch source controller.json is missing.'}
+        Assert-NoReparsePoint $controllerFile
+        $controllerRaw=Read-StrictUtf8NoBom $controllerFile
+        try{$controller=$controllerRaw|ConvertFrom-Json}catch{throw 'Schema3 patch source controller.json is invalid.'}
+        Assert-MinimalController $controller $controllerRaw $ProjectId $ControllerId
+    } elseif ($ToVersion -ceq '1.6.1') {
+        throw 'Framework 1.6.1 direct upgrade requires a healthy schema3 Framework 1.6.0 source; upgrade older schema2 projects to 1.6.0 first.'
+    } elseif ([int]$config.schemaVersion -ne 2 -or
         [string]$config.controlPlaneLayout -cne 'repo-local' -or
         [string]$config.repositoryRoot -cne '..') {
         throw "Repo-local project configuration has an unsupported layout: $projectFile"
@@ -792,7 +829,7 @@ if ([string]$validatedConfig.frameworkVersion -cne $ToVersion) {
 }
 
 $null = New-UpgradeTransaction $transactionRoot $projectRoot $projectFile $bootstrapFile $controllerFile $ProjectId $fromVersion $ToVersion $targetConfig $targetBootstrap 'NONE' '' '' ''
-$completed = Commit-UpgradeTransaction $transactionRoot $projectRoot $projectFile $bootstrapFile $controllerFile $ProjectId
+$completed = Commit-UpgradeTransaction $transactionRoot $projectRoot $projectFile $bootstrapFile $controllerFile $ProjectId $ControllerId $ToVersion
 
 Write-Host "Updated: $projectFile"
 Write-Host "Updated: $bootstrapFile"

@@ -126,7 +126,7 @@ function New-TemplateMap([string]$Version) {
         'PROJECT.md'='PROJECT.md'; 'REVIEW_PROFILE.md'='REVIEW_PROFILE.md'; 'RELATIONSHIPS.md'='RELATIONSHIPS.md';
         'STATUS.md'='STATUS.md'; 'tasks/README.md'='tasks/README.md'
     }
-    if ($Version -ceq '1.6.0') { $map['controller.json']='controller.json' }
+    if ($Version -in @('1.6.0','1.6.1')) { $map['controller.json']='controller.json' }
     return $map
 }
 
@@ -251,7 +251,7 @@ function Get-RepoLocalStarter {
         }
     }
     $projectTemplateText = Read-StrictUtf8Template (Join-ChildPath $templateRoot 'project.json')
-    $expectedSchema = if ($FrameworkVersion -ceq '1.6.0') { '"schemaVersion": 3' } else { '"schemaVersion": 2' }
+    $expectedSchema = if ($FrameworkVersion -in @('1.6.0','1.6.1')) { '"schemaVersion": 3' } else { '"schemaVersion": 2' }
     if (-not $projectTemplateText.Contains($expectedSchema) -or
         -not $projectTemplateText.Contains('"controlPlaneLayout": "repo-local"') -or
         -not $projectTemplateText.Contains('"repositoryRoot": ".."')) {
@@ -348,7 +348,7 @@ function Assert-RepoLocalProject {
         throw "Existing repo-local project.json is invalid: $projectFile"
     }
     $baseFields=@('schemaVersion','id','displayName','controlPlaneLayout','repositoryRoot','frameworkVersion')
-    $schema3 = $ExpectedFrameworkVersion -ceq '1.6.0'
+    $schema3 = $ExpectedFrameworkVersion -in @('1.6.0','1.6.1')
     $expectedFields = if ($schema3) { @($baseFields + @('routineExcludedPaths','frameworkCapabilities')) } else { $baseFields }
     Assert-ExactObjectFields $config $configRaw $expectedFields 'Existing project.json'
     $expectedSchema = if ($schema3) { 3 } else { 2 }
@@ -457,7 +457,7 @@ if (-not $frameworkVersionWasExplicit) {
 $selection = if ($frameworkVersionWasExplicit) { "Framework $FrameworkVersion" } else { "framework/CURRENT ($FrameworkVersion)" }
 $templateMap=New-TemplateMap $FrameworkVersion
 $requiredProjectFiles=@($templateMap.Values)
-if ($FrameworkVersion -ceq '1.6.0' -and [string]::IsNullOrWhiteSpace($ControllerId)) { throw 'ControllerId is required when registering Framework 1.6.0.' }
+if ($FrameworkVersion -in @('1.6.0','1.6.1') -and [string]::IsNullOrWhiteSpace($ControllerId)) { throw 'ControllerId is required when registering Framework 1.6.x.' }
 $starter = Get-RepoLocalStarter $frameworkRoot $FrameworkVersion $templateMap $selection
 $templateRoot = $starter.TemplateRoot
 
