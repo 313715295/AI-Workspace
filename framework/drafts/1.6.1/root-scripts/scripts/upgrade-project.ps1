@@ -1,0 +1,837 @@
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory = $true)]
+    [ValidatePattern('^[a-z0-9][a-z0-9-]*$')]
+    [string]$ProjectId,
+
+    [Parameter(Mandatory = $true)]
+    [ValidatePattern('^[0-9A-Za-z][0-9A-Za-z._-]*$')]
+    [string]$ToVersion,
+
+    [string]$RepositoryPath,
+
+    [string]$ControllerId,
+
+    [string]$RoutineExcludedPathsMigrationPath,
+
+    [string]$ExpectedRoutineExcludedPathsMigrationIdentity,
+
+    [switch]$Apply,
+
+    [string]$WorkspaceRoot
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+$utf8Strict = New-Object System.Text.UTF8Encoding($false, $true)
+
+function Join-ChildPath {
+    param(
+        [Parameter(Mandatory = $true)][string]$Root,
+        [Parameter(Mandatory = $true)][string]$RelativePath
+    )
+
+    $result = $Root
+    foreach ($segment in ($RelativePath -split '/')) {
+        $result = Join-Path $result $segment
+    }
+    return $result
+}
+
+function Normalize-Text {
+    param([Parameter(Mandatory = $true)][string]$Content)
+
+    $normalized = $Content -replace "`r`n", "`n"
+    $normalized = $normalized -replace "`r", "`n"
+    if (-not $normalized.EndsWith("`n")) {
+        $normalized += "`n"
+    }
+    return $normalized
+}
+
+function Read-StrictUtf8NoBom {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $bytes = [System.IO.File]::ReadAllBytes($Path)
+    return ConvertFrom-StrictUtf8NoBomBytes $bytes $Path
+}
+
+function ConvertFrom-StrictUtf8NoBomBytes {
+    param(
+        [Parameter(Mandatory = $true)][byte[]]$Bytes,
+        [Parameter(Mandatory = $true)][string]$Source
+    )
+
+    if ($Bytes.Length -ge 3 -and $Bytes[0] -eq 0xEF -and $Bytes[1] -eq 0xBB -and $Bytes[2] -eq 0xBF) {
+        throw "File must be UTF-8 without BOM: $Source"
+    }
+    try {
+        $content = $utf8Strict.GetString($Bytes)
+    }
+    catch {
+        throw "File is not strict UTF-8: $Source"
+    }
+    if ($content.Contains([char]0) -or $content.Contains([char]0xFFFD)) {
+        throw "File contains a forbidden text code point: $Source"
+    }
+    if ($content.Contains("`r")) {
+        throw "File must use LF line endings: $Source"
+    }
+    if (-not $content.EndsWith("`n")) {
+        throw "File must end with LF: $Source"
+    }
+    return $content
+}
+
+function Write-Utf8NoBom {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Content
+    )
+
+    [System.IO.File]::WriteAllText($Path, (Normalize-Text $Content), $utf8NoBom)
+}
+
+function Invoke-GitCapture {
+    param([Parameter(Mandatory = $true)][string[]]$Arguments)
+
+    $previousErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $output = @(& git @Arguments 2>$null | ForEach-Object { [string]$_ })
+        $exitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorAction
+    }
+    return [pscustomobject]@{ Output = $output; ExitCode = $exitCode }
+}
+
+function Render-Bootstrap {
+    param(
+        [Parameter(Mandatory = $true)][string]$Template,
+        [Parameter(Mandatory = $true)]$ProjectConfig,
+        [Parameter(Mandatory = $true)][string]$FrameworkVersion
+    )
+
+    $tokens = [ordered]@{
+        '{{PROJECT_ID}}' = [string]$ProjectConfig.id
+        '{{DISPLAY_NAME}}' = [string]$ProjectConfig.displayName
+        '{{FRAMEWORK_VERSION}}' = $FrameworkVersion
+    }
+    if ($ProjectConfig.PSObject.Properties.Name -contains 'repositoryPath') {
+        $tokens['{{REPOSITORY_PATH}}'] = [string]$ProjectConfig.repositoryPath
+    }
+    $rendered = $Template
+    foreach ($token in $tokens.GetEnumerator()) {
+        $rendered = $rendered.Replace($token.Key, $token.Value)
+    }
+    if ($rendered -match '\{\{[A-Z0-9_]+\}\}') {
+        throw "Bootstrap template contains an unresolved token for Framework $FrameworkVersion."
+    }
+    return Normalize-Text $rendered
+}
+
+function Assert-TargetBootstrapContract {
+    param(
+        [Parameter(Mandatory = $true)][string]$Content,
+        [Parameter(Mandatory = $true)][string]$FrameworkVersion,
+        [Parameter(Mandatory = $true)][string]$Workspace,
+        [Parameter(Mandatory = $true)][string]$TargetFramework,
+        [Parameter(Mandatory = $true)][ValidateSet('central-legacy', 'repo-local')][string]$Layout
+    )
+
+    if ($Layout -eq 'repo-local') {
+        $versionedChecker = Join-ChildPath $TargetFramework 'scripts/check-task-card.ps1'
+        if (-not (Test-Path -LiteralPath $versionedChecker -PathType Leaf)) {
+            throw "Target Framework checker does not exist: $versionedChecker"
+        }
+        $hasVersionedChecker = $Content.Contains("framework/versions/$FrameworkVersion/scripts/check-task-card.ps1") -or
+            ($Content.Contains("framework/versions/$FrameworkVersion/RECOVERY_CORE.md") -and $Content.Contains('<FW>/scripts/resolve-load-plan.ps1'))
+        if (-not $Content.Contains('<!-- FRAMEWORK-MANAGED:BEGIN -->') -or
+            -not $Content.Contains('<!-- FRAMEWORK-MANAGED:END -->') -or
+            -not $hasVersionedChecker) {
+            throw "Target repo-local Bootstrap does not contain its managed block and versioned checker locator."
+        }
+        if ($Content -match '(?i)[A-Z]:\\[^\r\n]*framework\\versions') {
+            throw 'Target repo-local Bootstrap contains a machine-absolute Framework locator.'
+        }
+        return
+    }
+
+    $legacyRootLocator = '`scripts/check-task-card.ps1`'
+    if ($FrameworkVersion -eq '1.3.0') {
+        throw 'Framework 1.3.0 runtime compatibility is retired; it is retained for history and as an upgrade source, but cannot be selected as an upgrade target.'
+    }
+
+    $versionedChecker = Join-ChildPath $TargetFramework 'scripts/check-task-card.ps1'
+    $versionedLocator = "../../framework/versions/$FrameworkVersion/scripts/check-task-card.ps1"
+    if (-not (Test-Path -LiteralPath $versionedChecker -PathType Leaf)) {
+        throw "Target Framework checker does not exist: $versionedChecker"
+    }
+    if (-not $Content.Contains($versionedLocator)) {
+        throw "Target Bootstrap does not locate its versioned checker: $versionedLocator"
+    }
+    if ($Content.Contains($legacyRootLocator)) {
+        throw 'Target Bootstrap still contains the legacy root checker locator.'
+    }
+}
+
+function Get-GitRepositoryRoot {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $result = Invoke-GitCapture @('-C', $Path, 'rev-parse', '--show-toplevel')
+    if ($result.ExitCode -ne 0 -or $result.Output.Count -eq 0) {
+        throw "Repository path is not a Git work tree: $Path"
+    }
+    $root = [System.IO.Path]::GetFullPath([string]$result.Output[-1]).TrimEnd('\')
+    $requested = [System.IO.Path]::GetFullPath($Path).TrimEnd('\')
+    if (-not $root.Equals($requested, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "RepositoryPath must be the Git top level: $requested"
+    }
+    return $root
+}
+
+function Assert-NoReparseTree {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $root = Get-Item -LiteralPath $Path -Force
+    if (($root.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "Reparse points are not allowed in a project control plane: $Path"
+    }
+    foreach ($item in Get-ChildItem -LiteralPath $Path -Recurse -Force) {
+        if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "Reparse points are not allowed in a project control plane: $($item.FullName)"
+        }
+    }
+}
+
+function Assert-NoReparsePoint {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $item=Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+    if(($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)-ne 0){throw "Reparse points are not allowed in a project control path: $Path"}
+}
+
+function Get-ManagedBootstrapBlock {
+    param(
+        [Parameter(Mandatory = $true)][string]$Content,
+        [Parameter(Mandatory = $true)][string]$Source
+    )
+
+    $begin = '<!-- FRAMEWORK-MANAGED:BEGIN -->'
+    $end = '<!-- FRAMEWORK-MANAGED:END -->'
+    $customBegin = '<!-- PROJECT-CUSTOM:BEGIN -->'
+    $customEnd = '<!-- PROJECT-CUSTOM:END -->'
+    foreach ($marker in @($begin, $end, $customBegin, $customEnd)) {
+        if ([regex]::Matches($Content, [regex]::Escape($marker)).Count -ne 1) {
+            throw "Repo-local Bootstrap markers must each appear exactly once: $Source"
+        }
+    }
+    $beginIndex = $Content.IndexOf($begin, [System.StringComparison]::Ordinal)
+    $endIndex = $Content.IndexOf($end, [System.StringComparison]::Ordinal)
+    $customBeginIndex = $Content.IndexOf($customBegin, [System.StringComparison]::Ordinal)
+    $customEndIndex = $Content.IndexOf($customEnd, [System.StringComparison]::Ordinal)
+    if (-not ($beginIndex -lt $endIndex -and
+              $endIndex -lt $customBeginIndex -and
+              $customBeginIndex -lt $customEndIndex)) {
+        throw "Repo-local Bootstrap markers must be paired and ordered managed-then-custom: $Source"
+    }
+    $blockEnd = $endIndex + $end.Length
+    return [pscustomobject]@{
+        Start = $beginIndex
+        End = $blockEnd
+        Text = $Content.Substring($beginIndex, $blockEnd - $beginIndex)
+    }
+}
+
+function Replace-ManagedBootstrapBlock {
+    param(
+        [Parameter(Mandatory = $true)][string]$Current,
+        [Parameter(Mandatory = $true)][string]$TargetManaged,
+        [Parameter(Mandatory = $true)]$CurrentBlock
+    )
+
+    return Normalize-Text ($Current.Substring(0, $CurrentBlock.Start) + $TargetManaged + $Current.Substring($CurrentBlock.End))
+}
+
+function Get-Sha256 {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
+}
+
+function Test-MinimalJsonInteger($Value) {
+    return $Value -is [byte] -or $Value -is [sbyte] -or $Value -is [int16] -or
+        $Value -is [uint16] -or $Value -is [int32] -or $Value -is [uint32] -or
+        $Value -is [int64] -or $Value -is [uint64]
+}
+
+function Get-MinimalFileIdentity([string]$Path) {
+    $bytes=[IO.File]::ReadAllBytes($Path)
+    $sha=[Security.Cryptography.SHA256]::Create()
+    try { return $bytes.Length.ToString()+'|'+([BitConverter]::ToString($sha.ComputeHash($bytes))).Replace('-','') }
+    finally { $sha.Dispose() }
+}
+
+function Get-MinimalBytesIdentity([byte[]]$Bytes) {
+    $sha=[Security.Cryptography.SHA256]::Create()
+    try { return $Bytes.Length.ToString()+'|'+([BitConverter]::ToString($sha.ComputeHash($Bytes))).Replace('-','') }
+    finally { $sha.Dispose() }
+}
+
+function Assert-MinimalExactFields($Object,[string]$Raw,[string[]]$Expected,[string]$Label) {
+    if (-not ($Object -is [pscustomobject])) { throw "$Label must be a JSON object." }
+    $names=@($Object.PSObject.Properties.Name)
+    if ($names.Count -ne $Expected.Count -or @($Expected|Where-Object{$_ -cnotin $names}).Count -ne 0) { throw "$Label field set mismatch." }
+    foreach($name in $Expected){if([regex]::Matches($Raw,'"'+[regex]::Escape($name)+'"\s*:').Count-ne 1){throw "$Label duplicate or missing field: $name"}}
+}
+
+function ConvertTo-MinimalFrameworkLocator([string]$Value) {
+    if([string]::IsNullOrWhiteSpace($Value)-or$Value-cne$Value.Trim()){throw 'Framework capability locator is empty or has outer whitespace.'}
+    $path=$Value.Replace('\','/')
+    if([regex]::IsMatch($path,'[<>"|?*]')-or[IO.Path]::IsPathRooted($path)-or$path.StartsWith('/')-or$path.Contains(':')){throw 'Framework capability locator must be a repo-relative literal path.'}
+    if(-not[string]::Equals($path,$path.Normalize([Text.NormalizationForm]::FormC),[StringComparison]::Ordinal)){throw 'Framework capability locator must be NFC.'}
+    $parts=$path.Split('/')
+    foreach($part in $parts){
+        if([string]::IsNullOrEmpty($part)-or$part-in@('.','..')-or$part.EndsWith('.')-or$part.EndsWith(' ')-or[regex]::IsMatch($part,'[\x00-\x1F]')){throw 'Framework capability locator has an invalid component.'}
+        if($part.Split('.')[0]-match'^(?i:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$'){throw 'Framework capability locator has a reserved component.'}
+    }
+    return [string]::Join('/',$parts)
+}
+
+function Assert-MinimalFrameworkCapabilities($Capabilities,[string]$Raw,[string]$Label) {
+    if(-not($Capabilities-is[pscustomobject])){throw "$Label must be an object."}
+    $names=@($Capabilities.PSObject.Properties|ForEach-Object{$_.Name})
+    if($names.Count-eq0){return}
+    if($names.Count-ne1-or$names[0]-cne'KNOWLEDGE_REFERENCE'-or[regex]::Matches($Raw,'"KNOWLEDGE_REFERENCE"\s*:').Count-ne1){throw "$Label contains an unknown or duplicate capability."}
+    $knowledge=$Capabilities.KNOWLEDGE_REFERENCE
+    if(-not($knowledge-is[pscustomobject])){throw "$Label KNOWLEDGE_REFERENCE must be an object."}
+    $fields=@($knowledge.PSObject.Properties|ForEach-Object{$_.Name})
+    if($fields.Count-eq1-and$fields[0]-ceq'enabled'-and$knowledge.enabled-is[bool]-and-not[bool]$knowledge.enabled){
+        if([regex]::Matches($Raw,'"enabled"\s*:').Count-ne1){throw "$Label KNOWLEDGE_REFERENCE has a duplicate field."}
+        return
+    }
+    if($fields.Count-ne2-or$fields-cnotcontains'enabled'-or$fields-cnotcontains'indexLocator'-or-not($knowledge.enabled-is[bool])-or-not[bool]$knowledge.enabled-or-not($knowledge.indexLocator-is[string])-or[regex]::Matches($Raw,'"enabled"\s*:').Count-ne1-or[regex]::Matches($Raw,'"indexLocator"\s*:').Count-ne1){throw "$Label KNOWLEDGE_REFERENCE fields are invalid."}
+    $null=ConvertTo-MinimalFrameworkLocator ([string]$knowledge.indexLocator)
+}
+
+function Assert-MinimalController($Controller,[string]$Raw,[string]$ExpectedProjectId,[string]$ExpectedControllerId) {
+    Assert-MinimalExactFields $Controller $Raw @('schemaVersion','projectId','controllerId','controllerEpoch','state') 'controller.json'
+    if(-not(Test-MinimalJsonInteger $Controller.schemaVersion)-or[int]$Controller.schemaVersion-ne 1-or
+       -not($Controller.projectId-is[string])-or[string]$Controller.projectId-cne$ExpectedProjectId-or
+       -not($Controller.controllerId-is[string])-or[string]::IsNullOrWhiteSpace([string]$Controller.controllerId)-or
+       (-not[string]::IsNullOrWhiteSpace($ExpectedControllerId)-and[string]$Controller.controllerId-cne$ExpectedControllerId)-or
+       -not(Test-MinimalJsonInteger $Controller.controllerEpoch)-or[int64]$Controller.controllerEpoch-lt 1-or
+       -not($Controller.state-is[string])-or[string]$Controller.state-cne'CURRENT'){throw 'controller.json values are invalid.'}
+}
+
+function Assert-MinimalPathInsideRepo([string]$Repo,[string]$Path) {
+    $root=[IO.Path]::GetFullPath($Repo).TrimEnd('\')
+    $full=[IO.Path]::GetFullPath((Resolve-Path -LiteralPath $Path).ProviderPath).TrimEnd('\')
+    if(-not($full.StartsWith($root+'\',[StringComparison]::OrdinalIgnoreCase))){throw 'Migration input must be inside the repository.'}
+    $current=$root
+    Assert-NoReparsePoint $current
+    foreach($part in $full.Substring($root.Length+1).Split('\')){$current=Join-Path $current $part;Assert-NoReparsePoint $current}
+}
+
+function Get-UpgradeLiveState([string]$ProjectFile,[string]$BootstrapFile,[string]$ControllerFile,$State) {
+    $project=if(Test-Path -LiteralPath $ProjectFile -PathType Leaf){Get-MinimalFileIdentity $ProjectFile}else{'MISSING'}
+    $bootstrap=if(Test-Path -LiteralPath $BootstrapFile -PathType Leaf){Get-MinimalFileIdentity $BootstrapFile}else{'MISSING'}
+    $controller=if([string]$State.controllerMode-ceq'CREATE'){
+        if(Test-Path -LiteralPath $ControllerFile -PathType Leaf){Get-MinimalFileIdentity $ControllerFile}else{'MISSING'}
+    }else{'IGNORED'}
+    $knownProject=$project-in@([string]$State.oldProjectIdentity,[string]$State.newProjectIdentity)
+    $knownBootstrap=$bootstrap-in@([string]$State.oldBootstrapIdentity,[string]$State.newBootstrapIdentity)
+    $knownController=if([string]$State.controllerMode-ceq'CREATE'){$controller-in@('MISSING',[string]$State.newControllerIdentity)}else{$true}
+    $newController=if([string]$State.controllerMode-ceq'CREATE'){$controller-ceq[string]$State.newControllerIdentity}else{$true}
+    $oldController=if([string]$State.controllerMode-ceq'CREATE'){$controller-ceq'MISSING'}else{$true}
+    $status=if(-not($knownProject-and$knownBootstrap-and$knownController)){'UNKNOWN'}elseif($project-ceq[string]$State.newProjectIdentity-and$bootstrap-ceq[string]$State.newBootstrapIdentity-and$newController){'NEW'}elseif($project-ceq[string]$State.oldProjectIdentity-and$bootstrap-ceq[string]$State.oldBootstrapIdentity-and$oldController){'OLD'}else{'MIXED'}
+    return [pscustomobject]@{Status=$status;Project=$project;Bootstrap=$bootstrap;Controller=$controller}
+}
+
+function Set-UpgradeFile([string]$Source,[string]$Destination,[string]$ExpectedCurrentIdentity,[string]$ExpectedNewIdentity) {
+    if(-not(Test-Path -LiteralPath $Source -PathType Leaf)-or(Get-MinimalFileIdentity $Source)-cne$ExpectedNewIdentity){throw 'TRANSACTION_MATERIAL_DRIFT'}
+    $current=if(Test-Path -LiteralPath $Destination -PathType Leaf){Get-MinimalFileIdentity $Destination}else{'MISSING'}
+    if($current-cne$ExpectedCurrentIdentity){throw "OBJECT_DRIFT|$Destination"}
+    [IO.File]::Copy($Source,$Destination,($ExpectedCurrentIdentity-cne'MISSING'))
+    if((Get-MinimalFileIdentity $Destination)-cne$ExpectedNewIdentity){throw "REPLACE_VERIFY_FAILED|$Destination"}
+}
+
+function Complete-UpgradeTransaction([string]$Root,[string]$ProjectRoot,$State) {
+    $resolved=[IO.Path]::GetFullPath($Root).TrimEnd('\')
+    $expected=[IO.Path]::GetFullPath((Join-Path $ProjectRoot '.framework-upgrade-transaction')).TrimEnd('\')
+    if(-not$resolved.Equals($expected,[StringComparison]::OrdinalIgnoreCase)){throw 'Unexpected upgrade transaction path.'}
+    $completed=Join-Path $ProjectRoot ('.framework-upgrade-recovery-'+[string]$State.transactionId)
+    if(Test-Path -LiteralPath $completed){throw 'Recovery path already exists; active transaction preserved.'}
+    [IO.Directory]::Move($resolved,$completed)
+    return $completed
+}
+
+function Read-UpgradeTransaction([string]$Root,[string]$ProjectId) {
+    Assert-NoReparseTree $Root
+    $raw=Read-StrictUtf8NoBom (Join-Path $Root 'state.json')
+    try{$state=$raw|ConvertFrom-Json}catch{throw 'Invalid upgrade transaction state.'}
+    $fields=@('schemaVersion','transactionId','projectId','fromVersion','toVersion','controllerMode','oldProjectIdentity','oldBootstrapIdentity','newProjectIdentity','newBootstrapIdentity','newControllerIdentity')
+    Assert-MinimalExactFields $state $raw $fields 'upgrade transaction state'
+    if(-not(Test-MinimalJsonInteger $state.schemaVersion)-or[int]$state.schemaVersion-ne 1-or
+       -not($state.transactionId-is[string])-or[string]$state.transactionId-cnotmatch'^[a-f0-9]{32}$'-or
+       -not($state.projectId-is[string])-or[string]$state.projectId-cne$ProjectId-or
+       -not($state.fromVersion-is[string])-or[string]::IsNullOrWhiteSpace([string]$state.fromVersion)-or
+       -not($state.toVersion-is[string])-or[string]::IsNullOrWhiteSpace([string]$state.toVersion)-or
+       -not($state.controllerMode-is[string])-or[string]$state.controllerMode-cnotin@('NONE','CREATE')){throw 'Upgrade transaction state identity mismatch.'}
+    foreach($name in @('oldProjectIdentity','oldBootstrapIdentity','newProjectIdentity','newBootstrapIdentity')){if([string]$state.$name-cnotmatch'^\d+\|[A-F0-9]{64}$'){throw 'Upgrade transaction identity is invalid.'}}
+    if(([string]$state.controllerMode-ceq'NONE'-and[string]$state.newControllerIdentity-cne'NONE')-or
+       ([string]$state.controllerMode-ceq'CREATE'-and[string]$state.newControllerIdentity-cnotmatch'^\d+\|[A-F0-9]{64}$')){throw 'Upgrade controller transaction identity is invalid.'}
+    $materials=[ordered]@{
+        'old/project.json'=[string]$state.oldProjectIdentity;'old/BOOTSTRAP.md'=[string]$state.oldBootstrapIdentity;
+        'new/project.json'=[string]$state.newProjectIdentity;'new/BOOTSTRAP.md'=[string]$state.newBootstrapIdentity
+    }
+    if([string]$state.controllerMode-ceq'CREATE'){$materials['new/controller.json']=[string]$state.newControllerIdentity}
+    foreach($entry in $materials.GetEnumerator()){$path=Join-ChildPath $Root $entry.Key;if(-not(Test-Path -LiteralPath $path -PathType Leaf)-or(Get-MinimalFileIdentity $path)-cne$entry.Value){throw 'Upgrade transaction material drift; preserved.'}}
+    return $state
+}
+
+function Recover-UpgradeTransaction([string]$Root,[string]$ProjectRoot,[string]$ProjectFile,[string]$BootstrapFile,[string]$ControllerFile,[string]$ProjectId,[string]$ControllerId,[string]$RequestedTarget,[switch]$Preview) {
+    $state=Read-UpgradeTransaction $Root $ProjectId
+    if([string]$state.toVersion-cne$RequestedTarget){throw 'Requested target does not match the active upgrade transaction.'}
+    if([string]$state.controllerMode-ceq'CREATE'){
+        if([string]$state.toVersion-cne'1.6.0'-or[string]$state.fromVersion-cnotin@('1.4.1','1.5.0','1.5.1','1.5.2')){throw 'Unsupported upgrade recovery matrix combination.'}
+        if([string]::IsNullOrWhiteSpace($ControllerId)){throw 'ControllerId is required for Framework 1.6.0 transaction recovery.'}
+        $frozenControllerPath=Join-ChildPath $Root 'new/controller.json'
+        if(-not(Test-Path -LiteralPath $frozenControllerPath -PathType Leaf)){throw 'Frozen recovery controller.json is missing.'}
+        Assert-NoReparsePoint $frozenControllerPath
+        $frozenControllerRaw=Read-StrictUtf8NoBom $frozenControllerPath
+        try{$frozenController=$frozenControllerRaw|ConvertFrom-Json}catch{throw 'Frozen recovery controller.json is invalid.'}
+        Assert-MinimalController $frozenController $frozenControllerRaw $ProjectId $ControllerId
+    }elseif([string]$state.fromVersion-ceq'1.6.0'-and[string]$state.toVersion-ceq'1.6.1'){
+        if([string]::IsNullOrWhiteSpace($ControllerId)){throw 'ControllerId is required for Framework 1.6.0 to 1.6.1 transaction recovery.'}
+        if(-not(Test-Path -LiteralPath $ControllerFile -PathType Leaf)){throw 'Schema3 patch recovery controller.json is missing.'}
+        Assert-NoReparsePoint $ControllerFile
+        $currentControllerRaw=Read-StrictUtf8NoBom $ControllerFile
+        try{$currentController=$currentControllerRaw|ConvertFrom-Json}catch{throw 'Schema3 patch recovery controller.json is invalid.'}
+        Assert-MinimalController $currentController $currentControllerRaw $ProjectId $ControllerId
+    }elseif([string]$state.toVersion-cin@('1.6.0','1.6.1')){
+        throw 'Unsupported upgrade recovery matrix combination.'
+    }
+    if($Preview){return ('RECOVERY_REQUIRED|from='+[string]$state.fromVersion+'|to='+[string]$state.toVersion+'|controllerMode='+[string]$state.controllerMode)}
+    $live=Get-UpgradeLiveState $ProjectFile $BootstrapFile $ControllerFile $state
+    if($live.Status-ceq'UNKNOWN'){throw 'Unknown live bytes during upgrade recovery; transaction preserved.'}
+    if($live.Status-ceq'NEW'){$completed=Complete-UpgradeTransaction $Root $ProjectRoot $state;return "RECOVERED_COMMIT|recovery=$completed"}
+    if($live.Status-ceq'OLD'){$completed=Complete-UpgradeTransaction $Root $ProjectRoot $state;return "RECOVERED_ROLLBACK|recovery=$completed"}
+    if($live.Project-cne[string]$state.oldProjectIdentity){Set-UpgradeFile (Join-ChildPath $Root 'old/project.json') $ProjectFile $live.Project ([string]$state.oldProjectIdentity)}
+    if($live.Bootstrap-cne[string]$state.oldBootstrapIdentity){Set-UpgradeFile (Join-ChildPath $Root 'old/BOOTSTRAP.md') $BootstrapFile $live.Bootstrap ([string]$state.oldBootstrapIdentity)}
+    if([string]$state.controllerMode-ceq'CREATE'-and$live.Controller-cne'MISSING'){
+        if($live.Controller-cne[string]$state.newControllerIdentity){throw 'Unknown controller bytes during recovery; transaction preserved.'}
+        if((Get-MinimalFileIdentity $ControllerFile)-cne[string]$state.newControllerIdentity){throw 'Controller drift during recovery; transaction preserved.'}
+        [IO.File]::Delete($ControllerFile)
+    }
+    $final=Get-UpgradeLiveState $ProjectFile $BootstrapFile $ControllerFile $state
+    if($final.Status-cne'OLD'){throw 'Upgrade rollback verification failed; transaction preserved.'}
+    $completed=Complete-UpgradeTransaction $Root $ProjectRoot $state
+    return "RECOVERED_ROLLBACK|recovery=$completed"
+}
+
+function New-UpgradeTransaction([string]$Root,[string]$ProjectRoot,[string]$ProjectFile,[string]$BootstrapFile,[string]$ControllerFile,[string]$ProjectId,[string]$FromVersion,[string]$TargetVersion,[string]$TargetProject,[string]$TargetBootstrap,[string]$ControllerMode,[string]$TargetController,[string]$AdditionalInputPath,[string]$ExpectedAdditionalInputIdentity) {
+    if(Test-Path -LiteralPath $Root){throw 'An active upgrade transaction already exists.'}
+    if($ControllerMode-cnotin@('NONE','CREATE')){throw 'Unsupported controller transaction mode.'}
+    $oldProjectIdentity=Get-MinimalFileIdentity $ProjectFile;$oldBootstrapIdentity=Get-MinimalFileIdentity $BootstrapFile
+    if($ControllerMode-ceq'CREATE'-and(Test-Path -LiteralPath $ControllerFile)){throw 'Unexpected controller object before transaction freeze.'}
+    $transactionId=[Guid]::NewGuid().ToString('N')
+    $staging=Join-Path $ProjectRoot ('.fwu-prep-'+$transactionId)
+    try{
+        New-Item -ItemType Directory -Path (Join-ChildPath $staging 'old'),(Join-ChildPath $staging 'new')|Out-Null
+        [IO.File]::Copy($ProjectFile,(Join-ChildPath $staging 'old/project.json'),$false);[IO.File]::Copy($BootstrapFile,(Join-ChildPath $staging 'old/BOOTSTRAP.md'),$false)
+        Write-Utf8NoBom (Join-ChildPath $staging 'new/project.json') $TargetProject;Write-Utf8NoBom (Join-ChildPath $staging 'new/BOOTSTRAP.md') $TargetBootstrap
+        $newControllerIdentity='NONE'
+        if($ControllerMode-ceq'CREATE'){
+            Write-Utf8NoBom (Join-ChildPath $staging 'new/controller.json') $TargetController
+            $newControllerIdentity=Get-MinimalFileIdentity (Join-ChildPath $staging 'new/controller.json')
+        }
+        $state=[ordered]@{schemaVersion=1;transactionId=$transactionId;projectId=$ProjectId;fromVersion=$FromVersion;toVersion=$TargetVersion;controllerMode=$ControllerMode;oldProjectIdentity=$oldProjectIdentity;oldBootstrapIdentity=$oldBootstrapIdentity;newProjectIdentity=Get-MinimalFileIdentity (Join-ChildPath $staging 'new/project.json');newBootstrapIdentity=Get-MinimalFileIdentity (Join-ChildPath $staging 'new/BOOTSTRAP.md');newControllerIdentity=$newControllerIdentity}
+        Write-Utf8NoBom (Join-Path $staging 'state.json') ($state|ConvertTo-Json -Depth 5)
+        if((Get-MinimalFileIdentity (Join-ChildPath $staging 'old/project.json'))-cne$oldProjectIdentity-or(Get-MinimalFileIdentity (Join-ChildPath $staging 'old/BOOTSTRAP.md'))-cne$oldBootstrapIdentity){throw 'Frozen old transaction material drift.'}
+        if((Get-MinimalFileIdentity $ProjectFile)-cne$oldProjectIdentity-or(Get-MinimalFileIdentity $BootstrapFile)-cne$oldBootstrapIdentity){throw 'OBJECT_DRIFT before transaction freeze.'}
+        if($ControllerMode-ceq'CREATE'-and(Test-Path -LiteralPath $ControllerFile)){throw 'OBJECT_DRIFT before controller transaction freeze.'}
+        if(-not[string]::IsNullOrWhiteSpace($AdditionalInputPath)-and((Get-MinimalFileIdentity $AdditionalInputPath)-cne$ExpectedAdditionalInputIdentity)){throw 'Additional migration input drift before transaction freeze.'}
+        [IO.Directory]::Move($staging,$Root)
+        return [pscustomobject]$state
+    }catch{throw "Transaction preparation failed; staging preserved at $staging. $($_.Exception.Message)"}
+}
+
+function Commit-UpgradeTransaction([string]$Root,[string]$ProjectRoot,[string]$ProjectFile,[string]$BootstrapFile,[string]$ControllerFile,[string]$ProjectId,[string]$ControllerId,[string]$RequestedTarget) {
+    $state=Read-UpgradeTransaction $Root $ProjectId
+    if([string]$state.toVersion-cne$RequestedTarget){throw 'Requested target does not match the prepared upgrade transaction.'}
+    try{
+        Set-UpgradeFile (Join-ChildPath $Root 'new/project.json') $ProjectFile ([string]$state.oldProjectIdentity) ([string]$state.newProjectIdentity)
+        Set-UpgradeFile (Join-ChildPath $Root 'new/BOOTSTRAP.md') $BootstrapFile ([string]$state.oldBootstrapIdentity) ([string]$state.newBootstrapIdentity)
+        if([string]$state.controllerMode-ceq'CREATE'){Set-UpgradeFile (Join-ChildPath $Root 'new/controller.json') $ControllerFile 'MISSING' ([string]$state.newControllerIdentity)}
+        $final=Get-UpgradeLiveState $ProjectFile $BootstrapFile $ControllerFile $state
+        if($final.Status-cne'NEW'){throw 'Final upgrade object snapshot failed.'}
+        return Complete-UpgradeTransaction $Root $ProjectRoot $state
+    }catch{
+        $failure=$_
+        try{$null=Recover-UpgradeTransaction $Root $ProjectRoot $ProjectFile $BootstrapFile $ControllerFile $ProjectId $ControllerId $RequestedTarget}catch{throw "Upgrade failed and recovery is incomplete; transaction preserved. Commit: $($failure.Exception.Message); recovery: $($_.Exception.Message)"}
+        throw "Upgrade failed and was rolled back: $($failure.Exception.Message)"
+    }
+}
+
+function Invoke-Framework16Upgrade([string]$ProjectRoot,[string]$Repo,[string]$Layout,[string]$FrameworkRoot) {
+    if($Layout-cne'repo-local'){throw 'Framework 1.6.0 minimal migration accepts repo-local 1.4.1/1.5.x projects only.'}
+    if([string]::IsNullOrWhiteSpace($ControllerId)){throw 'ControllerId is required for Framework 1.6.0.'}
+    $projectFile=Join-Path $ProjectRoot 'project.json';$bootstrapFile=Join-Path $ProjectRoot 'BOOTSTRAP.md';$controllerFile=Join-Path $ProjectRoot 'controller.json'
+    $transactionRoot=Join-Path $ProjectRoot '.framework-upgrade-transaction'
+    $raw=Read-StrictUtf8NoBom $projectFile
+    try{$config=$raw|ConvertFrom-Json}catch{throw 'Project configuration is invalid JSON.'}
+    if([string]$config.frameworkVersion-ceq'1.6.0'){
+        $fields=@('schemaVersion','id','displayName','controlPlaneLayout','repositoryRoot','frameworkVersion','routineExcludedPaths','frameworkCapabilities')
+        Assert-MinimalExactFields $config $raw $fields 'Already-upgraded project.json'
+        if(-not(Test-MinimalJsonInteger $config.schemaVersion)-or[int]$config.schemaVersion-ne 3-or
+           -not($config.id-is[string])-or[string]$config.id-cne$ProjectId-or
+           -not($config.displayName-is[string])-or[string]::IsNullOrWhiteSpace([string]$config.displayName)-or
+           -not($config.controlPlaneLayout-is[string])-or[string]$config.controlPlaneLayout-cne'repo-local'-or
+           -not($config.repositoryRoot-is[string])-or[string]$config.repositoryRoot-cne'..'-or
+           -not($config.frameworkVersion-is[string])-or[string]$config.frameworkVersion-cne'1.6.0'-or
+           -not($config.routineExcludedPaths-is[System.Array])-or
+           -not($config.frameworkCapabilities-is[pscustomobject])){throw 'Already-upgraded project.json is unhealthy.'}
+        Assert-MinimalFrameworkCapabilities $config.frameworkCapabilities $raw 'Already-upgraded project.json frameworkCapabilities'
+        $routinePaths=New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+        foreach($pathValue in @($config.routineExcludedPaths)){if(-not($pathValue-is[string])-or[string]::IsNullOrWhiteSpace([string]$pathValue)-or-not$routinePaths.Add([string]$pathValue)){throw 'Already-upgraded project.json routine exclusions are invalid.'}}
+        if(-not(Test-Path -LiteralPath $controllerFile -PathType Leaf)){throw 'Already-upgraded controller.json is missing.'}
+        Assert-NoReparsePoint $controllerFile
+        $controllerRaw=Read-StrictUtf8NoBom $controllerFile;try{$controller=$controllerRaw|ConvertFrom-Json}catch{throw 'Already-upgraded controller.json is invalid.'}
+        Assert-MinimalController $controller $controllerRaw $ProjectId $ControllerId
+        $targetBootstrapTemplate=Join-ChildPath $FrameworkRoot 'versions/1.6.0/project-starter/BOOTSTRAP.md'
+        $expected=Render-Bootstrap (Read-StrictUtf8NoBom $targetBootstrapTemplate) $config '1.6.0'
+        $actualBlock=Get-ManagedBootstrapBlock (Read-StrictUtf8NoBom $bootstrapFile) $bootstrapFile
+        $expectedBlock=Get-ManagedBootstrapBlock $expected $targetBootstrapTemplate
+        if($actualBlock.Text-cne$expectedBlock.Text){throw 'Already-upgraded Bootstrap managed block is unhealthy.'}
+        Write-Output 'ALREADY_UPGRADED';return
+    }
+    $sourceVersions=@('1.4.1','1.5.0','1.5.1','1.5.2')
+    if([string]$config.frameworkVersion-cnotin$sourceVersions){throw 'Unsupported direct source for Framework 1.6.0.'}
+    $sourceFields=@('schemaVersion','id','displayName','controlPlaneLayout','repositoryRoot','frameworkVersion')
+    Assert-MinimalExactFields $config $raw $sourceFields 'Source project.json'
+    if(-not(Test-MinimalJsonInteger $config.schemaVersion)-or[int]$config.schemaVersion-ne 2-or
+       -not($config.id-is[string])-or[string]$config.id-cne$ProjectId-or
+       -not($config.displayName-is[string])-or[string]::IsNullOrWhiteSpace([string]$config.displayName)-or
+       -not($config.controlPlaneLayout-is[string])-or[string]$config.controlPlaneLayout-cne'repo-local'-or
+       -not($config.repositoryRoot-is[string])-or[string]$config.repositoryRoot-cne'..'-or
+       -not($config.frameworkVersion-is[string])-or[string]$config.frameworkVersion-cnotin$sourceVersions){throw 'Source project.json is not a supported schema-2 repo-local project.'}
+    if([string]::IsNullOrWhiteSpace($RoutineExcludedPathsMigrationPath)-or[string]::IsNullOrWhiteSpace($ExpectedRoutineExcludedPathsMigrationIdentity)){throw 'Frozen routine-exclusion migration input is required.'}
+    if($ExpectedRoutineExcludedPathsMigrationIdentity-cnotmatch'^\d+\|[A-F0-9]{64}$'){throw 'Routine-exclusion migration identity is invalid.'}
+    if(-not(Test-Path -LiteralPath $RoutineExcludedPathsMigrationPath -PathType Leaf)){throw 'Routine-exclusion migration input is missing.'}
+    Assert-MinimalPathInsideRepo $Repo $RoutineExcludedPathsMigrationPath
+    if((Get-MinimalFileIdentity $RoutineExcludedPathsMigrationPath)-cne$ExpectedRoutineExcludedPathsMigrationIdentity){throw 'Routine-exclusion migration input drift.'}
+    $migrationRaw=Read-StrictUtf8NoBom $RoutineExcludedPathsMigrationPath;try{$migration=$migrationRaw|ConvertFrom-Json}catch{throw 'Routine-exclusion migration input is invalid JSON.'}
+    Assert-MinimalExactFields $migration $migrationRaw @('schemaVersion','projectId','routineExcludedPaths') 'Routine-exclusion migration input'
+    if(-not(Test-MinimalJsonInteger $migration.schemaVersion)-or[int]$migration.schemaVersion-ne 1-or-not($migration.projectId-is[string])-or[string]$migration.projectId-cne$ProjectId-or-not($migration.routineExcludedPaths-is[System.Array])){throw 'Routine-exclusion migration input identity is invalid.'}
+    $routinePaths=New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    foreach($pathValue in @($migration.routineExcludedPaths)){if(-not($pathValue-is[string])-or[string]::IsNullOrWhiteSpace([string]$pathValue)-or-not$routinePaths.Add([string]$pathValue)){throw 'Routine-exclusion migration input paths are invalid.'}}
+    if(Test-Path -LiteralPath $controllerFile){throw 'Unexpected controller.json already exists.'}
+
+    $sourceTemplate=Join-ChildPath $FrameworkRoot ("versions/"+[string]$config.frameworkVersion+"/project-starter/BOOTSTRAP.md")
+    $targetTemplate=Join-ChildPath $FrameworkRoot 'versions/1.6.0/project-starter/BOOTSTRAP.md'
+    foreach($path in @($sourceTemplate,$targetTemplate)){if(-not(Test-Path -LiteralPath $path -PathType Leaf)){throw "Framework Bootstrap template is missing: $path"}}
+    $currentBootstrap=Read-StrictUtf8NoBom $bootstrapFile
+    $sourceExpected=Render-Bootstrap (Read-StrictUtf8NoBom $sourceTemplate) $config ([string]$config.frameworkVersion)
+    $currentBlock=Get-ManagedBootstrapBlock $currentBootstrap $bootstrapFile;$sourceBlock=Get-ManagedBootstrapBlock $sourceExpected $sourceTemplate
+    if($currentBlock.Text-cne$sourceBlock.Text){throw 'Source Bootstrap managed block was customized.'}
+    $newConfig=[ordered]@{schemaVersion=3;id=[string]$config.id;displayName=[string]$config.displayName;controlPlaneLayout='repo-local';repositoryRoot='..';frameworkVersion='1.6.0';routineExcludedPaths=@($migration.routineExcludedPaths);frameworkCapabilities=[ordered]@{}}
+    $targetProject=Normalize-Text ($newConfig|ConvertTo-Json -Depth 20)
+    $renderedTarget=Render-Bootstrap (Read-StrictUtf8NoBom $targetTemplate) $newConfig '1.6.0';$targetBlock=Get-ManagedBootstrapBlock $renderedTarget $targetTemplate
+    $targetBootstrap=Replace-ManagedBootstrapBlock $currentBootstrap $targetBlock.Text $currentBlock
+    $newController=[ordered]@{schemaVersion=1;projectId=$ProjectId;controllerId=$ControllerId;controllerEpoch=1;state='CURRENT'}
+    $targetController=Normalize-Text ($newController|ConvertTo-Json -Depth 5)
+    if(-not$Apply){Write-Output ("WHAT_IF|from="+[string]$config.frameworkVersion+"|to=1.6.0|objects=3");return}
+    $null=New-UpgradeTransaction $transactionRoot $ProjectRoot $projectFile $bootstrapFile $controllerFile $ProjectId ([string]$config.frameworkVersion) '1.6.0' $targetProject $targetBootstrap 'CREATE' $targetController $RoutineExcludedPathsMigrationPath $ExpectedRoutineExcludedPathsMigrationIdentity
+    $completed=Commit-UpgradeTransaction $transactionRoot $ProjectRoot $projectFile $bootstrapFile $controllerFile $ProjectId $ControllerId '1.6.0'
+    Write-Output "UPGRADED|objects=3|recovery=$completed"
+}
+
+if (-not $WorkspaceRoot) {
+    $scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
+    $WorkspaceRoot = Split-Path -Parent $scriptDirectory
+}
+
+$workspace = [System.IO.Path]::GetFullPath($WorkspaceRoot)
+$frameworkRoot = Join-ChildPath $workspace 'framework'
+$projectsRoot = Join-ChildPath $workspace 'projects'
+if (-not (Test-Path -LiteralPath $frameworkRoot -PathType Container)) {
+    throw "Workspace root must contain the Framework directory: $workspace"
+}
+
+$legacyRoot = Join-ChildPath $projectsRoot $ProjectId
+$legacyExists = Test-Path -LiteralPath $legacyRoot
+$repoLocalRoot = $null
+if ($RepositoryPath) {
+    if (-not (Test-Path -LiteralPath $RepositoryPath -PathType Container)) {
+        throw "Repository path does not exist: $RepositoryPath"
+    }
+    $repo = Get-GitRepositoryRoot ([System.IO.Path]::GetFullPath((Resolve-Path -LiteralPath $RepositoryPath).ProviderPath))
+    $repoLocalRoot = Join-Path $repo '.ai-workspace'
+}
+elseif ($legacyExists) {
+    if (-not (Test-Path -LiteralPath $legacyRoot -PathType Container)) {
+        throw "Central legacy project path exists but is not a directory: $legacyRoot"
+    }
+    Assert-NoReparseTree $legacyRoot
+    $discoveryProjectFile = Join-ChildPath $legacyRoot 'project.json'
+    if (-not (Test-Path -LiteralPath $discoveryProjectFile -PathType Leaf)) {
+        throw "Central legacy project identity is incomplete: $legacyRoot"
+    }
+    try {
+        $discoveryConfig = (Read-StrictUtf8NoBom $discoveryProjectFile) | ConvertFrom-Json
+    }
+    catch {
+        throw "Central legacy project identity is invalid: $discoveryProjectFile"
+    }
+    if ([string]$discoveryConfig.id -cne $ProjectId -or
+        $discoveryConfig.PSObject.Properties.Name -notcontains 'repositoryPath' -or
+        [string]::IsNullOrWhiteSpace([string]$discoveryConfig.repositoryPath)) {
+        throw "Central legacy project identity is incomplete or conflicts with its directory: $discoveryProjectFile"
+    }
+    $recordedRepositoryPath = [System.IO.Path]::GetFullPath([string]$discoveryConfig.repositoryPath)
+    if (-not (Test-Path -LiteralPath $recordedRepositoryPath -PathType Container)) {
+        throw "Central legacy repositoryPath does not exist or is not a directory: $recordedRepositoryPath"
+    }
+    $repo = Get-GitRepositoryRoot ([System.IO.Path]::GetFullPath((Resolve-Path -LiteralPath $recordedRepositoryPath).ProviderPath))
+    $repoLocalRoot = Join-Path $repo '.ai-workspace'
+}
+
+if ($repoLocalRoot -and (Test-Path -LiteralPath $repoLocalRoot)) {
+    if (-not (Test-Path -LiteralPath $repoLocalRoot -PathType Container)) {
+        throw "Repo-local control-plane path exists but is not a directory; refusing central fallback: $repoLocalRoot"
+    }
+    $projectRoot = $repoLocalRoot
+    $layout = 'repo-local'
+}
+elseif ($legacyExists) {
+    if (-not (Test-Path -LiteralPath $legacyRoot -PathType Container)) {
+        throw "Central legacy project path exists but is not a directory: $legacyRoot"
+    }
+    $projectRoot = $legacyRoot
+    $layout = 'central-legacy'
+}
+else {
+    throw "Unknown project. Supply RepositoryPath for repo-local projects: $ProjectId"
+}
+Assert-NoReparseTree $projectRoot
+$projectFile = Join-ChildPath $projectRoot 'project.json'
+$bootstrapFile = Join-ChildPath $projectRoot 'BOOTSTRAP.md'
+$controllerFile = Join-ChildPath $projectRoot 'controller.json'
+if (-not (Test-Path -LiteralPath $projectFile -PathType Leaf)) {
+    throw "Unknown project: $ProjectId"
+}
+if (-not (Test-Path -LiteralPath $bootstrapFile -PathType Leaf)) {
+    throw "Project Bootstrap does not exist: $bootstrapFile"
+}
+
+$transactionRoot = Join-Path $projectRoot '.framework-upgrade-transaction'
+$abandonedPreparations = @(Get-ChildItem -LiteralPath $projectRoot -Directory -Force -Filter '.fwu-prep-*' -ErrorAction SilentlyContinue)
+$hasActiveTransaction = Test-Path -LiteralPath $transactionRoot
+if ($hasActiveTransaction) {
+    if (-not (Test-Path -LiteralPath $transactionRoot -PathType Container)) {
+        throw 'Upgrade transaction path is not a directory.'
+    }
+}
+if ($abandonedPreparations.Count -ne 0) {
+    throw 'Abandoned upgrade preparation exists; preserve it and perform exact manual housekeeping before retrying.'
+}
+if ($hasActiveTransaction) {
+    $recoveryResult = Recover-UpgradeTransaction $transactionRoot $projectRoot $projectFile $bootstrapFile $controllerFile $ProjectId $ControllerId $ToVersion -Preview:(-not $Apply)
+    if ($Apply) { Write-Host "Recovered previous Framework upgrade transaction: $recoveryResult" }
+    else { Write-Host "Preview only. Active Framework upgrade transaction: $recoveryResult" }
+    return
+}
+
+if ($ToVersion -ceq '1.6.0') {
+    Invoke-Framework16Upgrade $projectRoot $repo $layout $frameworkRoot
+    return
+}
+
+$targetFramework = Join-ChildPath $frameworkRoot "versions/$ToVersion"
+
+if (-not (Test-Path -LiteralPath $targetFramework -PathType Container)) {
+    throw "Framework version does not exist: $ToVersion"
+}
+
+$configText = Read-StrictUtf8NoBom $projectFile
+try {
+    $config = $configText | ConvertFrom-Json
+}
+catch {
+    throw "Project configuration is not valid JSON: $projectFile"
+}
+foreach ($property in @('id', 'displayName', 'frameworkVersion')) {
+    if ($config.PSObject.Properties.Name -notcontains $property -or [string]::IsNullOrWhiteSpace([string]$config.$property)) {
+        throw "Project configuration is missing a required property: $property"
+    }
+}
+if ([string]$config.id -cne $ProjectId) {
+    throw "Project id does not match its directory: $($config.id)"
+}
+if ($layout -eq 'repo-local') {
+    foreach ($property in @('schemaVersion', 'controlPlaneLayout', 'repositoryRoot')) {
+        if ($config.PSObject.Properties.Name -notcontains $property) {
+            throw "Repo-local project configuration is missing a required property: $property"
+        }
+    }
+    $schema3Patch = $ToVersion -ceq '1.6.1' -and
+        (Test-MinimalJsonInteger $config.schemaVersion) -and [int]$config.schemaVersion -eq 3 -and
+        ($config.frameworkVersion -is [string]) -and [string]$config.frameworkVersion -in @('1.6.0','1.6.1')
+    if ($schema3Patch) {
+        Assert-MinimalExactFields $config $configText @('schemaVersion','id','displayName','controlPlaneLayout','repositoryRoot','frameworkVersion','routineExcludedPaths','frameworkCapabilities') 'Schema3 patch source project.json'
+        if (-not ($config.id -is [string]) -or [string]$config.id -cne $ProjectId -or
+            -not ($config.displayName -is [string]) -or [string]::IsNullOrWhiteSpace([string]$config.displayName) -or
+            -not ($config.controlPlaneLayout -is [string]) -or [string]$config.controlPlaneLayout -cne 'repo-local' -or
+            -not ($config.repositoryRoot -is [string]) -or [string]$config.repositoryRoot -cne '..' -or
+            -not ($config.routineExcludedPaths -is [System.Array]) -or
+            -not ($config.frameworkCapabilities -is [pscustomobject])) { throw "Schema3 patch source project.json is unhealthy: $projectFile" }
+        $routinePaths=New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+        foreach($pathValue in @($config.routineExcludedPaths)){if(-not($pathValue-is[string])-or[string]::IsNullOrWhiteSpace([string]$pathValue)-or-not$routinePaths.Add([string]$pathValue)){throw 'Schema3 patch source routine exclusions are invalid.'}}
+        Assert-MinimalFrameworkCapabilities $config.frameworkCapabilities $configText 'Schema3 patch source frameworkCapabilities'
+        if([string]::IsNullOrWhiteSpace($ControllerId)){throw 'ControllerId is required for Framework 1.6.0 to 1.6.1 upgrade.'}
+        if(-not(Test-Path -LiteralPath $controllerFile -PathType Leaf)){throw 'Schema3 patch source controller.json is missing.'}
+        Assert-NoReparsePoint $controllerFile
+        $controllerRaw=Read-StrictUtf8NoBom $controllerFile
+        try{$controller=$controllerRaw|ConvertFrom-Json}catch{throw 'Schema3 patch source controller.json is invalid.'}
+        Assert-MinimalController $controller $controllerRaw $ProjectId $ControllerId
+    } elseif ($ToVersion -ceq '1.6.1') {
+        throw 'Framework 1.6.1 direct upgrade requires a healthy schema3 Framework 1.6.0 source; upgrade older schema2 projects to 1.6.0 first.'
+    } elseif ([int]$config.schemaVersion -ne 2 -or
+        [string]$config.controlPlaneLayout -cne 'repo-local' -or
+        [string]$config.repositoryRoot -cne '..') {
+        throw "Repo-local project configuration has an unsupported layout: $projectFile"
+    }
+    if (Test-Path -LiteralPath $legacyRoot) {
+        if (-not (Test-Path -LiteralPath $legacyRoot -PathType Container)) {
+            throw "A central legacy collision exists but is not a directory; refusing to ignore it: $legacyRoot"
+        }
+        Assert-NoReparseTree $legacyRoot
+        foreach ($relativeFile in @('project.json', 'BOOTSTRAP.md', 'PROJECT.md', 'REVIEW_PROFILE.md', 'RELATIONSHIPS.md', 'STATUS.md', 'tasks/README.md')) {
+            if (-not (Test-Path -LiteralPath (Join-ChildPath $legacyRoot $relativeFile) -PathType Leaf)) {
+                throw 'Repo-local and central legacy control planes coexist, but the central control plane is partial.'
+            }
+        }
+        foreach ($relativeDirectory in @('tasks', 'tasks/active', 'tasks/archive')) {
+            if (-not (Test-Path -LiteralPath (Join-ChildPath $legacyRoot $relativeDirectory) -PathType Container)) {
+                throw 'Repo-local and central legacy control planes coexist, but the central control plane is partial.'
+            }
+        }
+        $legacyConfigFile = Join-Path $legacyRoot 'project.json'
+        if (-not (Test-Path -LiteralPath $legacyConfigFile -PathType Leaf)) {
+            throw 'Repo-local and central legacy control planes coexist, but the central identity is incomplete.'
+        }
+        try {
+            $legacyConfig = (Read-StrictUtf8NoBom $legacyConfigFile) | ConvertFrom-Json
+        }
+        catch {
+            throw 'Repo-local and central legacy control planes coexist, but the central identity is invalid.'
+        }
+        if ($legacyConfig.PSObject.Properties.Name -notcontains 'repositoryPath' -or
+            [string]::IsNullOrWhiteSpace([string]$legacyConfig.repositoryPath)) {
+            throw 'Repo-local and central legacy identities conflict; refusing to choose an authority.'
+        }
+        $legacyRepository = [System.IO.Path]::GetFullPath([string]$legacyConfig.repositoryPath).TrimEnd('\')
+        if ([string]$legacyConfig.id -cne $ProjectId -or
+            -not $legacyRepository.Equals($repo, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw 'Repo-local and central legacy identities conflict; refusing to choose an authority.'
+        }
+    }
+}
+elseif ($config.PSObject.Properties.Name -notcontains 'repositoryPath' -or
+        [string]::IsNullOrWhiteSpace([string]$config.repositoryPath)) {
+    throw 'Central legacy project configuration is missing repositoryPath.'
+}
+elseif ($RepositoryPath) {
+    $recordedRepository = [System.IO.Path]::GetFullPath([string]$config.repositoryPath).TrimEnd('\')
+    if (-not $recordedRepository.Equals($repo, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Central legacy repositoryPath conflicts with the supplied repository.'
+    }
+}
+
+$fromVersion = [string]$config.frameworkVersion
+if ($fromVersion -notmatch '^[0-9A-Za-z][0-9A-Za-z._-]*$') {
+    throw "Project configuration contains an invalid pinned Framework version: $fromVersion"
+}
+$sourceFramework = Join-ChildPath $frameworkRoot "versions/$fromVersion"
+$sourceBootstrapTemplate = Join-ChildPath $sourceFramework 'project-starter/BOOTSTRAP.md'
+$targetBootstrapTemplate = Join-ChildPath $targetFramework 'project-starter/BOOTSTRAP.md'
+$targetProjectTemplate = Join-ChildPath $targetFramework 'project-starter/project.json'
+if (-not (Test-Path -LiteralPath $targetBootstrapTemplate -PathType Leaf)) {
+    throw "Target Framework Bootstrap template does not exist: $targetBootstrapTemplate"
+}
+if (-not (Test-Path -LiteralPath $targetProjectTemplate -PathType Leaf)) {
+    throw "Target Framework project template does not exist: $targetProjectTemplate"
+}
+$targetProjectTemplateText = Read-StrictUtf8NoBom $targetProjectTemplate
+if ($layout -eq 'central-legacy' -and $targetProjectTemplateText.Contains('"controlPlaneLayout": "repo-local"')) {
+    throw 'A central legacy project cannot change topology through upgrade-project.ps1; request a separately authorized project-specific relocation.'
+}
+if ($layout -eq 'repo-local' -and -not $targetProjectTemplateText.Contains('"controlPlaneLayout": "repo-local"')) {
+    throw 'A repo-local project can only upgrade to a repo-local Framework starter.'
+}
+
+$currentBootstrap = Normalize-Text (Read-StrictUtf8NoBom $bootstrapFile)
+if (-not (Test-Path -LiteralPath $sourceFramework -PathType Container)) {
+    throw "Pinned Framework directory does not exist in framework/versions; tags and current HEAD are not runtime fallbacks: $sourceFramework"
+}
+if (-not (Test-Path -LiteralPath $sourceBootstrapTemplate -PathType Leaf)) {
+    throw "Pinned Framework directory is incomplete; Bootstrap template does not exist: $sourceBootstrapTemplate"
+}
+$sourceTemplate = Read-StrictUtf8NoBom $sourceBootstrapTemplate
+$targetTemplate = Read-StrictUtf8NoBom $targetBootstrapTemplate
+$expectedCurrentBootstrap = Render-Bootstrap $sourceTemplate $config $fromVersion
+if ($layout -eq 'central-legacy') {
+    if ($currentBootstrap -cne $expectedCurrentBootstrap) {
+        throw "Project Bootstrap does not match its pinned Framework starter; refusing an incomplete upgrade: $bootstrapFile"
+    }
+    $targetBootstrap = Render-Bootstrap $targetTemplate $config $ToVersion
+}
+else {
+    $currentBlock = Get-ManagedBootstrapBlock $currentBootstrap $bootstrapFile
+    $expectedBlock = Get-ManagedBootstrapBlock $expectedCurrentBootstrap $sourceBootstrapTemplate
+    if ($currentBlock.Text -cne $expectedBlock.Text) {
+        throw "Repo-local Bootstrap managed block was customized; refusing to overwrite it: $bootstrapFile"
+    }
+    $renderedTarget = Render-Bootstrap $targetTemplate $config $ToVersion
+    $targetBlock = Get-ManagedBootstrapBlock $renderedTarget $targetBootstrapTemplate
+    $targetBootstrap = Replace-ManagedBootstrapBlock $currentBootstrap $targetBlock.Text $currentBlock
+}
+Assert-TargetBootstrapContract $targetBootstrap $ToVersion $workspace $targetFramework $layout
+
+Write-Host "Project: $ProjectId"
+Write-Host "Layout: $layout"
+Write-Host "Framework: $fromVersion -> $ToVersion"
+Write-Host 'Upgrade: same-topology project pin and managed Bootstrap locator'
+
+if (-not $Apply) {
+    Write-Host 'Preview only. Upgrade preconditions passed; rerun with -Apply.'
+    return
+}
+
+if ($fromVersion -eq $ToVersion) {
+    Write-Host 'Already on requested version with a matching Bootstrap; no change.'
+    return
+}
+
+$config.frameworkVersion = $ToVersion
+$targetConfig = Normalize-Text ($config | ConvertTo-Json -Depth 100)
+try {
+    $validatedConfig = $targetConfig | ConvertFrom-Json
+}
+catch {
+    throw 'Generated project configuration is not valid JSON.'
+}
+if ([string]$validatedConfig.frameworkVersion -cne $ToVersion) {
+    throw 'Generated project configuration does not contain the target Framework version.'
+}
+
+$null = New-UpgradeTransaction $transactionRoot $projectRoot $projectFile $bootstrapFile $controllerFile $ProjectId $fromVersion $ToVersion $targetConfig $targetBootstrap 'NONE' '' '' ''
+$completed = Commit-UpgradeTransaction $transactionRoot $projectRoot $projectFile $bootstrapFile $controllerFile $ProjectId $ControllerId $ToVersion
+
+Write-Host "Updated: $projectFile"
+Write-Host "Updated: $bootstrapFile"
+Write-Host "Committed recoverable two-file transaction; recovery material retained at $completed"
+Write-Host 'Next: review the version diff, update project exceptions if needed, and commit both upgraded files together.'

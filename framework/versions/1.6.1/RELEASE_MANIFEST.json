@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "version": "1.6.1",
+  "lifecycle": "STABLE",
+  "releaseClass": "PATCH_HOTFIX",
+  "scope": "all version files except RELEASE_MANIFEST.json",
+  "algorithm": "Ordinal relative path; path|byteLength|UPPER_SHA256; UTF-8 LF join without trailing LF; SHA256 payload",
+  "fileCount": 37,
+  "totalBytes": 211032,
+  "canonical": "67F33F95DC650F9FF5E8CBF55E53F7B19F9A5D6F906DB7DA31D727A73B42FFBD",
+  "baseline": "1.6.0",
+  "sourceReview": "APPROVED",
+  "sourceCandidate": "FRAMEWORK_1.6.1_ENTRY_ID_CANDIDATE_001",
+  "releaseIntegration": "CANDIDATE_FULL_PASS_128_AND_STABLE_PASS_86",
+  "current": "1.4.1",
+  "projectPinsChanged": false
+}
