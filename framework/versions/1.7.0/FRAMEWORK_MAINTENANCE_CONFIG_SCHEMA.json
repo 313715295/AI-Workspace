@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AI-Workspace Framework maintenance sibling-target configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "displayName", "controlPlaneLayout", "repositoryRoot", "frameworkVersion", "routineExcludedPaths", "frameworkCapabilities", "frameworkTarget"],
+  "properties": {
+    "schemaVersion": { "const": 4 },
+    "id": { "type": "string", "minLength": 1 },
+    "displayName": { "type": "string", "minLength": 1 },
+    "controlPlaneLayout": { "const": "framework-maintenance-sibling" },
+    "repositoryRoot": { "const": ".." },
+    "frameworkVersion": { "const": "1.7.0" },
+    "routineExcludedPaths": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "frameworkCapabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "maxProperties": 0
+    },
+    "frameworkTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repositoryId", "siblingDirectory", "routineExcludedPaths"],
+      "properties": {
+        "repositoryId": { "type": "string", "minLength": 1 },
+        "siblingDirectory": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\\\/:*?\"<>|]+$"
+        },
+        "routineExcludedPaths": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

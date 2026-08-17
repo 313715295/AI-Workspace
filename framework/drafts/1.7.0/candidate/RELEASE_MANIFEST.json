@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "version": "1.7.0",
+  "lifecycle": "DRAFT",
+  "releaseClass": "MINOR",
+  "scope": "all candidate files except RELEASE_MANIFEST.json",
+  "algorithm": "Ordinal relative path; path|byteLength|UPPER_SHA256; UTF-8 LF join without trailing LF; SHA256 payload",
+  "fileCount": 49,
+  "totalBytes": 287651,
+  "canonical": "843200567BB1B3853A389EE1400AC8E8EE95070D9FCAE57AFC6A3D9F1DE9E58C",
+  "baseline": "1.6.1",
+  "sourceReview": "PENDING",
+  "sourceCandidate": "FRAMEWORK_1.7.0_MAINTENANCE_TOPOLOGY_CANDIDATE_GIT_CONFIG_GATE_REWORK_5_006",
+  "releaseIntegration": "SCHEMA1_GIT_CONFIG_GATE_FULL_PASS_185_WITH_BASELINE_1_6_1_REGRESSION",
+  "current": "1.6.1",
+  "projectPinsChanged": false
+}
