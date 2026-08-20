@@ -4,6 +4,22 @@ This file contains generic release history and unselected Framework directions. 
 
 ## Release line
 
+### 1.10.0 — project correction lifecycle
+
+Status: stable and consumable after independent source Review and release integration; publication state is determined by repository refs rather than this roadmap.
+
+Selected minimum-sufficient scope:
+
+- add one project-owned `.ai-workspace/corrections.json` authority object, separate from tasks and PROJECT-CUSTOM;
+- preserve stable ID, introduced Framework range, requirement reason, effective rule, applicability and decision locator;
+- publish one cumulative generic version-coverage mapping with no consumer identities or adoption state;
+- compute incorporated, still-effective and conflicting corrections before and after explicit pin adoption;
+- retain records across upgrades and re-evaluate them on downgrade/alternate-version adoption;
+- retain all corrections when coverage is unknown or ambiguous, and block explicit conflicts before pin write;
+- reuse the existing Bootstrap, registration, upgrade and recoverable transaction paths.
+
+Explicitly not selected: new roles, task types, services, queues, ledgers, registries, background work, automatic correction writes, automatic consumer upgrades or changes to immutable 1.9.0.
+
 ### 1.9.0 — owner-first execution and usable Knowledge
 
 Status: stable and consumable after independent source Review and release integration; publication state is determined by repository refs rather than this roadmap.

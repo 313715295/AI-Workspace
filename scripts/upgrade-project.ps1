@@ -257,6 +257,25 @@ function Replace-ManagedBootstrapBlock {
     return Normalize-Text ($Current.Substring(0, $CurrentBlock.Start) + $TargetManaged + $Current.Substring($CurrentBlock.End))
 }
 
+function Get-CorrectionBootstrapBlock([string]$Content,[string]$Source,[switch]$Optional) {
+    $begin='<!-- PROJECT-CORRECTIONS:BEGIN -->';$end='<!-- PROJECT-CORRECTIONS:END -->'
+    $beginCount=[regex]::Matches($Content,[regex]::Escape($begin)).Count;$endCount=[regex]::Matches($Content,[regex]::Escape($end)).Count
+    if($beginCount-eq0-and$endCount-eq0-and$Optional){return $null}
+    if($beginCount-ne1-or$endCount-ne1){throw "Project-correction Bootstrap markers must appear once or not at all: $Source"}
+    $start=$Content.IndexOf($begin,[StringComparison]::Ordinal);$endIndex=$Content.IndexOf($end,[StringComparison]::Ordinal)
+    if($start-ge$endIndex){throw "Project-correction Bootstrap markers are out of order: $Source"}
+    $blockEnd=$endIndex+$end.Length
+    return [pscustomobject]@{Start=$start;End=$blockEnd;Text=$Content.Substring($start,$blockEnd-$start)}
+}
+
+function Merge-CorrectionBootstrapBlock([string]$CurrentTarget,[string]$RenderedTemplate,[string]$Source) {
+    $wanted=Get-CorrectionBootstrapBlock $RenderedTemplate $Source -Optional
+    if($null-eq$wanted){return Normalize-Text $CurrentTarget}
+    $existing=Get-CorrectionBootstrapBlock $CurrentTarget 'current Bootstrap' -Optional
+    if($null-eq$existing){return Normalize-Text ($CurrentTarget.TrimEnd("`n")+"`n`n"+$wanted.Text+"`n")}
+    return Normalize-Text ($CurrentTarget.Substring(0,$existing.Start)+$wanted.Text+$CurrentTarget.Substring($existing.End))
+}
+
 function Get-Sha256 {
     param([Parameter(Mandatory = $true)][string]$Path)
 
@@ -340,16 +359,21 @@ function Assert-MinimalPathInsideRepo([string]$Repo,[string]$Path) {
 function Get-UpgradeLiveState([string]$ProjectFile,[string]$BootstrapFile,[string]$ControllerFile,$State) {
     $project=if(Test-Path -LiteralPath $ProjectFile -PathType Leaf){Get-MinimalFileIdentity $ProjectFile}else{'MISSING'}
     $bootstrap=if(Test-Path -LiteralPath $BootstrapFile -PathType Leaf){Get-MinimalFileIdentity $BootstrapFile}else{'MISSING'}
+    $correctionsFile=Join-Path (Split-Path -Parent $ProjectFile) 'corrections.json'
+    $corrections=if([string]$State.correctionsMode-ceq'NONE'){'IGNORED'}elseif(Test-Path -LiteralPath $correctionsFile -PathType Leaf){Get-MinimalFileIdentity $correctionsFile}else{'MISSING'}
     $controller=if([string]$State.controllerMode-ceq'CREATE'){
         if(Test-Path -LiteralPath $ControllerFile -PathType Leaf){Get-MinimalFileIdentity $ControllerFile}else{'MISSING'}
     }else{'IGNORED'}
     $knownProject=$project-in@([string]$State.oldProjectIdentity,[string]$State.newProjectIdentity)
     $knownBootstrap=$bootstrap-in@([string]$State.oldBootstrapIdentity,[string]$State.newBootstrapIdentity)
     $knownController=if([string]$State.controllerMode-ceq'CREATE'){$controller-in@('MISSING',[string]$State.newControllerIdentity)}else{$true}
+    $knownCorrections=if([string]$State.correctionsMode-ceq'NONE'){$true}else{$corrections-in@([string]$State.oldCorrectionsIdentity,[string]$State.newCorrectionsIdentity)}
+    $newCorrections=if([string]$State.correctionsMode-ceq'NONE'){$true}else{$corrections-ceq[string]$State.newCorrectionsIdentity}
+    $oldCorrections=if([string]$State.correctionsMode-ceq'NONE'){$true}else{$corrections-ceq[string]$State.oldCorrectionsIdentity}
     $newController=if([string]$State.controllerMode-ceq'CREATE'){$controller-ceq[string]$State.newControllerIdentity}else{$true}
     $oldController=if([string]$State.controllerMode-ceq'CREATE'){$controller-ceq'MISSING'}else{$true}
-    $status=if(-not($knownProject-and$knownBootstrap-and$knownController)){'UNKNOWN'}elseif($project-ceq[string]$State.newProjectIdentity-and$bootstrap-ceq[string]$State.newBootstrapIdentity-and$newController){'NEW'}elseif($project-ceq[string]$State.oldProjectIdentity-and$bootstrap-ceq[string]$State.oldBootstrapIdentity-and$oldController){'OLD'}else{'MIXED'}
-    return [pscustomobject]@{Status=$status;Project=$project;Bootstrap=$bootstrap;Controller=$controller}
+    $status=if(-not($knownProject-and$knownBootstrap-and$knownController-and$knownCorrections)){'UNKNOWN'}elseif($project-ceq[string]$State.newProjectIdentity-and$bootstrap-ceq[string]$State.newBootstrapIdentity-and$newController-and$newCorrections){'NEW'}elseif($project-ceq[string]$State.oldProjectIdentity-and$bootstrap-ceq[string]$State.oldBootstrapIdentity-and$oldController-and$oldCorrections){'OLD'}else{'MIXED'}
+    return [pscustomobject]@{Status=$status;Project=$project;Bootstrap=$bootstrap;Controller=$controller;Corrections=$corrections}
 }
 
 function Set-UpgradeFile([string]$Source,[string]$Destination,[string]$ExpectedCurrentIdentity,[string]$ExpectedNewIdentity) {
@@ -374,22 +398,32 @@ function Read-UpgradeTransaction([string]$Root,[string]$ProjectId) {
     Assert-NoReparseTree $Root
     $raw=Read-StrictUtf8NoBom (Join-Path $Root 'state.json')
     try{$state=$raw|ConvertFrom-Json}catch{throw 'Invalid upgrade transaction state.'}
-    $fields=@('schemaVersion','transactionId','projectId','fromVersion','toVersion','controllerMode','oldProjectIdentity','oldBootstrapIdentity','newProjectIdentity','newBootstrapIdentity','newControllerIdentity')
+    $schemaVersion=if(Test-MinimalJsonInteger $state.schemaVersion){[int]$state.schemaVersion}else{-1}
+    $fields=if($schemaVersion-eq1){@('schemaVersion','transactionId','projectId','fromVersion','toVersion','controllerMode','oldProjectIdentity','oldBootstrapIdentity','newProjectIdentity','newBootstrapIdentity','newControllerIdentity')}else{@('schemaVersion','transactionId','projectId','fromVersion','toVersion','controllerMode','correctionsMode','oldProjectIdentity','oldBootstrapIdentity','oldCorrectionsIdentity','newProjectIdentity','newBootstrapIdentity','newCorrectionsIdentity','newControllerIdentity')}
     Assert-MinimalExactFields $state $raw $fields 'upgrade transaction state'
-    if(-not(Test-MinimalJsonInteger $state.schemaVersion)-or[int]$state.schemaVersion-ne 1-or
+    if($schemaVersion-cnotin@(1,2)-or
        -not($state.transactionId-is[string])-or[string]$state.transactionId-cnotmatch'^[a-f0-9]{32}$'-or
        -not($state.projectId-is[string])-or[string]$state.projectId-cne$ProjectId-or
        -not($state.fromVersion-is[string])-or[string]::IsNullOrWhiteSpace([string]$state.fromVersion)-or
        -not($state.toVersion-is[string])-or[string]::IsNullOrWhiteSpace([string]$state.toVersion)-or
-       -not($state.controllerMode-is[string])-or[string]$state.controllerMode-cnotin@('NONE','CREATE')){throw 'Upgrade transaction state identity mismatch.'}
+        -not($state.controllerMode-is[string])-or[string]$state.controllerMode-cnotin@('NONE','CREATE')){throw 'Upgrade transaction state identity mismatch.'}
+    if($schemaVersion-eq1){$state|Add-Member -NotePropertyName correctionsMode -NotePropertyValue 'NONE';$state|Add-Member -NotePropertyName oldCorrectionsIdentity -NotePropertyValue 'IGNORED';$state|Add-Member -NotePropertyName newCorrectionsIdentity -NotePropertyValue 'IGNORED'}
+    if(-not($state.correctionsMode-is[string])-or[string]$state.correctionsMode-cnotin@('NONE','CREATE','PRESERVE')){throw 'Upgrade correction transaction mode is invalid.'}
     foreach($name in @('oldProjectIdentity','oldBootstrapIdentity','newProjectIdentity','newBootstrapIdentity')){if([string]$state.$name-cnotmatch'^\d+\|[A-F0-9]{64}$'){throw 'Upgrade transaction identity is invalid.'}}
     if(([string]$state.controllerMode-ceq'NONE'-and[string]$state.newControllerIdentity-cne'NONE')-or
        ([string]$state.controllerMode-ceq'CREATE'-and[string]$state.newControllerIdentity-cnotmatch'^\d+\|[A-F0-9]{64}$')){throw 'Upgrade controller transaction identity is invalid.'}
+    if([string]$state.correctionsMode-ceq'NONE'){
+        if([string]$state.oldCorrectionsIdentity-cne'IGNORED'-or[string]$state.newCorrectionsIdentity-cne'IGNORED'){throw 'Upgrade corrections NONE identities are invalid.'}
+    }elseif([string]$state.correctionsMode-ceq'CREATE'){
+        if([string]$state.oldCorrectionsIdentity-cne'MISSING'-or[string]$state.newCorrectionsIdentity-cnotmatch'^\d+\|[A-F0-9]{64}$'){throw 'Upgrade corrections CREATE identities are invalid.'}
+    }elseif([string]$state.oldCorrectionsIdentity-cnotmatch'^\d+\|[A-F0-9]{64}$'-or[string]$state.newCorrectionsIdentity-cne[string]$state.oldCorrectionsIdentity){throw 'Upgrade corrections PRESERVE identities are invalid.'}
     $materials=[ordered]@{
         'old/project.json'=[string]$state.oldProjectIdentity;'old/BOOTSTRAP.md'=[string]$state.oldBootstrapIdentity;
         'new/project.json'=[string]$state.newProjectIdentity;'new/BOOTSTRAP.md'=[string]$state.newBootstrapIdentity
     }
     if([string]$state.controllerMode-ceq'CREATE'){$materials['new/controller.json']=[string]$state.newControllerIdentity}
+    if([string]$state.correctionsMode-ceq'CREATE'){$materials['new/corrections.json']=[string]$state.newCorrectionsIdentity}
+    if([string]$state.correctionsMode-ceq'PRESERVE'){$materials['old/corrections.json']=[string]$state.oldCorrectionsIdentity}
     foreach($entry in $materials.GetEnumerator()){$path=Join-ChildPath $Root $entry.Key;if(-not(Test-Path -LiteralPath $path -PathType Leaf)-or(Get-MinimalFileIdentity $path)-cne$entry.Value){throw 'Upgrade transaction material drift; preserved.'}}
     return $state
 }
@@ -406,14 +440,14 @@ function Recover-UpgradeTransaction([string]$Root,[string]$ProjectRoot,[string]$
         $frozenControllerRaw=Read-StrictUtf8NoBom $frozenControllerPath
         try{$frozenController=$frozenControllerRaw|ConvertFrom-Json}catch{throw 'Frozen recovery controller.json is invalid.'}
         Assert-MinimalController $frozenController $frozenControllerRaw $ProjectId $ControllerId
-    }elseif([string]$state.controllerMode-ceq'NONE'-and[string]$state.fromVersion-cin@('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0')-and[string]$state.toVersion-cin@('1.6.1','1.7.0','1.8.0','1.9.0')){
+    }elseif([string]$state.controllerMode-ceq'NONE'-and[string]$state.fromVersion-cin@('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0')-and[string]$state.toVersion-cin@('1.6.1','1.7.0','1.8.0','1.9.0','1.10.0')){
         if([string]::IsNullOrWhiteSpace($ControllerId)){throw 'ControllerId is required for schema3 transaction recovery.'}
         if(-not(Test-Path -LiteralPath $ControllerFile -PathType Leaf)){throw 'Schema3 patch recovery controller.json is missing.'}
         Assert-NoReparsePoint $ControllerFile
         $currentControllerRaw=Read-StrictUtf8NoBom $ControllerFile
         try{$currentController=$currentControllerRaw|ConvertFrom-Json}catch{throw 'Schema3 patch recovery controller.json is invalid.'}
         Assert-MinimalController $currentController $currentControllerRaw $ProjectId $ControllerId
-    }elseif([string]$state.toVersion-cin@('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0')){
+    }elseif([string]$state.toVersion-cin@('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0')){
         throw 'Unsupported upgrade recovery matrix combination.'
     }
     if($Preview){return ('RECOVERY_REQUIRED|from='+[string]$state.fromVersion+'|to='+[string]$state.toVersion+'|controllerMode='+[string]$state.controllerMode)}
@@ -423,6 +457,11 @@ function Recover-UpgradeTransaction([string]$Root,[string]$ProjectRoot,[string]$
     if($live.Status-ceq'OLD'){$completed=Complete-UpgradeTransaction $Root $ProjectRoot $state;return "RECOVERED_ROLLBACK|recovery=$completed"}
     if($live.Project-cne[string]$state.oldProjectIdentity){Set-UpgradeFile (Join-ChildPath $Root 'old/project.json') $ProjectFile $live.Project ([string]$state.oldProjectIdentity)}
     if($live.Bootstrap-cne[string]$state.oldBootstrapIdentity){Set-UpgradeFile (Join-ChildPath $Root 'old/BOOTSTRAP.md') $BootstrapFile $live.Bootstrap ([string]$state.oldBootstrapIdentity)}
+    $correctionsFile=Join-Path $ProjectRoot 'corrections.json'
+    if([string]$state.correctionsMode-ceq'CREATE'-and$live.Corrections-cne'MISSING'){
+        if($live.Corrections-cne[string]$state.newCorrectionsIdentity){throw 'Unknown corrections bytes during recovery; transaction preserved.'}
+        [IO.File]::Delete($correctionsFile)
+    }
     if([string]$state.controllerMode-ceq'CREATE'-and$live.Controller-cne'MISSING'){
         if($live.Controller-cne[string]$state.newControllerIdentity){throw 'Unknown controller bytes during recovery; transaction preserved.'}
         if((Get-MinimalFileIdentity $ControllerFile)-cne[string]$state.newControllerIdentity){throw 'Controller drift during recovery; transaction preserved.'}
@@ -434,10 +473,14 @@ function Recover-UpgradeTransaction([string]$Root,[string]$ProjectRoot,[string]$
     return "RECOVERED_ROLLBACK|recovery=$completed"
 }
 
-function New-UpgradeTransaction([string]$Root,[string]$ProjectRoot,[string]$ProjectFile,[string]$BootstrapFile,[string]$ControllerFile,[string]$ProjectId,[string]$FromVersion,[string]$TargetVersion,[string]$TargetProject,[string]$TargetBootstrap,[string]$ControllerMode,[string]$TargetController,[string]$AdditionalInputPath,[string]$ExpectedAdditionalInputIdentity) {
+function New-UpgradeTransaction([string]$Root,[string]$ProjectRoot,[string]$ProjectFile,[string]$BootstrapFile,[string]$ControllerFile,[string]$ProjectId,[string]$FromVersion,[string]$TargetVersion,[string]$TargetProject,[string]$TargetBootstrap,[string]$ControllerMode,[string]$TargetController,[string]$AdditionalInputPath,[string]$ExpectedAdditionalInputIdentity,[string]$CorrectionsMode='NONE',[string]$TargetCorrections='') {
     if(Test-Path -LiteralPath $Root){throw 'An active upgrade transaction already exists.'}
     if($ControllerMode-cnotin@('NONE','CREATE')){throw 'Unsupported controller transaction mode.'}
+    if($CorrectionsMode-cnotin@('NONE','CREATE','PRESERVE')){throw 'Unsupported corrections transaction mode.'}
     $oldProjectIdentity=Get-MinimalFileIdentity $ProjectFile;$oldBootstrapIdentity=Get-MinimalFileIdentity $BootstrapFile
+    $correctionsFile=Join-Path $ProjectRoot 'corrections.json';$oldCorrectionsIdentity=if(Test-Path -LiteralPath $correctionsFile -PathType Leaf){Get-MinimalFileIdentity $correctionsFile}else{'MISSING'}
+    if($CorrectionsMode-ceq'CREATE'-and$oldCorrectionsIdentity-cne'MISSING'){throw 'Unexpected corrections object before transaction freeze.'}
+    if($CorrectionsMode-ceq'PRESERVE'-and$oldCorrectionsIdentity-ceq'MISSING'){throw 'Expected corrections object is missing before transaction freeze.'}
     if($ControllerMode-ceq'CREATE'-and(Test-Path -LiteralPath $ControllerFile)){throw 'Unexpected controller object before transaction freeze.'}
     $transactionId=[Guid]::NewGuid().ToString('N')
     $staging=Join-Path $ProjectRoot ('.fwu-prep-'+$transactionId)
@@ -450,10 +493,15 @@ function New-UpgradeTransaction([string]$Root,[string]$ProjectRoot,[string]$Proj
             Write-Utf8NoBom (Join-ChildPath $staging 'new/controller.json') $TargetController
             $newControllerIdentity=Get-MinimalFileIdentity (Join-ChildPath $staging 'new/controller.json')
         }
-        $state=[ordered]@{schemaVersion=1;transactionId=$transactionId;projectId=$ProjectId;fromVersion=$FromVersion;toVersion=$TargetVersion;controllerMode=$ControllerMode;oldProjectIdentity=$oldProjectIdentity;oldBootstrapIdentity=$oldBootstrapIdentity;newProjectIdentity=Get-MinimalFileIdentity (Join-ChildPath $staging 'new/project.json');newBootstrapIdentity=Get-MinimalFileIdentity (Join-ChildPath $staging 'new/BOOTSTRAP.md');newControllerIdentity=$newControllerIdentity}
+        $newCorrectionsIdentity='IGNORED';$stateOldCorrections='IGNORED'
+        if($CorrectionsMode-ceq'CREATE'){Write-Utf8NoBom (Join-ChildPath $staging 'new/corrections.json') $TargetCorrections;$newCorrectionsIdentity=Get-MinimalFileIdentity (Join-ChildPath $staging 'new/corrections.json');$stateOldCorrections='MISSING'}
+        elseif($CorrectionsMode-ceq'PRESERVE'){[IO.File]::Copy($correctionsFile,(Join-ChildPath $staging 'old/corrections.json'),$false);$newCorrectionsIdentity=$oldCorrectionsIdentity;$stateOldCorrections=$oldCorrectionsIdentity}
+        $state=[ordered]@{schemaVersion=2;transactionId=$transactionId;projectId=$ProjectId;fromVersion=$FromVersion;toVersion=$TargetVersion;controllerMode=$ControllerMode;correctionsMode=$CorrectionsMode;oldProjectIdentity=$oldProjectIdentity;oldBootstrapIdentity=$oldBootstrapIdentity;oldCorrectionsIdentity=$stateOldCorrections;newProjectIdentity=Get-MinimalFileIdentity (Join-ChildPath $staging 'new/project.json');newBootstrapIdentity=Get-MinimalFileIdentity (Join-ChildPath $staging 'new/BOOTSTRAP.md');newCorrectionsIdentity=$newCorrectionsIdentity;newControllerIdentity=$newControllerIdentity}
         Write-Utf8NoBom (Join-Path $staging 'state.json') ($state|ConvertTo-Json -Depth 5)
         if((Get-MinimalFileIdentity (Join-ChildPath $staging 'old/project.json'))-cne$oldProjectIdentity-or(Get-MinimalFileIdentity (Join-ChildPath $staging 'old/BOOTSTRAP.md'))-cne$oldBootstrapIdentity){throw 'Frozen old transaction material drift.'}
         if((Get-MinimalFileIdentity $ProjectFile)-cne$oldProjectIdentity-or(Get-MinimalFileIdentity $BootstrapFile)-cne$oldBootstrapIdentity){throw 'OBJECT_DRIFT before transaction freeze.'}
+        $currentCorrectionsIdentity=if(Test-Path -LiteralPath $correctionsFile -PathType Leaf){Get-MinimalFileIdentity $correctionsFile}else{'MISSING'}
+        if($CorrectionsMode-cne'NONE'-and$currentCorrectionsIdentity-cne$oldCorrectionsIdentity){throw 'OBJECT_DRIFT before corrections transaction freeze.'}
         if($ControllerMode-ceq'CREATE'-and(Test-Path -LiteralPath $ControllerFile)){throw 'OBJECT_DRIFT before controller transaction freeze.'}
         if(-not[string]::IsNullOrWhiteSpace($AdditionalInputPath)-and((Get-MinimalFileIdentity $AdditionalInputPath)-cne$ExpectedAdditionalInputIdentity)){throw 'Additional migration input drift before transaction freeze.'}
         [IO.Directory]::Move($staging,$Root)
@@ -465,6 +513,8 @@ function Commit-UpgradeTransaction([string]$Root,[string]$ProjectRoot,[string]$P
     $state=Read-UpgradeTransaction $Root $ProjectId
     if([string]$state.toVersion-cne$RequestedTarget){throw 'Requested target does not match the prepared upgrade transaction.'}
     try{
+        $correctionsFile=Join-Path $ProjectRoot 'corrections.json'
+        if([string]$state.correctionsMode-ceq'CREATE'){Set-UpgradeFile (Join-ChildPath $Root 'new/corrections.json') $correctionsFile 'MISSING' ([string]$state.newCorrectionsIdentity)}
         Set-UpgradeFile (Join-ChildPath $Root 'new/project.json') $ProjectFile ([string]$state.oldProjectIdentity) ([string]$state.newProjectIdentity)
         Set-UpgradeFile (Join-ChildPath $Root 'new/BOOTSTRAP.md') $BootstrapFile ([string]$state.oldBootstrapIdentity) ([string]$state.newBootstrapIdentity)
         if([string]$state.controllerMode-ceq'CREATE'){Set-UpgradeFile (Join-ChildPath $Root 'new/controller.json') $ControllerFile 'MISSING' ([string]$state.newControllerIdentity)}
@@ -476,6 +526,34 @@ function Commit-UpgradeTransaction([string]$Root,[string]$ProjectRoot,[string]$P
         try{$null=Recover-UpgradeTransaction $Root $ProjectRoot $ProjectFile $BootstrapFile $ControllerFile $ProjectId $ControllerId $RequestedTarget}catch{throw "Upgrade failed and recovery is incomplete; transaction preserved. Commit: $($failure.Exception.Message); recovery: $($_.Exception.Message)"}
         throw "Upgrade failed and was rolled back: $($failure.Exception.Message)"
     }
+}
+
+function Invoke-CorrectionEvaluation([string]$Evaluator,[string]$ProjectRepository,[string]$FrameworkWorkspace,[string]$Version,[string]$ProjectConfigFile,[string]$CorrectionsFile,[string]$EvaluationOperation,[switch]$AllowMissing) {
+    if([string]::IsNullOrWhiteSpace($Evaluator)){return $null}
+    $invokeParameters=@{
+        ProjectRoot=$ProjectRepository
+        FrameworkRoot=$FrameworkWorkspace
+        TargetVersion=$Version
+        ExpectedProjectConfigIdentity=(Get-MinimalFileIdentity $ProjectConfigFile)
+        Operation=$EvaluationOperation
+        AsJson=$true
+    }
+    if(Test-Path -LiteralPath $CorrectionsFile -PathType Leaf){$invokeParameters.ExpectedCorrectionsIdentity=Get-MinimalFileIdentity $CorrectionsFile}else{$invokeParameters.AllowMissingCorrections=$true}
+    $output=@(& $Evaluator @invokeParameters 2>&1|ForEach-Object{[string]$_});$code=$LASTEXITCODE
+    $joined=$output -join ''
+    try{$result=$joined|ConvertFrom-Json}catch{throw "Project correction evaluator returned invalid output: $joined"}
+    if($code-eq3-and[string]$result.status-ceq'CONFLICT'){return $result}
+    if($code-ne0-or[string]$result.status-ceq'FAIL'){throw "PROJECT_CORRECTION_EVALUATION_FAILED|$joined"}
+    return $result
+}
+
+function Write-CorrectionEvaluation($Result,[string]$Phase) {
+    if($null-eq$Result){Write-Host "Project corrections ($Phase): NOT_PRESENT";return}
+    Write-Host ("Project corrections ($Phase): coverage="+[string]$Result.coverageStatus+"; incorporated="+@($Result.incorporated).Count+"; still-effective="+@($Result.stillEffective).Count+"; conflicts="+@($Result.conflicts).Count)
+    foreach($item in @($Result.incorporated)){Write-Host ('  INCORPORATED '+[string]$item.correctionId)}
+    foreach($item in @($Result.stillEffective)){Write-Host ('  STILL_EFFECTIVE '+[string]$item.correctionId+' — '+[string]$item.requirementReason)}
+    foreach($item in @($Result.conflicts)){Write-Host ('  CONFLICT '+[string]$item.correctionId+' — '+[string]$item.requirementReason)}
+    if(@($Result.conflicts).Count-ne0){throw 'PROJECT_CORRECTION_CONFLICT'}
 }
 
 function Invoke-Framework16Upgrade([string]$ProjectRoot,[string]$Repo,[string]$Layout,[string]$FrameworkRoot) {
@@ -635,7 +713,7 @@ if ($layout -cne 'repo-local') { throw 'Framework live upgrade accepts repositor
             throw "Repo-local project configuration is missing a required property: $property"
         }
     }
-    $allowedSchema3Sources = if($ToVersion -ceq '1.6.1'){@('1.6.0','1.6.1')}elseif($ToVersion -ceq '1.7.0'){@('1.6.0','1.6.1','1.7.0')}elseif($ToVersion -ceq '1.8.0'){@('1.6.0','1.6.1','1.7.0','1.8.0')}elseif($ToVersion -ceq '1.9.0'){@('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0')}else{@()}
+    $allowedSchema3Sources = if($ToVersion -ceq '1.6.1'){@('1.6.0','1.6.1')}elseif($ToVersion -ceq '1.7.0'){@('1.6.0','1.6.1','1.7.0')}elseif($ToVersion -ceq '1.8.0'){@('1.6.0','1.6.1','1.7.0','1.8.0')}elseif($ToVersion -ceq '1.9.0'){@('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0')}elseif($ToVersion -ceq '1.10.0'){@('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0')}else{@()}
     $schema3Patch = $allowedSchema3Sources.Count -gt 0 -and
         (Test-MinimalJsonInteger $config.schemaVersion) -and [int]$config.schemaVersion -eq 3 -and
         ($config.frameworkVersion -is [string]) -and [string]$config.frameworkVersion -in $allowedSchema3Sources
@@ -656,7 +734,7 @@ if ($layout -cne 'repo-local') { throw 'Framework live upgrade accepts repositor
         $controllerRaw=Read-StrictUtf8NoBom $controllerFile
         try{$controller=$controllerRaw|ConvertFrom-Json}catch{throw 'Schema3 patch source controller.json is invalid.'}
         Assert-MinimalController $controller $controllerRaw $ProjectId $ControllerId
-    } elseif ($ToVersion -in @('1.6.1','1.7.0','1.8.0','1.9.0')) {
+    } elseif ($ToVersion -in @('1.6.1','1.7.0','1.8.0','1.9.0','1.10.0')) {
         throw "Framework $ToVersion direct upgrade requires a healthy supported schema3 source; migrate older schema2 projects to schema3 first."
     } elseif ([int]$config.schemaVersion -ne 2 -or
         [string]$config.controlPlaneLayout -cne 'repo-local' -or
@@ -672,6 +750,7 @@ $sourceFramework = Join-ChildPath $frameworkRoot "versions/$fromVersion"
 $sourceBootstrapTemplate = Join-ChildPath $sourceFramework 'project-starter/BOOTSTRAP.md'
 $targetBootstrapTemplate = Join-ChildPath $targetFramework 'project-starter/BOOTSTRAP.md'
 $targetProjectTemplate = Join-ChildPath $targetFramework 'project-starter/project.json'
+$targetCorrectionsTemplate = Join-ChildPath $targetFramework 'project-starter/corrections.json'
 if (-not (Test-Path -LiteralPath $targetBootstrapTemplate -PathType Leaf)) {
     throw "Target Framework Bootstrap template does not exist: $targetBootstrapTemplate"
 }
@@ -701,7 +780,28 @@ if ($currentBlock.Text -cne $expectedBlock.Text) {
 $renderedTarget = Render-Bootstrap $targetTemplate $config $ToVersion
 $targetBlock = Get-ManagedBootstrapBlock $renderedTarget $targetBootstrapTemplate
 $targetBootstrap = Replace-ManagedBootstrapBlock $currentBootstrap $targetBlock.Text $currentBlock
+$targetBootstrap = Merge-CorrectionBootstrapBlock $targetBootstrap $renderedTarget $targetBootstrapTemplate
 Assert-TargetBootstrapContract $targetBootstrap $ToVersion $workspace $targetFramework $layout
+
+$correctionsFile=Join-ChildPath $projectRoot 'corrections.json'
+$targetEvaluator=Join-ChildPath $targetFramework 'scripts/check-project-corrections.ps1'
+$sourceEvaluator=Join-ChildPath $sourceFramework 'scripts/check-project-corrections.ps1'
+$evaluator=if(Test-Path -LiteralPath $targetEvaluator -PathType Leaf){$targetEvaluator}elseif(Test-Path -LiteralPath $sourceEvaluator -PathType Leaf){$sourceEvaluator}else{''}
+$correctionsMode='NONE';$targetCorrections=''
+if(Test-Path -LiteralPath $correctionsFile -PathType Leaf){
+    Assert-NoReparsePoint $correctionsFile
+    if([string]::IsNullOrWhiteSpace($evaluator)){throw 'Project has correction authority but neither source nor target Framework provides the evaluator.'}
+    $correctionsMode='PRESERVE'
+}elseif(Test-Path -LiteralPath $targetEvaluator -PathType Leaf){
+    if(-not(Test-Path -LiteralPath $targetCorrectionsTemplate -PathType Leaf)){throw 'Target Framework corrections starter is missing.'}
+    $targetCorrections=(Read-StrictUtf8NoBom $targetCorrectionsTemplate).Replace('{{PROJECT_ID}}',$ProjectId)
+    if($targetCorrections-match'\{\{[A-Z0-9_]+\}\}'){throw 'Target Framework corrections starter contains an unresolved token.'}
+    try{$generatedCorrections=$targetCorrections|ConvertFrom-Json}catch{throw 'Target Framework corrections starter is invalid JSON.'}
+    if([string]$generatedCorrections.projectId-cne$ProjectId-or[string]$generatedCorrections.contractVersion-cne'1.10.0'-or@($generatedCorrections.corrections).Count-ne0){throw 'Target Framework corrections starter values are invalid.'}
+    $correctionsMode='CREATE'
+}
+$preCorrection=Invoke-CorrectionEvaluation $evaluator $repo $workspace $ToVersion $projectFile $correctionsFile 'PRECHECK' -AllowMissing:($correctionsMode-ceq'CREATE')
+Write-CorrectionEvaluation $preCorrection 'before pin projection'
 
 Write-Host "Project: $ProjectId"
 Write-Host "Layout: $layout"
@@ -714,6 +814,7 @@ if (-not $Apply) {
 }
 
 if ($fromVersion -eq $ToVersion) {
+    if($correctionsMode-ceq'CREATE'){throw 'Pinned 1.10.0 project is missing corrections.json; refuse to report already upgraded.'}
     Write-Host 'Already on requested version with a matching Bootstrap; no change.'
     return
 }
@@ -730,10 +831,13 @@ if ([string]$validatedConfig.frameworkVersion -cne $ToVersion) {
     throw 'Generated project configuration does not contain the target Framework version.'
 }
 
-$null = New-UpgradeTransaction $transactionRoot $projectRoot $projectFile $bootstrapFile $controllerFile $ProjectId $fromVersion $ToVersion $targetConfig $targetBootstrap 'NONE' '' '' ''
+$null = New-UpgradeTransaction $transactionRoot $projectRoot $projectFile $bootstrapFile $controllerFile $ProjectId $fromVersion $ToVersion $targetConfig $targetBootstrap 'NONE' '' '' '' $correctionsMode $targetCorrections
 $completed = Commit-UpgradeTransaction $transactionRoot $projectRoot $projectFile $bootstrapFile $controllerFile $ProjectId $ControllerId $ToVersion
+
+$postCorrection=Invoke-CorrectionEvaluation $evaluator $repo $workspace $ToVersion $projectFile $correctionsFile 'POSTCHECK'
+Write-CorrectionEvaluation $postCorrection 'after pin projection'
 
 Write-Host "Updated: $projectFile"
 Write-Host "Updated: $bootstrapFile"
-Write-Host "Committed recoverable two-file transaction; recovery material retained at $completed"
-Write-Host 'Next: review the version diff, update project exceptions if needed, and commit both upgraded files together.'
+Write-Host ("Committed recoverable transaction; correction mode="+$correctionsMode+"; recovery material retained at "+$completed)
+Write-Host 'Next: review the pin/Bootstrap/correction report, complete FULL_COLD recovery, then commit only the project-owned adoption objects together.'

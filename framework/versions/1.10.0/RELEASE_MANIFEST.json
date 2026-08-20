@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "version": "1.10.0",
+  "lifecycle": "STABLE",
+  "releaseClass": "MINOR",
+  "scope": "all candidate files except RELEASE_MANIFEST.json",
+  "algorithm": "Ordinal relative path; path|byteLength|UPPER_SHA256; UTF-8 LF join without trailing LF; SHA256 payload",
+  "fileCount": 56,
+  "totalBytes": 372550,
+  "canonical": "D3D087A579DB625F4ADAC7770E7ACA8E00F8B85F30DAF3F13890D854FA3E2CF3",
+  "baseline": "1.9.0",
+  "sourceReview": "APPROVED",
+  "sourceCandidate": "FRAMEWORK_1.10.0_MINIMUM_SUFFICIENT_CANDIDATE_001",
+  "releaseIntegration": "FRAMEWORK_1.10.0_RELEASE_INTEGRATION_001"
+}

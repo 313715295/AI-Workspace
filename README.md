@@ -46,6 +46,8 @@ scripts/
 
 `framework/versions/<version>/` 下已经发行的目录不可修改。新版本直接在其最终版本目录中开发，但在候选内容冻结、完成独立 Review 并正式封存前，不可供项目采用。无需另外维护一份平行的 draft 副本。
 
+Framework 1.10.0 增加最小的跨版本项目纠正规则闭环：项目用自己的 `.ai-workspace/corrections.json` 保存为什么需要某条修正规则，Framework 1.10.0 的不可变版本 payload 用 `CORRECTION_COVERAGE.json` 声明各已发行版本完整吸收了哪些 correction ID。注册和升级只对调用方明确提供的项目做机械比较，展示已吸收、仍需生效和冲突项；不会删除记录、保存消费者身份或自动升级项目。
+
 ## 新项目初始化
 
 注册流程复制所选版本中现有的 `project-starter`，不会另外创建第二套流程模型。
@@ -55,7 +57,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/register-project.ps1
   -RepositoryPath <git-root> \
   -ProjectId <id> \
   -DisplayName <name> \
-  -FrameworkVersion 1.8.0 \
+  -FrameworkVersion 1.10.0 \
   -ControllerId <host-task-id>
 ```
 
@@ -75,4 +77,4 @@ Framework 维护过程中的动态状态属于专用控制仓库。Framework 源
 
 恢复和安全读取不会授予写入权限。源文件写入、测试写入、测试运行、Review、Git、push、设备/浏览器和外部操作仍是相互独立的能力。单一 writer、必要时的独立 Review、受保护路径边界、稳定版本不可变以及独立的 Git/发布门禁仍然是强制要求。
 
-Framework 1.8.0 在减少重复路由和证据工作的同时，没有引入可变任务字段 manifest、授权消费 ledger、消费者注册表、后台监控器、重试服务或跨仓库事务。
+Framework 1.10.0 在增加一个项目 correction 对象和一个通用版本覆盖映射的同时，没有引入可变任务字段 manifest、授权消费 ledger、消费者注册表、后台监控器、重试服务或跨仓库事务。
