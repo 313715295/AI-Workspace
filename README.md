@@ -44,6 +44,16 @@ scripts/
   upgrade-project.ps1
 ```
 
+每个发行版本还包含一组通用规则文件，用来规定项目控制面的行为，而不是保存某个项目的当前状态：
+
+- `RECOVERY_CORE.md`：规定如何从仓内事实恢复项目上下文。
+- `PROJECT_CONTROL.md`：规定 Controller、Domain Owner、项目纠正和控制面对象的关系。
+- `TASK_AND_SCOPE.md`：规定任务范围、复用、新建和临时角色路由。
+- `AUTHORIZATION_MODEL.md`：规定写入、测试、Review、Git 和外部操作的独立授权边界。
+- `REVIEW_AND_EVIDENCE.md`：规定独立审查、证据范围和验收要求。
+
+这些文件只定义规则。项目的真实动态状态始终保存在该项目自己的 `.ai-workspace/**` 中，包括 `project.json`、`controller.json`、任务卡、`STATUS.md` 和 `corrections.json`。
+
 `framework/versions/<version>/` 下已经发行的目录不可修改。新版本直接在其最终版本目录中开发，但在候选内容冻结、完成独立 Review 并正式封存前，不可供项目采用。无需另外维护一份平行的 draft 副本。
 
 Framework 1.10.0 增加最小的跨版本项目纠正规则闭环：项目用自己的 `.ai-workspace/corrections.json` 保存为什么需要某条修正规则，Framework 1.10.0 的不可变版本 payload 用 `CORRECTION_COVERAGE.json` 声明各已发行版本完整吸收了哪些 correction ID。注册和升级只对调用方明确提供的项目做机械比较，展示已吸收、仍需生效和冲突项；不会删除记录、保存消费者身份或自动升级项目。
