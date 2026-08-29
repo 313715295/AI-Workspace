@@ -131,6 +131,8 @@ scripts/
 
 Framework 1.10.0 增加最小的跨版本项目纠正规则闭环：项目用自己的 `.ai-workspace/corrections.json` 保存为什么需要某条修正规则，Framework 1.10.0 的不可变版本 payload 用 `CORRECTION_COVERAGE.json` 声明各已发行版本完整吸收了哪些 correction ID。注册和升级只对调用方明确提供的项目做机械比较，展示已吸收、仍需生效和冲突项；不会删除记录、保存消费者身份或自动升级项目。
 
+Framework 1.11.0 进一步让任务卡用一行 `Work route: role + phase` 明确当前工作语境。Bootstrap 将任务卡交给现有 loader 计算所需模块；首次恢复、阶段切换、会话压缩或交接时刷新，连续不变的实施过程不重复加载。项目纠正被声明为已吸收时，还必须进入适用规范模块、行为测试和独立 Review，不能只登记 correction ID。
+
 ## 快速开始
 
 注册流程复制所选版本中现有的 `project-starter`，不会另外创建第二套流程模型。
@@ -140,14 +142,14 @@ Framework 1.10.0 增加最小的跨版本项目纠正规则闭环：项目用自
 把下面内容复制给位于目标项目工作区的 AI 会话，并替换路径和项目名称：
 
 ```text
-我希望当前项目采用 AI Workspace Framework 1.10.0。
+我希望当前项目采用 AI Workspace Framework 1.11.0。
 
 Framework 仓库：C:\path\to\AI-Workspace
 项目 Git 根：C:\path\to\your-repository
 项目 ID：my-project
 显示名称：My Project
 
-请先只读确认真实 cwd、项目 Git 根、Framework Git 根、1.10.0 的稳定发行状态，以及本 AI 会话的真实 task/thread ID。使用该真实 ID 作为初始 ControllerId；如果宿主无法证明该 ID，请停止并说明。
+请先只读确认真实 cwd、项目 Git 根、Framework Git 根、1.11.0 的稳定发行状态，以及本 AI 会话的真实 task/thread ID。使用该真实 ID 作为初始 ControllerId；如果宿主无法证明该 ID，请停止并说明。
 
 然后运行 register-project.ps1 的预览模式，向我报告将创建的 .ai-workspace 文件、项目 pin、Controller、保留边界和所有 blocker。在我明确确认应用前不要添加 -Apply，不要修改产品源码、Git、远程或外部状态，也不要创建第二套流程。
 ```
@@ -171,7 +173,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\register-proje
   -RepositoryPath C:\path\to\your-repository `
   -ProjectId my-project `
   -DisplayName "My Project" `
-  -FrameworkVersion 1.10.0 `
+  -FrameworkVersion 1.11.0 `
   -ControllerId <host-task-id>
 ```
 
@@ -189,7 +191,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\register-proje
   tasks/             # 项目自己的任务权威
 ```
 
-之后让新的 AI 任务从项目的 `.ai-workspace/BOOTSTRAP.md` 开始即可。Bootstrap 会根据项目 pin、角色、风险级别和当前阶段装载对应规则，而不是要求用户重新粘贴历史聊天。
+之后让新的 AI 任务从项目的 `.ai-workspace/BOOTSTRAP.md` 开始即可。Bootstrap 会根据项目 pin、任务卡中的 Work role/phase、风险级别和宿主/拓扑能力装载对应规则，而不是要求用户重新粘贴历史聊天。
 
 ## 现有项目升级
 
@@ -199,7 +201,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\register-proje
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\upgrade-project.ps1 `
   -RepositoryPath C:\path\to\your-repository `
   -ProjectId my-project `
-  -ToVersion 1.10.0
+  -ToVersion 1.11.0
 ```
 
 升级同样默认只预览；确认比较结果和项目纠正状态后，再在独立项目授权下添加 `-Apply`。

@@ -127,8 +127,8 @@ function New-TemplateMap([string]$Version) {
         'PROJECT.md'='PROJECT.md'; 'REVIEW_PROFILE.md'='REVIEW_PROFILE.md'; 'RELATIONSHIPS.md'='RELATIONSHIPS.md';
         'STATUS.md'='STATUS.md'; 'tasks/README.md'='tasks/README.md'
     }
-    if ($Version -in @('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0')) { $map['controller.json']='controller.json' }
-    if ($Version -ceq '1.10.0') { $map['corrections.json']='corrections.json' }
+    if ($Version -in @('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0')) { $map['controller.json']='controller.json' }
+    if ($Version -in @('1.10.0','1.11.0')) { $map['corrections.json']='corrections.json' }
     return $map
 }
 
@@ -317,7 +317,7 @@ function Get-RepoLocalStarter {
         }
     }
     $projectTemplateText = Read-StrictUtf8Template (Join-ChildPath $templateRoot 'project.json')
-    $expectedSchema = if ($FrameworkVersion -in @('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0')) { '"schemaVersion": 3' } else { '"schemaVersion": 2' }
+    $expectedSchema = if ($FrameworkVersion -in @('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0')) { '"schemaVersion": 3' } else { '"schemaVersion": 2' }
     if (-not $projectTemplateText.Contains($expectedSchema) -or
         -not $projectTemplateText.Contains('"controlPlaneLayout": "repo-local"') -or
         -not $projectTemplateText.Contains('"repositoryRoot": ".."')) {
@@ -373,7 +373,7 @@ function Assert-RepoLocalProject {
         throw "Existing repo-local project.json is invalid: $projectFile"
     }
     $baseFields=@('schemaVersion','id','displayName','controlPlaneLayout','repositoryRoot','frameworkVersion')
-    $schema3 = $ExpectedFrameworkVersion -in @('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0')
+    $schema3 = $ExpectedFrameworkVersion -in @('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0')
     $expectedFields = if ($schema3) { @($baseFields + @('routineExcludedPaths','frameworkCapabilities')) } else { $baseFields }
     Assert-ExactObjectFields $config $configRaw $expectedFields 'Existing project.json'
     $expectedSchema = if ($schema3) { 3 } else { 2 }
@@ -403,7 +403,7 @@ function Assert-RepoLocalProject {
             -not (Test-JsonInteger $controller.controllerEpoch) -or [int64]$controller.controllerEpoch -lt 1 -or
             -not ($controller.state -is [string]) -or [string]$controller.state -cne 'CURRENT' -or
             (-not [string]::IsNullOrWhiteSpace($ExpectedControllerId) -and [string]$controller.controllerId -cne $ExpectedControllerId)) { throw "Existing controller.json conflicts with the requested project: $controllerFile" }
-        if ($ExpectedFrameworkVersion -ceq '1.10.0') {
+        if ($ExpectedFrameworkVersion -in @('1.10.0','1.11.0')) {
             $correctionsFile=Join-Path $ControlRoot 'corrections.json'
             $correctionsRaw=Read-StrictUtf8Template $correctionsFile
             try { $corrections=$correctionsRaw|ConvertFrom-Json } catch { throw "Existing corrections.json is invalid: $correctionsFile" }
@@ -413,9 +413,9 @@ function Assert-RepoLocalProject {
                 -not ($corrections.projectId -is [string]) -or [string]$corrections.projectId -cne $ExpectedProjectId -or
                 -not ($corrections.corrections -is [System.Array])) { throw "Existing registered corrections.json is invalid: $correctionsFile" }
             if((Split-Path -Leaf $ControlRoot)-ceq'.ai-workspace'){
-                $correctionChecker=Join-ChildPath $FrameworkWorkspaceRoot 'framework/versions/1.10.0/scripts/check-project-corrections.ps1'
-                $checkOutput=@(& $correctionChecker -ProjectRoot (Split-Path -Parent $ControlRoot) -FrameworkRoot $FrameworkWorkspaceRoot -TargetVersion '1.10.0' -ExpectedProjectConfigIdentity (Get-FileIdentity $projectFile) -ExpectedCorrectionsIdentity (Get-FileIdentity $correctionsFile) -Operation RECOVER -AsJson)
-                if($LASTEXITCODE-ne0){throw "Existing corrections.json failed the 1.10.0 project-correction checker: $($checkOutput -join ' ')"}
+                $correctionChecker=Join-ChildPath $FrameworkWorkspaceRoot ("framework/versions/"+$ExpectedFrameworkVersion+"/scripts/check-project-corrections.ps1")
+                $checkOutput=@(& $correctionChecker -ProjectRoot (Split-Path -Parent $ControlRoot) -FrameworkRoot $FrameworkWorkspaceRoot -TargetVersion $ExpectedFrameworkVersion -ExpectedProjectConfigIdentity (Get-FileIdentity $projectFile) -ExpectedCorrectionsIdentity (Get-FileIdentity $correctionsFile) -Operation RECOVER -AsJson)
+                if($LASTEXITCODE-ne0){throw "Existing corrections.json failed the $ExpectedFrameworkVersion project-correction checker: $($checkOutput -join ' ')"}
             }elseif(@($corrections.corrections).Count-ne0){throw 'Registration staging contains unexpected project correction records.'}
         }
     }
@@ -485,7 +485,7 @@ if (Test-Path -LiteralPath $projectRoot) {
 $selection = "Framework $FrameworkVersion"
 $templateMap=New-TemplateMap $FrameworkVersion
 $requiredProjectFiles=@($templateMap.Values)
-if ($FrameworkVersion -in @('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0') -and [string]::IsNullOrWhiteSpace($ControllerId)) { throw 'ControllerId is required when registering a schema3 Framework version.' }
+if ($FrameworkVersion -in @('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0') -and [string]::IsNullOrWhiteSpace($ControllerId)) { throw 'ControllerId is required when registering a schema3 Framework version.' }
 $starter = Get-RepoLocalStarter $frameworkRoot $FrameworkVersion $templateMap $selection
 $templateRoot = $starter.TemplateRoot
 

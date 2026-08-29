@@ -4,6 +4,22 @@ This file contains generic release history and unselected Framework directions. 
 
 ## Release line
 
+### 1.11.0 — authoritative work route and boundary refresh
+
+Status: stable and consumable after independent Review-2 approval and deterministic release integration; publication state is determined by repository refs rather than this roadmap.
+
+Selected minimum-sufficient scope:
+
+- add one authoritative task-header `Work route: role + phase` for new schema 1.11.0 cards;
+- let the existing load-plan resolver bind the assigned task directly and reject role/profile/phase drift;
+- load `RECOVER + current Work phase` after initial recovery, compaction, pause/resume, handoff or uncertain context;
+- reload on task, role, phase, profile or capability transitions, while unchanged continuous work and authorization refresh do not reload;
+- preserve legacy tasks without bulk rewriting through explicit inputs and a visible `LEGACY_LOAD_CONTEXT` evidence ceiling;
+- require an incorporated project correction to exist in applicable normative modules, behavior tests and requirement-level independent Review rather than coverage metadata alone;
+- extend explicit registration and upgrade paths to exact version 1.11.0 while preserving project-owned pins and correction bytes.
+
+Explicitly not selected: a second refresh resolver, per-action or per-tool reload, host hooks/attention monitoring, Skill/plugin/tool governance, token accounting, Knowledge expansion, accepted-state projection, correction-to-module registries, absorption ledgers, background services, actor/Reviewer pools, ACK/heartbeat/polling, automatic consumer adoption, a global version selector or bulk legacy-card migration.
+
 ### 1.10.0 — project correction lifecycle
 
 Status: stable and consumable after independent source Review and release integration; publication state is determined by repository refs rather than this roadmap.

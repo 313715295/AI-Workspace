@@ -440,14 +440,14 @@ function Recover-UpgradeTransaction([string]$Root,[string]$ProjectRoot,[string]$
         $frozenControllerRaw=Read-StrictUtf8NoBom $frozenControllerPath
         try{$frozenController=$frozenControllerRaw|ConvertFrom-Json}catch{throw 'Frozen recovery controller.json is invalid.'}
         Assert-MinimalController $frozenController $frozenControllerRaw $ProjectId $ControllerId
-    }elseif([string]$state.controllerMode-ceq'NONE'-and[string]$state.fromVersion-cin@('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0')-and[string]$state.toVersion-cin@('1.6.1','1.7.0','1.8.0','1.9.0','1.10.0')){
+    }elseif([string]$state.controllerMode-ceq'NONE'-and[string]$state.fromVersion-cin@('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0')-and[string]$state.toVersion-cin@('1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0')){
         if([string]::IsNullOrWhiteSpace($ControllerId)){throw 'ControllerId is required for schema3 transaction recovery.'}
         if(-not(Test-Path -LiteralPath $ControllerFile -PathType Leaf)){throw 'Schema3 patch recovery controller.json is missing.'}
         Assert-NoReparsePoint $ControllerFile
         $currentControllerRaw=Read-StrictUtf8NoBom $ControllerFile
         try{$currentController=$currentControllerRaw|ConvertFrom-Json}catch{throw 'Schema3 patch recovery controller.json is invalid.'}
         Assert-MinimalController $currentController $currentControllerRaw $ProjectId $ControllerId
-    }elseif([string]$state.toVersion-cin@('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0')){
+    }elseif([string]$state.toVersion-cin@('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0')){
         throw 'Unsupported upgrade recovery matrix combination.'
     }
     if($Preview){return ('RECOVERY_REQUIRED|from='+[string]$state.fromVersion+'|to='+[string]$state.toVersion+'|controllerMode='+[string]$state.controllerMode)}
@@ -713,7 +713,7 @@ if ($layout -cne 'repo-local') { throw 'Framework live upgrade accepts repositor
             throw "Repo-local project configuration is missing a required property: $property"
         }
     }
-    $allowedSchema3Sources = if($ToVersion -ceq '1.6.1'){@('1.6.0','1.6.1')}elseif($ToVersion -ceq '1.7.0'){@('1.6.0','1.6.1','1.7.0')}elseif($ToVersion -ceq '1.8.0'){@('1.6.0','1.6.1','1.7.0','1.8.0')}elseif($ToVersion -ceq '1.9.0'){@('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0')}elseif($ToVersion -ceq '1.10.0'){@('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0')}else{@()}
+    $allowedSchema3Sources = if($ToVersion -ceq '1.6.1'){@('1.6.0','1.6.1')}elseif($ToVersion -ceq '1.7.0'){@('1.6.0','1.6.1','1.7.0')}elseif($ToVersion -ceq '1.8.0'){@('1.6.0','1.6.1','1.7.0','1.8.0')}elseif($ToVersion -ceq '1.9.0'){@('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0')}elseif($ToVersion -ceq '1.10.0'){@('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0')}elseif($ToVersion -ceq '1.11.0'){@('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0')}else{@()}
     $schema3Patch = $allowedSchema3Sources.Count -gt 0 -and
         (Test-MinimalJsonInteger $config.schemaVersion) -and [int]$config.schemaVersion -eq 3 -and
         ($config.frameworkVersion -is [string]) -and [string]$config.frameworkVersion -in $allowedSchema3Sources
@@ -734,7 +734,7 @@ if ($layout -cne 'repo-local') { throw 'Framework live upgrade accepts repositor
         $controllerRaw=Read-StrictUtf8NoBom $controllerFile
         try{$controller=$controllerRaw|ConvertFrom-Json}catch{throw 'Schema3 patch source controller.json is invalid.'}
         Assert-MinimalController $controller $controllerRaw $ProjectId $ControllerId
-    } elseif ($ToVersion -in @('1.6.1','1.7.0','1.8.0','1.9.0','1.10.0')) {
+    } elseif ($ToVersion -in @('1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0')) {
         throw "Framework $ToVersion direct upgrade requires a healthy supported schema3 source; migrate older schema2 projects to schema3 first."
     } elseif ([int]$config.schemaVersion -ne 2 -or
         [string]$config.controlPlaneLayout -cne 'repo-local' -or
@@ -814,7 +814,7 @@ if (-not $Apply) {
 }
 
 if ($fromVersion -eq $ToVersion) {
-    if($correctionsMode-ceq'CREATE'){throw 'Pinned 1.10.0 project is missing corrections.json; refuse to report already upgraded.'}
+    if($correctionsMode-ceq'CREATE'){throw "Pinned $ToVersion project is missing corrections.json; refuse to report already upgraded."}
     Write-Host 'Already on requested version with a matching Bootstrap; no change.'
     return
 }
