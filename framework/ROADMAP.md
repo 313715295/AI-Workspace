@@ -4,6 +4,21 @@ This file contains generic release history and unselected Framework directions. 
 
 ## Release line
 
+### 1.12.0 — Tool Contract and PowerShell 7 backend
+
+Status: candidate and not consumable. Stable release requires frozen source, actual Windows/Ubuntu/macOS PowerShell 7 conformance, fresh independent CRITICAL Review and deterministic manifest seal.
+
+Selected minimum-sufficient scope:
+
+- define one language-independent Tool Contract for operation selection, invocation, normalized results, relative paths, identities and fail-closed behavior;
+- publish exactly one payload-sealed `TOOLCHAIN.json` mapping abstract operations to version-local entrypoints;
+- add one project-level `frameworkToolBackend` selection inherited by all tasks and checks, bound indirectly through existing project config identity;
+- provide `powershell7` as the only official backend, reject non-Core or pre-7 runtimes and remove 1.12 runtime dependence on `powershell.exe`;
+- make registration and upgrade require the declared runtime before project write and project the backend field transactionally;
+- run one normalized conformance entrypoint on Windows, Ubuntu/Linux and macOS, with explicit filesystem/link/case/permission/path/Git/text evidence ceilings.
+
+Explicitly not selected: a launcher, zsh/Python backend, runtime generation, task/action/package-level backend selection, backend switch command before a second backend exists, registry/service/ledger, automatic runtime installation, global Framework default, consumer registry or automatic project upgrade.
+
 ### 1.11.0 — authoritative work route and boundary refresh
 
 Status: stable and consumable after independent Review-2 approval and deterministic release integration; publication state is determined by repository refs rather than this roadmap.

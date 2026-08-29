@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-workspace.local/framework/1.10.0/project-corrections.schema.json",
+  "title": "AI Workspace project corrections",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "contractVersion", "projectId", "corrections"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "contractVersion": { "const": "1.10.0" },
+    "projectId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+    "corrections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["correctionId", "introducedAgainstFramework", "requirementReason", "effectiveRule", "applicability", "decisionLocator"],
+        "properties": {
+          "correctionId": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+          "introducedAgainstFramework": { "type": "string", "minLength": 1 },
+          "requirementReason": { "type": "string", "minLength": 1 },
+          "effectiveRule": { "type": "string", "minLength": 1 },
+          "applicability": { "type": "string", "minLength": 1 },
+          "decisionLocator": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

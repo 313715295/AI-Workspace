@@ -1,0 +1,32 @@
+name: Framework toolchain conformance
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "framework/versions/1.12.0/**"
+      - ".github/workflows/framework-toolchain-conformance.yml"
+  push:
+    branches:
+      - main
+      - "framework-1.12.0-*"
+    paths:
+      - "framework/versions/1.12.0/**"
+      - ".github/workflows/framework-toolchain-conformance.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  powershell7:
+    name: PowerShell 7 / ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run normalized Tool Contract fixtures
+        shell: pwsh
+        run: ./framework/versions/1.12.0/tests/run-framework-tests.ps1 -ToolContractOnly

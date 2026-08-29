@@ -110,6 +110,8 @@ framework/
       RELEASE_MANIFEST.json
       project-starter/
       framework-maintenance-starter/
+      TOOL_CONTRACT.md
+      TOOLCHAIN.json
       scripts/
       tests/
 scripts/
@@ -132,6 +134,8 @@ scripts/
 Framework 1.10.0 增加最小的跨版本项目纠正规则闭环：项目用自己的 `.ai-workspace/corrections.json` 保存为什么需要某条修正规则，Framework 1.10.0 的不可变版本 payload 用 `CORRECTION_COVERAGE.json` 声明各已发行版本完整吸收了哪些 correction ID。注册和升级只对调用方明确提供的项目做机械比较，展示已吸收、仍需生效和冲突项；不会删除记录、保存消费者身份或自动升级项目。
 
 Framework 1.11.0 进一步让任务卡用一行 `Work route: role + phase` 明确当前工作语境。Bootstrap 将任务卡交给现有 loader 计算所需模块；首次恢复、阶段切换、会话压缩或交接时刷新，连续不变的实施过程不重复加载。项目纠正被声明为已吸收时，还必须进入适用规范模块、行为测试和独立 Review，不能只登记 correction ID。
+
+Framework 1.12.0 候选进一步把“操作契约”和“脚本实现”分离：版本内的 `TOOL_CONTRACT.md` 定义通用操作语义，单一 `TOOLCHAIN.json` 将操作映射到密封入口；项目在自己的 `project.json.frameworkToolBackend` 中选择后端，任务只继承，不逐次选择。1.12.0 只提供官方 `powershell7` 后端，并以 Windows、Ubuntu/Linux、macOS 的实际一致性结果作为发布门禁；它在候选封存前不可供项目采用。
 
 ## 快速开始
 
@@ -215,7 +219,7 @@ Framework 维护过程中的动态状态属于专用控制仓库。Framework 源
 ## 使用环境与兼容性
 
 - 项目需要位于可识别的 Git 仓库中；Framework 不接管项目源码仓库或远程配置。
-- 注册、升级和校验工具以 PowerShell 提供，发行测试覆盖 Windows PowerShell 5.1，并在可用环境中覆盖 PowerShell 7。
+- 具体运行时由项目所选 Framework 版本的 `TOOLCHAIN.json` 决定。1.11.0 及更早不可变版本保留各自的 PowerShell 兼容性；1.12.0 候选只接受 `pwsh` / PowerShell 7，并要求 Windows、Linux、macOS 的实际一致性证据。
 - 当前提供明确的 Codex host 合同；其他 AI 宿主可以复用仓内流程，但需要自行提供等价的任务身份、消息真实性和工具权限信号。
 - Framework 规则可以约束协作流程，但不能替代产品事实、运行时测试、浏览器/设备证据或人工产品决定。
 

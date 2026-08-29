@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "version": "1.12.0",
+  "lifecycle": "CANDIDATE",
+  "releaseClass": "MINOR",
+  "consumable": false,
+  "baseline": "1.11.0",
+  "projectPinEligible": false
+}

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 3,
+  "id": {{PROJECT_ID_JSON}},
+  "displayName": {{DISPLAY_NAME_JSON}},
+  "controlPlaneLayout": "repo-local",
+  "repositoryRoot": "..",
+  "frameworkVersion": {{FRAMEWORK_VERSION_JSON}},
+  "frameworkToolBackend": "powershell7",
+  "routineExcludedPaths": [],
+  "frameworkCapabilities": {}
+}
