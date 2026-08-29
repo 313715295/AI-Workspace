@@ -10,7 +10,7 @@ Release class: `MINOR`.
 - one payload-sealed `TOOLCHAIN.json` mapping operation names to backend entrypoints;
 - project-level `frameworkToolBackend` selection, fixed to `powershell7` in this release;
 - PowerShell 7 runtime guards on every official versioned entrypoint;
-- one normalized conformance route for Windows, Ubuntu/Linux and macOS PowerShell 7.
+- one platform-neutral conformance route with Windows as the only platform officially declared and evidenced by 1.12.0; Linux/macOS admission remains future work.
 
 ## Changed
 

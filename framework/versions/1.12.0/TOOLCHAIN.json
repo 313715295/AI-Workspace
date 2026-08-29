@@ -12,7 +12,7 @@
         "edition": "Core",
         "minimumMajorVersion": 7
       },
-      "platforms": ["windows", "linux", "macos"],
+      "platforms": ["windows"],
       "entrypoints": {
         "AUTHORIZATION_CHECK": "scripts/check-authorization.ps1",
         "CORRECTIONS_CHECK": "scripts/check-project-corrections.ps1",
@@ -28,7 +28,7 @@
   ],
   "conformance": {
     "entrypoint": "tests/run-framework-tests.ps1",
-    "arguments": ["-ToolContractOnly"],
+    "arguments": ["-SkipBaseline"],
     "normalizedResultContract": "TOOL_CONTRACT.md"
   }
 }

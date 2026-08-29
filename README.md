@@ -135,7 +135,7 @@ Framework 1.10.0 增加最小的跨版本项目纠正规则闭环：项目用自
 
 Framework 1.11.0 进一步让任务卡用一行 `Work route: role + phase` 明确当前工作语境。Bootstrap 将任务卡交给现有 loader 计算所需模块；首次恢复、阶段切换、会话压缩或交接时刷新，连续不变的实施过程不重复加载。项目纠正被声明为已吸收时，还必须进入适用规范模块、行为测试和独立 Review，不能只登记 correction ID。
 
-Framework 1.12.0 候选进一步把“操作契约”和“脚本实现”分离：版本内的 `TOOL_CONTRACT.md` 定义通用操作语义，单一 `TOOLCHAIN.json` 将操作映射到密封入口；项目在自己的 `project.json.frameworkToolBackend` 中选择后端，任务只继承，不逐次选择。1.12.0 只提供官方 `powershell7` 后端，并以 Windows、Ubuntu/Linux、macOS 的实际一致性结果作为发布门禁；它在候选封存前不可供项目采用。
+Framework 1.12.0 已稳定发行，并进一步把“操作契约”和“脚本实现”分离：版本内的 `TOOL_CONTRACT.md` 定义通用操作语义，单一 `TOOLCHAIN.json` 将操作映射到密封入口；项目在自己的 `project.json.frameworkToolBackend` 中选择后端，任务只继承，不逐次选择。1.12.0 只提供官方 `powershell7` 后端，当前正式验证和声明的平台为 Windows；Linux/macOS 可在后续版本按同一合同补充实现证据，不属于本次发布门禁。发行不会自动改变任何项目的 Framework 版本或后端选择。
 
 ## 快速开始
 
@@ -202,9 +202,10 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\register-proje
 `scripts/upgrade-project.ps1` 接收调用方明确提供的项目根目录和 `ToVersion`。它会校验源控制面、目标发行版本及可恢复的事务边界，保留项目自有的身份、Controller、常规排除项、能力配置和 Bootstrap 自定义区域，并且只修改声明过的受管对象。它不会搜索消费者，也不会修改其他项目。
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\upgrade-project.ps1 `
+pwsh -NoProfile -NonInteractive -File .\scripts\upgrade-project.ps1 `
   -RepositoryPath C:\path\to\your-repository `
   -ProjectId my-project `
+  -ControllerId <host-task-id> `
   -ToVersion 1.11.0
 ```
 
@@ -219,7 +220,7 @@ Framework 维护过程中的动态状态属于专用控制仓库。Framework 源
 ## 使用环境与兼容性
 
 - 项目需要位于可识别的 Git 仓库中；Framework 不接管项目源码仓库或远程配置。
-- 具体运行时由项目所选 Framework 版本的 `TOOLCHAIN.json` 决定。1.11.0 及更早不可变版本保留各自的 PowerShell 兼容性；1.12.0 候选只接受 `pwsh` / PowerShell 7，并要求 Windows、Linux、macOS 的实际一致性证据。
+- 具体运行时由项目所选 Framework 版本的 `TOOLCHAIN.json` 决定。1.11.0 及更早不可变版本保留各自的 PowerShell 兼容性；1.12.0 只接受 `pwsh` / PowerShell 7，当前官方平台为 Windows。Linux/macOS 尚未在该版本声明为受支持平台。
 - 当前提供明确的 Codex host 合同；其他 AI 宿主可以复用仓内流程，但需要自行提供等价的任务身份、消息真实性和工具权限信号。
 - Framework 规则可以约束协作流程，但不能替代产品事实、运行时测试、浏览器/设备证据或人工产品决定。
 

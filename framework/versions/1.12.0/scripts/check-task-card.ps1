@@ -131,7 +131,7 @@ if ($schemaMatches.Count -eq 0) {
     exit 0
 }
 $taskSchema = if ($schemaMatches.Count -eq 1) { $schemaMatches[0].Groups['version'].Value } else { '' }
-if ($schemaMatches.Count -ne 1 -or $taskSchema -notin @('1.5','1.5.2','1.9.0','1.10.0','1.12.0')) { Add-Reason $reasons 'TASK_SCHEMA' }
+if ($schemaMatches.Count -ne 1 -or $taskSchema -notin @('1.5','1.5.2','1.9.0','1.10.0','1.11.0','1.12.0')) { Add-Reason $reasons 'TASK_SCHEMA' }
 
 $titleMatches = [regex]::Matches($text, '(?m)^#\s+(?<id>[A-Za-z0-9][A-Za-z0-9._-]*)\s+(?:\u2014|-)')
 if ($titleMatches.Count -ne 1) { Add-Reason $reasons 'TASK_ID' }
@@ -143,7 +143,7 @@ $taskOwner = if ($ownerMatches.Count -eq 1) { $ownerMatches[0].Groups['owner'].V
 
 $workRouteLines = [regex]::Matches($text, '(?m)^- Work route:\s*.+$')
 $workRouteMatches = [regex]::Matches($text, '(?m)^- Work route:\s*role=(?<role>CONTROLLER|DOMAIN_OWNER|EXECUTOR|REVIEWER|FRAMEWORK_MAINTAINER);\s*phase=(?<phase>DISCOVER|PLAN|IMPLEMENT|VERIFY|REVIEW|GIT|EXTERNAL|RECOVER)\s*$')
-if ($taskSchema -ceq '1.12.0') {
+if ($taskSchema -in @('1.11.0','1.12.0')) {
     if ($workRouteLines.Count -ne 1 -or $workRouteMatches.Count -ne 1) { Add-Reason $reasons 'WORK_ROUTE_FIELD' }
 } elseif ($workRouteLines.Count -ne 0 -or $workRouteMatches.Count -ne 0) {
     if ($workRouteLines.Count -ne 1 -or $workRouteMatches.Count -ne 1) { Add-Reason $reasons 'WORK_ROUTE_FIELD' }
@@ -169,7 +169,7 @@ if ($summaryMatches.Count -ne 1) {
 
 if ($profile -ceq 'CRITICAL' -and [string]::IsNullOrWhiteSpace($currentExact)) { Add-Reason $reasons 'CRITICAL_CURRENT_EXACT' }
 
-if ($taskSchema -in @('1.9.0','1.10.0','1.12.0') -and $profile -ceq 'CRITICAL') {
+if ($taskSchema -in @('1.9.0','1.10.0','1.11.0','1.12.0') -and $profile -ceq 'CRITICAL') {
     $proportionalityMatches = [regex]::Matches($text, '(?m)^- Proportionality:\s*(?<value>.+?)\s*$')
     if ($proportionalityMatches.Count -ne 1) {
         Add-Reason $reasons 'PROPORTIONALITY_FIELD'
@@ -203,7 +203,7 @@ if ($taskSchema -in @('1.9.0','1.10.0','1.12.0') -and $profile -ceq 'CRITICAL') 
     }
 }
 
-if ($taskSchema -in @('1.5.2','1.9.0','1.10.0','1.12.0') -and $profile -ceq 'CRITICAL') {
+if ($taskSchema -in @('1.5.2','1.9.0','1.10.0','1.11.0','1.12.0') -and $profile -ceq 'CRITICAL') {
     $phaseGateMatches = [regex]::Matches($text, '(?m)^- Phase gate:\s*(?<value>TRUE|FALSE)\s*$')
     if ($phaseGateMatches.Count -ne 1) {
         Add-Reason $reasons 'PHASE_GATE_FIELD'

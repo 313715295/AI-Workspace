@@ -10,11 +10,11 @@ Safe in-scope reads need no implementation package. Every mutating or side-effec
 
 ## Package binding
 
-A package binds framework version, task, profile, lifecycle, owner, issuer, grantee, action set, exact paths, whole-object identities, decision class, user confirmation, Controller ID/epoch/control identity, repository identity and project-config identity where applicable.
+A package binds framework version, task, profile, lifecycle, owner, issuer, grantee, action set, exact paths, whole-object identities, decision class, user confirmation and project-config identity. Controller ID/epoch/control identity and repository identity remain conditional on their topology and issuer role.
 
 Required invalidators include task, owner, grantee, action set, path set, object, user decision, Controller epoch, repository and project-config drift. Unknown drift fails closed.
 
-The selected tool backend is contained in project config and is therefore bound by `projectConfigIdentity`. Packages do not repeat `frameworkToolBackend`; a backend/config byte change invalidates them without creating a second selection truth.
+The selected tool backend is contained in project config and is therefore bound by `projectConfigIdentity` in both repo-local schema1 and Maintenance schema2 packages. Packages do not repeat `frameworkToolBackend`; a backend/config byte change invalidates them without creating a second selection truth.
 
 Framework 1.12.0 accepts an `ObservedAction` array. One unchanged lease may preflight several granted actions once; the checker returns one result per requested action. Duplicate, unknown or ungranted actions fail. Existing single-action callers remain valid.
 

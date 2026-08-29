@@ -160,7 +160,7 @@ if ($null -eq $package) {
     exit 2
 }
 
-$requiredFields = @('schemaVersion','frameworkVersion','taskId','profile','lifecycle','owner','issuer','issuerRole','grantee','bundle','decisionClass','userConfirmation','reviewIndependence','delegatedGitCloser','actions','exactPaths','objectIdentities','invalidatesOn')
+$requiredFields = @('schemaVersion','frameworkVersion','taskId','profile','lifecycle','owner','issuer','issuerRole','grantee','bundle','decisionClass','userConfirmation','reviewIndependence','delegatedGitCloser','actions','exactPaths','objectIdentities','invalidatesOn','projectConfigIdentity')
 foreach ($field in $requiredFields) {
     if ($null -eq $package.PSObject.Properties[$field]) { Add-Reason $reasons "FIELD_MISSING_$field" }
 }
@@ -171,11 +171,11 @@ if ($reasons.Count -gt 0) {
 
 $baseFields = @('schemaVersion','frameworkVersion','taskId','profile','lifecycle','owner','issuer','issuerRole','grantee','bundle','decisionClass','userConfirmation','reviewIndependence','delegatedGitCloser','actions','exactPaths','objectIdentities','invalidatesOn')
 $controllerFields = @('issuerControllerId','issuerControllerEpoch','controllerControlIdentity')
-$repositoryFields = @('repositoryId','projectConfigIdentity')
+$repositoryFields = @('repositoryId')
 $criticalReviewFields = @('candidateWriter','materialContributors')
 $criticalReviewPackage = [string]$package.profile -ceq 'CRITICAL' -and 'REVIEW_EXECUTE' -in @($package.actions)
 $actualFields = @($package.PSObject.Properties.Name)
-$expectedFields = @($baseFields)
+$expectedFields = @($baseFields) + @('projectConfigIdentity')
 if ([string]$package.issuerRole -ceq 'PROJECT_CONTROLLER') { $expectedFields += $controllerFields }
 if ((Test-JsonInteger $package.schemaVersion) -and [int]$package.schemaVersion -eq 2) { $expectedFields += $repositoryFields }
 if ($criticalReviewPackage) { $expectedFields += $criticalReviewFields }
@@ -183,7 +183,7 @@ if ($actualFields.Count -ne $expectedFields.Count -or @($expectedFields | Where-
     Add-Reason $reasons 'PACKAGE_FIELD_SET'
 }
 
-$stringFields = @('frameworkVersion','taskId','profile','lifecycle','owner','issuer','issuerRole','grantee','bundle','decisionClass','userConfirmation','reviewIndependence')
+$stringFields = @('frameworkVersion','taskId','profile','lifecycle','owner','issuer','issuerRole','grantee','bundle','decisionClass','userConfirmation','reviewIndependence','projectConfigIdentity')
 foreach ($field in $stringFields) {
     if (-not ($package.$field -is [string])) { Add-Reason $reasons "FIELD_TYPE_${field}_STRING" }
 }
@@ -203,6 +203,7 @@ if ($reasons.Count -gt 0) {
 
 if ([int]$package.schemaVersion -notin @(1,2)) { Add-Reason $reasons 'SCHEMA_VERSION' }
 if ([string]$package.frameworkVersion -cne '1.12.0') { Add-Reason $reasons 'FRAMEWORK_VERSION' }
+if ([string]$package.projectConfigIdentity -cnotmatch '^\d+\|[A-F0-9]{64}$') { Add-Reason $reasons 'PROJECT_CONFIG_IDENTITY_FORMAT' }
 if ([string]$package.lifecycle -cne 'ACTIVE') { Add-Reason $reasons 'LIFECYCLE_NOT_ACTIVE' }
 if ([string]$package.profile -notin @('MICRO','STANDARD','CRITICAL')) { Add-Reason $reasons 'PROFILE' }
 if ([string]$package.issuerRole -notin @('PROJECT_CONTROLLER','DOMAIN_OWNER')) { Add-Reason $reasons 'ISSUER_ROLE' }
@@ -232,6 +233,7 @@ if ([int]$package.schemaVersion -eq 1) {
         $schema1ConfigPath = Join-Path $schema1ControlPlane 'project.json'
         if (-not (Test-Path -LiteralPath $schema1ConfigPath -PathType Leaf)) { throw 'PROJECT_CONFIG_MISSING' }
         if (((Get-Item -LiteralPath $schema1ConfigPath -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'PROJECT_CONFIG_REPARSE' }
+        if ([string]$package.projectConfigIdentity -cne (Get-FileIdentity $schema1ConfigPath)) { throw 'PROJECT_CONFIG_DRIFT' }
         $schema1ConfigRaw = Read-StrictUtf8 $schema1ConfigPath
         try { $schema1Config = $schema1ConfigRaw | ConvertFrom-Json } catch { throw 'PROJECT_CONFIG_JSON' }
         $schema1Fields = @('schemaVersion','id','displayName','controlPlaneLayout','repositoryRoot','frameworkVersion','frameworkToolBackend','routineExcludedPaths','frameworkCapabilities')
@@ -264,7 +266,6 @@ if ([int]$package.schemaVersion -eq 2) {
         elseif (-not ($package.$field -is [string])) { Add-Reason $reasons "FIELD_TYPE_${field}_STRING" }
     }
     if ([string]::IsNullOrWhiteSpace([string]$package.repositoryId)) { Add-Reason $reasons 'REPOSITORY_ID_EMPTY' }
-    if ([string]$package.projectConfigIdentity -cnotmatch '^\d+\|[A-F0-9]{64}$') { Add-Reason $reasons 'PROJECT_CONFIG_IDENTITY_FORMAT' }
     if ([string]$package.repositoryId -cne $ObservedRepositoryId) { Add-Reason $reasons 'REPOSITORY_DRIFT' }
     if ([string]::IsNullOrWhiteSpace($ProjectConfigPath) -or [string]::IsNullOrWhiteSpace($ExpectedProjectConfigIdentity)) {
         Add-Reason $reasons 'PROJECT_CONFIG_BINDING_REQUIRED'
@@ -481,9 +482,9 @@ if ('REVIEW_EXECUTE' -in $actions -and @($actions | Where-Object { $_ -in $candi
     Add-Reason $reasons 'REVIEW_WRITE_ACTION_CONFLICT'
 }
 
-$requiredInvalidators = @('TASK_CHANGE','OWNER_CHANGE','GRANTEE_CHANGE','ACTION_CHANGE','PATHSET_CHANGE','OBJECT_DRIFT','USER_DECISION_CHANGE')
+$requiredInvalidators = @('TASK_CHANGE','OWNER_CHANGE','GRANTEE_CHANGE','ACTION_CHANGE','PATHSET_CHANGE','OBJECT_DRIFT','USER_DECISION_CHANGE','PROJECT_CONFIG_DRIFT')
 if ([string]$package.issuerRole -ceq 'PROJECT_CONTROLLER') { $requiredInvalidators += 'CONTROLLER_EPOCH_CHANGE' }
-if ([int]$package.schemaVersion -eq 2) { $requiredInvalidators += @('REPOSITORY_CHANGE','PROJECT_CONFIG_DRIFT') }
+if ([int]$package.schemaVersion -eq 2) { $requiredInvalidators += 'REPOSITORY_CHANGE' }
 if ($criticalReviewPackage) { $requiredInvalidators += 'CONTRIBUTOR_SET_CHANGE' }
 $invalidators = @($package.invalidatesOn)
 foreach ($item in $invalidators) {

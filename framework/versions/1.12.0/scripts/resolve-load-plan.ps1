@@ -97,7 +97,7 @@ if (-not [string]::IsNullOrWhiteSpace($TaskPath)) {
         if ($PSBoundParameters.ContainsKey('Phase') -and -not (Test-SetEquals @($Phase) @($resolvedPhases))) { throw 'LOAD_TASK_PHASE_DRIFT' }
     } else {
         if ($routeLines.Count -ne 0 -or $routeMatches.Count -ne 0) { throw 'LOAD_TASK_WORK_ROUTE_FORMAT' }
-        if ($taskSchema -ceq '1.12.0') { throw 'LOAD_TASK_WORK_ROUTE_REQUIRED' }
+        if ($taskSchema -in @('1.11.0','1.12.0')) { throw 'LOAD_TASK_WORK_ROUTE_REQUIRED' }
         if (-not $PSBoundParameters.ContainsKey('Role') -or -not $PSBoundParameters.ContainsKey('Profile') -or -not $PSBoundParameters.ContainsKey('Phase')) { throw 'LOAD_LEGACY_ROUTE_INPUT_REQUIRED' }
         if ($Profile -cne $taskProfile) { throw 'LOAD_TASK_PROFILE_DRIFT' }
         $resolvedRole = $Role

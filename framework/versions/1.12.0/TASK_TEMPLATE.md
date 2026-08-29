@@ -79,7 +79,8 @@
     {"path": "<a>", "identity": "<bytes|UPPER_SHA256>"},
     {"path": "<b>", "identity": "NEW"}
   ],
-  "invalidatesOn": ["TASK_CHANGE", "OWNER_CHANGE", "GRANTEE_CHANGE", "ACTION_CHANGE", "PATHSET_CHANGE", "OBJECT_DRIFT", "USER_DECISION_CHANGE"]
+  "projectConfigIdentity": "<.ai-workspace/project.json bytes|UPPER_SHA256>",
+  "invalidatesOn": ["TASK_CHANGE", "OWNER_CHANGE", "GRANTEE_CHANGE", "ACTION_CHANGE", "PATHSET_CHANGE", "OBJECT_DRIFT", "USER_DECISION_CHANGE", "PROJECT_CONFIG_DRIFT"]
 }
 ```
 
@@ -87,9 +88,9 @@
 
 Fresh package只表示旧action/grantee/path/object/decision绑定已失效，不表示必须由Controller签发。相同domain/task/outcome下，DOMAIN_OWNER默认直接选择临时executor或独立Reviewer、签发范围包并接收终态；仅在owner/public decision、跨域合同、保护、项目phase、Git/device/external或resource conflict边界上收Controller。CRITICAL `REVIEW_EXECUTE`还必须绑定`candidateWriter`与`materialContributors`；Owner、issuer、writer和material contributors均不得成为独立Reviewer。
 
-Framework Maintenance sibling任务把`schemaVersion`改为`2`，并增加`repositoryId`与`projectConfigIdentity`；`invalidatesOn`增加`REPOSITORY_CHANGE`与`PROJECT_CONFIG_DRIFT`。同一包的所有exact都相对于该repository ID的Git top；控制仓和Framework目标仓分别建包，不把共同父目录写入exact。
+Framework Maintenance sibling任务把`schemaVersion`改为`2`并增加`repositoryId`；`projectConfigIdentity`已是所有1.12包的共同字段，schema2只额外在`invalidatesOn`增加`REPOSITORY_CHANGE`。同一包的所有exact都相对于该repository ID的Git top；控制仓和Framework目标仓分别建包，不把共同父目录写入exact。
 
-`Work route`描述当前任务工作语境，不授予任何action。任务卡是该字段的权威，tasks index只是locator/projection。新schema 1.12.0卡必须填写；旧卡不批量迁移，缺失时由loader在显式输入下返回`LEGACY_LOAD_CONTEXT`，并在下次自然授权写入时补齐。
+`Work route`描述当前任务工作语境，不授予任何action。任务卡是该字段的权威，tasks index只是locator/projection。schema 1.11.0与1.12.0卡都必须保留该字段；只有1.10.0及更早卡可在缺失时由loader通过显式输入返回`LEGACY_LOAD_CONTEXT`，并在下次自然授权写入时补齐。
 
 1.12.0 checker允许一次传入多个`ObservedAction`，并逐action返回结果；这只减少同一未漂移lease的重复预检，不合并action能力。任一绑定对象或decision漂移后，后续阶段必须使用fresh package。任务卡不新增字段级manifest，仓库也不新增授权消费ledger。
 

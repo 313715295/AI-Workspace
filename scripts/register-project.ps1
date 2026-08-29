@@ -286,7 +286,7 @@ function Assert-StableFrameworkRelease {
         $totalBytes += $bytes.Length
         $rows.Add($relative + '|' + $bytes.Length + '|' + (Get-UpperSha256Bytes $bytes))
     }
-    $ordered = @($rows)
+    [string[]]$ordered = @($rows)
     [Array]::Sort($ordered, [StringComparer]::Ordinal)
     $payloadBytes = $utf8NoBom.GetBytes([string]::Join("`n", $ordered))
     $canonical = Get-UpperSha256Bytes $payloadBytes
@@ -313,7 +313,11 @@ function Get-RepoLocalStarter {
         Assert-ExactObjectFields $toolchain $toolchainRaw @('schemaVersion','frameworkVersion','contractVersion','projectSelectionField','officialBackends','conformance') 'Framework TOOLCHAIN.json'
         if(-not(Test-JsonInteger $toolchain.schemaVersion)-or[int]$toolchain.schemaVersion-ne1-or[string]$toolchain.frameworkVersion-cne'1.12.0'-or[string]$toolchain.contractVersion-cne'1'-or[string]$toolchain.projectSelectionField-cne'frameworkToolBackend'-or-not($toolchain.officialBackends-is[System.Array])-or@($toolchain.officialBackends).Count-ne1){throw 'FRAMEWORK_TOOLCHAIN_VALUES'}
         $backend=@($toolchain.officialBackends)[0]
-        if(-not($backend-is[pscustomobject])-or[string]$backend.id-cne'powershell7'-or[string]$backend.status-cne'OFFICIAL'-or-not($backend.runtime-is[pscustomobject])-or[string]$backend.runtime.command-cne'pwsh'-or[string]$backend.runtime.edition-cne'Core'-or-not(Test-JsonInteger $backend.runtime.minimumMajorVersion)-or[int]$backend.runtime.minimumMajorVersion-ne7-or-not($backend.entrypoints-is[pscustomobject])){throw 'FRAMEWORK_TOOLCHAIN_BACKEND'}
+        if(-not($backend-is[pscustomobject])-or[string]$backend.id-cne'powershell7'-or[string]$backend.status-cne'OFFICIAL'-or-not($backend.runtime-is[pscustomobject])-or[string]$backend.runtime.command-cne'pwsh'-or[string]$backend.runtime.edition-cne'Core'-or-not(Test-JsonInteger $backend.runtime.minimumMajorVersion)-or[int]$backend.runtime.minimumMajorVersion-ne7-or-not($backend.platforms-is[System.Array])-or@($backend.platforms).Count-lt1-or-not($backend.entrypoints-is[pscustomobject])){throw 'FRAMEWORK_TOOLCHAIN_BACKEND'}
+        $declaredPlatforms=@($backend.platforms|ForEach-Object{[string]$_})
+        if(@($declaredPlatforms|Where-Object{$_-cnotin@('windows','linux','macos')}).Count-ne0-or@($declaredPlatforms|Select-Object -Unique).Count-ne$declaredPlatforms.Count){throw 'FRAMEWORK_TOOLCHAIN_PLATFORMS'}
+        $currentPlatform=if([Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([Runtime.InteropServices.OSPlatform]::Windows)){'windows'}elseif([Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([Runtime.InteropServices.OSPlatform]::Linux)){'linux'}elseif([Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([Runtime.InteropServices.OSPlatform]::OSX)){'macos'}else{'unknown'}
+        if($currentPlatform-cnotin$declaredPlatforms){throw ('FRAMEWORK_TOOL_PLATFORM_UNSUPPORTED|backend=powershell7|platform='+$currentPlatform)}
         foreach($entry in $backend.entrypoints.PSObject.Properties){$relative=[string]$entry.Value;if([string]::IsNullOrWhiteSpace($relative)-or$relative-cne$relative.Replace('\','/')-or[IO.Path]::IsPathRooted($relative)-or$relative.Contains('..')-or-not(Test-Path -LiteralPath (Join-ChildPath $frameworkPath $relative) -PathType Leaf)){throw ('FRAMEWORK_TOOLCHAIN_ENTRYPOINT|'+$entry.Name)}}
     }
     $templateRoot = Join-ChildPath $frameworkPath 'project-starter'
@@ -458,6 +462,8 @@ if (-not (Test-Path -LiteralPath $RepositoryPath -PathType Container)) {
 }
 $repo = Get-GitRepositoryRoot ([System.IO.Path]::GetFullPath((Resolve-Path -LiteralPath $RepositoryPath).ProviderPath))
 
+if ($FrameworkVersion -in @('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0','1.12.0') -and [string]::IsNullOrWhiteSpace($ControllerId)) { throw 'ControllerId is required when registering a schema3 Framework version.' }
+
 $requiredProjectDirectories = @('tasks', 'tasks/active', 'tasks/archive')
 $projectRoot = Join-Path $repo '.ai-workspace'
 if (Test-Path -LiteralPath $projectRoot) {
@@ -498,7 +504,6 @@ if (Test-Path -LiteralPath $projectRoot) {
 $selection = "Framework $FrameworkVersion"
 $templateMap=New-TemplateMap $FrameworkVersion
 $requiredProjectFiles=@($templateMap.Values)
-if ($FrameworkVersion -in @('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0') -and [string]::IsNullOrWhiteSpace($ControllerId)) { throw 'ControllerId is required when registering a schema3 Framework version.' }
 $starter = Get-RepoLocalStarter $frameworkRoot $FrameworkVersion $templateMap $selection
 $templateRoot = $starter.TemplateRoot
 

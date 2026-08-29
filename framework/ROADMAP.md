@@ -6,7 +6,7 @@ This file contains generic release history and unselected Framework directions. 
 
 ### 1.12.0 — Tool Contract and PowerShell 7 backend
 
-Status: candidate and not consumable. Stable release requires frozen source, actual Windows/Ubuntu/macOS PowerShell 7 conformance, fresh independent CRITICAL Review and deterministic manifest seal.
+Status: stable and consumable after frozen source, Windows PowerShell 7 conformance for the declared 1.12.0 platform, independent CRITICAL Review-4 approval and deterministic manifest seal. Publication state is determined by repository refs rather than this roadmap.
 
 Selected minimum-sufficient scope:
 
@@ -15,7 +15,7 @@ Selected minimum-sufficient scope:
 - add one project-level `frameworkToolBackend` selection inherited by all tasks and checks, bound indirectly through existing project config identity;
 - provide `powershell7` as the only official backend, reject non-Core or pre-7 runtimes and remove 1.12 runtime dependence on `powershell.exe`;
 - make registration and upgrade require the declared runtime before project write and project the backend field transactionally;
-- run one normalized conformance entrypoint on Windows, Ubuntu/Linux and macOS, with explicit filesystem/link/case/permission/path/Git/text evidence ceilings.
+- run the normalized conformance entrypoint on the currently declared Windows platform, with explicit filesystem/link/case/path/Git/text evidence ceilings; retain the platform-neutral contract so Linux/macOS can be admitted later only with their own evidence.
 
 Explicitly not selected: a launcher, zsh/Python backend, runtime generation, task/action/package-level backend selection, backend switch command before a second backend exists, registry/service/ledger, automatic runtime installation, global Framework default, consumer registry or automatic project upgrade.
 

@@ -37,17 +37,16 @@ function Get-ReleasePayloadFacts([string]$VersionRoot) {
     [Array]::Sort($payload,[StringComparer]::Ordinal)
     $rows=@();[int64]$total=0
     foreach($relative in $payload){$full=Join-Path $VersionRoot $relative;$identity=(Get-Identity $full).Split('|');$total+=[int64]$identity[0];$rows+=($relative+'|'+$identity[0]+'|'+$identity[1])}
+    $payloadEncoding=New-Object Text.UTF8Encoding($false)
     $sha=[Security.Cryptography.SHA256]::Create()
-    try{$canonical=([BitConverter]::ToString($sha.ComputeHash($utf8.GetBytes(($rows-join"`n"))))).Replace('-','')}finally{$sha.Dispose()}
+    try{$canonical=([BitConverter]::ToString($sha.ComputeHash($payloadEncoding.GetBytes(($rows-join"`n"))))).Replace('-','')}finally{$sha.Dispose()}
     return [pscustomobject]@{Files=$payload;Rows=$rows;FileCount=$payload.Count;TotalBytes=$total;Canonical=$canonical}
 }
 
 function Seal-ReleaseFixture([string]$VersionRoot,[string]$Integration) {
     $facts=Get-ReleasePayloadFacts $VersionRoot
     $versionPath=Join-Path $VersionRoot 'VERSION.json';$version=Get-Content -Raw -Encoding utf8 -LiteralPath $versionPath|ConvertFrom-Json
-    $version.lifecycle='STABLE';$version.consumable=$true;$version.projectPinEligible=$true
-    Write-Utf8 $versionPath ($version|ConvertTo-Json -Depth 20)
-    $facts=Get-ReleasePayloadFacts $VersionRoot
+    if([string]$version.lifecycle-cne'STABLE'-or-not[bool]$version.consumable-or-not[bool]$version.projectPinEligible){throw 'TEST_FIXTURE_VERSION_FIELDS_NOT_FINAL'}
     $manifestPath=Join-Path $VersionRoot 'RELEASE_MANIFEST.json';$manifest=Get-Content -Raw -Encoding utf8 -LiteralPath $manifestPath|ConvertFrom-Json
     $manifest.lifecycle='STABLE';$manifest.fileCount=$facts.FileCount;$manifest.totalBytes=$facts.TotalBytes;$manifest.canonical=$facts.Canonical;$manifest.sourceReview='APPROVED';$manifest.sourceCandidate='TEST_FIXTURE_CANDIDATE';$manifest.releaseIntegration=$Integration
     Write-Utf8 $manifestPath ($manifest|ConvertTo-Json -Depth 20)
@@ -210,7 +209,8 @@ function New-AuthorizationPackage(
         grantee=$issuer; bundle='IMPLEMENT_LOCAL'; decisionClass='ROUTINE_LOCAL'; userConfirmation='NOT_REQUIRED'
         reviewIndependence='NOT_APPLICABLE'; delegatedGitCloser=$false; actions=@($Actions); exactPaths=@($ExactPath)
         objectIdentities=@([ordered]@{path=$ExactPath;identity=$ObjectIdentity})
-        invalidatesOn=@('TASK_CHANGE','OWNER_CHANGE','GRANTEE_CHANGE','ACTION_CHANGE','PATHSET_CHANGE','OBJECT_DRIFT','USER_DECISION_CHANGE')
+        projectConfigIdentity=$ConfigIdentity
+        invalidatesOn=@('TASK_CHANGE','OWNER_CHANGE','GRANTEE_CHANGE','ACTION_CHANGE','PATHSET_CHANGE','OBJECT_DRIFT','USER_DECISION_CHANGE','PROJECT_CONFIG_DRIFT')
     }
     if (-not $DomainOwner) {
         $package.issuerControllerId='controller-fixture'
@@ -220,10 +220,15 @@ function New-AuthorizationPackage(
     }
     if ($Schema -eq 2) {
         $package.repositoryId=$RepositoryId
-        $package.projectConfigIdentity=$ConfigIdentity
-        $package.invalidatesOn += @('REPOSITORY_CHANGE','PROJECT_CONFIG_DRIFT')
+        $package.invalidatesOn += 'REPOSITORY_CHANGE'
     }
     Write-Utf8 $Path ($package | ConvertTo-Json -Depth 20)
+}
+
+function Set-PackageProjectConfigIdentity([string]$Path,[string]$Identity) {
+    $package=Get-Content -LiteralPath $Path -Raw -Encoding utf8|ConvertFrom-Json
+    $package.projectConfigIdentity=$Identity
+    Write-Utf8 $Path ($package|ConvertTo-Json -Depth 20)
 }
 
 function Invoke-FixtureSchema2Authorization(
@@ -265,6 +270,7 @@ $expected = @(
 $actual = @(Get-ChildItem -LiteralPath $candidateRoot -Recurse -Force -File | ForEach-Object { $_.FullName.Substring($candidateRoot.Length + 1).Replace('\','/') })
 [Array]::Sort($actual,[StringComparer]::Ordinal)
 Assert-True ($actual.Count -eq 59 -and ($actual -join "`n") -ceq ($expected -join "`n")) 'inventory-exact59'
+$initialPayloadFacts=Get-ReleasePayloadFacts $candidateRoot
 
 foreach ($relative in $actual) {
     $path = Join-Path $candidateRoot $relative
@@ -284,36 +290,63 @@ foreach ($relative in $actual) {
 
 $version = Get-Content -LiteralPath (Join-Path $candidateRoot 'VERSION.json') -Raw -Encoding utf8 | ConvertFrom-Json
 $loadManifest = Get-Content -LiteralPath (Join-Path $candidateRoot 'LOAD_MANIFEST.json') -Raw -Encoding utf8 | ConvertFrom-Json
-$candidateVersionState=[string]$version.lifecycle-ceq'CANDIDATE'-and-not[bool]$version.consumable-and-not[bool]$version.projectPinEligible
 $stableVersionState=[string]$version.lifecycle-ceq'STABLE'-and[bool]$version.consumable-and[bool]$version.projectPinEligible
-Assert-True ([string]$version.version -ceq '1.12.0' -and ($candidateVersionState-or$stableVersionState) -and [string]$version.releaseClass -ceq 'MINOR' -and [string]$version.baseline -ceq '1.11.0' -and $null -eq $version.PSObject.Properties['currentEligible']) 'version-candidate-or-stable-minor-baseline-1.11.0-no-global-selector-field'
+Assert-True ([string]$version.version -ceq '1.12.0' -and $stableVersionState -and [string]$version.releaseClass -ceq 'MINOR' -and [string]$version.baseline -ceq '1.11.0' -and $null -eq $version.PSObject.Properties['currentEligible']) 'version-final-stable-fields-before-source-review-minor-baseline-1.11.0-no-global-selector-field'
 Assert-True ([string]$loadManifest.lifecycle -ceq 'STABLE' -and @($loadManifest.topologies.PSObject.Properties.Name).Count -eq 2 -and @($loadManifest.topologies.FRAMEWORK_MAINTENANCE_SIBLING) -contains 'FRAMEWORK_MAINTENANCE.md') 'load-manifest-topology-contract'
 $loadResolverText=Get-Content -LiteralPath (Join-Path $candidateRoot 'scripts\resolve-load-plan.ps1') -Raw -Encoding utf8
 Assert-True ($loadResolverText.Contains('LOAD_MANIFEST_NOT_STABLE_1_12_0') -and -not $loadResolverText.Contains('LOAD_MANIFEST_NOT_STABLE_1_7_0')) 'load-resolver-diagnostic-version-current'
 
+$liveFrameworkRoot = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Join-Path $candidateRoot '../..')))
+$liveRepositoryRoot = Split-Path -Parent $liveFrameworkRoot
 $toolchain=Get-Content -LiteralPath (Join-Path $candidateRoot 'TOOLCHAIN.json') -Raw -Encoding utf8|ConvertFrom-Json
 $toolContract=Get-Content -LiteralPath (Join-Path $candidateRoot 'TOOL_CONTRACT.md') -Raw -Encoding utf8
 $backend=@($toolchain.officialBackends)[0]
+$declaredPlatforms=@($backend.platforms|ForEach-Object{[string]$_})
 $expectedOperations=@('AUTHORIZATION_CHECK','CORRECTIONS_CHECK','KNOWLEDGE_IMPACT_CHECK','KNOWLEDGE_QUERY','LOAD_PLAN_RESOLVE','MAINTENANCE_TARGET_RESOLVE','PROTECTED_SAFE_GIT','TASK_CARD_CHECK','WORKFLOW_ROUTE_RESOLVE')
 $actualOperations=@($backend.entrypoints.PSObject.Properties.Name);[Array]::Sort($expectedOperations,[StringComparer]::Ordinal);[Array]::Sort($actualOperations,[StringComparer]::Ordinal)
 Assert-True ([int]$toolchain.schemaVersion-eq1-and[string]$toolchain.frameworkVersion-ceq'1.12.0'-and[string]$toolchain.contractVersion-ceq'1'-and[string]$toolchain.projectSelectionField-ceq'frameworkToolBackend'-and@($toolchain.officialBackends).Count-eq1) 'toolchain-single-project-selected-backend'
-Assert-True ([string]$backend.id-ceq'powershell7'-and[string]$backend.status-ceq'OFFICIAL'-and[string]$backend.runtime.command-ceq'pwsh'-and[string]$backend.runtime.edition-ceq'Core'-and[int]$backend.runtime.minimumMajorVersion-eq7-and($actualOperations-join"`n")-ceq($expectedOperations-join"`n")) 'toolchain-powershell7-operation-set'
+Assert-True ([string]$backend.id-ceq'powershell7'-and[string]$backend.status-ceq'OFFICIAL'-and[string]$backend.runtime.command-ceq'pwsh'-and[string]$backend.runtime.edition-ceq'Core'-and[int]$backend.runtime.minimumMajorVersion-eq7-and($actualOperations-join"`n")-ceq($expectedOperations-join"`n")-and$declaredPlatforms.Count-eq1-and$declaredPlatforms[0]-ceq'windows') 'toolchain-powershell7-operation-set-windows-only'
 foreach($entry in $backend.entrypoints.PSObject.Properties){$relative=[string]$entry.Value;$entryPath=Join-Path $candidateRoot $relative;Assert-True ($relative-ceq$relative.Replace('\','/')-and-not[IO.Path]::IsPathRooted($relative)-and-not$relative.Contains('..')-and(Test-Path -LiteralPath $entryPath -PathType Leaf)) ('toolchain-entrypoint|'+$entry.Name);$entryText=Get-Content -LiteralPath $entryPath -Raw -Encoding utf8;Assert-True ($entryText.Contains('POWERSHELL7_REQUIRED')-and-not$entryText.Contains('powershell.exe')) ('toolchain-runtime-guard|'+$entry.Name)}
+$conformanceArguments=@($toolchain.conformance.arguments|ForEach-Object{[string]$_})
+Assert-True ($conformanceArguments.Count-eq1-and$conformanceArguments[0]-ceq'-SkipBaseline') 'toolchain-conformance-runs-full-no-baseline-suite'
+Assert-True (-not(Test-Path -LiteralPath (Join-Path $liveRepositoryRoot '.github\workflows\framework-toolchain-conformance.yml'))) 'three-platform-ci-not-selected-for-windows-only-1.12-scope'
 $projectSchemaText=Get-Content -LiteralPath (Join-Path $candidateRoot 'PROJECT_CONFIG_SCHEMA.json') -Raw -Encoding utf8
 $maintenanceSchemaText=Get-Content -LiteralPath (Join-Path $candidateRoot 'FRAMEWORK_MAINTENANCE_CONFIG_SCHEMA.json') -Raw -Encoding utf8
 $projectStarterText=Get-Content -LiteralPath (Join-Path $candidateRoot 'project-starter/project.json') -Raw -Encoding utf8
 Assert-True ($projectSchemaText.Contains('frameworkToolBackend')-and$maintenanceSchemaText.Contains('frameworkToolBackend')-and$projectStarterText.Contains('"frameworkToolBackend": "powershell7"')-and$toolContract.Contains('projectConfigIdentity')) 'tool-backend-schema-starter-package-binding'
 
+$platform=if($IsWindows){'windows'}elseif($IsMacOS){'macos'}else{'linux'}
+if($platform-notin$declaredPlatforms){
+    Write-Output ('EVIDENCE_CEILING|PLATFORM_NOT_DECLARED|'+$platform)
+    Assert-True $true 'tool-contract-undeclared-platform-evidence-ceiling-recorded'
+}else{
+  $platformTemp=Join-Path ([IO.Path]::GetTempPath()) ('aiw-tool-platform-'+[guid]::NewGuid().ToString('N'));New-Item -ItemType Directory -Path $platformTemp|Out-Null
+  try{
+    $casePath=Join-Path $platformTemp 'CaseProbe';Write-Utf8 $casePath 'case'
+    $caseVariantPath=Join-Path $platformTemp 'caseprobe'
+    $caseInsensitive=Test-Path -LiteralPath $caseVariantPath
+    $caseBehaviorConsistent=if($caseInsensitive){(Get-Identity $caseVariantPath)-ceq(Get-Identity $casePath)}else{-not(Test-Path -LiteralPath $caseVariantPath)}
+    Assert-True $caseBehaviorConsistent 'tool-contract-case-behavior-explicit-and-consistent'
+    if($IsLinux){Assert-True (-not$caseInsensitive) 'tool-contract-linux-case-sensitive'}else{Assert-True $true 'tool-contract-platform-reported-case-behavior-accepted'}
+    $linkTarget=Join-Path $platformTemp 'link-target';$linkPath=Join-Path $platformTemp 'link-probe';New-Item -ItemType Directory -Path $linkTarget|Out-Null;New-TestJunction $linkPath $linkTarget
+    Assert-True (((Get-Item -LiteralPath $linkPath -Force).Attributes-band[IO.FileAttributes]::ReparsePoint)-ne0) 'tool-contract-link-probe'
+    $normalized=[IO.Path]::GetRelativePath($platformTemp,$casePath).Replace('\','/')
+    Assert-True ($normalized-ceq'CaseProbe'-and-not$normalized.Contains('\')) 'tool-contract-relative-path-normalized'
+    if(-not$IsWindows){
+        $mode=[IO.File]::GetUnixFileMode($casePath)
+        $executableMode=$mode-bor[IO.UnixFileMode]::UserExecute
+        [IO.File]::SetUnixFileMode($casePath,$executableMode)
+        Assert-True (([IO.File]::GetUnixFileMode($casePath)-band[IO.UnixFileMode]::UserExecute)-ne0) 'tool-contract-unix-user-execute-permission'
+        [IO.File]::SetUnixFileMode($casePath,$mode)
+        Assert-True ([IO.File]::GetUnixFileMode($casePath)-eq$mode) 'tool-contract-unix-permission-restored'
+    }else{Assert-True $true 'tool-contract-windows-permission-ceiling-explicit'}
+    Write-Output ('CONFORMANCE|platform='+$platform+'|caseInsensitive='+$caseInsensitive.ToString().ToLowerInvariant()+'|runtime='+$PSVersionTable.PSVersion.ToString())
+  }finally{foreach($link in @($script:testJunctions)){Remove-TestJunction $link};Remove-Item -LiteralPath $platformTemp -Recurse -Force -ErrorAction SilentlyContinue}
+}
+
 if($ToolContractOnly){
     $contractTemp=Join-Path ([IO.Path]::GetTempPath()) ('aiw-tool-contract-'+[guid]::NewGuid().ToString('N'));New-Item -ItemType Directory -Path $contractTemp|Out-Null
     try{
-        $casePath=Join-Path $contractTemp 'CaseProbe';Write-Utf8 $casePath 'case'
-        $caseInsensitive=Test-Path -LiteralPath (Join-Path $contractTemp 'caseprobe')
-        $linkTarget=Join-Path $contractTemp 'link-target';$linkPath=Join-Path $contractTemp 'link-probe';New-Item -ItemType Directory -Path $linkTarget|Out-Null;New-TestJunction $linkPath $linkTarget
-        Assert-True (((Get-Item -LiteralPath $linkPath -Force).Attributes-band[IO.FileAttributes]::ReparsePoint)-ne0) 'tool-contract-link-probe'
-        $normalized=[IO.Path]::GetRelativePath($contractTemp,$casePath).Replace('\','/')
-        Assert-True ($normalized-ceq'CaseProbe'-and-not$normalized.Contains('\')) 'tool-contract-relative-path-normalized'
-        if(-not$IsWindows){$mode=[IO.File]::GetUnixFileMode($casePath);[IO.File]::SetUnixFileMode($casePath,$mode);Assert-True ([IO.File]::GetUnixFileMode($casePath)-eq$mode) 'tool-contract-unix-permission-roundtrip'}else{Assert-True $true 'tool-contract-windows-permission-ceiling-explicit'}
         $gitRoot=Join-Path $contractTemp 'git-probe';New-GitRepo $gitRoot
         $gitConfigPath=Join-Path $gitRoot '.ai-workspace/project.json'
         $gitConfig=[ordered]@{schemaVersion=3;id='tool-contract-git';displayName='Tool Contract Git';controlPlaneLayout='repo-local';repositoryRoot='..';frameworkVersion='1.12.0';frameworkToolBackend='powershell7';routineExcludedPaths=@();frameworkCapabilities=[ordered]@{KNOWLEDGE_REFERENCE=[ordered]@{enabled=$false}}}
@@ -322,15 +355,11 @@ if($ToolContractOnly){
         $safeGitEntry=Join-Path $candidateRoot ([string]$backend.entrypoints.PROTECTED_SAFE_GIT)
         $safeGitProbe=Invoke-Ps $safeGitEntry @('-ProjectRoot',$gitRoot,'-Operation','STATUS','-AllowPath','visible.txt','-ExpectedProjectConfigIdentity',(Get-Identity $gitConfigPath))
         Assert-True ($safeGitProbe.Code-eq0-and$safeGitProbe.Text.Contains('visible.txt')-and$safeGitProbe.Text.Contains('"operation":"STATUS"')) 'tool-contract-safe-git-normalized-path'
-        $platform=if($IsWindows){'windows'}elseif($IsMacOS){'macos'}else{'linux'}
-        Write-Output ('CONFORMANCE|platform='+$platform+'|caseInsensitive='+$caseInsensitive.ToString().ToLowerInvariant()+'|runtime='+$PSVersionTable.PSVersion.ToString())
-    }finally{foreach($link in @($script:testJunctions)){Remove-TestJunction $link};Remove-Item -LiteralPath $contractTemp -Recurse -Force -ErrorAction SilentlyContinue}
+    }finally{Remove-Item -LiteralPath $contractTemp -Recurse -Force -ErrorAction SilentlyContinue}
     Write-Output "RESULT|$($script:passed) passed|scope=Framework-1.12.0-tool-contract"
     return
 }
 
-$liveFrameworkRoot = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Join-Path $candidateRoot '../..')))
-$liveRepositoryRoot = Split-Path -Parent $liveFrameworkRoot
 $selectorScope = @(
     (Join-Path $liveRepositoryRoot '.gitattributes'),(Join-Path $liveRepositoryRoot 'AGENTS.md'),(Join-Path $liveRepositoryRoot 'CLAUDE.md'),
     (Join-Path $liveRepositoryRoot 'INITIALIZATION.md'),(Join-Path $liveRepositoryRoot 'README.md'),(Join-Path $liveFrameworkRoot 'ROADMAP.md'),
@@ -498,11 +527,21 @@ try {
     Assert-True ($taskPhaseDrift.Code-ne0-and$taskPhaseDrift.Text.Contains('LOAD_TASK_PHASE_DRIFT')) 'loader-rejects-caller-phase-drift'
     $taskProfileDrift=Invoke-Ps $loader @('-TaskPath',$standardTaskPath,'-Role','REVIEWER','-Profile','CRITICAL','-Phase','REVIEW','-HostName','CODEX')
     Assert-True ($taskProfileDrift.Code-ne0-and$taskProfileDrift.Text.Contains('LOAD_TASK_PROFILE_DRIFT')) 'loader-rejects-caller-profile-drift'
+    $schema111TaskPath=Join-Path $temp 'TASK-SCHEMA-1.11-ROUTE-001.md'
+    Write-Utf8 $schema111TaskPath "# TASK-SCHEMA-1.11-ROUTE-001 - fixture`n`n- Task schema: 1.11.0`n- Owner: owner-fixture`n- Work route: role=EXECUTOR; phase=IMPLEMENT`n- Range summary: profile=STANDARD; lifecycle=ACTIVE; expected_paths=[]; actual_paths=[]`n"
+    $schema111TaskCheck=Invoke-Ps $taskChecker @('-TaskPath',$schema111TaskPath)
+    $schema111TaskLoad=Invoke-Ps $loader @('-TaskPath',$schema111TaskPath,'-HostName','CODEX')
+    Assert-True ($schema111TaskCheck.Code-eq0-and$schema111TaskCheck.Text.Contains('loadContext=DECLARED')-and$schema111TaskLoad.Code-eq0-and$schema111TaskLoad.Text.Contains('routeSource=TASK_CARD')-and$schema111TaskLoad.Text.Contains('phases=IMPLEMENT')) 'schema-1.11-declared-work-route-compatible'
     $missingRouteTaskPath=Join-Path $temp 'TASK-MISSING-ROUTE-001.md'
     Write-Utf8 $missingRouteTaskPath "# TASK-MISSING-ROUTE-001 - fixture`n`n- Task schema: 1.12.0`n- Owner: owner-fixture`n- Range summary: profile=STANDARD; lifecycle=ACTIVE; expected_paths=[]; actual_paths=[]`n"
     $missingRouteCheck=Invoke-Ps $taskChecker @('-TaskPath',$missingRouteTaskPath)
     $missingRouteLoad=Invoke-Ps $loader @('-TaskPath',$missingRouteTaskPath,'-Role','EXECUTOR','-Profile','STANDARD','-Phase','IMPLEMENT')
-    Assert-True ($missingRouteCheck.Code-ne0-and$missingRouteCheck.Text.Contains('WORK_ROUTE_FIELD')-and$missingRouteLoad.Code-ne0-and$missingRouteLoad.Text.Contains('LOAD_TASK_WORK_ROUTE_REQUIRED')) 'schema-1.11-work-route-required'
+    Assert-True ($missingRouteCheck.Code-ne0-and$missingRouteCheck.Text.Contains('WORK_ROUTE_FIELD')-and$missingRouteLoad.Code-ne0-and$missingRouteLoad.Text.Contains('LOAD_TASK_WORK_ROUTE_REQUIRED')) 'schema-1.12-work-route-required'
+    $missing111RouteTaskPath=Join-Path $temp 'TASK-SCHEMA-1.11-MISSING-ROUTE-001.md'
+    Write-Utf8 $missing111RouteTaskPath "# TASK-SCHEMA-1.11-MISSING-ROUTE-001 - fixture`n`n- Task schema: 1.11.0`n- Owner: owner-fixture`n- Range summary: profile=STANDARD; lifecycle=ACTIVE; expected_paths=[]; actual_paths=[]`n"
+    $missing111RouteCheck=Invoke-Ps $taskChecker @('-TaskPath',$missing111RouteTaskPath)
+    $missing111RouteLoad=Invoke-Ps $loader @('-TaskPath',$missing111RouteTaskPath,'-Role','EXECUTOR','-Profile','STANDARD','-Phase','IMPLEMENT')
+    Assert-True ($missing111RouteCheck.Code-ne0-and$missing111RouteCheck.Text.Contains('WORK_ROUTE_FIELD')-and$missing111RouteLoad.Code-ne0-and$missing111RouteLoad.Text.Contains('LOAD_TASK_WORK_ROUTE_REQUIRED')) 'schema-1.11-work-route-required'
     $legacyTaskPath=Join-Path $temp 'TASK-LEGACY-LOAD-001.md'
     Write-Utf8 $legacyTaskPath "# TASK-LEGACY-LOAD-001 - fixture`n`n- Task schema: 1.10.0`n- Owner: owner-fixture`n- Range summary: profile=STANDARD; lifecycle=ACTIVE; expected_paths=[]; actual_paths=[]`n"
     $legacyTaskCheck=Invoke-Ps $taskChecker @('-TaskPath',$legacyTaskPath)
@@ -558,7 +597,7 @@ try {
     Assert-True ($steadyStateControlAuth.Code -eq 0 -and $steadyStateTargetAuth.Code -eq 0) 'authorization-schema2-steady-state-resolver-bound-pass'
 
     $maintenanceSchema1Package = Join-Path $controlPlane 'maintenance-schema1-auth.json'
-    New-AuthorizationPackage $maintenanceSchema1Package 1 '' '' @('SOURCE_WRITE') $targetObject $targetObjectIdentity -DomainOwner
+    New-AuthorizationPackage $maintenanceSchema1Package 1 '' $configIdentity @('SOURCE_WRITE') $targetObject $targetObjectIdentity -DomainOwner
     $maintenanceSchema1Steady = Invoke-Ps $checker @('-PackagePath',$maintenanceSchema1Package,'-ObservedActor','owner-fixture','-ObservedTaskId','FIXTURE-001','-ObservedOwner','owner-fixture','-ObservedAction','SOURCE_WRITE','-ObservedPath',$targetObject,'-ObservedIdentity',($targetObject+'='+$targetObjectIdentity)) $control
     Assert-True ($maintenanceSchema1Steady.Code -ne 0 -and $maintenanceSchema1Steady.Text.Contains('SCHEMA1_REQUIRES_REPO_LOCAL_SCHEMA3')) 'authorization-schema1-maintenance-steady-state-rejected'
 
@@ -853,7 +892,7 @@ exit $LASTEXITCODE
     $repoLocalSchema1Package = Join-Path $repoLocal '.ai-workspace\schema1-auth.json'
     $repoLocalObject = 'src/public.txt'
     $repoLocalObjectIdentity = Get-Identity (Join-Path $repoLocal $repoLocalObject)
-    New-AuthorizationPackage $repoLocalSchema1Package 1 '' '' @('SOURCE_WRITE') $repoLocalObject $repoLocalObjectIdentity -DomainOwner
+    New-AuthorizationPackage $repoLocalSchema1Package 1 '' $repoLocalIdentity @('SOURCE_WRITE') $repoLocalObject $repoLocalObjectIdentity -DomainOwner
     $repoLocalSchema1Auth = Invoke-Ps $checker @('-PackagePath',$repoLocalSchema1Package,'-ObservedActor','owner-fixture','-ObservedTaskId','FIXTURE-001','-ObservedOwner','owner-fixture','-ObservedAction','SOURCE_WRITE','-ObservedPath',$repoLocalObject,'-ObservedIdentity',($repoLocalObject+'='+$repoLocalObjectIdentity)) $repoLocal
     $repoLocalStatus = Invoke-Ps $safeGit @('-ProjectRoot',$repoLocal,'-Operation','STATUS','-AllowPath','src/public.txt','-ExpectedProjectConfigIdentity',$repoLocalIdentity)
     $repoLocalExcluded = Invoke-Ps $safeGit @('-ProjectRoot',$repoLocal,'-Operation','STATUS','-AllowPath','private','-ExpectedProjectConfigIdentity',$repoLocalIdentity)
@@ -867,7 +906,8 @@ exit $LASTEXITCODE
         owner='owner-fixture';issuer='owner-fixture';issuerRole='DOMAIN_OWNER';grantee='reviewer-fixture';bundle='REVIEW_LOCAL'
         decisionClass='ROUTINE_LOCAL';userConfirmation='NOT_REQUIRED';reviewIndependence='INDEPENDENT';delegatedGitCloser=$false
         actions=@('REVIEW_EXECUTE');exactPaths=@($repoLocalObject);objectIdentities=@([ordered]@{path=$repoLocalObject;identity=$repoLocalObjectIdentity})
-        invalidatesOn=@('TASK_CHANGE','OWNER_CHANGE','GRANTEE_CHANGE','ACTION_CHANGE','PATHSET_CHANGE','OBJECT_DRIFT','USER_DECISION_CHANGE','CONTRIBUTOR_SET_CHANGE')
+        projectConfigIdentity=$repoLocalIdentity
+        invalidatesOn=@('TASK_CHANGE','OWNER_CHANGE','GRANTEE_CHANGE','ACTION_CHANGE','PATHSET_CHANGE','OBJECT_DRIFT','USER_DECISION_CHANGE','CONTRIBUTOR_SET_CHANGE','PROJECT_CONFIG_DRIFT')
         candidateWriter='cross-domain-writer';materialContributors=@('material-designer')
     }
     Write-Utf8 $criticalReviewPackagePath ($criticalReviewPackage|ConvertTo-Json -Depth 20)
@@ -892,6 +932,12 @@ exit $LASTEXITCODE
     }
 
     $repoLocalConfigRaw = Get-Content -LiteralPath $repoLocalConfigPath -Raw -Encoding utf8
+    $driftedSchema1Config=$repoLocalConfigRaw|ConvertFrom-Json
+    $driftedSchema1Config.routineExcludedPaths=@('private/secret.txt','private/additional.txt')
+    Write-Utf8 $repoLocalConfigPath ($driftedSchema1Config|ConvertTo-Json -Depth 20)
+    $repoLocalSchema1ConfigDrift=Invoke-Ps $checker $repoLocalSchema1Args $repoLocal
+    Write-Utf8 $repoLocalConfigPath $repoLocalConfigRaw
+    Assert-True ($repoLocalSchema1ConfigDrift.Code-ne0-and$repoLocalSchema1ConfigDrift.Text.Contains('PROJECT_CONFIG_DRIFT')) 'authorization-schema1-binds-project-config-identity'
     $invalidSchema1Configs = @(
         [pscustomobject]@{Name='wrong-framework-version';Mutate={param($c) $c.frameworkVersion='1.6.1'};Reason='PROJECT_CONFIG_VALUES'},
         [pscustomobject]@{Name='non-string-exclusion';Mutate={param($c) $c.routineExcludedPaths=@(42)};Reason='ROUTINE_EXCLUSION_TYPE'},
@@ -904,11 +950,13 @@ exit $LASTEXITCODE
         $invalidConfig = $repoLocalConfigRaw | ConvertFrom-Json
         $null = & ([scriptblock]$case.Mutate) $invalidConfig
         Write-Utf8 $repoLocalConfigPath ($invalidConfig | ConvertTo-Json -Depth 20)
+        Set-PackageProjectConfigIdentity $repoLocalSchema1Package (Get-Identity $repoLocalConfigPath)
         $invalidSchema1 = Invoke-Ps $checker $repoLocalSchema1Args $repoLocal
         if ($invalidSchema1.Code -eq 0 -or -not $invalidSchema1.Text.Contains([string]$case.Reason)) { Write-Output ('DIAG|schema1-invalid-'+[string]$case.Name+'|'+$invalidSchema1.Code+'|'+$invalidSchema1.Text) }
         Assert-True ($invalidSchema1.Code -ne 0 -and $invalidSchema1.Text.Contains([string]$case.Reason)) ('authorization-schema1-rejects-'+[string]$case.Name)
     }
     Write-Utf8 $repoLocalConfigPath $repoLocalConfigRaw
+    Set-PackageProjectConfigIdentity $repoLocalSchema1Package $repoLocalIdentity
 
     $missingConfigPath = $repoLocalConfigPath + '.missing'
     [IO.File]::Move($repoLocalConfigPath,$missingConfigPath)
@@ -971,6 +1019,12 @@ exit $LASTEXITCODE
     $missingCorrectionValue=$missingCorrectionRun.Output[-1]|ConvertFrom-Json
     Assert-True ($missingCorrectionRun.Code-eq0-and[string]$missingCorrectionValue.correctionsIdentity-ceq'MISSING'-and@($missingCorrectionValue.stillEffective).Count-eq0) 'corrections-legacy-missing-is-empty-set'
 
+    $liveUpgradePath=Join-Path $liveRepositoryRoot 'scripts\upgrade-project.ps1'
+    $liveUpgradeText=Get-Content -LiteralPath $liveUpgradePath -Raw -Encoding utf8
+    $runtimeGuardOffset=$liveUpgradeText.IndexOf("if(`$ToVersion-ceq'1.12.0'",[StringComparison]::Ordinal)
+    $transactionRuntimeOffset=$liveUpgradeText.LastIndexOf("`$transactionRoot = Join-Path `$projectRoot '.framework-upgrade-transaction'",[StringComparison]::Ordinal)
+    Assert-True ($runtimeGuardOffset-ge0-and$transactionRuntimeOffset-gt$runtimeGuardOffset) 'upgrade-powershell7-guard-precedes-transaction-recovery'
+
     if (-not $SkipRootMigration) {
         $rootFlow = Join-Path $temp 'root-flow-workspace'
         New-Item -ItemType Directory -Path (Join-Path $rootFlow 'scripts'),(Join-Path $rootFlow 'framework\versions') -Force | Out-Null
@@ -984,11 +1038,25 @@ exit $LASTEXITCODE
         Copy-Item -LiteralPath $candidateRoot -Destination (Join-Path $rootFlow 'framework\versions\1.12.0') -Recurse
         Assert-True (-not (Test-Path -LiteralPath (Join-Path $rootFlow 'framework\CURRENT'))) 'root-global-version-selector-absent'
 
+        if($IsWindows){
+            $windowsPowerShell=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+            $runtimeGuardRepo=Join-Path $rootFlow 'runtime-guard-fixture'
+            $runtimeGuardTransaction=Join-Path $runtimeGuardRepo '.ai-workspace\.framework-upgrade-transaction'
+            $runtimeGuardMarker=Join-Path $runtimeGuardTransaction 'marker.txt'
+            Write-Utf8 $runtimeGuardMarker 'must remain exact'
+            $runtimeGuardBefore=Get-Identity $runtimeGuardMarker
+            $runtimeGuardFilesBefore=@(Get-ChildItem -LiteralPath $runtimeGuardRepo -Recurse -Force -File).Count
+            $runtimeGuardOutput=@(& $windowsPowerShell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $rootFlow 'scripts\upgrade-project.ps1') -ProjectId 'runtime-guard-fixture' -ToVersion '1.12.0' -RepositoryPath $runtimeGuardRepo -Apply 2>&1|ForEach-Object{[string]$_})
+            $runtimeGuardRun=[pscustomobject]@{Code=$LASTEXITCODE;Text=($runtimeGuardOutput-join"`n")}
+            $runtimeGuardFilesAfter=@(Get-ChildItem -LiteralPath $runtimeGuardRepo -Recurse -Force -File).Count
+            if($runtimeGuardRun.Code-eq0-or-not$runtimeGuardRun.Text.Contains('FRAMEWORK_TOOL_RUNTIME_UNAVAILABLE')-or(Get-Identity $runtimeGuardMarker)-cne$runtimeGuardBefore-or$runtimeGuardFilesAfter-ne$runtimeGuardFilesBefore){Write-Output ('DIAG|upgrade-windows-powershell5-runtime-guard|code='+$runtimeGuardRun.Code+'|before='+$runtimeGuardBefore+'|after='+(Get-Identity $runtimeGuardMarker)+'|filesBefore='+$runtimeGuardFilesBefore+'|filesAfter='+$runtimeGuardFilesAfter+'|output='+$runtimeGuardRun.Text)}
+            Assert-True ($runtimeGuardRun.Code-ne0-and$runtimeGuardRun.Text.Contains('FRAMEWORK_TOOL_RUNTIME_UNAVAILABLE')-and(Get-Identity $runtimeGuardMarker)-ceq$runtimeGuardBefore-and$runtimeGuardFilesAfter-eq$runtimeGuardFilesBefore) 'upgrade-windows-powershell5-runtime-guard-zero-write-before-recovery'
+        }else{
+            Write-Output 'EVIDENCE_CEILING|WINDOWS_POWERSHELL5_DIRECT_GUARD_NOT_AVAILABLE'
+            Assert-True $true 'upgrade-windows-powershell5-runtime-guard-evidence-ceiling-recorded'
+        }
+
         $fixtureManifestPath=Join-Path $rootFlow 'framework\versions\1.12.0\RELEASE_MANIFEST.json'
-        $fixtureVersionPath=Join-Path $rootFlow 'framework\versions\1.12.0\VERSION.json'
-        $fixtureVersion=Get-Content -Raw -Encoding utf8 -LiteralPath $fixtureVersionPath|ConvertFrom-Json
-        $fixtureVersion.lifecycle='STABLE';$fixtureVersion.consumable=$true;$fixtureVersion.projectPinEligible=$true
-        Write-Utf8 $fixtureVersionPath ($fixtureVersion|ConvertTo-Json -Depth 20)
         $fixtureManifest=Get-Content -Raw -Encoding utf8 -LiteralPath $fixtureManifestPath|ConvertFrom-Json
         $fixtureManifest.lifecycle='STABLE'
         $fixtureManifest.sourceReview='PENDING';$fixtureManifest.releaseIntegration='PENDING'
@@ -1006,10 +1074,10 @@ exit $LASTEXITCODE
 
         $fixtureVersionRoot=Split-Path -Parent $fixtureManifestPath
         $fixtureFacts=Seal-ReleaseFixture $fixtureVersionRoot 'TEST_FIXTURE_SEALED'
-        $fixturePayload=$fixtureFacts.Files;$fixtureTotal=$fixtureFacts.TotalBytes;$fixtureCanonical=$fixtureFacts.Canonical;[string[]]$fixtureOrderedRows=@($fixtureFacts.Rows|Where-Object{-not ([string]$_).StartsWith('VERSION.json|',[StringComparison]::Ordinal)})
+        $fixturePayload=$fixtureFacts.Files;$fixtureTotal=$fixtureFacts.TotalBytes;$fixtureCanonical=$fixtureFacts.Canonical;[string[]]$fixtureOrderedRows=@($fixtureFacts.Rows)
         $fixtureCoveragePath=Join-Path $fixtureVersionRoot 'CORRECTION_COVERAGE.json'
         $sourceRows=@()
-        foreach($relative in @($actual|Where-Object{$_-cne'RELEASE_MANIFEST.json'-and$_-cne'VERSION.json'})){$full=Join-Path $candidateRoot $relative;$bytes=[IO.File]::ReadAllBytes($full);$sourceRows+=($relative+'|'+$bytes.Length+'|'+(Get-Identity $full).Split('|')[1])}
+        foreach($relative in @($actual|Where-Object{$_-cne'RELEASE_MANIFEST.json'})){$full=Join-Path $candidateRoot $relative;$bytes=[IO.File]::ReadAllBytes($full);$sourceRows+=($relative+'|'+$bytes.Length+'|'+(Get-Identity $full).Split('|')[1])}
         [string[]]$sourceOrderedRows=@($sourceRows)
         [Array]::Sort($sourceOrderedRows,[StringComparer]::Ordinal)
         if(($sourceOrderedRows-join"`n")-cne($fixtureOrderedRows-join"`n")){
@@ -1018,6 +1086,18 @@ exit $LASTEXITCODE
         }
         $fixtureManifestCheck=Get-Content -Raw -Encoding utf8 -LiteralPath $fixtureManifestPath|ConvertFrom-Json
         if([int]$fixtureManifestCheck.fileCount-ne$fixturePayload.Count-or[int64]$fixtureManifestCheck.totalBytes-ne$fixtureTotal-or[string]$fixtureManifestCheck.canonical-cne$fixtureCanonical){Write-Output ('DIAG|root-flow-manifest|actual='+$fixturePayload.Count+'|'+$fixtureTotal+'|'+$fixtureCanonical+'|declared='+$fixtureManifestCheck.fileCount+'|'+$fixtureManifestCheck.totalBytes+'|'+$fixtureManifestCheck.canonical)}
+
+        $missingControllerRepo=Join-Path $rootFlow 'consumer-missing-controller'
+        New-GitRepo $missingControllerRepo
+        $missingControllerRegister=Invoke-Ps $register @('-ProjectId','missing-controller-fixture','-DisplayName','Missing Controller Fixture','-RepositoryPath',$missingControllerRepo,'-FrameworkVersion','1.12.0')
+        Assert-True ($missingControllerRegister.Code-ne0-and$missingControllerRegister.Text.Contains('ControllerId')-and-not(Test-Path -LiteralPath (Join-Path $missingControllerRepo '.ai-workspace'))) 'register-1.12-requires-controller-id-before-project-write'
+
+        $fixtureToolchainPath=Join-Path $fixtureVersionRoot 'TOOLCHAIN.json';$fixtureToolchainOriginal=Get-Content -Raw -Encoding utf8 -LiteralPath $fixtureToolchainPath
+        $unsupportedToolchain=$fixtureToolchainOriginal|ConvertFrom-Json;$unsupportedToolchain.officialBackends[0].platforms=@('linux');Write-Utf8 $fixtureToolchainPath ($unsupportedToolchain|ConvertTo-Json -Depth 20);$null=Seal-ReleaseFixture $fixtureVersionRoot 'UNSUPPORTED_PLATFORM_TEST_FIXTURE'
+        $unsupportedRegisterRepo=Join-Path $rootFlow 'consumer-unsupported-platform';New-GitRepo $unsupportedRegisterRepo
+        $unsupportedRegister=Invoke-Ps $register @('-ProjectId','unsupported-platform-fixture','-DisplayName','Unsupported Platform Fixture','-RepositoryPath',$unsupportedRegisterRepo,'-ControllerId','controller-unsupported','-FrameworkVersion','1.12.0','-Apply')
+        Assert-True ($unsupportedRegister.Code-ne0-and$unsupportedRegister.Text.Contains('FRAMEWORK_TOOL_PLATFORM_UNSUPPORTED|backend=powershell7|platform=windows')-and-not(Test-Path -LiteralPath (Join-Path $unsupportedRegisterRepo '.ai-workspace'))) 'register-unsupported-declared-platform-zero-write'
+        Write-Utf8 $fixtureToolchainPath $fixtureToolchainOriginal;$null=Seal-ReleaseFixture $fixtureVersionRoot 'TEST_FIXTURE_SEALED'
 
         $shadowRepo=Join-Path $rootFlow 'consumer-shadow-record'
         New-GitRepo $shadowRepo
@@ -1037,6 +1117,10 @@ exit $LASTEXITCODE
         Assert-True ($previewRegister.Code -eq 0 -and $previewRegister.Text.Contains('WHAT_IF')) 'register-explicit-1.12.0-preview'
         $applyRegister=Invoke-Ps $register @($baseRegisterArgs + @('-FrameworkVersion','1.12.0','-Apply'))
         Assert-True ($applyRegister.Code -eq 0 -and $applyRegister.Text.Contains('CREATED')) 'register-explicit-1.12.0-apply'
+        $registeredConfigPath=Join-Path $consumer '.ai-workspace\project.json'
+        $registeredConfigBeforeMissingController=Get-Identity $registeredConfigPath
+        $existingMissingController=Invoke-Ps $register @('-ProjectId','explicit-fixture','-DisplayName','Explicit Fixture','-RepositoryPath',$consumer,'-FrameworkVersion','1.12.0')
+        Assert-True ($existingMissingController.Code-ne0-and$existingMissingController.Text.Contains('ControllerId')-and(Get-Identity $registeredConfigPath)-ceq$registeredConfigBeforeMissingController) 'register-existing-1.12-requires-controller-id-zero-write'
         $repeatRegister=Invoke-Ps $register @($baseRegisterArgs + @('-FrameworkVersion','1.12.0'))
         Assert-True ($repeatRegister.Code -eq 0 -and $repeatRegister.Text.Contains('ALREADY_REGISTERED')) 'register-explicit-1.12.0-repeat'
         $registeredConfig=Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $consumer '.ai-workspace\project.json')|ConvertFrom-Json
@@ -1052,6 +1136,11 @@ exit $LASTEXITCODE
         Assert-True ($sourceRegister.Code -eq 0 -and $sourceRegister.Text.Contains('CREATED')) 'upgrade-fixture-registers-explicit-1.10.0'
         $upgradeControl=Join-Path $upgradeRepo '.ai-workspace'
         $upgradeConfigPath=Join-Path $upgradeControl 'project.json';$upgradeBootstrapPath=Join-Path $upgradeControl 'BOOTSTRAP.md';$upgradeControllerPath=Join-Path $upgradeControl 'controller.json'
+        $upgradeConfigBeforeUnsupportedPlatform=Get-Identity $upgradeConfigPath
+        $unsupportedToolchain=$fixtureToolchainOriginal|ConvertFrom-Json;$unsupportedToolchain.officialBackends[0].platforms=@('linux');Write-Utf8 $fixtureToolchainPath ($unsupportedToolchain|ConvertTo-Json -Depth 20);$null=Seal-ReleaseFixture $fixtureVersionRoot 'UNSUPPORTED_PLATFORM_TEST_FIXTURE'
+        $unsupportedUpgrade=Invoke-Ps $upgrade @('-ProjectId','upgrade-fixture','-ToVersion','1.12.0','-RepositoryPath',$upgradeRepo,'-ControllerId','controller-upgrade','-Apply')
+        Assert-True ($unsupportedUpgrade.Code-ne0-and$unsupportedUpgrade.Text.Contains('FRAMEWORK_TOOL_PLATFORM_UNSUPPORTED|backend=powershell7|platform=windows')-and(Get-Identity $upgradeConfigPath)-ceq$upgradeConfigBeforeUnsupportedPlatform-and-not(Test-Path -LiteralPath (Join-Path $upgradeControl '.framework-upgrade-transaction'))) 'upgrade-unsupported-declared-platform-zero-write-before-transaction'
+        Write-Utf8 $fixtureToolchainPath $fixtureToolchainOriginal;$null=Seal-ReleaseFixture $fixtureVersionRoot 'TEST_FIXTURE_SEALED'
         $upgradeConfig=Get-Content -Raw -Encoding utf8 -LiteralPath $upgradeConfigPath|ConvertFrom-Json
         $upgradeConfig.routineExcludedPaths=@('private/keep.txt')
         $upgradeConfig.frameworkCapabilities=[pscustomobject]@{KNOWLEDGE_REFERENCE=[pscustomobject]@{enabled=$false}}
@@ -1252,20 +1341,10 @@ exit $LASTEXITCODE
 
     if (-not $SkipManifest) {
         $manifest = Get-Content -LiteralPath (Join-Path $candidateRoot 'RELEASE_MANIFEST.json') -Raw -Encoding utf8 | ConvertFrom-Json
-        [string[]]$payload = @($actual | Where-Object { $_ -cne 'RELEASE_MANIFEST.json' })
-        [Array]::Sort($payload,[StringComparer]::Ordinal)
-        $rows = @(); $total = [int64]0
-        foreach ($relative in $payload) {
-            $full = Join-Path $candidateRoot $relative
-            $bytes = [IO.File]::ReadAllBytes($full)
-            $total += $bytes.Length
-            $rows += ($relative + '|' + $bytes.Length + '|' + (Get-Identity $full).Split('|')[1])
-        }
-        $sha = [Security.Cryptography.SHA256]::Create()
-        try { $canonical = ([BitConverter]::ToString($sha.ComputeHash($utf8.GetBytes(($rows -join "`n"))))).Replace('-','') }
-        finally { $sha.Dispose() }
-        $manifestOk = [int]$manifest.fileCount -eq $payload.Count -and [int64]$manifest.totalBytes -eq $total -and [string]$manifest.canonical -ceq $canonical
-        if (-not $manifestOk) { Write-Output ('DIAG|manifest|actual=' + $payload.Count + '|' + $total + '|' + $canonical + '|declared=' + $manifest.fileCount + '|' + $manifest.totalBytes + '|' + $manifest.canonical) }
+        $facts=Get-ReleasePayloadFacts $candidateRoot
+        $payloadRowsStable=($facts.Rows-join"`n")-ceq($initialPayloadFacts.Rows-join"`n")
+        $manifestOk = $payloadRowsStable -and [int]$manifest.fileCount -eq $initialPayloadFacts.FileCount -and [int64]$manifest.totalBytes -eq $initialPayloadFacts.TotalBytes -and [string]$manifest.canonical -ceq $initialPayloadFacts.Canonical
+        if (-not $manifestOk) { Write-Output ('DIAG|manifest|initial=' + $initialPayloadFacts.FileCount + '|' + $initialPayloadFacts.TotalBytes + '|' + $initialPayloadFacts.Canonical + '|finalRowsStable=' + $payloadRowsStable + '|declared=' + $manifest.fileCount + '|' + $manifest.totalBytes + '|' + $manifest.canonical) }
         Assert-True $manifestOk 'release-manifest-canonical'
     }
 } finally {

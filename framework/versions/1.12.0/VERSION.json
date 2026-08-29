@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "version": "1.12.0",
-  "lifecycle": "CANDIDATE",
+  "lifecycle": "STABLE",
   "releaseClass": "MINOR",
-  "consumable": false,
+  "consumable": true,
   "baseline": "1.11.0",
-  "projectPinEligible": false
+  "projectPinEligible": true
 }

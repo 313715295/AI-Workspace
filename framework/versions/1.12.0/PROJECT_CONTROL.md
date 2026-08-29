@@ -9,14 +9,14 @@ Root `scripts/register-project.ps1` requires an explicit exact version and Contr
 - target `VERSION.json` is `STABLE`, consumable and pin-eligible;
 - target `RELEASE_MANIFEST.json` matches the canonical payload and says source Review is approved;
 - target `project-starter` inventory is exact;
-- destination Git top, path and existing control-plane conditions are safe.
-- the selected version's `TOOLCHAIN.json` is exact and `pwsh` satisfies its sole official `powershell7` backend.
+- destination Git top, path and existing control-plane conditions are safe;
+- the selected version's `TOOLCHAIN.json` is exact, `pwsh` satisfies its sole official `powershell7` backend and the current host platform is declared by that backend.
 
 It materializes exactly the selected version's `project-starter`. For 1.12.0 that starter records `frameworkToolBackend=powershell7`. The starter is the reusable project process; registration does not invent another process.
 
 ## Upgrade
 
-Root `scripts/upgrade-project.ps1` requires caller-supplied `ProjectRoot` and exact `ToVersion`. It validates the target release before writes, accepts healthy schema3 sources supported by the migration matrix, and preserves:
+Root `scripts/upgrade-project.ps1` requires caller-supplied `RepositoryPath`, `ControllerId` and exact `ToVersion`. It validates the target release before writes, accepts healthy schema3 sources supported by the migration matrix, and preserves:
 
 - project ID and display name;
 - repo-local layout and repository root;
@@ -24,7 +24,7 @@ Root `scripts/upgrade-project.ps1` requires caller-supplied `ProjectRoot` and ex
 - routine exclusions and capabilities;
 - Bootstrap project custom region.
 
-For a 1.12.0 target, upgrade also projects the target starter's project-level backend field and requires PowerShell 7 before mutation. The field is inherited by every task and is not copied into authorization packages; existing project-config identity binding already invalidates packages when it changes.
+For a 1.12.0 target, upgrade also projects the target starter's project-level backend field and requires both PowerShell 7 and a platform declared by that backend before recovery or project mutation. The field is inherited by every task and is not copied into authorization packages; existing project-config identity binding already invalidates packages when it changes.
 
 Only declared managed objects change. The tool does not search for consumers, modify source/product files, stage/commit/push or update another project.
 

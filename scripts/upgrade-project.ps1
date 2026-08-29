@@ -25,6 +25,9 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+if($ToVersion-ceq'1.12.0'-and($PSVersionTable.PSEdition-cne'Core'-or$PSVersionTable.PSVersion.Major-lt7)){
+    throw 'FRAMEWORK_TOOL_RUNTIME_UNAVAILABLE|backend=powershell7|requires=pwsh>=7'
+}
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 $utf8Strict = New-Object System.Text.UTF8Encoding($false, $true)
 
@@ -57,7 +60,7 @@ function Assert-StableFrameworkRelease([string]$FrameworkPath,[string]$ExpectedV
     if(-not($manifest.version-is[string])-or[string]$manifest.version-cne$ExpectedVersion-or-not($manifest.lifecycle-is[string])-or[string]$manifest.lifecycle-cne'STABLE'-or-not($manifest.sourceReview-is[string])-or[string]$manifest.sourceReview-cne'APPROVED'-or-not($manifest.releaseIntegration-is[string])-or[string]::IsNullOrWhiteSpace([string]$manifest.releaseIntegration)-or[string]$manifest.releaseIntegration-ceq'PENDING'-or-not(Test-MinimalJsonInteger $manifest.fileCount)-or-not(Test-MinimalJsonInteger $manifest.totalBytes)-or-not($manifest.canonical-is[string])-or[string]$manifest.canonical-cnotmatch'^[A-F0-9]{64}$'){throw "FRAMEWORK_RELEASE_NOT_SEALED|$ExpectedVersion"}
     $rows=New-Object 'System.Collections.Generic.List[string]';[int64]$totalBytes=0
     foreach($file in @(Get-ChildItem -LiteralPath $FrameworkPath -Recurse -File -Force)){$relative=$file.FullName.Substring($FrameworkPath.Length+1).Replace('\','/');if($relative-ceq'RELEASE_MANIFEST.json'){continue};$bytes=[IO.File]::ReadAllBytes($file.FullName);$totalBytes+=$bytes.Length;$rows.Add($relative+'|'+$bytes.Length+'|'+(Get-UpperSha256Bytes $bytes))}
-    $ordered=@($rows);[Array]::Sort($ordered,[StringComparer]::Ordinal);$canonical=Get-UpperSha256Bytes ($utf8NoBom.GetBytes([string]::Join("`n",$ordered)))
+    [string[]]$ordered=@($rows);[Array]::Sort($ordered,[StringComparer]::Ordinal);$canonical=Get-UpperSha256Bytes ($utf8NoBom.GetBytes([string]::Join("`n",$ordered)))
     if([int64]$manifest.fileCount-ne$ordered.Count-or[int64]$manifest.totalBytes-ne$totalBytes-or[string]$manifest.canonical-cne$canonical){throw "FRAMEWORK_RELEASE_MANIFEST_DRIFT|$ExpectedVersion"}
 }
 
@@ -641,6 +644,26 @@ if (-not (Test-Path -LiteralPath $frameworkRoot -PathType Container)) {
     throw "Workspace root must contain the Framework directory: $workspace"
 }
 
+$targetFramework=$null
+if($ToVersion-cne'1.6.0'){
+    $targetFramework=Join-ChildPath $frameworkRoot "versions/$ToVersion"
+    if(-not(Test-Path -LiteralPath $targetFramework -PathType Container)){throw "Framework version does not exist: $ToVersion"}
+    Assert-StableFrameworkRelease $targetFramework $ToVersion
+    if($ToVersion-ceq'1.12.0'){
+        $toolchainPath=Join-ChildPath $targetFramework 'TOOLCHAIN.json';$toolchainRaw=Read-StrictUtf8NoBom $toolchainPath
+        try{$toolchain=$toolchainRaw|ConvertFrom-Json}catch{throw 'FRAMEWORK_TOOLCHAIN_JSON'}
+        Assert-MinimalExactFields $toolchain $toolchainRaw @('schemaVersion','frameworkVersion','contractVersion','projectSelectionField','officialBackends','conformance') 'Framework TOOLCHAIN.json'
+        if(-not(Test-MinimalJsonInteger $toolchain.schemaVersion)-or[int]$toolchain.schemaVersion-ne1-or[string]$toolchain.frameworkVersion-cne'1.12.0'-or[string]$toolchain.contractVersion-cne'1'-or[string]$toolchain.projectSelectionField-cne'frameworkToolBackend'-or-not($toolchain.officialBackends-is[System.Array])-or@($toolchain.officialBackends).Count-ne1){throw 'FRAMEWORK_TOOLCHAIN_VALUES'}
+        $backend=@($toolchain.officialBackends)[0]
+        if(-not($backend-is[pscustomobject])-or[string]$backend.id-cne'powershell7'-or[string]$backend.status-cne'OFFICIAL'-or-not($backend.runtime-is[pscustomobject])-or[string]$backend.runtime.command-cne'pwsh'-or[string]$backend.runtime.edition-cne'Core'-or-not(Test-MinimalJsonInteger $backend.runtime.minimumMajorVersion)-or[int]$backend.runtime.minimumMajorVersion-ne7-or-not($backend.platforms-is[System.Array])-or@($backend.platforms).Count-lt1-or-not($backend.entrypoints-is[pscustomobject])){throw 'FRAMEWORK_TOOLCHAIN_BACKEND'}
+        $declaredPlatforms=@($backend.platforms|ForEach-Object{[string]$_})
+        if(@($declaredPlatforms|Where-Object{$_-cnotin@('windows','linux','macos')}).Count-ne0-or@($declaredPlatforms|Select-Object -Unique).Count-ne$declaredPlatforms.Count){throw 'FRAMEWORK_TOOLCHAIN_PLATFORMS'}
+        $currentPlatform=if([Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([Runtime.InteropServices.OSPlatform]::Windows)){'windows'}elseif([Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([Runtime.InteropServices.OSPlatform]::Linux)){'linux'}elseif([Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([Runtime.InteropServices.OSPlatform]::OSX)){'macos'}else{'unknown'}
+        if($currentPlatform-cnotin$declaredPlatforms){throw ('FRAMEWORK_TOOL_PLATFORM_UNSUPPORTED|backend=powershell7|platform='+$currentPlatform)}
+        foreach($entry in $backend.entrypoints.PSObject.Properties){$relative=[string]$entry.Value;if([string]::IsNullOrWhiteSpace($relative)-or$relative-cne$relative.Replace('\','/')-or[IO.Path]::IsPathRooted($relative)-or$relative.Contains('..')-or-not(Test-Path -LiteralPath (Join-ChildPath $targetFramework $relative) -PathType Leaf)){throw ('FRAMEWORK_TOOLCHAIN_ENTRYPOINT|'+$entry.Name)}}
+    }
+}
+
 if (-not (Test-Path -LiteralPath $RepositoryPath -PathType Container)) {
     throw "Repository path does not exist: $RepositoryPath"
 }
@@ -684,23 +707,6 @@ if ($hasActiveTransaction) {
 if ($ToVersion -ceq '1.6.0') {
     Invoke-Framework16Upgrade $projectRoot $repo $layout $frameworkRoot
     return
-}
-
-$targetFramework = Join-ChildPath $frameworkRoot "versions/$ToVersion"
-
-if (-not (Test-Path -LiteralPath $targetFramework -PathType Container)) {
-    throw "Framework version does not exist: $ToVersion"
-}
-Assert-StableFrameworkRelease $targetFramework $ToVersion
-if($ToVersion-ceq'1.12.0'){
-    if($PSVersionTable.PSEdition-cne'Core'-or$PSVersionTable.PSVersion.Major-lt7){throw 'FRAMEWORK_TOOL_RUNTIME_UNAVAILABLE|backend=powershell7|requires=pwsh>=7'}
-    $toolchainPath=Join-ChildPath $targetFramework 'TOOLCHAIN.json';$toolchainRaw=Read-StrictUtf8NoBom $toolchainPath
-    try{$toolchain=$toolchainRaw|ConvertFrom-Json}catch{throw 'FRAMEWORK_TOOLCHAIN_JSON'}
-    Assert-MinimalExactFields $toolchain $toolchainRaw @('schemaVersion','frameworkVersion','contractVersion','projectSelectionField','officialBackends','conformance') 'Framework TOOLCHAIN.json'
-    if(-not(Test-MinimalJsonInteger $toolchain.schemaVersion)-or[int]$toolchain.schemaVersion-ne1-or[string]$toolchain.frameworkVersion-cne'1.12.0'-or[string]$toolchain.contractVersion-cne'1'-or[string]$toolchain.projectSelectionField-cne'frameworkToolBackend'-or-not($toolchain.officialBackends-is[System.Array])-or@($toolchain.officialBackends).Count-ne1){throw 'FRAMEWORK_TOOLCHAIN_VALUES'}
-    $backend=@($toolchain.officialBackends)[0]
-    if(-not($backend-is[pscustomobject])-or[string]$backend.id-cne'powershell7'-or[string]$backend.status-cne'OFFICIAL'-or-not($backend.runtime-is[pscustomobject])-or[string]$backend.runtime.command-cne'pwsh'-or[string]$backend.runtime.edition-cne'Core'-or-not(Test-MinimalJsonInteger $backend.runtime.minimumMajorVersion)-or[int]$backend.runtime.minimumMajorVersion-ne7-or-not($backend.entrypoints-is[pscustomobject])){throw 'FRAMEWORK_TOOLCHAIN_BACKEND'}
-    foreach($entry in $backend.entrypoints.PSObject.Properties){$relative=[string]$entry.Value;if([string]::IsNullOrWhiteSpace($relative)-or$relative-cne$relative.Replace('\','/')-or[IO.Path]::IsPathRooted($relative)-or$relative.Contains('..')-or-not(Test-Path -LiteralPath (Join-ChildPath $targetFramework $relative) -PathType Leaf)){throw ('FRAMEWORK_TOOLCHAIN_ENTRYPOINT|'+$entry.Name)}}
 }
 
 $configText = Read-StrictUtf8NoBom $projectFile

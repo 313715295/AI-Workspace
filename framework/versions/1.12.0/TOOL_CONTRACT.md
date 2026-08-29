@@ -18,9 +18,9 @@ The official `powershell7` backend is invoked with `pwsh -NoProfile -NonInteract
 
 Exit code `0` means the operation returned its documented accepted result. Any nonzero exit fails the requested boundary; callers preserve the entrypoint's explicit reason instead of guessing success from prose. Structured `-AsJson` output, when supported by an operation, is preferred for host decisions. Human-readable output is a projection of the same result, not another authority object.
 
-File identities remain `byteLength|UPPER_SHA256` over exact bytes. JSON and Markdown payloads use strict UTF-8 without BOM and LF line endings. Repository-relative evidence uses forward slashes. Cross-platform conformance compares normalized status, reason, operation, relative locator and identity fields; it never compares temporary roots or raw absolute paths.
+File identities remain `byteLength|UPPER_SHA256` over exact bytes. JSON and Markdown payloads use strict UTF-8 without BOM and LF line endings. Repository-relative evidence uses forward slashes. Platform conformance compares normalized status, reason, operation, relative locator and identity fields; it never compares temporary roots or raw absolute paths.
 
-Platform-specific evidence is explicit:
+The contract permits later platform admission, but each released toolchain lists only platforms it actually supports. 1.12.0 lists Windows only. Platform-specific evidence requirements remain explicit:
 
 - Windows uses reparse-point and case-insensitive path probes where the filesystem reports them.
 - Linux uses symbolic-link, executable/permission and case-sensitive probes.

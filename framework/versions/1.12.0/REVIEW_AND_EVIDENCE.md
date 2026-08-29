@@ -21,15 +21,15 @@ When a release declares a project correction incorporated, Review evaluates the 
 ## 1.12.0 release sequence
 
 1. one implementation writer completes source and tests;
-2. direct tests and immutable baseline checks freeze the candidate;
+2. direct tests and immutable baseline checks project final `VERSION.json` fields and freeze the exact release payload;
 3. writer releases;
 4. the current task owner routes the exact candidate directly to a fresh independent CRITICAL Reviewer under a pure `REVIEW_EXECUTE` package;
-5. approved candidate receives only focused release-manifest seal/root integration projection;
-6. focused verification confirms the seal did not change reviewed payload;
+5. approved candidate receives only the excluded release-manifest seal and reviewed root integration projection;
+6. focused verification confirms every reviewed payload byte is unchanged;
 7. Git stage/commit and push remain separate later packages.
 
 ## Evidence ceilings
 
 Direct fixtures can prove generic contracts, failure cases, canonical manifests and anonymous project preservation. They do not prove natural adoption, host behavior the test harness cannot authenticate, cost/quality savings, browser/device state, remote publication or external claims.
 
-The official PowerShell 7 backend must preserve timestamp strings and normalized results on every claimed platform. Windows, Linux or macOS support requires its actual conformance result; a missing platform/runtime is an explicit evidence ceiling, not a fabricated pass.
+The official PowerShell 7 backend must preserve timestamp strings and normalized results on every claimed platform. 1.12.0 claims Windows only. Any later Linux or macOS claim requires its own actual conformance result; a missing platform/runtime is an explicit evidence ceiling, not a fabricated pass.
