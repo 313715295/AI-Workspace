@@ -89,7 +89,10 @@ function Assert-ExactObjectFields($Object,[string]$Raw,[string[]]$Expected,[stri
     if (-not ($Object -is [pscustomobject])) { throw "$Label must be a JSON object." }
     $names = @($Object.PSObject.Properties.Name)
     if ($names.Count -ne $Expected.Count -or @($Expected | Where-Object { $_ -cnotin $names }).Count -ne 0) { throw "$Label field set mismatch." }
-    foreach ($name in $Expected) { if ([regex]::Matches($Raw,'"'+[regex]::Escape($name)+'"\s*:').Count -ne 1) { throw "$Label duplicate or missing field: $name" } }
+    foreach ($name in $Expected) {
+        $expectedCount=if($name-ceq'schemaVersion'-and'processPolicy'-cin$names){2}else{1}
+        if ([regex]::Matches($Raw,'"'+[regex]::Escape($name)+'"\s*:').Count -ne $expectedCount) { throw "$Label duplicate or missing field: $name" }
+    }
 }
 
 function ConvertTo-FrameworkLocator([string]$Value) {
@@ -127,8 +130,9 @@ function New-TemplateMap([string]$Version) {
         'PROJECT.md'='PROJECT.md'; 'REVIEW_PROFILE.md'='REVIEW_PROFILE.md'; 'RELATIONSHIPS.md'='RELATIONSHIPS.md';
         'STATUS.md'='STATUS.md'; 'tasks/README.md'='tasks/README.md'
     }
-    if ($Version -in @('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0','1.12.0')) { $map['controller.json']='controller.json' }
-    if ($Version -in @('1.10.0','1.11.0','1.12.0')) { $map['corrections.json']='corrections.json' }
+    if ($Version -in @('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0','1.12.0','1.13.0')) { $map['controller.json']='controller.json' }
+    if ($Version -in @('1.10.0','1.11.0','1.12.0','1.13.0')) { $map['corrections.json']='corrections.json' }
+    if ($Version -ceq '1.13.0') { $map['process-policy.json']='process-policy.json' }
     return $map
 }
 
@@ -305,13 +309,13 @@ function Get-RepoLocalStarter {
 
     $frameworkPath = Join-ChildPath $FrameworkRoot "versions/$FrameworkVersion"
     Assert-StableFrameworkRelease $frameworkPath $FrameworkVersion
-    if ($FrameworkVersion -ceq '1.12.0') {
+    if ($FrameworkVersion -in @('1.12.0','1.13.0')) {
         if ($PSVersionTable.PSEdition -cne 'Core' -or $PSVersionTable.PSVersion.Major -lt 7) { throw 'FRAMEWORK_TOOL_RUNTIME_UNAVAILABLE|backend=powershell7|requires=pwsh>=7' }
         $toolchainPath=Join-ChildPath $frameworkPath 'TOOLCHAIN.json'
         $toolchainRaw=Read-StrictUtf8Template $toolchainPath
         try{$toolchain=$toolchainRaw|ConvertFrom-Json}catch{throw 'FRAMEWORK_TOOLCHAIN_JSON'}
         Assert-ExactObjectFields $toolchain $toolchainRaw @('schemaVersion','frameworkVersion','contractVersion','projectSelectionField','officialBackends','conformance') 'Framework TOOLCHAIN.json'
-        if(-not(Test-JsonInteger $toolchain.schemaVersion)-or[int]$toolchain.schemaVersion-ne1-or[string]$toolchain.frameworkVersion-cne'1.12.0'-or[string]$toolchain.contractVersion-cne'1'-or[string]$toolchain.projectSelectionField-cne'frameworkToolBackend'-or-not($toolchain.officialBackends-is[System.Array])-or@($toolchain.officialBackends).Count-ne1){throw 'FRAMEWORK_TOOLCHAIN_VALUES'}
+        if(-not(Test-JsonInteger $toolchain.schemaVersion)-or[int]$toolchain.schemaVersion-ne1-or[string]$toolchain.frameworkVersion-cne$FrameworkVersion-or[string]$toolchain.contractVersion-cne'1'-or[string]$toolchain.projectSelectionField-cne'frameworkToolBackend'-or-not($toolchain.officialBackends-is[System.Array])-or@($toolchain.officialBackends).Count-ne1){throw 'FRAMEWORK_TOOLCHAIN_VALUES'}
         $backend=@($toolchain.officialBackends)[0]
         if(-not($backend-is[pscustomobject])-or[string]$backend.id-cne'powershell7'-or[string]$backend.status-cne'OFFICIAL'-or-not($backend.runtime-is[pscustomobject])-or[string]$backend.runtime.command-cne'pwsh'-or[string]$backend.runtime.edition-cne'Core'-or-not(Test-JsonInteger $backend.runtime.minimumMajorVersion)-or[int]$backend.runtime.minimumMajorVersion-ne7-or-not($backend.platforms-is[System.Array])-or@($backend.platforms).Count-lt1-or-not($backend.entrypoints-is[pscustomobject])){throw 'FRAMEWORK_TOOLCHAIN_BACKEND'}
         $declaredPlatforms=@($backend.platforms|ForEach-Object{[string]$_})
@@ -332,13 +336,14 @@ function Get-RepoLocalStarter {
         }
     }
     $projectTemplateText = Read-StrictUtf8Template (Join-ChildPath $templateRoot 'project.json')
-    $expectedSchema = if ($FrameworkVersion -in @('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0','1.12.0')) { '"schemaVersion": 3' } else { '"schemaVersion": 2' }
+    $expectedSchema = if ($FrameworkVersion -ceq '1.13.0') { '"schemaVersion": 4' } elseif ($FrameworkVersion -in @('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0','1.12.0')) { '"schemaVersion": 3' } else { '"schemaVersion": 2' }
     if (-not $projectTemplateText.Contains($expectedSchema) -or
         -not $projectTemplateText.Contains('"controlPlaneLayout": "repo-local"') -or
         -not $projectTemplateText.Contains('"repositoryRoot": ".."')) {
         throw "$Selection does not publish a valid repo-local project starter."
     }
-    if($FrameworkVersion-ceq'1.12.0'-and-not$projectTemplateText.Contains('"frameworkToolBackend": "powershell7"')){throw "$Selection does not publish the required 1.12.0 tool backend."}
+    if($FrameworkVersion-in@('1.12.0','1.13.0')-and-not$projectTemplateText.Contains('"frameworkToolBackend": "powershell7"')){throw "$Selection does not publish the required tool backend."}
+    if($FrameworkVersion-ceq'1.13.0'-and(-not$projectTemplateText.Contains('"locator": ".ai-workspace/process-policy.json"')-or-not$TemplateMap.Contains('process-policy.json'))){throw "$Selection does not publish the required 1.13.0 process policy carrier."}
     $bootstrapTemplate = Read-StrictUtf8Template (Join-ChildPath $templateRoot 'BOOTSTRAP.md')
     $null = Get-RepoLocalBootstrapRegions $bootstrapTemplate (Join-ChildPath $templateRoot 'BOOTSTRAP.md')
     return [pscustomobject]@{
@@ -389,17 +394,17 @@ function Assert-RepoLocalProject {
         throw "Existing repo-local project.json is invalid: $projectFile"
     }
     $baseFields=@('schemaVersion','id','displayName','controlPlaneLayout','repositoryRoot','frameworkVersion')
-    $schema3 = $ExpectedFrameworkVersion -in @('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0','1.12.0')
-    $expectedFields = if ($schema3) { @($baseFields + $(if($ExpectedFrameworkVersion-ceq'1.12.0'){@('frameworkToolBackend')}else{@()}) + @('routineExcludedPaths','frameworkCapabilities')) } else { $baseFields }
+    $schema3 = $ExpectedFrameworkVersion -in @('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0','1.12.0','1.13.0')
+    $expectedFields = if ($schema3) { @($baseFields + $(if($ExpectedFrameworkVersion-in@('1.12.0','1.13.0')){@('frameworkToolBackend')}else{@()}) + @('routineExcludedPaths','frameworkCapabilities') + $(if($ExpectedFrameworkVersion-ceq'1.13.0'){@('processPolicy')}else{@()})) } else { $baseFields }
     Assert-ExactObjectFields $config $configRaw $expectedFields 'Existing project.json'
-    $expectedSchema = if ($schema3) { 3 } else { 2 }
+    $expectedSchema = if ($ExpectedFrameworkVersion-ceq'1.13.0') { 4 } elseif ($schema3) { 3 } else { 2 }
     if (-not (Test-JsonInteger $config.schemaVersion) -or [int]$config.schemaVersion -ne $expectedSchema -or
         -not ($config.controlPlaneLayout -is [string]) -or [string]$config.controlPlaneLayout -cne 'repo-local' -or
         -not ($config.repositoryRoot -is [string]) -or [string]$config.repositoryRoot -cne '..' -or
         -not ($config.id -is [string]) -or [string]$config.id -cne $ExpectedProjectId -or
         -not ($config.displayName -is [string]) -or [string]$config.displayName -cne $ExpectedDisplayName -or
         -not ($config.frameworkVersion -is [string]) -or [string]$config.frameworkVersion -cne $ExpectedFrameworkVersion -or
-        ($ExpectedFrameworkVersion-ceq'1.12.0'-and(-not($config.frameworkToolBackend-is[string])-or[string]$config.frameworkToolBackend-cne'powershell7'))) {
+        ($ExpectedFrameworkVersion-in@('1.12.0','1.13.0')-and(-not($config.frameworkToolBackend-is[string])-or[string]$config.frameworkToolBackend-cne'powershell7'))) {
         throw "Existing .ai-workspace identity conflicts with the requested project: $ControlRoot"
     }
     if ($schema3) {
@@ -420,7 +425,16 @@ function Assert-RepoLocalProject {
             -not (Test-JsonInteger $controller.controllerEpoch) -or [int64]$controller.controllerEpoch -lt 1 -or
             -not ($controller.state -is [string]) -or [string]$controller.state -cne 'CURRENT' -or
             (-not [string]::IsNullOrWhiteSpace($ExpectedControllerId) -and [string]$controller.controllerId -cne $ExpectedControllerId)) { throw "Existing controller.json conflicts with the requested project: $controllerFile" }
-        if ($ExpectedFrameworkVersion -in @('1.10.0','1.11.0','1.12.0')) {
+        if($ExpectedFrameworkVersion-ceq'1.13.0'){
+            $policyFile=Join-Path $ControlRoot 'process-policy.json';$policyRaw=Read-StrictUtf8Template $policyFile
+            try{$policy=$policyRaw|ConvertFrom-Json}catch{throw "Existing process-policy.json is invalid: $policyFile"}
+            $policyLocatorRaw=$config.processPolicy|ConvertTo-Json -Compress
+            Assert-ExactObjectFields $config.processPolicy $policyLocatorRaw @('schemaVersion','locator') 'Existing project.json processPolicy'
+            if([regex]::Matches($configRaw,'"locator"\s*:').Count-ne1){throw 'Existing project.json processPolicy locator is duplicate or missing.'}
+            Assert-ExactObjectFields $policy $policyRaw @('schemaVersion','contractVersion','projectId','rules') 'Existing process-policy.json'
+            if([int]$config.processPolicy.schemaVersion-ne1-or[string]$config.processPolicy.locator-cne'.ai-workspace/process-policy.json'-or[int]$policy.schemaVersion-ne1-or[string]$policy.contractVersion-cne'1.13.0'-or[string]$policy.projectId-cne$ExpectedProjectId-or-not($policy.rules-is[System.Array])){throw 'Existing 1.13.0 process policy is invalid.'}
+        }
+        if ($ExpectedFrameworkVersion -in @('1.10.0','1.11.0','1.12.0','1.13.0')) {
             $correctionsFile=Join-Path $ControlRoot 'corrections.json'
             $correctionsRaw=Read-StrictUtf8Template $correctionsFile
             try { $corrections=$correctionsRaw|ConvertFrom-Json } catch { throw "Existing corrections.json is invalid: $correctionsFile" }
@@ -462,7 +476,7 @@ if (-not (Test-Path -LiteralPath $RepositoryPath -PathType Container)) {
 }
 $repo = Get-GitRepositoryRoot ([System.IO.Path]::GetFullPath((Resolve-Path -LiteralPath $RepositoryPath).ProviderPath))
 
-if ($FrameworkVersion -in @('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0','1.12.0') -and [string]::IsNullOrWhiteSpace($ControllerId)) { throw 'ControllerId is required when registering a schema3 Framework version.' }
+if ($FrameworkVersion -in @('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0','1.12.0','1.13.0') -and [string]::IsNullOrWhiteSpace($ControllerId)) { throw 'ControllerId is required when registering a controlled Framework version.' }
 
 $requiredProjectDirectories = @('tasks', 'tasks/active', 'tasks/archive')
 $projectRoot = Join-Path $repo '.ai-workspace'
@@ -552,7 +566,7 @@ try {
         if ($content -match '\{\{[A-Z0-9_]+\}\}') {
             throw "Unresolved template token in: $sourcePath"
         }
-        if ($entry.Value -in @('project.json','controller.json','corrections.json')) {
+        if ($entry.Value -in @('project.json','controller.json','corrections.json','process-policy.json')) {
             $null = $content | ConvertFrom-Json
         }
 

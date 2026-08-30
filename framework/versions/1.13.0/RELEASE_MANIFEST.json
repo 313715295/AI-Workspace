@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "version": "1.13.0",
+  "lifecycle": "STABLE",
+  "releaseClass": "MINOR",
+  "scope": "all release payload files except RELEASE_MANIFEST.json",
+  "algorithm": "Ordinal relative path; path|byteLength|UPPER_SHA256; UTF-8 LF join without trailing LF; SHA256 payload",
+  "fileCount": 66,
+  "totalBytes": 525555,
+  "canonical": "8C927A908CAFBA76661F3814967BC91086C05FA99E3E33DFF80273512F21898C",
+  "baseline": "1.12.0",
+  "sourceReview": "APPROVED",
+  "sourceCandidate": "FRAMEWORK_1.13.0_CANDIDATE_8C927A908CAF",
+  "releaseIntegration": "FRAMEWORK_1.13.0_RELEASE_INTEGRATION_001"
+}

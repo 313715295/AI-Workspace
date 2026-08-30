@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AI-Workspace project-specific process policy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "contractVersion", "projectId", "rules"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "contractVersion": {"const": "1.13.0"},
+    "projectId": {"type": "string", "minLength": 1},
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ruleId", "requirementReason", "effectiveRule", "selectors", "preparationRequirements", "resultRequirements", "decisionLocator"],
+        "properties": {
+          "ruleId": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"},
+          "requirementReason": {"type": "string", "minLength": 1},
+          "effectiveRule": {"type": "string", "minLength": 1},
+          "selectors": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["profiles", "roles", "phases", "actionKinds", "resultKinds", "pathPrefixes", "capabilities", "semanticTerms"],
+            "properties": {
+              "profiles": {"type":"array","items":{"type":"string"}},
+              "roles": {"type":"array","items":{"type":"string"}},
+              "phases": {"type":"array","items":{"type":"string"}},
+              "actionKinds": {"type":"array","items":{"type":"string"}},
+              "resultKinds": {"type":"array","items":{"type":"string"}},
+              "pathPrefixes": {"type":"array","items":{"type":"string"}},
+              "capabilities": {"type":"array","items":{"type":"string"}},
+              "semanticTerms": {"type":"array","items":{"type":"string"}}
+            }
+          },
+          "preparationRequirements": {"type":"array","items":{"type":"string","pattern":"^[A-Z][A-Z0-9_]*$"}},
+          "resultRequirements": {"type":"array","items":{"type":"string","pattern":"^[A-Z][A-Z0-9_]*$"}},
+          "decisionLocator": {"type":"string","minLength":1}
+        }
+      }
+    }
+  }
+}

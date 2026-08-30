@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "contractVersion": "1.13.0",
+  "projectId": "{{PROJECT_ID}}",
+  "rules": []
+}

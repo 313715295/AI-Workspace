@@ -1,0 +1,107 @@
+{
+  "schemaVersion": 1,
+  "frameworkVersion": "1.13.0",
+  "catalogVersion": "1",
+  "requirements": [
+    {
+      "requirementId": "PR_RECOVERY_CURRENT_AUTHORITY",
+      "legacyAliases": [],
+      "title": "Current authority recovery",
+      "description": "Bind the current project pin, Controller, task, exact objects and selected workset before governed work.",
+      "selectors": {"profiles":["*"],"roles":["*"],"phases":["RECOVER","DISCOVER","PLAN","IMPLEMENT","VERIFY","REVIEW","GIT","EXTERNAL"],"actionKinds":["*"],"resultKinds":["*"],"pathPrefixes":[],"capabilities":[],"semanticTerms":[]},
+      "fullText": "Use current repo-local authority and the explicit project pin. Reprove task, actor/role/phase, exact scope, protection and applicable source identities. Recovery grants no action.",
+      "preparationRequirements": ["CURRENT_AUTHORITY_BOUND"],
+      "resultRequirements": []
+    },
+    {
+      "requirementId": "PR_ACTION_AUTHORIZATION_INDEPENDENT",
+      "legacyAliases": [],
+      "title": "Independent action authorization",
+      "description": "Every mutating or side-effecting action retains its categorical authorization gate.",
+      "selectors": {"profiles":["*"],"roles":["*"],"phases":["IMPLEMENT","VERIFY","REVIEW","GIT","EXTERNAL"],"actionKinds":["SOURCE_WRITE","TEST_WRITE","TEST_RUN","REVIEW_ROUTE","REVIEW_EXECUTE","OWNER_ACCEPT","GIT_STAGE","GIT_COMMIT","PUSH","BROWSER_RUN","DEVICE_RUN","EXTERNAL"],"resultKinds":["*"],"pathPrefixes":[],"capabilities":[],"semanticTerms":[]},
+      "fullText": "Require the exact action package and current bindings. Process resolution selects requirements only; it cannot grant, merge, weaken or replace authorization, Review, OWNER_ACCEPT, Git, push, browser, device, external or protection gates.",
+      "preparationRequirements": ["ACTION_PACKAGE_VALID","EXACT_SCOPE_BOUND"],
+      "resultRequirements": ["ACTION_RESULT_OBSERVED"]
+    },
+    {
+      "requirementId": "PR_TASK_SCOPE_AND_FORBIDDEN",
+      "legacyAliases": [],
+      "title": "Task scope closure",
+      "description": "Keep objective, exact scope, forbidden boundaries and evidence ceiling current.",
+      "selectors": {"profiles":["STANDARD","CRITICAL"],"roles":["*"],"phases":["PLAN","IMPLEMENT","VERIFY","REVIEW"],"actionKinds":["*"],"resultKinds":["*"],"pathPrefixes":[],"capabilities":[],"semanticTerms":[]},
+      "fullText": "Before material work bind objective, exact/contingency/forbidden paths, producer and direct consumers, validation and evidence ceiling. Unknown impact does not silently narrow scope.",
+      "preparationRequirements": ["TASK_SCOPE_CURRENT"],
+      "resultRequirements": ["SCOPE_READBACK_COMPLETE"]
+    },
+    {
+      "requirementId": "PR_CRITICAL_REVIEW_INDEPENDENCE",
+      "legacyAliases": [],
+      "title": "Critical independent Review",
+      "description": "CRITICAL candidates require relationally independent Review where the action contract requires it.",
+      "selectors": {"profiles":["CRITICAL"],"roles":["REVIEWER","DOMAIN_OWNER","FRAMEWORK_MAINTAINER","CONTROLLER"],"phases":["REVIEW","VERIFY"],"actionKinds":["REVIEW_ROUTE","REVIEW_EXECUTE"],"resultKinds":["REVIEW_VERDICT","*"],"pathPrefixes":[],"capabilities":[],"semanticTerms":[]},
+      "fullText": "Bind the frozen candidate, candidate writer and material contributors. Owner, issuer, writer and contributors cannot masquerade as the independent final Reviewer. Review does not perform OWNER_ACCEPT or authorize implementation/Git.",
+      "preparationRequirements": ["CANDIDATE_FROZEN","REVIEWER_INDEPENDENCE_PROVEN"],
+      "resultRequirements": ["REVIEW_VERDICT_BOUND"]
+    },
+    {
+      "requirementId": "PR_OWNER_ACCEPT_SEPARATE",
+      "legacyAliases": [],
+      "title": "Owner acceptance remains separate",
+      "description": "Product/domain acceptance is distinct from independent Review.",
+      "selectors": {"profiles":["STANDARD","CRITICAL"],"roles":["DOMAIN_OWNER","CONTROLLER","FRAMEWORK_MAINTAINER"],"phases":["VERIFY"],"actionKinds":["OWNER_ACCEPT"],"resultKinds":["OWNER_ACCEPTANCE","*"],"pathPrefixes":[],"capabilities":[],"semanticTerms":[]},
+      "fullText": "The current task owner accepts the reviewed exact result against the user/product decision. Reviewer approval alone is not OWNER_ACCEPT.",
+      "preparationRequirements": ["REVIEW_OR_DIRECT_EVIDENCE_BOUND"],
+      "resultRequirements": ["OWNER_ACCEPT_RECORDED"]
+    },
+    {
+      "requirementId": "PR_FINAL_OUTPUT_CURRENT_RESULT",
+      "legacyAliases": [],
+      "title": "Final output completeness",
+      "description": "Final delivery states the accepted current result, evidence ceiling, material limitations and unique next action.",
+      "selectors": {"profiles":["*"],"roles":["*"],"phases":["*"],"actionKinds":["*"],"resultKinds":["USER_RESPONSE","TERMINAL","HANDOFF","REVIEW_VERDICT","OWNER_ACCEPTANCE"],"pathPrefixes":[],"capabilities":[],"semanticTerms":[]},
+      "fullText": "Before final output compare the actual result and claims with the user request and selected requirements. Missing required work is completed when safe or returned as the exact blocker; MISSING/NOT_DELIVERED is not completion.",
+      "preparationRequirements": [],
+      "resultRequirements": ["REQUEST_COVERAGE_READBACK","EVIDENCE_CEILING_STATED","UNIQUE_NEXT_ACTION_STATED"]
+    },
+    {
+      "requirementId": "PR_GIT_PUSH_SEPARATE",
+      "legacyAliases": [],
+      "title": "Git and push separation",
+      "description": "Git stage, commit and remote push remain separate explicit boundaries.",
+      "selectors": {"profiles":["*"],"roles":["*"],"phases":["GIT"],"actionKinds":["GIT_STAGE","GIT_COMMIT","PUSH"],"resultKinds":["*"],"pathPrefixes":[],"capabilities":[],"semanticTerms":[]},
+      "fullText": "Reprove index, exact candidate and authorization independently for stage, commit and push. A stable local release does not imply publication or project adoption.",
+      "preparationRequirements": ["SAFE_GIT_STATE_PROVEN","GIT_ACTION_AUTHORIZED"],
+      "resultRequirements": ["GIT_RESULT_OBSERVED"]
+    },
+    {
+      "requirementId": "PR_EXTERNAL_DEVICE_BROWSER_SEPARATE",
+      "legacyAliases": [],
+      "title": "External side effects remain separate",
+      "description": "Browser, device and external actions require their own current gates.",
+      "selectors": {"profiles":["*"],"roles":["*"],"phases":["EXTERNAL"],"actionKinds":["BROWSER_RUN","DEVICE_RUN","EXTERNAL"],"resultKinds":["*"],"pathPrefixes":[],"capabilities":[],"semanticTerms":[]},
+      "fullText": "Confirm the exact side effect, credential/target, user decision and evidence ceiling. Framework process resolution is not host enforcement and does not grant the external capability.",
+      "preparationRequirements": ["EXTERNAL_BOUNDARY_AUTHORIZED"],
+      "resultRequirements": ["EXTERNAL_RESULT_OBSERVED"]
+    },
+    {
+      "requirementId": "PR_PROTECTED_PATH_FAIL_CLOSED",
+      "legacyAliases": [],
+      "title": "Protected boundary",
+      "description": "Protected or excluded paths fail closed and are not accessed by fallback.",
+      "selectors": {"profiles":["*"],"roles":["*"],"phases":["*"],"actionKinds":["*"],"resultKinds":["*"],"pathPrefixes":[".ai-workspace/"],"capabilities":[],"semanticTerms":["protected","excluded","forbidden"]},
+      "fullText": "Honor current protected read/hash/diff/index/write boundaries. UNKNOWN or an unavailable bounded helper returns an exact blocker and never triggers broad search or fallback access.",
+      "preparationRequirements": ["PROTECTION_BOUNDARY_PROVEN"],
+      "resultRequirements": ["ZERO_BOUNDARY_VIOLATION"]
+    },
+    {
+      "requirementId": "PR_PROPORTIONALITY_WHEN_MACHINERY_ADDED",
+      "legacyAliases": [],
+      "title": "Proportional architecture",
+      "description": "Machinery-rich architecture recommendations require one compact proportionality conclusion.",
+      "selectors": {"profiles":["CRITICAL"],"roles":["CONTROLLER","DOMAIN_OWNER","FRAMEWORK_MAINTAINER"],"phases":["PLAN"],"actionKinds":["NONE"],"resultKinds":["PLAN","USER_RESPONSE"],"pathPrefixes":[],"capabilities":[],"semanticTerms":["architecture","workflow","framework","service","registry","ledger","role","state"]},
+      "fullText": "Record existing sufficiency, classification, minimum sufficient fix, added machinery and escalation trigger before recommending new roles, states, services, tasks or transitions. Routine fixes that add no machinery are exempt.",
+      "preparationRequirements": ["PROPORTIONALITY_CONCLUSION"],
+      "resultRequirements": ["MINIMUM_SUFFICIENT_SELECTION"]
+    }
+  ]
+}

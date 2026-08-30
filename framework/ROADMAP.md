@@ -4,6 +4,23 @@ This file contains generic release history and unselected Framework directions. 
 
 ## Release line
 
+### 1.13.0 — progressive process requirements
+
+Status: stable and consumable after bounded conformance, immutable 1.12 regression evidence, fresh independent CRITICAL Review, separate Maintenance acceptance and deterministic release sealing. Post-release project observation is evidence for later improvement, not a 1.13 release gate. Publication state is determined by repository refs rather than this roadmap.
+
+Selected minimum-sufficient scope:
+
+- add one `PROCESS_REQUIREMENTS_RESOLVE` front door with `DISCOVER / ADMIT_ACTION / FINALIZE_OUTPUT`;
+- evolve the correction evaluator into the single source composer for sealed Framework requirements, still-effective project corrections and permanent project rules;
+- bind schema 1.13.0 task context to exact host actor, role and phase while preserving two-field legacy recovery with an explicit ceiling;
+- return complete text only for selected structured rules and reuse the ephemeral DISCOVER receipt across the normal action/finalization sequence;
+- retain free-text corrections and legacy `PROJECT-CUSTOM` through honest full-load compatibility, without claiming compact progressive selection;
+- require exact alias/native/catalog/source-record mapping before a correction is suppressed;
+- add one structured project policy carrier for new projects and separately reviewed atomic migrations;
+- keep every existing action, Review, acceptance, Git, external and protection gate independent, and state host/semantic evidence ceilings explicitly.
+
+Explicitly not selected: a second authority/composer, persistent effective-state projection, actor/Reviewer pool, trigger registry, service, poller, ledger, per-tool hook/reload, automatic correction migration, automatic consumer adoption or physical host-enforcement claim.
+
 ### 1.12.0 — Tool Contract and PowerShell 7 backend
 
 Status: stable and consumable after frozen source, Windows PowerShell 7 conformance for the declared 1.12.0 platform, independent CRITICAL Review-4 approval and deterministic manifest seal. Publication state is determined by repository refs rather than this roadmap.
@@ -98,7 +115,7 @@ Earlier releases remain immutable historical contracts.
 
 ## Future admission triggers
 
-No additional process machinery is queued merely because 1.9.0 is released. A later version is considered only when natural project evidence shows a remaining failure that the 1.9.0 minimum cannot express safely.
+No additional process machinery is queued merely because 1.13.0 is released. A later version is considered only when post-adoption project evidence shows a remaining failure that its minimum cannot express safely.
 
 - Host-enforced authenticity remains optional. Consider a trusted adapter/hook only if a supported host path actually needs enforcement beyond mechanical preflight and exposes testable host-derived signals.
 - Knowledge context budgets remain unselected until natural DISCOVER/QUERY use demonstrates measurable context growth that compact metadata and the three-ID limit do not contain.

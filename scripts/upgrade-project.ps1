@@ -28,6 +28,9 @@ $ErrorActionPreference = 'Stop'
 if($ToVersion-ceq'1.12.0'-and($PSVersionTable.PSEdition-cne'Core'-or$PSVersionTable.PSVersion.Major-lt7)){
     throw 'FRAMEWORK_TOOL_RUNTIME_UNAVAILABLE|backend=powershell7|requires=pwsh>=7'
 }
+if($ToVersion-ceq'1.13.0'-and($PSVersionTable.PSEdition-cne'Core'-or$PSVersionTable.PSVersion.Major-lt7)){
+    throw 'FRAMEWORK_TOOL_RUNTIME_UNAVAILABLE|backend=powershell7|requires=pwsh>=7'
+}
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 $utf8Strict = New-Object System.Text.UTF8Encoding($false, $true)
 
@@ -309,7 +312,7 @@ function Assert-MinimalExactFields($Object,[string]$Raw,[string[]]$Expected,[str
     if (-not ($Object -is [pscustomobject])) { throw "$Label must be a JSON object." }
     $names=@($Object.PSObject.Properties.Name)
     if ($names.Count -ne $Expected.Count -or @($Expected|Where-Object{$_ -cnotin $names}).Count -ne 0) { throw "$Label field set mismatch." }
-    foreach($name in $Expected){if([regex]::Matches($Raw,'"'+[regex]::Escape($name)+'"\s*:').Count-ne 1){throw "$Label duplicate or missing field: $name"}}
+    foreach($name in $Expected){$expectedCount=if($name-ceq'schemaVersion'-and'processPolicy'-cin$names){2}else{1};if([regex]::Matches($Raw,'"'+[regex]::Escape($name)+'"\s*:').Count-ne$expectedCount){throw "$Label duplicate or missing field: $name"}}
 }
 
 function ConvertTo-MinimalFrameworkLocator([string]$Value) {
@@ -444,14 +447,14 @@ function Recover-UpgradeTransaction([string]$Root,[string]$ProjectRoot,[string]$
         $frozenControllerRaw=Read-StrictUtf8NoBom $frozenControllerPath
         try{$frozenController=$frozenControllerRaw|ConvertFrom-Json}catch{throw 'Frozen recovery controller.json is invalid.'}
         Assert-MinimalController $frozenController $frozenControllerRaw $ProjectId $ControllerId
-    }elseif([string]$state.controllerMode-ceq'NONE'-and[string]$state.fromVersion-cin@('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0','1.12.0')-and[string]$state.toVersion-cin@('1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0','1.12.0')){
+    }elseif([string]$state.controllerMode-ceq'NONE'-and[string]$state.fromVersion-cin@('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0','1.12.0','1.13.0')-and[string]$state.toVersion-cin@('1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0','1.12.0','1.13.0')){
         if([string]::IsNullOrWhiteSpace($ControllerId)){throw 'ControllerId is required for schema3 transaction recovery.'}
         if(-not(Test-Path -LiteralPath $ControllerFile -PathType Leaf)){throw 'Schema3 patch recovery controller.json is missing.'}
         Assert-NoReparsePoint $ControllerFile
         $currentControllerRaw=Read-StrictUtf8NoBom $ControllerFile
         try{$currentController=$currentControllerRaw|ConvertFrom-Json}catch{throw 'Schema3 patch recovery controller.json is invalid.'}
         Assert-MinimalController $currentController $currentControllerRaw $ProjectId $ControllerId
-    }elseif([string]$state.toVersion-cin@('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0','1.12.0')){
+    }elseif([string]$state.toVersion-cin@('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0','1.12.0','1.13.0')){
         throw 'Unsupported upgrade recovery matrix combination.'
     }
     if($Preview){return ('RECOVERY_REQUIRED|from='+[string]$state.fromVersion+'|to='+[string]$state.toVersion+'|controllerMode='+[string]$state.controllerMode)}
@@ -549,6 +552,24 @@ function Invoke-CorrectionEvaluation([string]$Evaluator,[string]$ProjectReposito
     if($code-eq3-and[string]$result.status-ceq'CONFLICT'){return $result}
     if($code-ne0-or[string]$result.status-ceq'FAIL'){throw "PROJECT_CORRECTION_EVALUATION_FAILED|$joined"}
     return $result
+}
+
+function Invoke-CorrectionEvaluationProjected([string]$Evaluator,[string]$FrameworkWorkspace,[string]$Version,[string]$TargetConfig,[string]$TargetBootstrap,[string]$CorrectionsFile,[string]$ProcessPolicyFile,[switch]$AllowMissing) {
+    $projectionRoot=Join-Path ([IO.Path]::GetTempPath()) ('aiw-correction-projection-'+[guid]::NewGuid().ToString('N'))
+    $projectionControl=Join-Path $projectionRoot '.ai-workspace'
+    try{
+        New-Item -ItemType Directory -Path $projectionControl -Force|Out-Null
+        $projectionConfig=Join-Path $projectionControl 'project.json';[IO.File]::WriteAllText($projectionConfig,$TargetConfig,$utf8NoBom)
+        [IO.File]::WriteAllText((Join-Path $projectionControl 'BOOTSTRAP.md'),$TargetBootstrap,$utf8NoBom)
+        try{$projectedConfig=$TargetConfig|ConvertFrom-Json}catch{throw 'Projected project configuration is invalid JSON.'}
+        if($null-ne$projectedConfig.PSObject.Properties['processPolicy']){
+            if([string]::IsNullOrWhiteSpace($ProcessPolicyFile)-or-not(Test-Path -LiteralPath $ProcessPolicyFile -PathType Leaf)){throw 'Projected process policy is missing.'}
+            Copy-Item -LiteralPath $ProcessPolicyFile -Destination (Join-Path $projectionControl 'process-policy.json')
+        }
+        $projectionCorrections=Join-Path $projectionControl 'corrections.json'
+        if(Test-Path -LiteralPath $CorrectionsFile -PathType Leaf){Copy-Item -LiteralPath $CorrectionsFile -Destination $projectionCorrections}
+        return Invoke-CorrectionEvaluation $Evaluator $projectionRoot $FrameworkWorkspace $Version $projectionConfig $projectionCorrections 'PRECHECK' -AllowMissing:($AllowMissing-or-not(Test-Path -LiteralPath $projectionCorrections -PathType Leaf))
+    }finally{if(Test-Path -LiteralPath $projectionRoot){Remove-Item -LiteralPath $projectionRoot -Recurse -Force}}
 }
 
 function Write-CorrectionEvaluation($Result,[string]$Phase) {
@@ -649,11 +670,11 @@ if($ToVersion-cne'1.6.0'){
     $targetFramework=Join-ChildPath $frameworkRoot "versions/$ToVersion"
     if(-not(Test-Path -LiteralPath $targetFramework -PathType Container)){throw "Framework version does not exist: $ToVersion"}
     Assert-StableFrameworkRelease $targetFramework $ToVersion
-    if($ToVersion-ceq'1.12.0'){
+    if($ToVersion-in@('1.12.0','1.13.0')){
         $toolchainPath=Join-ChildPath $targetFramework 'TOOLCHAIN.json';$toolchainRaw=Read-StrictUtf8NoBom $toolchainPath
         try{$toolchain=$toolchainRaw|ConvertFrom-Json}catch{throw 'FRAMEWORK_TOOLCHAIN_JSON'}
         Assert-MinimalExactFields $toolchain $toolchainRaw @('schemaVersion','frameworkVersion','contractVersion','projectSelectionField','officialBackends','conformance') 'Framework TOOLCHAIN.json'
-        if(-not(Test-MinimalJsonInteger $toolchain.schemaVersion)-or[int]$toolchain.schemaVersion-ne1-or[string]$toolchain.frameworkVersion-cne'1.12.0'-or[string]$toolchain.contractVersion-cne'1'-or[string]$toolchain.projectSelectionField-cne'frameworkToolBackend'-or-not($toolchain.officialBackends-is[System.Array])-or@($toolchain.officialBackends).Count-ne1){throw 'FRAMEWORK_TOOLCHAIN_VALUES'}
+        if(-not(Test-MinimalJsonInteger $toolchain.schemaVersion)-or[int]$toolchain.schemaVersion-ne1-or[string]$toolchain.frameworkVersion-cne$ToVersion-or[string]$toolchain.contractVersion-cne'1'-or[string]$toolchain.projectSelectionField-cne'frameworkToolBackend'-or-not($toolchain.officialBackends-is[System.Array])-or@($toolchain.officialBackends).Count-ne1){throw 'FRAMEWORK_TOOLCHAIN_VALUES'}
         $backend=@($toolchain.officialBackends)[0]
         if(-not($backend-is[pscustomobject])-or[string]$backend.id-cne'powershell7'-or[string]$backend.status-cne'OFFICIAL'-or-not($backend.runtime-is[pscustomobject])-or[string]$backend.runtime.command-cne'pwsh'-or[string]$backend.runtime.edition-cne'Core'-or-not(Test-MinimalJsonInteger $backend.runtime.minimumMajorVersion)-or[int]$backend.runtime.minimumMajorVersion-ne7-or-not($backend.platforms-is[System.Array])-or@($backend.platforms).Count-lt1-or-not($backend.entrypoints-is[pscustomobject])){throw 'FRAMEWORK_TOOLCHAIN_BACKEND'}
         $declaredPlatforms=@($backend.platforms|ForEach-Object{[string]$_})
@@ -730,19 +751,20 @@ if ($layout -cne 'repo-local') { throw 'Framework live upgrade accepts repositor
             throw "Repo-local project configuration is missing a required property: $property"
         }
     }
-    $allowedSchema3Sources = if($ToVersion -ceq '1.6.1'){@('1.6.0','1.6.1')}elseif($ToVersion -ceq '1.7.0'){@('1.6.0','1.6.1','1.7.0')}elseif($ToVersion -ceq '1.8.0'){@('1.6.0','1.6.1','1.7.0','1.8.0')}elseif($ToVersion -ceq '1.9.0'){@('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0','1.12.0')}elseif($ToVersion -ceq '1.10.0'){@('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0','1.12.0')}elseif($ToVersion -ceq '1.11.0'){@('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0','1.12.0')}elseif($ToVersion -ceq '1.12.0'){@('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0','1.12.0')}else{@()}
+    $schema4Source=$false
+    $allowedSchema3Sources = if($ToVersion -ceq '1.6.1'){@('1.6.0','1.6.1')}elseif($ToVersion -ceq '1.7.0'){@('1.6.0','1.6.1','1.7.0')}elseif($ToVersion -ceq '1.8.0'){@('1.6.0','1.6.1','1.7.0','1.8.0')}elseif($ToVersion -ceq '1.9.0'){@('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0','1.12.0','1.13.0')}elseif($ToVersion -ceq '1.10.0'){@('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0','1.12.0','1.13.0')}elseif($ToVersion -ceq '1.11.0'){@('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0','1.12.0','1.13.0')}elseif($ToVersion -ceq '1.12.0'){@('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0','1.12.0','1.13.0')}elseif($ToVersion-ceq'1.13.0'){@('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0','1.12.0','1.13.0')}else{@()}
     $schema3Patch = $allowedSchema3Sources.Count -gt 0 -and
         (Test-MinimalJsonInteger $config.schemaVersion) -and [int]$config.schemaVersion -eq 3 -and
         ($config.frameworkVersion -is [string]) -and [string]$config.frameworkVersion -in $allowedSchema3Sources
     if ($schema3Patch) {
         $sourceFields=@('schemaVersion','id','displayName','controlPlaneLayout','repositoryRoot','frameworkVersion','routineExcludedPaths','frameworkCapabilities')
-        if([string]$config.frameworkVersion-ceq'1.12.0'){$sourceFields=@($sourceFields[0..5]+@('frameworkToolBackend')+$sourceFields[6..7])}
+        if([string]$config.frameworkVersion-in@('1.12.0','1.13.0')){$sourceFields=@($sourceFields[0..5]+@('frameworkToolBackend')+$sourceFields[6..7])}
         Assert-MinimalExactFields $config $configText $sourceFields 'Schema3 patch source project.json'
         if (-not ($config.id -is [string]) -or [string]$config.id -cne $ProjectId -or
             -not ($config.displayName -is [string]) -or [string]::IsNullOrWhiteSpace([string]$config.displayName) -or
             -not ($config.controlPlaneLayout -is [string]) -or [string]$config.controlPlaneLayout -cne 'repo-local' -or
             -not ($config.repositoryRoot -is [string]) -or [string]$config.repositoryRoot -cne '..' -or
-            ([string]$config.frameworkVersion-ceq'1.12.0'-and(-not($config.frameworkToolBackend-is[string])-or[string]$config.frameworkToolBackend-cne'powershell7')) -or
+            ([string]$config.frameworkVersion-in@('1.12.0','1.13.0')-and(-not($config.frameworkToolBackend-is[string])-or[string]$config.frameworkToolBackend-cne'powershell7')) -or
             -not ($config.routineExcludedPaths -is [System.Array]) -or
             -not ($config.frameworkCapabilities -is [pscustomobject])) { throw "Schema3 patch source project.json is unhealthy: $projectFile" }
         $routinePaths=New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
@@ -754,7 +776,22 @@ if ($layout -cne 'repo-local') { throw 'Framework live upgrade accepts repositor
         $controllerRaw=Read-StrictUtf8NoBom $controllerFile
         try{$controller=$controllerRaw|ConvertFrom-Json}catch{throw 'Schema3 patch source controller.json is invalid.'}
         Assert-MinimalController $controller $controllerRaw $ProjectId $ControllerId
-    } elseif ($ToVersion -in @('1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0','1.12.0')) {
+    } elseif((Test-MinimalJsonInteger $config.schemaVersion)-and[int]$config.schemaVersion-eq4-and[string]$config.frameworkVersion-ceq'1.13.0'-and$ToVersion-in@('1.9.0','1.10.0','1.11.0','1.12.0','1.13.0')) {
+        $schema4Source=$true
+        $sourceFields=@('schemaVersion','id','displayName','controlPlaneLayout','repositoryRoot','frameworkVersion','frameworkToolBackend','routineExcludedPaths','frameworkCapabilities','processPolicy')
+        Assert-MinimalExactFields $config $configText $sourceFields 'Schema4 current project.json'
+        if([string]$config.id-cne$ProjectId-or[string]$config.controlPlaneLayout-cne'repo-local'-or[string]$config.repositoryRoot-cne'..'-or[string]$config.frameworkToolBackend-cne'powershell7'-or-not($config.routineExcludedPaths-is[Array])-or-not($config.frameworkCapabilities-is[pscustomobject])-or-not($config.processPolicy-is[pscustomobject])){throw 'Schema4 current project.json is unhealthy.'}
+        $routinePaths=New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase);foreach($pathValue in @($config.routineExcludedPaths)){if(-not($pathValue-is[string])-or[string]::IsNullOrWhiteSpace([string]$pathValue)-or-not$routinePaths.Add([string]$pathValue)){throw 'Schema4 current routine exclusions are invalid.'}};Assert-MinimalFrameworkCapabilities $config.frameworkCapabilities $configText 'Schema4 current frameworkCapabilities'
+        $policyLocatorRaw=$config.processPolicy|ConvertTo-Json -Compress;Assert-MinimalExactFields $config.processPolicy $policyLocatorRaw @('schemaVersion','locator') 'Schema4 current processPolicy locator'
+        if([regex]::Matches($configText,'"locator"\s*:').Count-ne1){throw 'Schema4 current processPolicy locator is duplicate or missing.'}
+        $policyFile=Join-ChildPath $projectRoot 'process-policy.json'
+        if([int]$config.processPolicy.schemaVersion-ne1-or[string]$config.processPolicy.locator-cne'.ai-workspace/process-policy.json'-or-not(Test-Path -LiteralPath $policyFile -PathType Leaf)){throw 'Schema4 current process policy is unhealthy.'}
+        Assert-NoReparsePoint $policyFile;$policyRaw=Read-StrictUtf8NoBom $policyFile;try{$policy=$policyRaw|ConvertFrom-Json}catch{throw 'Schema4 current process-policy.json is invalid.'};Assert-MinimalExactFields $policy $policyRaw @('schemaVersion','contractVersion','projectId','rules') 'Schema4 current process-policy.json'
+        if([int]$policy.schemaVersion-ne1-or[string]$policy.contractVersion-cne'1.13.0'-or[string]$policy.projectId-cne$ProjectId-or-not($policy.rules-is[Array])){throw 'Schema4 current process-policy.json values are invalid.'}
+        if($ToVersion-cne'1.13.0'-and@($policy.rules).Count-ne0){throw 'STRUCTURED_PROCESS_POLICY_DOWNGRADE_CONFLICT|target cannot interpret active 1.13 process policy rules'}
+        if([string]::IsNullOrWhiteSpace($ControllerId)){throw 'ControllerId is required for schema4 Framework upgrade.'}
+        $controllerRaw=Read-StrictUtf8NoBom $controllerFile;try{$controller=$controllerRaw|ConvertFrom-Json}catch{throw 'Schema4 current controller.json is invalid.'};Assert-MinimalController $controller $controllerRaw $ProjectId $ControllerId
+    } elseif ($ToVersion -in @('1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0','1.12.0','1.13.0')) {
         throw "Framework $ToVersion direct upgrade requires a healthy supported schema3 source; migrate older schema2 projects to schema3 first."
     } elseif ([int]$config.schemaVersion -ne 2 -or
         [string]$config.controlPlaneLayout -cne 'repo-local' -or
@@ -820,7 +857,24 @@ if(Test-Path -LiteralPath $correctionsFile -PathType Leaf){
     if([string]$generatedCorrections.projectId-cne$ProjectId-or[string]$generatedCorrections.contractVersion-cne'1.10.0'-or@($generatedCorrections.corrections).Count-ne0){throw 'Target Framework corrections starter values are invalid.'}
     $correctionsMode='CREATE'
 }
-$preCorrection=Invoke-CorrectionEvaluation $evaluator $repo $workspace $ToVersion $projectFile $correctionsFile 'PRECHECK' -AllowMissing:($correctionsMode-ceq'CREATE')
+
+$config.frameworkVersion = $ToVersion
+if($schema4Source-and$ToVersion-cne'1.13.0'){
+    $config.schemaVersion=3
+    $config.PSObject.Properties.Remove('processPolicy')
+}
+if($ToVersion-in@('1.12.0','1.13.0')){
+    if($null-eq$config.PSObject.Properties['frameworkToolBackend']){$config|Add-Member -NotePropertyName frameworkToolBackend -NotePropertyValue 'powershell7'}else{$config.frameworkToolBackend='powershell7'}
+}elseif($null-ne$config.PSObject.Properties['frameworkToolBackend']){
+    $config.PSObject.Properties.Remove('frameworkToolBackend')
+}
+$targetConfig = Normalize-Text ($config | ConvertTo-Json -Depth 100)
+try{$validatedConfig=$targetConfig|ConvertFrom-Json}catch{throw 'Generated project configuration is not valid JSON.'}
+if([string]$validatedConfig.frameworkVersion-cne$ToVersion){throw 'Generated project configuration does not contain the target Framework version.'}
+if(($ToVersion-in@('1.12.0','1.13.0')-and[string]$validatedConfig.frameworkToolBackend-cne'powershell7')-or($ToVersion-notin@('1.12.0','1.13.0')-and$null-ne$validatedConfig.PSObject.Properties['frameworkToolBackend'])){throw 'Generated project configuration contains the wrong Framework tool backend contract.'}
+if($ToVersion-cne'1.13.0'-and$null-ne$validatedConfig.PSObject.Properties['processPolicy']){throw 'Generated downgrade configuration retained an unsupported process policy locator.'}
+
+$preCorrection=Invoke-CorrectionEvaluationProjected $evaluator $workspace $ToVersion $targetConfig $targetBootstrap $correctionsFile (Join-ChildPath $projectRoot 'process-policy.json') -AllowMissing:($correctionsMode-ceq'CREATE')
 Write-CorrectionEvaluation $preCorrection 'before pin projection'
 
 Write-Host "Project: $ProjectId"
@@ -838,24 +892,6 @@ if ($fromVersion -eq $ToVersion) {
     Write-Host 'Already on requested version with a matching Bootstrap; no change.'
     return
 }
-
-$config.frameworkVersion = $ToVersion
-if($ToVersion-ceq'1.12.0'){
-    if($null-eq$config.PSObject.Properties['frameworkToolBackend']){$config|Add-Member -NotePropertyName frameworkToolBackend -NotePropertyValue 'powershell7'}else{$config.frameworkToolBackend='powershell7'}
-}elseif($null-ne$config.PSObject.Properties['frameworkToolBackend']){
-    $config.PSObject.Properties.Remove('frameworkToolBackend')
-}
-$targetConfig = Normalize-Text ($config | ConvertTo-Json -Depth 100)
-try {
-    $validatedConfig = $targetConfig | ConvertFrom-Json
-}
-catch {
-    throw 'Generated project configuration is not valid JSON.'
-}
-if ([string]$validatedConfig.frameworkVersion -cne $ToVersion) {
-    throw 'Generated project configuration does not contain the target Framework version.'
-}
-if(($ToVersion-ceq'1.12.0'-and[string]$validatedConfig.frameworkToolBackend-cne'powershell7')-or($ToVersion-cne'1.12.0'-and$null-ne$validatedConfig.PSObject.Properties['frameworkToolBackend'])){throw 'Generated project configuration contains the wrong Framework tool backend contract.'}
 
 $null = New-UpgradeTransaction $transactionRoot $projectRoot $projectFile $bootstrapFile $controllerFile $ProjectId $fromVersion $ToVersion $targetConfig $targetBootstrap 'NONE' '' '' '' $correctionsMode $targetCorrections
 $completed = Commit-UpgradeTransaction $transactionRoot $projectRoot $projectFile $bootstrapFile $controllerFile $ProjectId $ControllerId $ToVersion
