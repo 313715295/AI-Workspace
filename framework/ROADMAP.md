@@ -4,6 +4,22 @@ This file contains generic release history and unselected Framework directions. 
 
 ## Release line
 
+### 1.14.0 — prompt-bound process navigation and bounded domain-local external routing
+
+Status: stable and consumable after full Windows PowerShell 7 regression, immutable 1.13 verification, fresh independent CRITICAL Source Review-13 approval, separate Maintenance acceptance and deterministic release sealing. Publication state is determined by repository refs; consumer adoption remains explicit per project.
+
+Selected minimum-sufficient scope:
+
+- retain the single `PROCESS_REQUIREMENTS_RESOLVE` front door and source composer from 1.13 while adding a mechanically extracted `AuthorityContext` and a separately bound `IntentEnvelope`;
+- generate the sealed native catalog deterministically from module-owned requirement fragments, so selected full text remains canonical without introducing a second authority;
+- install one repo-local, non-authoritative router Skill and managed `AGENTS.md` marker that refresh at natural prompt/context/action/output boundaries, never per tool call;
+- evolve project corrections to schema v2 for progressive selection while preserving v1 records through honest full-load compatibility and exact absorption mapping;
+- bind the current authorization package identity and source locator into DISCOVER and revalidate it at ADMIT/FINALIZE;
+- permit a DOMAIN_OWNER to authorize only a user-confirmed, zero-cost, atomic, non-reissuable domain-local EXTERNAL batch with exact provider/order/input/payload/output/stop boundaries;
+- provide direct 1.11/1.12/1.13 to 1.14 adoption and a bounded 1.14 to 1.13 reverse path that preserves project correction authority and user-owned agent instructions.
+
+Explicitly not selected: a second resolver/composer, copied rule bodies in the Skill, per-tool reload, background service, actor/Reviewer pool, ACK/polling, consumption ledger, arbitrary executable project policy, paid or privilege-changing owner-local external actions, automatic consumer adoption, or a release-blocking natural-task sample count.
+
 ### 1.13.0 — progressive process requirements
 
 Status: stable and consumable after bounded conformance, immutable 1.12 regression evidence, fresh independent CRITICAL Review, separate Maintenance acceptance and deterministic release sealing. Post-release project observation is evidence for later improvement, not a 1.13 release gate. Publication state is determined by repository refs rather than this roadmap.

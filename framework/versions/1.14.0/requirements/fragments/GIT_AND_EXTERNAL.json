@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "frameworkVersion": "1.14.0",
+  "ownerModule": "GIT_AND_EXTERNAL.md",
+  "requirements": [
+    {
+      "requirementId": "PR_GIT_PUSH_SEPARATE",
+      "legacyAliases": [],
+      "title": "Git and push separation",
+      "description": "Git stage, commit and remote push remain separate explicit boundaries.",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "GIT"
+        ],
+        "actionKinds": [
+          "GIT_STAGE",
+          "GIT_COMMIT",
+          "PUSH"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": []
+      },
+      "fullText": "Reprove index, exact candidate and authorization independently for stage, commit and push. A stable local release does not imply publication or project adoption.",
+      "preparationRequirements": [
+        "SAFE_GIT_STATE_PROVEN",
+        "GIT_ACTION_AUTHORIZED"
+      ],
+      "resultRequirements": [
+        "GIT_RESULT_OBSERVED"
+      ]
+    },
+    {
+      "requirementId": "PR_EXTERNAL_DEVICE_BROWSER_SEPARATE",
+      "legacyAliases": [],
+      "title": "External side effects remain separate",
+      "description": "Browser, device and external actions require their own current gates.",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "EXTERNAL"
+        ],
+        "actionKinds": [
+          "BROWSER_RUN",
+          "DEVICE_RUN",
+          "EXTERNAL"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": []
+      },
+      "fullText": "Confirm the exact side effect, credential/target, user decision and evidence ceiling. Framework process resolution is not host enforcement and does not grant the external capability.",
+      "preparationRequirements": [
+        "EXTERNAL_BOUNDARY_AUTHORIZED"
+      ],
+      "resultRequirements": [
+        "EXTERNAL_RESULT_OBSERVED"
+      ]
+    },
+    {
+      "requirementId": "PR_DOMAIN_OWNER_DIRECT_DOMAIN_EXTERNAL",
+      "legacyAliases": [],
+      "title": "Bounded domain-owner external action",
+      "description": "Allow one exact free owner-local external batch while preserving Controller escalation boundaries.",
+      "selectors": {
+        "profiles": [
+          "STANDARD",
+          "CRITICAL"
+        ],
+        "roles": [
+          "DOMAIN_OWNER"
+        ],
+        "phases": [
+          "EXTERNAL"
+        ],
+        "actionKinds": [
+          "EXTERNAL"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": []
+      },
+      "fullText": "A current DOMAIN_OWNER may issue and execute one immutable exact EXTERNAL package for one user-approved free domain-local batch only when provider, ordered operations, every transmitted payload identity and canonicalization version, quantity, retry ceilings, zero cost, output use and stop conditions are bound and every escalation flag is false. ZERO_PROJECT_DATA is limited to the closed public metadata, public status and capability-discovery operation set. The package is one atomic logical execution and cannot be split, cloned, replayed or inferred after ambiguous consumption. Payment, commercial licensing, account, public, install, protected, secret, cross-domain, formal activation, project-phase, Git/PUSH, shared-resource or UNKNOWN boundaries remain Controller-owned.",
+      "preparationRequirements": [
+        "DOMAIN_EXTERNAL_PACKAGE_VALID",
+        "EXTERNAL_PAYLOAD_IDENTITIES_BOUND",
+        "USER_EXTERNAL_DECISION_BOUND"
+      ],
+      "resultRequirements": [
+        "DOMAIN_EXTERNAL_BATCH_RESULT_OBSERVED"
+      ]
+    }
+  ]
+}

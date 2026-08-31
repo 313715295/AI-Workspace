@@ -139,6 +139,8 @@ Framework 1.12.0 已稳定发行，并进一步把“操作契约”和“脚本
 
 Framework 1.13.0 已稳定发行，并增加渐进式流程要求解析：在任务或上下文边界发现适用规则，在动作前检查准备是否完整，在最终输出前检查实际结果与交付是否满足要求。它同时组合但不合并 Framework 规则、仍然有效的项目纠正和项目永久流程规则；项目规则继续归项目所有。新项目获得结构化的 `.ai-workspace/process-policy.json`，旧项目的 `PROJECT-CUSTOM` 在完成独立迁移前保持有效。该解析器不授予写入、测试、Review、Git、发布或外部权限，也不替代原有独立门禁。
 
+Framework 1.14.0 在 1.13 的单一解析入口上补齐实际调用链：新项目获得一个仓内、非权威的 AI 路由 Skill，用于在任务进入、上下文变化、动作前和最终输出前找到并加载已选规则；它不复制规则正文，也不按每次工具调用重复加载。解析器会机械提取当前任务、actor、阶段、范围、授权和项目事实，并把它们与本次意图分开绑定。项目纠正可采用结构化 v2 记录参与渐进选择，旧 v1 记录继续完整加载；同域 Domain Owner 还可在严格免费、原子、不可拆分、无提权的边界内直接授权一次外部批次。所有原有写入、Review、Git、付费与高风险外部门禁保持独立。
+
 ## 快速开始
 
 注册流程复制所选版本中现有的 `project-starter`，不会另外创建第二套流程模型。
@@ -148,14 +150,14 @@ Framework 1.13.0 已稳定发行，并增加渐进式流程要求解析：在任
 把下面内容复制给位于目标项目工作区的 AI 会话，并替换路径和项目名称：
 
 ```text
-我希望当前项目采用 AI Workspace Framework 1.13.0，并使用官方 powershell7 工具后端。
+我希望当前项目采用 AI Workspace Framework 1.14.0，并使用官方 powershell7 工具后端。
 
 Framework 仓库：C:\path\to\AI-Workspace
 项目 Git 根：C:\path\to\your-repository
 项目 ID：my-project
 显示名称：My Project
 
-请先只读确认真实 cwd、项目 Git 根、Framework Git 根、1.13.0 的稳定发行状态、PowerShell 7 可用性，以及本 AI 会话的真实 task/thread ID。使用该真实 ID 作为初始 ControllerId；如果宿主无法证明该 ID，请停止并说明。
+请先只读确认真实 cwd、项目 Git 根、Framework Git 根、1.14.0 的稳定发行状态、PowerShell 7 可用性，以及本 AI 会话的真实 task/thread ID。使用该真实 ID 作为初始 ControllerId；如果宿主无法证明该 ID，请停止并说明。
 
 然后运行 register-project.ps1 的预览模式，向我报告将创建的 .ai-workspace 文件、项目 pin、Controller、保留边界和所有 blocker。在我明确确认应用前不要添加 -Apply，不要修改产品源码、Git、远程或外部状态，也不要创建第二套流程。
 ```
@@ -179,7 +181,7 @@ pwsh -NoProfile -NonInteractive -File .\scripts\register-project.ps1 `
   -RepositoryPath C:\path\to\your-repository `
   -ProjectId my-project `
   -DisplayName "My Project" `
-  -FrameworkVersion 1.13.0 `
+  -FrameworkVersion 1.14.0 `
   -ControllerId <host-task-id>
 ```
 
@@ -198,18 +200,20 @@ pwsh -NoProfile -NonInteractive -File .\scripts\register-project.ps1 `
   tasks/             # 项目自己的任务权威
 ```
 
+1.14.0 还会在项目根安装受管的 `AGENTS.md` 导航块和 `.agents/skills/ai-workspace-router/SKILL.md`。它们只负责触发当前项目所选版本的恢复与流程要求解析，不成为新的规则权威；项目已有的其他 `AGENTS.md` 内容会保留，存在冲突的同名 Skill 会在任何项目写入前阻断。
+
 之后让新的 AI 任务从项目的 `.ai-workspace/BOOTSTRAP.md` 开始即可。Bootstrap 会根据项目 pin、任务卡中绑定的 actor/role/phase、风险级别和宿主/拓扑能力装载对应规则，而不是要求用户重新粘贴历史聊天。
 
 ## 现有项目升级
 
-`scripts/upgrade-project.ps1` 接收调用方明确提供的项目根目录和 `ToVersion`。它会校验源控制面、目标发行版本及可恢复的事务边界，保留项目自有的身份、Controller、常规排除项、能力配置和 Bootstrap 自定义区域，并且只修改声明过的受管对象。它不会搜索消费者，也不会修改其他项目。
+`scripts/upgrade-project.ps1` 接收调用方明确提供的项目根目录和 `ToVersion`。它会校验源控制面、目标发行版本及可恢复的事务边界，预览可提前授权的确定性写集，保留项目自有的身份、Controller、常规排除项、能力配置和 Bootstrap 自定义区域，并且只修改声明过的受管对象。旧任务卡需要补齐当前 actor 时，工具要求一个同时绑定当前活动任务、actor 和完整升级写集的 Controller 授权包；升级会先投影目标 pin 与其他受管对象，最后原子替换任务卡，因此下一次恢复可以直接使用目标版本的 actor 路由。任何中断都只从固定恢复材料继续向前，不会留下需要猜测的半迁移状态。它不会搜索消费者，也不会修改其他项目。
 
 ```powershell
 pwsh -NoProfile -NonInteractive -File .\scripts\upgrade-project.ps1 `
   -RepositoryPath C:\path\to\your-repository `
   -ProjectId my-project `
   -ControllerId <host-task-id> `
-  -ToVersion 1.13.0
+  -ToVersion 1.14.0
 ```
 
 升级同样默认只预览；确认比较结果和项目纠正状态后，再在独立项目授权下添加 `-Apply`。
@@ -223,7 +227,7 @@ Framework 维护过程中的动态状态属于专用控制仓库。Framework 源
 ## 使用环境与兼容性
 
 - 项目需要位于可识别的 Git 仓库中；Framework 不接管项目源码仓库或远程配置。
-- 具体运行时由项目所选 Framework 版本的 `TOOLCHAIN.json` 决定。1.11.0 及更早不可变版本保留各自的 PowerShell 兼容性；1.12.0 和 1.13.0 只接受 `pwsh` / PowerShell 7，当前官方平台为 Windows。Linux/macOS 尚未在这些版本声明为受支持平台。
+- 具体运行时由项目所选 Framework 版本的 `TOOLCHAIN.json` 决定。1.11.0 及更早不可变版本保留各自的 PowerShell 兼容性；1.12.0、1.13.0 和 1.14.0 只接受 `pwsh` / PowerShell 7，当前官方平台为 Windows。Linux/macOS 尚未在这些版本声明为受支持平台。
 - 当前提供明确的 Codex host 合同；其他 AI 宿主可以复用仓内流程，但需要自行提供等价的任务身份、消息真实性和工具权限信号。
 - Framework 规则可以约束协作流程，但不能替代产品事实、运行时测试、浏览器/设备证据或人工产品决定。
 

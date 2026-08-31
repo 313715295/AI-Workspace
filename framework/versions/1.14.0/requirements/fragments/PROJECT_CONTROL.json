@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "frameworkVersion": "1.14.0",
+  "ownerModule": "PROJECT_CONTROL.md",
+  "requirements": [
+    {
+      "requirementId": "PR_CORRECTIONS_V2_COMPATIBILITY",
+      "legacyAliases": [],
+      "title": "Project corrections v2 compatibility",
+      "description": "Select structured corrections progressively while preserving v1 history and fail-safe version movement.",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "CONTROLLER",
+          "DOMAIN_OWNER",
+          "FRAMEWORK_MAINTAINER"
+        ],
+        "phases": [
+          "RECOVER",
+          "DISCOVER",
+          "PLAN",
+          "IMPLEMENT",
+          "VERIFY",
+          "REVIEW"
+        ],
+        "actionKinds": [
+          "*"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": [
+          "correction",
+          "upgrade",
+          "downgrade",
+          "policy"
+        ]
+      },
+      "fullText": "A v2 correction preserves the exact six historical v1 fields and v1 identity, adds a separate whole-v2 identity, and may reference only released registered checks. Keep v1 full-read compatibility. Unknown absorption retains the correction; non-empty v2 blocks adoption by an incompatible version unless a separately reviewed atomic reverse migration exists.",
+      "preparationRequirements": [
+        "CORRECTION_SCHEMA_COMPATIBLE"
+      ],
+      "resultRequirements": [
+        "CORRECTION_EFFECTIVE_SET_REPORTED"
+      ]
+    }
+  ]
+}

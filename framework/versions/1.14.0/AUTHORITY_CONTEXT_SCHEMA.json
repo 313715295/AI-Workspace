@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-workspace.local/framework/1.14.0/authority-context.schema.json",
+  "title": "AI Workspace ephemeral AuthorityContext",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "projectId", "projectRoot", "repositoryGitTop",
+    "frameworkVersion", "frameworkSealIdentity", "controllerIdentity", "taskIdentity",
+    "actor", "role", "phase", "profile", "exactScope", "forbiddenScope",
+    "protectedScope", "authorizationIdentity", "authorizedActions", "observedCapabilities", "projectConfigIdentity",
+    "correctionsIdentity", "policyIdentity", "userDecision", "recoveryState", "hostEnforcementGrade"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "projectId": {"type": "string", "minLength": 1},
+    "projectRoot": {"type": "string", "minLength": 1},
+    "repositoryGitTop": {"type": "string", "minLength": 1},
+    "frameworkVersion": {"const": "1.14.0"},
+    "frameworkSealIdentity": {"type": "string", "minLength": 1},
+    "controllerIdentity": {"type": "string", "pattern": "^(MISSING|[0-9]+\\|[A-F0-9]{64})$"},
+    "taskIdentity": {"type": "string", "pattern": "^[0-9]+\\|[A-F0-9]{64}$"},
+    "actor": {"type": "string", "minLength": 1},
+    "role": {"enum": ["CONTROLLER", "DOMAIN_OWNER", "EXECUTOR", "REVIEWER", "FRAMEWORK_MAINTAINER"]},
+    "phase": {"enum": ["DISCOVER", "PLAN", "IMPLEMENT", "VERIFY", "REVIEW", "GIT", "EXTERNAL", "RECOVER"]},
+    "profile": {"enum": ["MICRO", "STANDARD", "CRITICAL"]},
+    "exactScope": {"type": "array", "maxItems": 256, "items": {"type": "string", "maxLength": 512}},
+    "forbiddenScope": {"type": "array", "maxItems": 256, "items": {"type": "string", "maxLength": 512}},
+    "protectedScope": {"type": "array", "maxItems": 256, "items": {"type": "string", "maxLength": 512}},
+    "authorizationIdentity": {"type": "string", "pattern": "^(NOT_REQUIRED|[0-9]+\\|[A-F0-9]{64})$"},
+    "authorizedActions": {"type": "array", "maxItems": 16, "uniqueItems": true, "items": {"type": "string", "maxLength": 64}},
+    "observedCapabilities": {"type": "array", "maxItems": 32, "uniqueItems": true, "items": {"type": "string", "maxLength": 128}},
+    "projectConfigIdentity": {"type": "string", "pattern": "^[0-9]+\\|[A-F0-9]{64}$"},
+    "correctionsIdentity": {"type": "string", "pattern": "^(MISSING|[0-9]+\\|[A-F0-9]{64})$"},
+    "policyIdentity": {"type": "string", "pattern": "^(MISSING|[0-9]+\\|[A-F0-9]{64})$"},
+    "userDecision": {"type": "string", "minLength": 1},
+    "recoveryState": {"enum": ["FULL_COLD", "WARM", "CURRENT", "UNKNOWN"]},
+    "hostEnforcementGrade": {"enum": ["HOST_ENFORCED", "FRAMEWORK_GATED", "INSTRUCTION_BOUND"]}
+  }
+}

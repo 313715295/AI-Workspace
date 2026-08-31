@@ -1,0 +1,572 @@
+{
+  "schemaVersion": 1,
+  "frameworkVersion": "1.14.0",
+  "catalogVersion": "2",
+  "requirements": [
+    {
+      "requirementId": "PR_ACTION_AUTHORIZATION_INDEPENDENT",
+      "legacyAliases": [],
+      "title": "Independent action authorization",
+      "description": "Every mutating or side-effecting action retains its categorical authorization gate.",
+      "ownerModule": "AUTHORIZATION_MODEL.md",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "IMPLEMENT",
+          "VERIFY",
+          "REVIEW",
+          "GIT",
+          "EXTERNAL"
+        ],
+        "actionKinds": [
+          "SOURCE_WRITE",
+          "TEST_WRITE",
+          "TEST_RUN",
+          "REVIEW_ROUTE",
+          "REVIEW_EXECUTE",
+          "OWNER_ACCEPT",
+          "GIT_STAGE",
+          "GIT_COMMIT",
+          "PUSH",
+          "BROWSER_RUN",
+          "DEVICE_RUN",
+          "EXTERNAL"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": []
+      },
+      "fullText": "Require the exact action package and current bindings. Process resolution selects requirements only; it cannot grant, merge, weaken or replace authorization, Review, OWNER_ACCEPT, Git, push, browser, device, external or protection gates.",
+      "preparationRequirements": [
+        "ACTION_PACKAGE_VALID",
+        "EXACT_SCOPE_BOUND"
+      ],
+      "resultRequirements": [
+        "ACTION_RESULT_OBSERVED"
+      ]
+    },
+    {
+      "requirementId": "PR_AUTHORITY_CONTEXT_INTENT_RECONCILIATION",
+      "legacyAliases": [],
+      "title": "Authority facts and intent remain separate",
+      "description": "Mechanical authority facts override semantic intent hints and hints never grant capability.",
+      "ownerModule": "AUTHORIZATION_MODEL.md",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "*"
+        ],
+        "actionKinds": [
+          "*"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": []
+      },
+      "fullText": "Build AuthorityContext only from current mechanically observed project, task, package, scope, identity, capability, recovery and host facts. IntentEnvelope contains only requested objective/action/result and semantic hints. Authority facts always win; UNKNOWN, unauthorized action or hint/fact mismatch blocks the governed action or conservatively loads requirements.",
+      "preparationRequirements": [
+        "AUTHORITY_CONTEXT_BOUND",
+        "INTENT_ENVELOPE_BOUND"
+      ],
+      "resultRequirements": [
+        "INTENT_AUTHORITY_RECONCILED"
+      ]
+    },
+    {
+      "requirementId": "PR_CODEX_ROUTER_REACTIVATION",
+      "legacyAliases": [],
+      "title": "Prompt-bound router reactivation",
+      "description": "Use the repo-local navigation Skill at natural prompt and governed output boundaries without per-tool reload.",
+      "ownerModule": "HOST_CODEX.md",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "*"
+        ],
+        "actionKinds": [
+          "*"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": [
+          "task",
+          "review",
+          "implement",
+          "external",
+          "git",
+          "final",
+          "handoff",
+          "resume",
+          "continue"
+        ]
+      },
+      "fullText": "For non-trivial governed work, activate the Framework-managed ai-workspace-router Skill on a relevant user prompt, task/context or authority change, compaction/resume/handoff uncertainty, and before final output. Reuse unchanged source context and do not reload per tool call. If invocation is not observable, state INVOCATION_UNPROVEN rather than claiming host enforcement.",
+      "preparationRequirements": [
+        "ROUTER_CONTEXT_BOUND"
+      ],
+      "resultRequirements": [
+        "ROUTER_FINAL_READBACK"
+      ]
+    },
+    {
+      "requirementId": "PR_CORRECTIONS_V2_COMPATIBILITY",
+      "legacyAliases": [],
+      "title": "Project corrections v2 compatibility",
+      "description": "Select structured corrections progressively while preserving v1 history and fail-safe version movement.",
+      "ownerModule": "PROJECT_CONTROL.md",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "CONTROLLER",
+          "DOMAIN_OWNER",
+          "FRAMEWORK_MAINTAINER"
+        ],
+        "phases": [
+          "RECOVER",
+          "DISCOVER",
+          "PLAN",
+          "IMPLEMENT",
+          "VERIFY",
+          "REVIEW"
+        ],
+        "actionKinds": [
+          "*"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": [
+          "correction",
+          "upgrade",
+          "downgrade",
+          "policy"
+        ]
+      },
+      "fullText": "A v2 correction preserves the exact six historical v1 fields and v1 identity, adds a separate whole-v2 identity, and may reference only released registered checks. Keep v1 full-read compatibility. Unknown absorption retains the correction; non-empty v2 blocks adoption by an incompatible version unless a separately reviewed atomic reverse migration exists.",
+      "preparationRequirements": [
+        "CORRECTION_SCHEMA_COMPATIBLE"
+      ],
+      "resultRequirements": [
+        "CORRECTION_EFFECTIVE_SET_REPORTED"
+      ]
+    },
+    {
+      "requirementId": "PR_CRITICAL_REVIEW_INDEPENDENCE",
+      "legacyAliases": [],
+      "title": "Critical independent Review",
+      "description": "CRITICAL candidates require relationally independent Review where the action contract requires it.",
+      "ownerModule": "REVIEW_AND_EVIDENCE.md",
+      "selectors": {
+        "profiles": [
+          "CRITICAL"
+        ],
+        "roles": [
+          "REVIEWER",
+          "DOMAIN_OWNER",
+          "FRAMEWORK_MAINTAINER",
+          "CONTROLLER"
+        ],
+        "phases": [
+          "REVIEW",
+          "VERIFY"
+        ],
+        "actionKinds": [
+          "REVIEW_ROUTE",
+          "REVIEW_EXECUTE"
+        ],
+        "resultKinds": [
+          "REVIEW_VERDICT",
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": []
+      },
+      "fullText": "Bind the frozen candidate, candidate writer and material contributors. Owner, issuer, writer and contributors cannot masquerade as the independent final Reviewer. Review does not perform OWNER_ACCEPT or authorize implementation/Git.",
+      "preparationRequirements": [
+        "CANDIDATE_FROZEN",
+        "REVIEWER_INDEPENDENCE_PROVEN"
+      ],
+      "resultRequirements": [
+        "REVIEW_VERDICT_BOUND"
+      ]
+    },
+    {
+      "requirementId": "PR_DOMAIN_OWNER_DIRECT_DOMAIN_EXTERNAL",
+      "legacyAliases": [],
+      "title": "Bounded domain-owner external action",
+      "description": "Allow one exact free owner-local external batch while preserving Controller escalation boundaries.",
+      "ownerModule": "GIT_AND_EXTERNAL.md",
+      "selectors": {
+        "profiles": [
+          "STANDARD",
+          "CRITICAL"
+        ],
+        "roles": [
+          "DOMAIN_OWNER"
+        ],
+        "phases": [
+          "EXTERNAL"
+        ],
+        "actionKinds": [
+          "EXTERNAL"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": []
+      },
+      "fullText": "A current DOMAIN_OWNER may issue and execute one immutable exact EXTERNAL package for one user-approved free domain-local batch only when provider, ordered operations, every transmitted payload identity and canonicalization version, quantity, retry ceilings, zero cost, output use and stop conditions are bound and every escalation flag is false. ZERO_PROJECT_DATA is limited to the closed public metadata, public status and capability-discovery operation set. The package is one atomic logical execution and cannot be split, cloned, replayed or inferred after ambiguous consumption. Payment, commercial licensing, account, public, install, protected, secret, cross-domain, formal activation, project-phase, Git/PUSH, shared-resource or UNKNOWN boundaries remain Controller-owned.",
+      "preparationRequirements": [
+        "DOMAIN_EXTERNAL_PACKAGE_VALID",
+        "EXTERNAL_PAYLOAD_IDENTITIES_BOUND",
+        "USER_EXTERNAL_DECISION_BOUND"
+      ],
+      "resultRequirements": [
+        "DOMAIN_EXTERNAL_BATCH_RESULT_OBSERVED"
+      ]
+    },
+    {
+      "requirementId": "PR_EXTERNAL_DEVICE_BROWSER_SEPARATE",
+      "legacyAliases": [],
+      "title": "External side effects remain separate",
+      "description": "Browser, device and external actions require their own current gates.",
+      "ownerModule": "GIT_AND_EXTERNAL.md",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "EXTERNAL"
+        ],
+        "actionKinds": [
+          "BROWSER_RUN",
+          "DEVICE_RUN",
+          "EXTERNAL"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": []
+      },
+      "fullText": "Confirm the exact side effect, credential/target, user decision and evidence ceiling. Framework process resolution is not host enforcement and does not grant the external capability.",
+      "preparationRequirements": [
+        "EXTERNAL_BOUNDARY_AUTHORIZED"
+      ],
+      "resultRequirements": [
+        "EXTERNAL_RESULT_OBSERVED"
+      ]
+    },
+    {
+      "requirementId": "PR_FINAL_OUTPUT_CURRENT_RESULT",
+      "legacyAliases": [],
+      "title": "Final output completeness",
+      "description": "Final delivery states the accepted current result, evidence ceiling, material limitations and unique next action.",
+      "ownerModule": "TASK_AND_SCOPE.md",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "*"
+        ],
+        "actionKinds": [
+          "*"
+        ],
+        "resultKinds": [
+          "USER_RESPONSE",
+          "TERMINAL",
+          "HANDOFF",
+          "REVIEW_VERDICT",
+          "OWNER_ACCEPTANCE"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": []
+      },
+      "fullText": "Before final output compare the actual result and claims with the user request and selected requirements. Missing required work is completed when safe or returned as the exact blocker; MISSING/NOT_DELIVERED is not completion.",
+      "preparationRequirements": [],
+      "resultRequirements": [
+        "REQUEST_COVERAGE_READBACK",
+        "EVIDENCE_CEILING_STATED",
+        "UNIQUE_NEXT_ACTION_STATED"
+      ]
+    },
+    {
+      "requirementId": "PR_GIT_PUSH_SEPARATE",
+      "legacyAliases": [],
+      "title": "Git and push separation",
+      "description": "Git stage, commit and remote push remain separate explicit boundaries.",
+      "ownerModule": "GIT_AND_EXTERNAL.md",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "GIT"
+        ],
+        "actionKinds": [
+          "GIT_STAGE",
+          "GIT_COMMIT",
+          "PUSH"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": []
+      },
+      "fullText": "Reprove index, exact candidate and authorization independently for stage, commit and push. A stable local release does not imply publication or project adoption.",
+      "preparationRequirements": [
+        "SAFE_GIT_STATE_PROVEN",
+        "GIT_ACTION_AUTHORIZED"
+      ],
+      "resultRequirements": [
+        "GIT_RESULT_OBSERVED"
+      ]
+    },
+    {
+      "requirementId": "PR_OWNER_ACCEPT_SEPARATE",
+      "legacyAliases": [],
+      "title": "Owner acceptance remains separate",
+      "description": "Product/domain acceptance is distinct from independent Review.",
+      "ownerModule": "REVIEW_AND_EVIDENCE.md",
+      "selectors": {
+        "profiles": [
+          "STANDARD",
+          "CRITICAL"
+        ],
+        "roles": [
+          "DOMAIN_OWNER",
+          "CONTROLLER",
+          "FRAMEWORK_MAINTAINER"
+        ],
+        "phases": [
+          "VERIFY"
+        ],
+        "actionKinds": [
+          "OWNER_ACCEPT"
+        ],
+        "resultKinds": [
+          "OWNER_ACCEPTANCE",
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": []
+      },
+      "fullText": "The current task owner accepts the reviewed exact result against the user/product decision. Reviewer approval alone is not OWNER_ACCEPT.",
+      "preparationRequirements": [
+        "REVIEW_OR_DIRECT_EVIDENCE_BOUND"
+      ],
+      "resultRequirements": [
+        "OWNER_ACCEPT_RECORDED"
+      ]
+    },
+    {
+      "requirementId": "PR_PROPORTIONALITY_WHEN_MACHINERY_ADDED",
+      "legacyAliases": [],
+      "title": "Proportional architecture",
+      "description": "Machinery-rich architecture recommendations require one compact proportionality conclusion.",
+      "ownerModule": "PERSPECTIVE_LENSES.md",
+      "selectors": {
+        "profiles": [
+          "CRITICAL"
+        ],
+        "roles": [
+          "CONTROLLER",
+          "DOMAIN_OWNER",
+          "FRAMEWORK_MAINTAINER"
+        ],
+        "phases": [
+          "PLAN"
+        ],
+        "actionKinds": [
+          "NONE"
+        ],
+        "resultKinds": [
+          "PLAN",
+          "USER_RESPONSE"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": [
+          "architecture",
+          "workflow",
+          "framework",
+          "service",
+          "registry",
+          "ledger",
+          "role",
+          "state"
+        ]
+      },
+      "fullText": "Record existing sufficiency, classification, minimum sufficient fix, added machinery and escalation trigger before recommending new roles, states, services, tasks or transitions. Routine fixes that add no machinery are exempt.",
+      "preparationRequirements": [
+        "PROPORTIONALITY_CONCLUSION"
+      ],
+      "resultRequirements": [
+        "MINIMUM_SUFFICIENT_SELECTION"
+      ]
+    },
+    {
+      "requirementId": "PR_PROTECTED_PATH_FAIL_CLOSED",
+      "legacyAliases": [],
+      "title": "Protected boundary",
+      "description": "Protected or excluded paths fail closed and are not accessed by fallback.",
+      "ownerModule": "AUTHORIZATION_MODEL.md",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "*"
+        ],
+        "actionKinds": [
+          "*"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [
+          ".ai-workspace/"
+        ],
+        "capabilities": [],
+        "semanticTerms": [
+          "protected",
+          "excluded",
+          "forbidden"
+        ]
+      },
+      "fullText": "Honor current protected read/hash/diff/index/write boundaries. UNKNOWN or an unavailable bounded helper returns an exact blocker and never triggers broad search or fallback access.",
+      "preparationRequirements": [
+        "PROTECTION_BOUNDARY_PROVEN"
+      ],
+      "resultRequirements": [
+        "ZERO_BOUNDARY_VIOLATION"
+      ]
+    },
+    {
+      "requirementId": "PR_RECOVERY_CURRENT_AUTHORITY",
+      "legacyAliases": [],
+      "title": "Current authority recovery",
+      "description": "Bind the current project pin, Controller, task, exact objects and selected workset before governed work.",
+      "ownerModule": "RECOVERY_CORE.md",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "RECOVER",
+          "DISCOVER",
+          "PLAN",
+          "IMPLEMENT",
+          "VERIFY",
+          "REVIEW",
+          "GIT",
+          "EXTERNAL"
+        ],
+        "actionKinds": [
+          "*"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": []
+      },
+      "fullText": "Use current repo-local authority and the explicit project pin. Reprove task, actor/role/phase, exact scope, protection and applicable source identities. Recovery grants no action.",
+      "preparationRequirements": [
+        "CURRENT_AUTHORITY_BOUND"
+      ],
+      "resultRequirements": []
+    },
+    {
+      "requirementId": "PR_TASK_SCOPE_AND_FORBIDDEN",
+      "legacyAliases": [],
+      "title": "Task scope closure",
+      "description": "Keep objective, exact scope, forbidden boundaries and evidence ceiling current.",
+      "ownerModule": "TASK_AND_SCOPE.md",
+      "selectors": {
+        "profiles": [
+          "STANDARD",
+          "CRITICAL"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "PLAN",
+          "IMPLEMENT",
+          "VERIFY",
+          "REVIEW"
+        ],
+        "actionKinds": [
+          "*"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": []
+      },
+      "fullText": "Before material work bind objective, exact/contingency/forbidden paths, producer and direct consumers, validation and evidence ceiling. Unknown impact does not silently narrow scope.",
+      "preparationRequirements": [
+        "TASK_SCOPE_CURRENT"
+      ],
+      "resultRequirements": [
+        "SCOPE_READBACK_COMPLETE"
+      ]
+    }
+  ]
+}

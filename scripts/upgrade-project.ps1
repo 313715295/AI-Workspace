@@ -18,6 +18,17 @@ param(
 
     [string]$ExpectedRoutineExcludedPathsMigrationIdentity,
 
+    [string]$ActorRouteTaskPath,
+
+    [string]$ExpectedActorRouteTaskIdentity,
+
+    [ValidatePattern('^[0-9A-Za-z][0-9A-Za-z._-]*$')]
+    [string]$ActorRouteActor,
+
+    [string]$AuthorizationPackagePath,
+
+    [string]$ExpectedAuthorizationPackageIdentity,
+
     [switch]$Apply,
 
     [string]$WorkspaceRoot
@@ -28,8 +39,344 @@ $ErrorActionPreference = 'Stop'
 if($ToVersion-ceq'1.12.0'-and($PSVersionTable.PSEdition-cne'Core'-or$PSVersionTable.PSVersion.Major-lt7)){
     throw 'FRAMEWORK_TOOL_RUNTIME_UNAVAILABLE|backend=powershell7|requires=pwsh>=7'
 }
-if($ToVersion-ceq'1.13.0'-and($PSVersionTable.PSEdition-cne'Core'-or$PSVersionTable.PSVersion.Major-lt7)){
+if($ToVersion-in@('1.13.0','1.14.0')-and($PSVersionTable.PSEdition-cne'Core'-or$PSVersionTable.PSVersion.Major-lt7)){
     throw 'FRAMEWORK_TOOL_RUNTIME_UNAVAILABLE|backend=powershell7|requires=pwsh>=7'
+}
+
+function Get-OptionalIdentity([string]$Path){if(Test-Path -LiteralPath $Path -PathType Leaf){return Get-MinimalFileIdentity $Path};return 'MISSING'}
+
+function Assert-ExactTransactionTree([string]$Root,[string[]]$ExpectedFiles,[string[]]$AdditionalDirectories,[string]$ErrorCode) {
+    $fileSet=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal);$directorySet=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach($relative in $ExpectedFiles){$null=Join-ChildPath $Root $relative;if(-not$fileSet.Add($relative)){throw $ErrorCode};$segments=$relative.Split('/');for($i=1;$i-lt$segments.Count;$i++){$null=$directorySet.Add([string]::Join('/',@($segments[0..($i-1)])))}}
+    foreach($relative in $AdditionalDirectories){$null=Join-ChildPath $Root $relative;$segments=$relative.Split('/');for($i=1;$i-le$segments.Count;$i++){$null=$directorySet.Add([string]::Join('/',@($segments[0..($i-1)])))}}
+    $actualFiles=@(Get-ChildItem -LiteralPath $Root -Recurse -File -Force|ForEach-Object{[IO.Path]::GetRelativePath($Root,$_.FullName).Replace([IO.Path]::DirectorySeparatorChar,[char]'/')})
+    $actualDirectories=@(Get-ChildItem -LiteralPath $Root -Recurse -Directory -Force|ForEach-Object{[IO.Path]::GetRelativePath($Root,$_.FullName).Replace([IO.Path]::DirectorySeparatorChar,[char]'/')})
+    if($actualFiles.Count-ne$fileSet.Count-or@($actualFiles|Where-Object{-not$fileSet.Contains($_)}).Count-ne0-or$actualDirectories.Count-ne$directorySet.Count-or@($actualDirectories|Where-Object{-not$directorySet.Contains($_)}).Count-ne0){throw $ErrorCode}
+}
+
+function Get-ActorRouteMigration([string]$RepositoryRoot,[string]$TargetVersion,[string]$RelativePath,[string]$ExpectedIdentity,[string]$Actor){
+    $provided=@(-not[string]::IsNullOrWhiteSpace($RelativePath),-not[string]::IsNullOrWhiteSpace($ExpectedIdentity),-not[string]::IsNullOrWhiteSpace($Actor))
+    if(@($provided|Where-Object{$_}).Count-eq0){return $null}
+    if(@($provided|Where-Object{$_}).Count-ne3){throw 'ACTOR_ROUTE_MIGRATION_FIELDS_REQUIRED'}
+    if($TargetVersion-notin@('1.13.0','1.14.0')){throw 'ACTOR_ROUTE_MIGRATION_TARGET_UNSUPPORTED'}
+    if($RelativePath-cne$RelativePath.Replace('\','/')-or$RelativePath-cnotmatch'^\.ai-workspace/tasks/active/[^/]+\.md$'-or[IO.Path]::IsPathRooted($RelativePath)-or$RelativePath.Contains(':')){throw 'ACTOR_ROUTE_CURRENT_ACTIVE_TASK_REQUIRED'}
+    if($ExpectedIdentity-cnotmatch'^\d+\|[A-F0-9]{64}$'){throw 'ACTOR_ROUTE_TASK_IDENTITY'}
+    $path=Join-ChildPath $RepositoryRoot $RelativePath
+    $recoveryRoot=Join-ChildPath $RepositoryRoot ('.framework-actor-bound-upgrade-recovery-'+$TargetVersion)
+    $recoveryState=$null
+    if(Test-Path -LiteralPath $recoveryRoot -PathType Container){
+        $statePath=Join-Path $recoveryRoot 'state.json';$stateRaw=Read-StrictUtf8NoBom $statePath
+        try{$recoveryState=$stateRaw|ConvertFrom-Json}catch{throw 'ACTOR_BOUND_UPGRADE_RECOVERY_JSON'}
+        if([string]$recoveryState.toVersion-cne$TargetVersion-or[string]$recoveryState.taskRelative-cne$RelativePath-or[string]$recoveryState.actor-cne$Actor){throw 'ACTOR_BOUND_UPGRADE_RECOVERY_BINDING_DRIFT'}
+        $oldPath=Join-ChildPath (Join-Path $recoveryRoot 'old') $RelativePath
+        if(-not(Test-Path -LiteralPath $oldPath -PathType Leaf)-or(Get-MinimalFileIdentity $oldPath)-cne$ExpectedIdentity){throw 'ACTOR_ROUTE_TASK_DRIFT'}
+        $raw=Read-StrictUtf8NoBom $oldPath
+    }else{
+        if(-not(Test-Path -LiteralPath $path -PathType Leaf)-or(Get-MinimalFileIdentity $path)-cne$ExpectedIdentity){throw 'ACTOR_ROUTE_TASK_DRIFT'}
+        $raw=Read-StrictUtf8NoBom $path
+    }
+    $header=[regex]::Matches($raw,'(?m)^#\s+(?<task>[0-9A-Za-z][0-9A-Za-z._-]*)\s+[-—]')
+    $owner=[regex]::Matches($raw,'(?m)^- Owner:\s*`?(?<owner>[^`\r\n]+?)`?\s*$')
+    $active=[regex]::Matches($raw,'(?m)^- Range summary:.*(?:^|;)\s*lifecycle=ACTIVE(?:;|$).*')
+    $schema=[regex]::Matches($raw,'(?m)^- Task schema:\s*(?<version>1\.11\.0)\s*$')
+    $legacy=[regex]::Matches($raw,'(?m)^- Work route:\s*role=(?<role>CONTROLLER|DOMAIN_OWNER|EXECUTOR|REVIEWER|FRAMEWORK_MAINTAINER);\s*phase=(?<phase>DISCOVER|PLAN|IMPLEMENT|VERIFY|REVIEW|GIT|EXTERNAL|RECOVER)\s*$')
+    $current=[regex]::Matches($raw,'(?m)^- Work route:\s*actor=(?<actor>[^;\s]+);\s*role=(?<role>CONTROLLER|DOMAIN_OWNER|EXECUTOR|REVIEWER|FRAMEWORK_MAINTAINER);\s*phase=(?<phase>DISCOVER|PLAN|IMPLEMENT|VERIFY|REVIEW|GIT|EXTERNAL|RECOVER)\s*$')
+    $fileTask=[IO.Path]::GetFileNameWithoutExtension($RelativePath)
+    if($header.Count-ne1-or[string]$header[0].Groups['task'].Value-cne$fileTask-or$owner.Count-ne1-or[string]::IsNullOrWhiteSpace([string]$owner[0].Groups['owner'].Value)-or$active.Count-ne1){throw 'ACTOR_ROUTE_CURRENT_TASK_BINDING_REQUIRED'}
+    if($schema.Count-ne1-or$legacy.Count-ne1-or$current.Count-ne0){throw 'ACTOR_ROUTE_LEGACY_SOURCE_REQUIRED'}
+    $replacement='- Work route: actor='+$Actor+'; role='+[string]$legacy[0].Groups['role'].Value+'; phase='+[string]$legacy[0].Groups['phase'].Value
+    $target=$raw.Substring(0,$legacy[0].Index)+$replacement+$raw.Substring($legacy[0].Index+$legacy[0].Length)
+    $target=$target.Substring(0,$schema[0].Index)+'- Task schema: '+$TargetVersion+$target.Substring($schema[0].Index+$schema[0].Length)
+    $directory=[IO.Path]::GetDirectoryName($RelativePath).Replace('\','/')
+    $atomicRelative=$directory+'/.'+[IO.Path]::GetFileName($RelativePath)+'.actor-route-new'
+    $newIdentity=Get-MinimalBytesIdentity ($utf8NoBom.GetBytes($target))
+    if($null-ne$recoveryState){$entry=@($recoveryState.objects|Where-Object{[string]$_.relative-ceq$RelativePath});if($entry.Count-ne1-or[string]$entry[0].oldIdentity-cne$ExpectedIdentity-or[string]$entry[0].newIdentity-cne$newIdentity-or[string]$recoveryState.taskId-cne$fileTask-or[string]$recoveryState.taskOwner-cne[string]$owner[0].Groups['owner'].Value){throw 'ACTOR_BOUND_UPGRADE_RECOVERY_BINDING_DRIFT'}}
+    return [pscustomobject]@{Relative=$RelativePath;Path=$path;OldIdentity=$ExpectedIdentity;NewIdentity=$newIdentity;Actor=$Actor;TaskId=$fileTask;Owner=[string]$owner[0].Groups['owner'].Value;AtomicRelative=$atomicRelative;Content=$target}
+}
+
+function Assert-ActorBoundUpgradeAuthorization([string]$RepositoryRoot,[string]$SourceFramework,[string]$ProjectFile,[string]$ControllerFile,$Migration,[string[]]$WritePaths){
+    if([string]::IsNullOrWhiteSpace($AuthorizationPackagePath)-or[string]::IsNullOrWhiteSpace($ExpectedAuthorizationPackageIdentity)){throw 'ACTOR_BOUND_UPGRADE_AUTHORIZATION_REQUIRED'}
+    if($ExpectedAuthorizationPackageIdentity-cnotmatch'^\d+\|[A-F0-9]{64}$'-or-not(Test-Path -LiteralPath $AuthorizationPackagePath -PathType Leaf)-or(Get-MinimalFileIdentity $AuthorizationPackagePath)-cne$ExpectedAuthorizationPackageIdentity){throw 'ACTOR_BOUND_UPGRADE_AUTHORIZATION_DRIFT'}
+    $raw=Read-StrictUtf8NoBom $AuthorizationPackagePath
+    Assert-StrictJsonMemberSet $raw 'ACTOR_BOUND_UPGRADE_AUTHORIZATION_DUPLICATE_MEMBER'
+    try{$package=$raw|ConvertFrom-Json}catch{throw 'ACTOR_BOUND_UPGRADE_AUTHORIZATION_JSON'}
+    if([string]$package.issuerRole-cne'PROJECT_CONTROLLER'-or[string]$package.grantee-cne$Migration.Actor-or[string]$package.taskId-cne$Migration.TaskId-or[string]$package.owner-cne$Migration.Owner){throw 'ACTOR_BOUND_UPGRADE_AUTHORITY_BINDING'}
+    $declared=@($package.exactPaths|ForEach-Object{[string]$_});$expected=@($WritePaths)
+    [Array]::Sort($declared,[StringComparer]::Ordinal);[Array]::Sort($expected,[StringComparer]::Ordinal)
+    if($declared.Count-ne$expected.Count-or[string]::Join("`n",$declared)-cne[string]::Join("`n",$expected)){throw 'ACTOR_BOUND_UPGRADE_PATHSET_DRIFT'}
+    $observed=@();foreach($relative in $WritePaths){$identity=Get-OptionalIdentity (Join-ChildPath $RepositoryRoot $relative);if($identity-ceq'MISSING'){$identity='NEW'};$observed+=($relative+'='+$identity)}
+    $checker=Join-ChildPath $SourceFramework 'scripts/check-authorization.ps1'
+    $args=@{PackagePath=$AuthorizationPackagePath;ObservedActor=$Migration.Actor;ObservedTaskId=$Migration.TaskId;ObservedOwner=$Migration.Owner;ObservedAction=@('CONTROL_WRITE');ObservedPath=$WritePaths;ObservedIdentity=$observed;ControllerControlPath='.ai-workspace/controller.json';ProjectConfigPath='.ai-workspace/project.json';ExpectedProjectConfigIdentity=(Get-MinimalFileIdentity $ProjectFile)}
+    if($null-ne$package.PSObject.Properties['repositoryId']){$args.ObservedRepositoryId=[string]$package.repositoryId}
+    $previousCurrentDirectory=[Environment]::CurrentDirectory
+    Push-Location -LiteralPath $RepositoryRoot
+    try{[Environment]::CurrentDirectory=$RepositoryRoot;$result=@(& $checker @args 2>&1|ForEach-Object{[string]$_});$checkerExit=$LASTEXITCODE}finally{[Environment]::CurrentDirectory=$previousCurrentDirectory;Pop-Location}
+    if($checkerExit-ne0-or@($result|Where-Object{$_-clike'PASS|*'}).Count-ne1){throw ('ACTOR_BOUND_UPGRADE_AUTHORIZATION_REJECTED|'+($result-join';'))}
+}
+
+function Invoke-ActorBoundUpgrade([string]$RepositoryRoot,[string]$SourceFramework,[string]$TargetFramework,[string]$FromVersion,[string]$TargetVersion,[string]$ProjectId,[string]$ProjectFile,[string]$ControllerFile,$Migration,[object[]]$Objects,[bool]$ApplyChange){
+    if(@($Objects|Where-Object{Test-ManagedRouterRelative ([string]$_.relative)}).Count-gt0){Assert-ManagedRouterDestinations $RepositoryRoot}
+    $recoveryRelative='.framework-actor-bound-upgrade-recovery-'+$TargetVersion;$recoveryRoot=Join-ChildPath $RepositoryRoot $recoveryRelative;$stateRelative=$recoveryRelative+'/state.json';$statePath=Join-ChildPath $RepositoryRoot $stateRelative
+    $objects=@($Objects)+@([pscustomobject]@{relative=$Migration.Relative;path=$Migration.Path;content=$Migration.Content})
+    $stateObjects=@();$writePaths=New-Object 'System.Collections.Generic.List[string]'
+    foreach($object in $objects){
+        $oldIdentity=Get-OptionalIdentity $object.path;$newIdentity=Get-MinimalBytesIdentity ($utf8NoBom.GetBytes([string]$object.content));$stateObjects+=[ordered]@{relative=$object.relative;oldIdentity=$oldIdentity;newIdentity=$newIdentity}
+        $writePaths.Add([string]$object.relative);if($oldIdentity-cne'MISSING'){$writePaths.Add($recoveryRelative+'/old/'+[string]$object.relative)};$writePaths.Add($recoveryRelative+'/new/'+[string]$object.relative)
+    }
+    $writePaths.Add($stateRelative);$writePaths.Add($Migration.AtomicRelative)
+    $state=[ordered]@{schemaVersion=1;projectId=$ProjectId;fromVersion=$FromVersion;toVersion=$TargetVersion;actor=$Migration.Actor;taskId=$Migration.TaskId;taskOwner=$Migration.Owner;taskRelative=$Migration.Relative;authorizationIdentity=$ExpectedAuthorizationPackageIdentity;objects=$stateObjects}
+    Write-Output ('UPGRADE_WRITESET|'+[string]::Join('|',$writePaths))
+    foreach($relative in $writePaths){$identity=Get-OptionalIdentity (Join-ChildPath $RepositoryRoot $relative);if($identity-ceq'MISSING'){$identity='NEW'};Write-Output ('UPGRADE_PREIMAGE|'+$relative+'='+$identity)}
+    if(-not$ApplyChange){Write-Output ('WHAT_IF|from='+$FromVersion+'|to='+$TargetVersion+'|objects='+$objects.Count+'|transaction=actor-bound-forward');return}
+    Assert-ActorBoundUpgradeAuthorization $RepositoryRoot $SourceFramework $ProjectFile $ControllerFile $Migration @($writePaths)
+    if(Test-Path -LiteralPath $recoveryRoot){throw 'ACTOR_BOUND_UPGRADE_RECOVERY_EXISTS'}
+    try{
+        foreach($item in $stateObjects){$object=@($objects|Where-Object{$_.relative-ceq[string]$item.relative})[0];if(Test-ManagedRouterRelative ([string]$item.relative)){Assert-ManagedRouterDestinations $RepositoryRoot};$old=Join-ChildPath (Join-Path $recoveryRoot 'old') ([string]$item.relative);$new=Join-ChildPath (Join-Path $recoveryRoot 'new') ([string]$item.relative);if([string]$item.oldIdentity-cne'MISSING'){New-Item -ItemType Directory -Path (Split-Path -Parent $old) -Force|Out-Null;[IO.File]::Copy($object.path,$old,$false)};New-Item -ItemType Directory -Path (Split-Path -Parent $new) -Force|Out-Null;Write-Utf8NoBom $new ([string]$object.content)}
+        Write-Utf8NoBom $statePath ($state|ConvertTo-Json -Depth 10)
+        foreach($item in $stateObjects){if(Test-ManagedRouterRelative ([string]$item.relative)){Assert-ManagedRouterDestinations $RepositoryRoot};$live=Get-OptionalIdentity (Join-ChildPath $RepositoryRoot ([string]$item.relative));if($live-cne[string]$item.oldIdentity){throw ('OBJECT_DRIFT|'+[string]$item.relative)}}
+        $taskStage=Join-ChildPath (Join-Path $recoveryRoot 'new') $Migration.Relative;$check=@(& (Join-ChildPath $TargetFramework 'scripts/check-task-card.ps1') -TaskPath $taskStage 2>&1|ForEach-Object{[string]$_});if($LASTEXITCODE-ne0-or@($check|Where-Object{$_-clike'PASS*'}).Count-ne1){throw ('ACTOR_ROUTE_TARGET_TASK_REJECTED|'+($check-join';'))}
+        $atomic=Join-ChildPath $RepositoryRoot $Migration.AtomicRelative;New-Item -ItemType Directory -Path (Split-Path -Parent $atomic) -Force|Out-Null;[IO.File]::Copy($taskStage,$atomic,$false)
+        foreach($item in @($stateObjects|Where-Object{[string]$_.relative-cne$Migration.Relative})){$managed=Test-ManagedRouterRelative ([string]$item.relative);if($managed){Assert-ManagedRouterDestinations $RepositoryRoot};$livePath=Join-ChildPath $RepositoryRoot ([string]$item.relative);New-Item -ItemType Directory -Path (Split-Path -Parent $livePath) -Force|Out-Null;if($managed){Assert-ManagedRouterDestinations $RepositoryRoot};Set-UpgradeFile (Join-ChildPath (Join-Path $recoveryRoot 'new') ([string]$item.relative)) $livePath ([string]$item.oldIdentity) ([string]$item.newIdentity)}
+        if((Get-OptionalIdentity $Migration.Path)-cne$Migration.OldIdentity){throw 'ACTOR_ROUTE_TASK_DRIFT'}
+        [IO.File]::Move($atomic,$Migration.Path,$true)
+        if((Get-OptionalIdentity $Migration.Path)-cne$Migration.NewIdentity){throw 'ACTOR_ROUTE_POSTIMAGE_DRIFT'}
+        Write-Output ('UPGRADED|objects='+$objects.Count+'|transaction=actor-bound-forward|recovery='+$recoveryRoot+'|writes-after-task=ZERO')
+    }catch{throw "Actor-bound Framework upgrade stopped; deterministic recovery material is preserved. $($_.Exception.Message)"}
+}
+
+function Resume-ActorBoundUpgrade([string]$RepositoryRoot,[string]$TargetFramework,[string]$TargetVersion,[string]$ProjectId,[string]$ControllerFile,$Migration,[bool]$ApplyChange){
+    $recoveryRelative='.framework-actor-bound-upgrade-recovery-'+$TargetVersion;$recoveryRoot=Join-ChildPath $RepositoryRoot $recoveryRelative;$statePath=Join-Path $recoveryRoot 'state.json'
+    if(-not(Test-Path -LiteralPath $recoveryRoot -PathType Container)){throw 'ACTOR_BOUND_UPGRADE_RECOVERY_NOT_DIRECTORY'};Assert-NoReparseTree $recoveryRoot
+    $raw=Read-StrictUtf8NoBom $statePath;try{$state=$raw|ConvertFrom-Json}catch{throw 'ACTOR_BOUND_UPGRADE_RECOVERY_JSON'}
+    if(@($state.objects|Where-Object{Test-ManagedRouterRelative ([string]$_.relative)}).Count-gt0){Assert-ManagedRouterDestinations $RepositoryRoot}
+    Assert-MinimalExactFields $state $raw @('schemaVersion','projectId','fromVersion','toVersion','actor','taskId','taskOwner','taskRelative','authorizationIdentity','objects') 'actor-bound upgrade recovery'
+    if(-not(Test-MinimalJsonInteger $state.schemaVersion)-or[int]$state.schemaVersion-ne1-or[string]$state.projectId-cne$ProjectId-or[string]$state.toVersion-cne$TargetVersion-or[string]$state.actor-cne$Migration.Actor-or[string]$state.taskId-cne$Migration.TaskId-or[string]$state.taskOwner-cne$Migration.Owner-or[string]$state.taskRelative-cne$Migration.Relative-or[string]$state.authorizationIdentity-cne$ExpectedAuthorizationPackageIdentity-or-not($state.objects-is[Array])){throw 'ACTOR_BOUND_UPGRADE_RECOVERY_BINDING_DRIFT'}
+    if([string]::IsNullOrWhiteSpace($AuthorizationPackagePath)-or-not(Test-Path -LiteralPath $AuthorizationPackagePath -PathType Leaf)-or(Get-MinimalFileIdentity $AuthorizationPackagePath)-cne[string]$state.authorizationIdentity){throw 'ACTOR_BOUND_UPGRADE_AUTHORIZATION_DRIFT'}
+    $packageRaw=Read-StrictUtf8NoBom $AuthorizationPackagePath;Assert-StrictJsonMemberSet $packageRaw 'ACTOR_BOUND_UPGRADE_AUTHORIZATION_DUPLICATE_MEMBER';try{$package=$packageRaw|ConvertFrom-Json}catch{throw 'ACTOR_BOUND_UPGRADE_AUTHORIZATION_JSON'}
+    if([string]$package.issuerRole-cne'PROJECT_CONTROLLER'-or[string]$package.grantee-cne$Migration.Actor-or[string]$package.taskId-cne$Migration.TaskId-or[string]$package.owner-cne$Migration.Owner){throw 'ACTOR_BOUND_UPGRADE_AUTHORITY_BINDING'}
+    $controllerRaw=Read-StrictUtf8NoBom $ControllerFile;try{$controller=$controllerRaw|ConvertFrom-Json}catch{throw 'ACTOR_BOUND_UPGRADE_CONTROLLER_JSON'};Assert-MinimalController $controller $controllerRaw $ProjectId $ControllerId
+    $controllerIdentity=Get-MinimalFileIdentity $ControllerFile
+    if($null-eq$package.PSObject.Properties['issuerControllerId']-or$null-eq$package.PSObject.Properties['issuerControllerEpoch']-or$null-eq$package.PSObject.Properties['controllerControlIdentity']-or[string]$package.issuerControllerId-cne[string]$controller.controllerId-or-not(Test-MinimalJsonInteger $package.issuerControllerEpoch)-or[int64]$package.issuerControllerEpoch-ne[int64]$controller.controllerEpoch-or[string]$package.controllerControlIdentity-cne$controllerIdentity-or'CONTROLLER_EPOCH_CHANGE'-cnotin@($package.invalidatesOn)){throw 'ACTOR_BOUND_UPGRADE_CONTROLLER_AUTHORITY_DRIFT'}
+    if(-not($package.exactPaths-is[Array])-or-not($package.objectIdentities-is[Array])){throw 'ACTOR_BOUND_UPGRADE_AUTHORIZATION_PATHSET'}
+    $declaredPaths=@($package.exactPaths|ForEach-Object{[string]$_});$declaredSet=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach($relative in $declaredPaths){$null=Join-ChildPath $RepositoryRoot $relative;if(-not$declaredSet.Add($relative)){throw 'ACTOR_BOUND_UPGRADE_AUTHORIZATION_PATHSET'}}
+    $identityMap=@{}
+    foreach($identityEntry in @($package.objectIdentities)){
+        if(-not($identityEntry-is[pscustomobject])-or$null-eq$identityEntry.PSObject.Properties['path']-or$null-eq$identityEntry.PSObject.Properties['identity']){throw 'ACTOR_BOUND_UPGRADE_AUTHORIZATION_OBJECT_IDENTITIES'}
+        $identityPath=[string]$identityEntry.path;$null=Join-ChildPath $RepositoryRoot $identityPath
+        if($identityMap.ContainsKey($identityPath)){throw 'ACTOR_BOUND_UPGRADE_AUTHORIZATION_OBJECT_IDENTITIES'}
+        $identityMap[$identityPath]=[string]$identityEntry.identity
+    }
+    if($identityMap.Count-ne$declaredSet.Count-or@($declaredSet|Where-Object{-not$identityMap.ContainsKey($_)}).Count-ne0){throw 'ACTOR_BOUND_UPGRADE_AUTHORIZATION_OBJECT_IDENTITIES'}
+    $seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal);$liveStates=@();$materialFiles=[Collections.Generic.List[string]]::new()
+    $reconstructed=New-Object 'System.Collections.Generic.List[string]'
+    foreach($entry in @($state.objects)){
+        $entryRaw=$entry|ConvertTo-Json -Compress;Assert-MinimalExactFields $entry $entryRaw @('relative','oldIdentity','newIdentity') 'actor-bound upgrade object'
+        if(-not($entry.relative-is[string])-or-not$seen.Add([string]$entry.relative)-or[string]$entry.oldIdentity-cne'MISSING'-and[string]$entry.oldIdentity-cnotmatch'^\d+\|[A-F0-9]{64}$'-or[string]$entry.newIdentity-cnotmatch'^\d+\|[A-F0-9]{64}$'){throw 'ACTOR_BOUND_UPGRADE_RECOVERY_OBJECT'}
+        $null=Join-ChildPath $RepositoryRoot ([string]$entry.relative)
+        $expectedOldIdentity=if([string]$entry.oldIdentity-ceq'MISSING'){'NEW'}else{[string]$entry.oldIdentity}
+        if(-not$identityMap.ContainsKey([string]$entry.relative)-or[string]$identityMap[[string]$entry.relative]-cne$expectedOldIdentity){throw 'ACTOR_BOUND_UPGRADE_RECOVERY_AUTHORIZATION_PREIMAGE_DRIFT'}
+        $reconstructed.Add([string]$entry.relative);$reconstructed.Add($recoveryRelative+'/new/'+[string]$entry.relative);if([string]$entry.oldIdentity-cne'MISSING'){$reconstructed.Add($recoveryRelative+'/old/'+[string]$entry.relative)}
+        foreach($kind in @('old','new')){$identity=[string]$entry.($kind+'Identity');$material=Join-ChildPath (Join-Path $recoveryRoot $kind) ([string]$entry.relative);if($identity-cne'MISSING'){if(-not(Test-Path -LiteralPath $material -PathType Leaf)-or(Get-MinimalFileIdentity $material)-cne$identity){throw 'ACTOR_BOUND_UPGRADE_RECOVERY_MATERIAL'};$materialFiles.Add($kind+'/'+[string]$entry.relative)}elseif(Test-Path -LiteralPath $material){throw 'ACTOR_BOUND_UPGRADE_RECOVERY_UNEXPECTED_MATERIAL'}}
+        $live=Get-OptionalIdentity (Join-ChildPath $RepositoryRoot ([string]$entry.relative));if($live-cne[string]$entry.oldIdentity-and$live-cne[string]$entry.newIdentity){if([string]$entry.relative-ceq$Migration.Relative){throw 'ACTOR_ROUTE_TASK_DRIFT'};throw ('ACTOR_BOUND_UPGRADE_UNKNOWN_LIVE_BYTES|'+[string]$entry.relative)};$liveStates+=[pscustomobject]@{Entry=$entry;Live=$live}
+    }
+    Assert-ExactTransactionTree $recoveryRoot (@('state.json')+@($materialFiles)) ([string[]]@()) 'ACTOR_BOUND_UPGRADE_RECOVERY_TREE_CLOSURE'
+    $reconstructed.Add($recoveryRelative+'/state.json');$reconstructed.Add($Migration.AtomicRelative)
+    [string[]]$reconstructedSorted=@($reconstructed);[string[]]$declaredSorted=@($declaredPaths);[Array]::Sort($reconstructedSorted,[StringComparer]::Ordinal);[Array]::Sort($declaredSorted,[StringComparer]::Ordinal)
+    if($reconstructedSorted.Count-ne$declaredSorted.Count-or[string]::Join("`n",$reconstructedSorted)-cne[string]::Join("`n",$declaredSorted)){throw 'ACTOR_BOUND_UPGRADE_RECOVERY_AUTHORIZATION_PATHSET_DRIFT'}
+    if(-not$seen.Contains($Migration.Relative)-or[string]@($state.objects)[-1].relative-cne$Migration.Relative){throw 'ACTOR_BOUND_UPGRADE_TASK_NOT_LAST'}
+    $taskState=@($liveStates|Where-Object{[string]$_.Entry.relative-ceq$Migration.Relative})[0]
+    if($taskState.Live-ceq[string]$taskState.Entry.newIdentity-and@($liveStates|Where-Object{$_.Live-cne[string]$_.Entry.newIdentity}).Count-ne0){throw 'ACTOR_BOUND_UPGRADE_TASK_ADVANCED_BEFORE_OBJECTS'}
+    $writePaths=@($liveStates|Where-Object{$_.Live-cne[string]$_.Entry.newIdentity}|ForEach-Object{[string]$_.Entry.relative})
+    if($taskState.Live-cne[string]$taskState.Entry.newIdentity){$writePaths+= $Migration.AtomicRelative}
+    Write-Output ('UPGRADE_RECOVERY_WRITESET|'+[string]::Join('|',$writePaths))
+    if(-not$ApplyChange){Write-Output ('RECOVERY_REQUIRED|from='+[string]$state.fromVersion+'|to='+$TargetVersion+'|remaining='+$writePaths.Count);return}
+    if($writePaths.Count-eq0){Write-Output ('RECOVERY_COMPLETE|to='+$TargetVersion+'|writes=ZERO');return}
+    $taskStage=Join-ChildPath (Join-Path $recoveryRoot 'new') $Migration.Relative;$check=@(& (Join-ChildPath $TargetFramework 'scripts/check-task-card.ps1') -TaskPath $taskStage 2>&1|ForEach-Object{[string]$_});if($LASTEXITCODE-ne0-or@($check|Where-Object{$_-clike'PASS*'}).Count-ne1){throw ('ACTOR_ROUTE_TARGET_TASK_REJECTED|'+($check-join';'))}
+    $atomic=Join-ChildPath $RepositoryRoot $Migration.AtomicRelative;if((Get-OptionalIdentity $atomic)-ceq'MISSING'){New-Item -ItemType Directory -Path (Split-Path -Parent $atomic) -Force|Out-Null;[IO.File]::Copy($taskStage,$atomic,$false)}elseif((Get-OptionalIdentity $atomic)-cne$Migration.NewIdentity){throw 'ACTOR_ROUTE_ATOMIC_STAGE_DRIFT'}
+    foreach($item in @($liveStates|Where-Object{[string]$_.Entry.relative-cne$Migration.Relative})){
+        if($item.Live-ceq[string]$item.Entry.newIdentity){continue};$managed=Test-ManagedRouterRelative ([string]$item.Entry.relative);if($managed){Assert-ManagedRouterDestinations $RepositoryRoot};$livePath=Join-ChildPath $RepositoryRoot ([string]$item.Entry.relative);New-Item -ItemType Directory -Path (Split-Path -Parent $livePath) -Force|Out-Null;if($managed){Assert-ManagedRouterDestinations $RepositoryRoot};Set-UpgradeFile (Join-ChildPath (Join-Path $recoveryRoot 'new') ([string]$item.Entry.relative)) $livePath ([string]$item.Entry.oldIdentity) ([string]$item.Entry.newIdentity)
+    }
+    if((Get-OptionalIdentity $Migration.Path)-cne$Migration.OldIdentity){throw 'ACTOR_ROUTE_TASK_DRIFT'};[IO.File]::Move($atomic,$Migration.Path,$true);if((Get-OptionalIdentity $Migration.Path)-cne$Migration.NewIdentity){throw 'ACTOR_ROUTE_POSTIMAGE_DRIFT'}
+    Write-Output ('RECOVERED_UPGRADE|to='+$TargetVersion+'|recovery='+$recoveryRoot+'|writes-after-task=ZERO')
+}
+
+function Get-ManagedAgentsTransition([string]$RepositoryRoot,[string]$TargetFramework,[bool]$Install){
+    Assert-ManagedRouterDestinations $RepositoryRoot
+    $agentsPath=Join-Path $RepositoryRoot 'AGENTS.md';$skillPath=Join-Path $RepositoryRoot '.agents\skills\ai-workspace-router\SKILL.md'
+    $templateAgents=Join-ChildPath $TargetFramework 'project-starter/AGENTS.md';$templateSkill=Join-ChildPath $TargetFramework 'project-starter/.agents/skills/ai-workspace-router/SKILL.md'
+    $begin='<!-- AI-WORKSPACE-FRAMEWORK:BEGIN -->';$end='<!-- AI-WORKSPACE-FRAMEWORK:END -->'
+    $current=if(Test-Path -LiteralPath $agentsPath -PathType Leaf){$bytes=[IO.File]::ReadAllBytes($agentsPath);if($bytes.Length-ge3-and$bytes[0]-eq239-and$bytes[1]-eq187-and$bytes[2]-eq191){throw 'AGENTS_MANAGED_BLOCK_BOM'};try{$text=$utf8Strict.GetString($bytes)}catch{throw 'AGENTS_MANAGED_BLOCK_UTF8'};if($text.Contains("`r")-or-not$text.EndsWith("`n")){throw 'AGENTS_MANAGED_BLOCK_TEXT_FORMAT'};$text}else{''}
+    $beginCount=[regex]::Matches($current,[regex]::Escape($begin)).Count;$endCount=[regex]::Matches($current,[regex]::Escape($end)).Count
+    if(($beginCount-ne0-or$endCount-ne0)-and($beginCount-ne1-or$endCount-ne1)){throw 'AGENTS_MANAGED_MARKERS_MALFORMED'}
+    $hasBlock=$beginCount-eq1
+    if($hasBlock){$start=$current.IndexOf($begin,[StringComparison]::Ordinal);$finish=$current.IndexOf($end,[StringComparison]::Ordinal);if($finish-lt$start){throw 'AGENTS_MANAGED_BLOCK_ORDER'};$finish+=$end.Length;$block=$current.Substring($start,$finish-$start)}
+    if($Install){
+        $targetAgents=Read-StrictUtf8NoBom $templateAgents;$targetBlock=$targetAgents.TrimEnd("`n")
+        if($hasBlock-and$block-cne$targetBlock){throw 'AGENTS_MANAGED_BLOCK_CONFLICT'}
+        if($hasBlock){$newAgents=$current}else{$separator=if($current.Length-eq0){''}elseif($current.EndsWith("`n")){"`n"}else{"`n`n"};$newAgents=$current+$separator+$targetAgents}
+        $newSkill=Read-StrictUtf8NoBom $templateSkill
+        if((Get-OptionalIdentity $skillPath)-cne'MISSING'-and(Read-StrictUtf8NoBom $skillPath)-cne$newSkill){throw 'ROUTER_SKILL_COLLISION'}
+    }else{
+        if(-not$hasBlock){throw 'AGENTS_MANAGED_BLOCK_MISSING_FOR_DOWNGRADE'}
+        # Remove only the managed block. Bytes outside the two markers are project-owned
+        # and must survive a downgrade byte for byte, including blank lines and final-LF state.
+        $newAgents=$current.Substring(0,$start)+$current.Substring($finish)
+        $expectedSkill=Join-ChildPath (Join-ChildPath (Split-Path -Parent $TargetFramework) '1.14.0') 'project-starter/.agents/skills/ai-workspace-router/SKILL.md'
+        if(-not(Test-Path -LiteralPath $skillPath -PathType Leaf)-or-not(Test-Path -LiteralPath $expectedSkill -PathType Leaf)-or(Read-StrictUtf8NoBom $skillPath)-cne(Read-StrictUtf8NoBom $expectedSkill)){throw 'ROUTER_SKILL_DRIFT_FOR_DOWNGRADE'}
+        $newSkill=$null
+    }
+    return [pscustomobject]@{AgentsPath=$agentsPath;SkillPath=$skillPath;AgentsContent=$newAgents;SkillContent=$newSkill}
+}
+
+function Read-Framework114Transaction([string]$TransactionRoot,[string]$RepositoryRoot,[string]$ProjectId,[string]$TargetVersion){
+    if(-not(Test-Path -LiteralPath $TransactionRoot -PathType Container)){throw 'FRAMEWORK_1_14_TRANSACTION_NOT_DIRECTORY'}
+    Assert-NoReparseTree $TransactionRoot
+    $statePath=Join-Path $TransactionRoot 'state.json';$raw=Read-StrictUtf8NoBom $statePath
+    try{$state=$raw|ConvertFrom-Json}catch{throw 'FRAMEWORK_1_14_TRANSACTION_STATE_JSON'}
+    Assert-MinimalExactFields $state $raw @('schemaVersion','transactionId','projectId','fromVersion','toVersion','objects') 'Framework 1.14 transaction state'
+    if(-not(Test-MinimalJsonInteger $state.schemaVersion)-or[int]$state.schemaVersion-ne1-or-not($state.transactionId-is[string])-or[string]$state.transactionId-cnotmatch'^[a-f0-9]{32}$'-or[string]$state.projectId-cne$ProjectId-or[string]$state.toVersion-cne$TargetVersion-or-not($state.objects-is[Array])-or@($state.objects).Count-ne6){throw 'FRAMEWORK_1_14_TRANSACTION_STATE_VALUES'}
+    $expected=@('.ai-workspace/project.json','.ai-workspace/BOOTSTRAP.md','.ai-workspace/corrections.json','.ai-workspace/process-policy.json','AGENTS.md','.agents/skills/ai-workspace-router/SKILL.md')
+    $seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal);$materialFiles=[Collections.Generic.List[string]]::new()
+    foreach($entry in @($state.objects)){
+        $entryRaw=$entry|ConvertTo-Json -Compress
+        Assert-MinimalExactFields $entry $entryRaw @('relative','oldIdentity','newIdentity') 'Framework 1.14 transaction object'
+        if(-not($entry.relative-is[string])-or[string]$entry.relative-cnotin$expected-or-not$seen.Add([string]$entry.relative)){throw 'FRAMEWORK_1_14_TRANSACTION_OBJECT_PATH'}
+        foreach($name in @('oldIdentity','newIdentity')){if([string]$entry.$name-cne'MISSING'-and[string]$entry.$name-cnotmatch'^\d+\|[A-F0-9]{64}$'){throw 'FRAMEWORK_1_14_TRANSACTION_OBJECT_IDENTITY'}}
+        foreach($kind in @('old','new')){$identity=[string]$entry.($kind+'Identity');$stage=Join-ChildPath (Join-Path $TransactionRoot $kind) ([string]$entry.relative);if($identity-cne'MISSING'){if(-not(Test-Path -LiteralPath $stage -PathType Leaf)-or(Get-MinimalFileIdentity $stage)-cne$identity){throw 'FRAMEWORK_1_14_TRANSACTION_MATERIAL_DRIFT'};$materialFiles.Add($kind+'/'+[string]$entry.relative)}elseif(Test-Path -LiteralPath $stage){throw 'FRAMEWORK_1_14_TRANSACTION_UNEXPECTED_MATERIAL'}}
+    }
+    if(@($expected|Where-Object{$_-cnotin$seen}).Count-ne0){throw 'FRAMEWORK_1_14_TRANSACTION_OBJECT_SET'}
+    Assert-ExactTransactionTree $TransactionRoot (@('state.json')+@($materialFiles)) @('old','new') 'FRAMEWORK_1_14_TRANSACTION_TREE_CLOSURE'
+    return $state
+}
+
+function Assert-Framework114RecoveryDestination([string]$RepositoryRoot,[string]$TargetVersion) {
+    $repository=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($RepositoryRoot))
+    $relative='.framework-1.14-upgrade-recovery-'+$TargetVersion
+    $destination=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Join-ChildPath $repository $relative)))
+    if([IO.Path]::GetRelativePath($repository,$destination)-cne$relative){throw 'FRAMEWORK_1_14_TRANSACTION_RECOVERY_LOCATOR_DRIFT'}
+    $existing=Get-Item -LiteralPath $destination -Force -ErrorAction SilentlyContinue
+    if($null-ne$existing){
+        if(($existing.Attributes-band[IO.FileAttributes]::ReparsePoint)-ne0){throw 'FRAMEWORK_1_14_TRANSACTION_RECOVERY_REPARSE'}
+        if(-not($existing-is[IO.DirectoryInfo])){throw 'FRAMEWORK_1_14_TRANSACTION_RECOVERY_NOT_DIRECTORY'}
+        throw 'FRAMEWORK_1_14_TRANSACTION_RECOVERY_COLLISION'
+    }
+    return $destination
+}
+
+function Resume-Framework114Transaction([string]$TransactionRoot,[string]$RepositoryRoot,[string]$ProjectId,[string]$TargetVersion,[switch]$Preview){
+    $completed=Assert-Framework114RecoveryDestination $RepositoryRoot $TargetVersion
+    $state=Read-Framework114Transaction $TransactionRoot $RepositoryRoot $ProjectId $TargetVersion
+    Assert-ManagedRouterDestinations $RepositoryRoot
+    $states=@();foreach($entry in @($state.objects)){$live=Get-OptionalIdentity (Join-ChildPath $RepositoryRoot ([string]$entry.relative));if($live-cne[string]$entry.oldIdentity-and$live-cne[string]$entry.newIdentity){throw ('FRAMEWORK_1_14_TRANSACTION_UNKNOWN_LIVE_BYTES|'+[string]$entry.relative)};$states+=[pscustomobject]@{Entry=$entry;Live=$live}}
+    $status=if(@($states|Where-Object{$_.Live-cne[string]$_.Entry.newIdentity}).Count-eq0){'NEW'}elseif(@($states|Where-Object{$_.Live-cne[string]$_.Entry.oldIdentity}).Count-eq0){'OLD'}else{'MIXED'}
+    if($Preview){return ('RECOVERY_REQUIRED|state='+$status+'|from='+[string]$state.fromVersion+'|to='+[string]$state.toVersion)}
+    foreach($item in $states){
+        $entry=$item.Entry;if([string]$item.Live-ceq[string]$entry.newIdentity){continue}
+        $managed=Test-ManagedRouterRelative ([string]$entry.relative);if($managed){Assert-ManagedRouterDestinations $RepositoryRoot}
+        $livePath=Join-ChildPath $RepositoryRoot ([string]$entry.relative)
+        if([string]$entry.newIdentity-ceq'MISSING'){if((Get-OptionalIdentity $livePath)-cne[string]$entry.oldIdentity){throw ('FRAMEWORK_1_14_TRANSACTION_RECHECK_DRIFT|'+[string]$entry.relative)};if($managed){Assert-ManagedRouterDestinations $RepositoryRoot};[IO.File]::Delete($livePath)}
+        else{$stage=Join-ChildPath (Join-Path $TransactionRoot 'new') ([string]$entry.relative);if((Get-OptionalIdentity $livePath)-cne[string]$entry.oldIdentity){throw ('FRAMEWORK_1_14_TRANSACTION_RECHECK_DRIFT|'+[string]$entry.relative)};New-Item -ItemType Directory -Path (Split-Path -Parent $livePath) -Force|Out-Null;if($managed){Assert-ManagedRouterDestinations $RepositoryRoot};[IO.File]::Copy($stage,$livePath,([string]$entry.oldIdentity-cne'MISSING'))}
+        if((Get-OptionalIdentity $livePath)-cne[string]$entry.newIdentity){throw ('FRAMEWORK_1_14_TRANSACTION_POSTIMAGE_DRIFT|'+[string]$entry.relative)}
+    }
+    foreach($entry in @($state.objects)){if((Get-OptionalIdentity (Join-ChildPath $RepositoryRoot ([string]$entry.relative)))-cne[string]$entry.newIdentity){throw ('FRAMEWORK_1_14_TRANSACTION_FINAL_DRIFT|'+[string]$entry.relative)}}
+    [IO.Directory]::Move($TransactionRoot,$completed)
+    return [pscustomobject]@{State=$state;Recovery=$completed;InitialState=$status}
+}
+
+function Invoke-Framework114CrossRootTransition([string]$RepositoryRoot,[string]$ControlRoot,[string]$FrameworkWorkspace,[string]$FromVersion,[string]$TargetVersion,[string]$ProjectId,[string]$ControllerId,$ActorMigration,[bool]$ApplyChange){
+    $transaction=Join-Path $RepositoryRoot '.framework-1.14-upgrade-transaction'
+    if(Test-Path -LiteralPath $transaction){
+        $recovered=Resume-Framework114Transaction $transaction $RepositoryRoot $ProjectId $TargetVersion -Preview:(-not$ApplyChange)
+        if(-not$ApplyChange){Write-Output $recovered;return}
+        $targetEvaluator=Join-ChildPath (Join-ChildPath $FrameworkWorkspace ('framework/versions/'+$TargetVersion)) 'scripts/check-project-corrections.ps1'
+        $postCorrection=Invoke-CorrectionEvaluation $targetEvaluator $RepositoryRoot $FrameworkWorkspace $TargetVersion (Join-Path $ControlRoot 'project.json') (Join-Path $ControlRoot 'corrections.json') 'POSTCHECK'
+        Write-CorrectionEvaluation $postCorrection 'after recovered cross-root projection'
+        Write-Output ('RECOVERED_UPGRADE|objects=6|initial='+[string]$recovered.InitialState+'|recovery='+[string]$recovered.Recovery);return
+    }
+    $install=$TargetVersion-ceq'1.14.0'
+    if(($install-and$FromVersion-notin@('1.11.0','1.12.0','1.13.0','1.14.0'))-or(-not$install-and($FromVersion-cne'1.14.0'-or$TargetVersion-cne'1.13.0'))){throw 'FRAMEWORK_1_14_DIRECT_TRANSITION_PAIR'}
+    $sourceFramework=Join-ChildPath (Join-ChildPath $FrameworkWorkspace 'framework/versions') $FromVersion;$targetFramework=Join-ChildPath (Join-ChildPath $FrameworkWorkspace 'framework/versions') $TargetVersion
+    $projectPath=Join-Path $ControlRoot 'project.json';$bootstrapPath=Join-Path $ControlRoot 'BOOTSTRAP.md';$controllerPath=Join-Path $ControlRoot 'controller.json';$correctionsPath=Join-Path $ControlRoot 'corrections.json';$policyPath=Join-Path $ControlRoot 'process-policy.json'
+    $projectRaw=Read-StrictUtf8NoBom $projectPath;$project=$projectRaw|ConvertFrom-Json
+    $baseProjectFields=@('schemaVersion','id','displayName','controlPlaneLayout','repositoryRoot','frameworkVersion')
+    $sourceHasStructuredPolicy=$false
+    if($FromVersion-ceq'1.14.0'){$projectFields=@($baseProjectFields+@('frameworkToolBackend','routineExcludedPaths','frameworkCapabilities','processPolicy'));$expectedSchema=4;$sourceHasStructuredPolicy=$true}
+    elseif($FromVersion-ceq'1.13.0'-and[int]$project.schemaVersion-eq4){$projectFields=@($baseProjectFields+@('frameworkToolBackend','routineExcludedPaths','frameworkCapabilities','processPolicy'));$expectedSchema=4;$sourceHasStructuredPolicy=$true}
+    elseif($FromVersion-in@('1.12.0','1.13.0')){$projectFields=@($baseProjectFields+@('frameworkToolBackend','routineExcludedPaths','frameworkCapabilities'));$expectedSchema=3}
+    else{$projectFields=@($baseProjectFields+@('routineExcludedPaths','frameworkCapabilities'));$expectedSchema=3}
+    Assert-MinimalExactFields $project $projectRaw $projectFields 'Framework 1.14 transition project.json'
+    if([int]$project.schemaVersion-ne$expectedSchema-or[string]$project.id-cne$ProjectId-or[string]$project.frameworkVersion-cne$FromVersion-or($FromVersion-in@('1.12.0','1.13.0','1.14.0')-and[string]$project.frameworkToolBackend-cne'powershell7')-or[string]$project.controlPlaneLayout-cne'repo-local'-or[string]$project.repositoryRoot-cne'..'-or-not($project.routineExcludedPaths-is[Array])-or-not($project.frameworkCapabilities-is[pscustomobject])){throw 'Framework transition source project is unhealthy.'}
+    if($sourceHasStructuredPolicy-and(-not($project.processPolicy-is[pscustomobject])-or[int]$project.processPolicy.schemaVersion-ne1-or[string]$project.processPolicy.locator-cne'.ai-workspace/process-policy.json')){throw 'FRAMEWORK_1_14_SOURCE_PROJECT_INVALID'}
+    $controllerRaw=Read-StrictUtf8NoBom $controllerPath;$controller=$controllerRaw|ConvertFrom-Json;Assert-MinimalController $controller $controllerRaw $ProjectId $ControllerId
+    $sourceBootstrapTemplate=Read-StrictUtf8NoBom (Join-ChildPath $sourceFramework 'project-starter/BOOTSTRAP.md');$targetBootstrapTemplate=Read-StrictUtf8NoBom (Join-ChildPath $targetFramework 'project-starter/BOOTSTRAP.md')
+    $currentBootstrap=Read-StrictUtf8NoBom $bootstrapPath;$expectedSource=Render-Bootstrap $sourceBootstrapTemplate $project $FromVersion;$currentBlock=Get-ManagedBootstrapBlock $currentBootstrap $bootstrapPath;$sourceBlock=Get-ManagedBootstrapBlock $expectedSource 'source Bootstrap'
+    if($currentBlock.Text-cne$sourceBlock.Text){throw 'FRAMEWORK_1_14_SOURCE_BOOTSTRAP_DRIFT'}
+    $project.frameworkVersion=$TargetVersion
+    if($install){$project.schemaVersion=4;if($null-eq$project.PSObject.Properties['frameworkToolBackend']){$project|Add-Member -NotePropertyName frameworkToolBackend -NotePropertyValue 'powershell7'}else{$project.frameworkToolBackend='powershell7'};if($null-eq$project.PSObject.Properties['processPolicy']){$project|Add-Member -NotePropertyName processPolicy -NotePropertyValue ([pscustomobject]@{schemaVersion=1;locator='.ai-workspace/process-policy.json'})}}
+    $targetProject=Normalize-Text ($project|ConvertTo-Json -Depth 100)
+    $renderedTarget=Render-Bootstrap $targetBootstrapTemplate $project $TargetVersion;$targetBlock=Get-ManagedBootstrapBlock $renderedTarget 'target Bootstrap';$targetBootstrap=Replace-ManagedBootstrapBlock $currentBootstrap $targetBlock.Text $currentBlock;$correctionBlockSource=if($install){$renderedTarget}else{$currentBootstrap};$targetBootstrap=Merge-CorrectionBootstrapBlock $targetBootstrap $correctionBlockSource 'preserved correction Bootstrap'
+    if($sourceHasStructuredPolicy){
+        $policyRaw=Read-StrictUtf8NoBom $policyPath;$policy=$policyRaw|ConvertFrom-Json;Assert-MinimalExactFields $policy $policyRaw @('schemaVersion','contractVersion','projectId','rules') 'Framework 1.14 transition process policy'
+        if([int]$policy.schemaVersion-ne1-or[string]$policy.contractVersion-cne$FromVersion-or[string]$policy.projectId-cne$ProjectId-or-not($policy.rules-is[Array])){throw 'FRAMEWORK_1_14_SOURCE_POLICY_INVALID'}
+        $policy.contractVersion=$TargetVersion;$targetPolicy=Normalize-Text ($policy|ConvertTo-Json -Depth 100)
+    }else{
+        if(Test-Path -LiteralPath $policyPath){throw 'FRAMEWORK_1_14_INACTIVE_POLICY_COLLISION'}
+        $targetPolicy=(Read-StrictUtf8NoBom (Join-ChildPath $targetFramework 'project-starter/process-policy.json')).Replace('{{PROJECT_ID_JSON}}',($ProjectId|ConvertTo-Json -Compress))
+    }
+    $correctionsRaw=Read-StrictUtf8NoBom $correctionsPath;$corrections=$correctionsRaw|ConvertFrom-Json;Assert-MinimalExactFields $corrections $correctionsRaw @('schemaVersion','contractVersion','projectId','corrections') 'Framework 1.14 transition corrections'
+    if([string]$corrections.projectId-cne$ProjectId-or-not($corrections.corrections-is[Array])){throw 'FRAMEWORK_1_14_SOURCE_CORRECTIONS_INVALID'}
+    if($install){
+        if([int]$corrections.schemaVersion-eq1-and[string]$corrections.contractVersion-ceq'1.10.0' -and @($corrections.corrections).Count-eq0){$template=Read-StrictUtf8NoBom (Join-ChildPath $targetFramework 'project-starter/corrections.json');$targetCorrections=$template.Replace('{{PROJECT_ID}}',$ProjectId)}
+        elseif([int]$corrections.schemaVersion-eq1-and[string]$corrections.contractVersion-ceq'1.10.0'){$targetCorrections=$correctionsRaw}
+        elseif([int]$corrections.schemaVersion-eq2-and[string]$corrections.contractVersion-ceq'1.14.0'){$targetCorrections=$correctionsRaw}else{throw 'FRAMEWORK_1_14_SOURCE_CORRECTIONS_INVALID'}
+    }else{
+        if([int]$corrections.schemaVersion-eq2-and[string]$corrections.contractVersion-ceq'1.14.0'){
+            if(@($corrections.corrections).Count-ne0){throw 'CORRECTIONS_V2_DOWNGRADE_REVERSE_MIGRATION_REQUIRED'}
+            $template=Read-StrictUtf8NoBom (Join-ChildPath $targetFramework 'project-starter/corrections.json');$targetCorrections=$template.Replace('{{PROJECT_ID}}',$ProjectId)
+        }elseif([int]$corrections.schemaVersion-eq1-and[string]$corrections.contractVersion-ceq'1.10.0'){$targetCorrections=$correctionsRaw}
+        else{throw 'FRAMEWORK_1_14_SOURCE_CORRECTIONS_INVALID'}
+    }
+    $agents=Get-ManagedAgentsTransition $RepositoryRoot $targetFramework $install
+    $targetEvaluator=Join-ChildPath $targetFramework 'scripts/check-project-corrections.ps1'
+    $preCorrection=Invoke-CorrectionEvaluationProjected $targetEvaluator $FrameworkWorkspace $TargetVersion $targetProject $targetBootstrap $correctionsPath $policyPath -TargetProcessPolicy $targetPolicy -TargetCorrections $targetCorrections
+    Write-CorrectionEvaluation $preCorrection 'before cross-root projection'
+    $objects=@(
+      [pscustomobject]@{relative='.ai-workspace/project.json';path=$projectPath;content=$targetProject},
+      [pscustomobject]@{relative='.ai-workspace/BOOTSTRAP.md';path=$bootstrapPath;content=$targetBootstrap},
+      [pscustomobject]@{relative='.ai-workspace/corrections.json';path=$correctionsPath;content=$targetCorrections},
+      [pscustomobject]@{relative='.ai-workspace/process-policy.json';path=$policyPath;content=$targetPolicy},
+      [pscustomobject]@{relative='AGENTS.md';path=$agents.AgentsPath;content=$agents.AgentsContent},
+      [pscustomobject]@{relative='.agents/skills/ai-workspace-router/SKILL.md';path=$agents.SkillPath;content=$agents.SkillContent}
+    )
+    if($null-ne$ActorMigration){Invoke-ActorBoundUpgrade $RepositoryRoot $sourceFramework $targetFramework $FromVersion $TargetVersion $ProjectId $projectPath $controllerPath $ActorMigration $objects $ApplyChange;return}
+    if(-not$ApplyChange){
+        $writeSet=New-Object 'System.Collections.Generic.List[string]'
+        $writeSet.Add('.framework-1.14-upgrade-transaction/state.json');$writeSet.Add('.framework-1.14-upgrade-recovery-'+$TargetVersion+'/state.json')
+        foreach($object in $objects){
+            if(Test-ManagedRouterRelative ([string]$object.relative)){Assert-ManagedRouterDestinations $RepositoryRoot}
+            $oldIdentity=Get-OptionalIdentity $object.path
+            $writeSet.Add($object.relative)
+            if($oldIdentity-cne'MISSING'){$writeSet.Add('.framework-1.14-upgrade-transaction/old/'+$object.relative);$writeSet.Add('.framework-1.14-upgrade-recovery-'+$TargetVersion+'/old/'+$object.relative)}
+            if($null-ne$object.content){$writeSet.Add('.framework-1.14-upgrade-transaction/new/'+$object.relative);$writeSet.Add('.framework-1.14-upgrade-recovery-'+$TargetVersion+'/new/'+$object.relative)}
+        }
+        Write-Output ('UPGRADE_WRITESET|'+[string]::Join('|',$writeSet));Write-Output ('WHAT_IF|from='+$FromVersion+'|to='+$TargetVersion+'|objects=6|transaction=cross-root');return
+    }
+    if($FromVersion-eq$TargetVersion){Write-Output 'ALREADY_UPGRADED|objects=6';return}
+    if(Test-Path -LiteralPath $transaction){throw 'FRAMEWORK_1_14_TRANSACTION_ALREADY_EXISTS'}
+    $null=Assert-Framework114RecoveryDestination $RepositoryRoot $TargetVersion
+    $transactionId=[guid]::NewGuid().ToString('N');New-Item -ItemType Directory -Path (Join-Path $transaction 'old'),(Join-Path $transaction 'new') -Force|Out-Null
+    $stateObjects=@()
+    try{
+        foreach($object in $objects){if(Test-ManagedRouterRelative ([string]$object.relative)){Assert-ManagedRouterDestinations $RepositoryRoot};$oldIdentity=Get-OptionalIdentity $object.path;$oldStage=Join-ChildPath (Join-Path $transaction 'old') $object.relative;$newStage=Join-ChildPath (Join-Path $transaction 'new') $object.relative;if($oldIdentity-cne'MISSING'){New-Item -ItemType Directory -Path (Split-Path -Parent $oldStage) -Force|Out-Null;[IO.File]::Copy($object.path,$oldStage,$false)};if($null-ne$object.content){New-Item -ItemType Directory -Path (Split-Path -Parent $newStage) -Force|Out-Null;Write-Utf8NoBom $newStage ([string]$object.content);$newIdentity=Get-MinimalFileIdentity $newStage}else{$newIdentity='MISSING'};$stateObjects+=[ordered]@{relative=$object.relative;oldIdentity=$oldIdentity;newIdentity=$newIdentity}}
+        $state=[ordered]@{schemaVersion=1;transactionId=$transactionId;projectId=$ProjectId;fromVersion=$FromVersion;toVersion=$TargetVersion;objects=$stateObjects};Write-Utf8NoBom (Join-Path $transaction 'state.json') ($state|ConvertTo-Json -Depth 10)
+        foreach($entry in $stateObjects){$live=Get-OptionalIdentity (Join-ChildPath $RepositoryRoot $entry.relative);if($live-cne[string]$entry.oldIdentity){throw ('OBJECT_DRIFT|'+$entry.relative)}}
+        $recovered=Resume-Framework114Transaction $transaction $RepositoryRoot $ProjectId $TargetVersion
+        $completed=[string]$recovered.Recovery
+        $postCorrection=Invoke-CorrectionEvaluation $targetEvaluator $RepositoryRoot $FrameworkWorkspace $TargetVersion $projectPath $correctionsPath 'POSTCHECK'
+        Write-CorrectionEvaluation $postCorrection 'after cross-root projection'
+        Write-Output ('UPGRADED|objects=6|recovery='+$completed)
+    }catch{throw "Framework 1.14 transition stopped; exact transaction is preserved for deterministic forward recovery. $($_.Exception.Message)"}
 }
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 $utf8Strict = New-Object System.Text.UTF8Encoding($false, $true)
@@ -40,11 +387,27 @@ function Join-ChildPath {
         [Parameter(Mandatory = $true)][string]$RelativePath
     )
 
+    if([string]::IsNullOrWhiteSpace($RelativePath)-or$RelativePath-cne$RelativePath.Replace('\','/')-or[IO.Path]::IsPathRooted($RelativePath)-or$RelativePath.StartsWith('/')-or$RelativePath.Contains(':')-or-not[string]::Equals($RelativePath,$RelativePath.Normalize([Text.NormalizationForm]::FormC),[StringComparison]::Ordinal)){throw 'CHILD_PATH_INVALID'}
+    $segments=$RelativePath.Split('/')
+    foreach($segment in $segments){if([string]::IsNullOrWhiteSpace($segment)-or$segment-in@('.','..')-or$segment.EndsWith('.')-or$segment.EndsWith(' ')-or[regex]::IsMatch($segment,'[\x00-\x1F]')){throw 'CHILD_PATH_INVALID'}}
     $result = $Root
-    foreach ($segment in ($RelativePath -split '/')) {
+    foreach ($segment in $segments) {
         $result = Join-Path $result $segment
     }
     return $result
+}
+
+function Assert-NoDuplicateJsonMembers($Element,[string]$ErrorCode) {
+    if($Element.ValueKind-eq[Text.Json.JsonValueKind]::Object){
+        $seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        foreach($property in $Element.EnumerateObject()){if(-not$seen.Add([string]$property.Name)){throw ($ErrorCode+'|'+[string]$property.Name)};Assert-NoDuplicateJsonMembers $property.Value $ErrorCode}
+    }elseif($Element.ValueKind-eq[Text.Json.JsonValueKind]::Array){foreach($item in $Element.EnumerateArray()){Assert-NoDuplicateJsonMembers $item $ErrorCode}}
+}
+
+function Assert-StrictJsonMemberSet([string]$Text,[string]$ErrorCode){
+    $options=[Text.Json.JsonDocumentOptions]::new();$options.AllowTrailingCommas=$false;$options.CommentHandling=[Text.Json.JsonCommentHandling]::Disallow
+    try{$document=[Text.Json.JsonDocument]::Parse($Text,$options)}catch{throw $ErrorCode}
+    try{Assert-NoDuplicateJsonMembers $document.RootElement $ErrorCode}finally{$document.Dispose()}
 }
 
 function Get-UpperSha256Bytes([byte[]]$Bytes) {
@@ -222,6 +585,28 @@ function Assert-NoReparsePoint {
     if(($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)-ne 0){throw "Reparse points are not allowed in a project control path: $Path"}
 }
 
+function Test-ManagedRouterRelative([string]$RelativePath) {
+    return $RelativePath -ceq 'AGENTS.md' -or $RelativePath -ceq '.agents/skills/ai-workspace-router/SKILL.md'
+}
+
+function Assert-ManagedRouterDestinations([string]$RepositoryRoot) {
+    $root=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($RepositoryRoot))
+    Assert-NoReparsePoint $root
+    foreach($relative in @('AGENTS.md','.agents/skills/ai-workspace-router/SKILL.md')){
+        $full=[IO.Path]::GetFullPath((Join-ChildPath $root $relative))
+        if(-not$full.StartsWith($root+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)){throw 'MANAGED_ROUTER_DESTINATION_OUTSIDE_REPOSITORY'}
+        $current=$root;$segments=$relative.Split('/')
+        for($index=0;$index-lt$segments.Count;$index++){
+            $current=Join-Path $current $segments[$index]
+            $item=Get-Item -LiteralPath $current -Force -ErrorAction SilentlyContinue
+            if($null-eq$item){break}
+            if(($item.Attributes-band[IO.FileAttributes]::ReparsePoint)-ne0){throw ('MANAGED_ROUTER_DESTINATION_REPARSE|'+$relative)}
+            if($index-lt$segments.Count-1-and-not$item.PSIsContainer){throw ('MANAGED_ROUTER_DESTINATION_TYPE|'+$relative)}
+            if($index-eq$segments.Count-1-and$item.PSIsContainer){throw ('MANAGED_ROUTER_DESTINATION_TYPE|'+$relative)}
+        }
+    }
+}
+
 function Get-ManagedBootstrapBlock {
     param(
         [Parameter(Mandatory = $true)][string]$Content,
@@ -395,7 +780,7 @@ function Complete-UpgradeTransaction([string]$Root,[string]$ProjectRoot,$State) 
     $resolved=[IO.Path]::GetFullPath($Root).TrimEnd('\')
     $expected=[IO.Path]::GetFullPath((Join-Path $ProjectRoot '.framework-upgrade-transaction')).TrimEnd('\')
     if(-not$resolved.Equals($expected,[StringComparison]::OrdinalIgnoreCase)){throw 'Unexpected upgrade transaction path.'}
-    $completed=Join-Path $ProjectRoot ('.framework-upgrade-recovery-'+[string]$State.transactionId)
+    $completed=Join-Path $ProjectRoot ('.framework-upgrade-recovery-'+[string]$State.toVersion)
     if(Test-Path -LiteralPath $completed){throw 'Recovery path already exists; active transaction preserved.'}
     [IO.Directory]::Move($resolved,$completed)
     return $completed
@@ -490,7 +875,8 @@ function New-UpgradeTransaction([string]$Root,[string]$ProjectRoot,[string]$Proj
     if($CorrectionsMode-ceq'PRESERVE'-and$oldCorrectionsIdentity-ceq'MISSING'){throw 'Expected corrections object is missing before transaction freeze.'}
     if($ControllerMode-ceq'CREATE'-and(Test-Path -LiteralPath $ControllerFile)){throw 'Unexpected controller object before transaction freeze.'}
     $transactionId=[Guid]::NewGuid().ToString('N')
-    $staging=Join-Path $ProjectRoot ('.fwu-prep-'+$transactionId)
+    $staging=Join-Path $ProjectRoot ('.framework-upgrade-preparation-'+$TargetVersion)
+    if(Test-Path -LiteralPath $staging){throw 'A deterministic upgrade preparation already exists; preserve and inspect it before retrying.'}
     try{
         New-Item -ItemType Directory -Path (Join-ChildPath $staging 'old'),(Join-ChildPath $staging 'new')|Out-Null
         [IO.File]::Copy($ProjectFile,(Join-ChildPath $staging 'old/project.json'),$false);[IO.File]::Copy($BootstrapFile,(Join-ChildPath $staging 'old/BOOTSTRAP.md'),$false)
@@ -554,7 +940,7 @@ function Invoke-CorrectionEvaluation([string]$Evaluator,[string]$ProjectReposito
     return $result
 }
 
-function Invoke-CorrectionEvaluationProjected([string]$Evaluator,[string]$FrameworkWorkspace,[string]$Version,[string]$TargetConfig,[string]$TargetBootstrap,[string]$CorrectionsFile,[string]$ProcessPolicyFile,[switch]$AllowMissing) {
+function Invoke-CorrectionEvaluationProjected([string]$Evaluator,[string]$FrameworkWorkspace,[string]$Version,[string]$TargetConfig,[string]$TargetBootstrap,[string]$CorrectionsFile,[string]$ProcessPolicyFile,[string]$TargetProcessPolicy='',[string]$TargetCorrections='',[switch]$AllowMissing) {
     $projectionRoot=Join-Path ([IO.Path]::GetTempPath()) ('aiw-correction-projection-'+[guid]::NewGuid().ToString('N'))
     $projectionControl=Join-Path $projectionRoot '.ai-workspace'
     try{
@@ -563,11 +949,14 @@ function Invoke-CorrectionEvaluationProjected([string]$Evaluator,[string]$Framew
         [IO.File]::WriteAllText((Join-Path $projectionControl 'BOOTSTRAP.md'),$TargetBootstrap,$utf8NoBom)
         try{$projectedConfig=$TargetConfig|ConvertFrom-Json}catch{throw 'Projected project configuration is invalid JSON.'}
         if($null-ne$projectedConfig.PSObject.Properties['processPolicy']){
-            if([string]::IsNullOrWhiteSpace($ProcessPolicyFile)-or-not(Test-Path -LiteralPath $ProcessPolicyFile -PathType Leaf)){throw 'Projected process policy is missing.'}
-            Copy-Item -LiteralPath $ProcessPolicyFile -Destination (Join-Path $projectionControl 'process-policy.json')
+            $projectedPolicy=Join-Path $projectionControl 'process-policy.json'
+            if(-not[string]::IsNullOrWhiteSpace($TargetProcessPolicy)){[IO.File]::WriteAllText($projectedPolicy,$TargetProcessPolicy,$utf8NoBom)}
+            elseif(-not[string]::IsNullOrWhiteSpace($ProcessPolicyFile)-and(Test-Path -LiteralPath $ProcessPolicyFile -PathType Leaf)){Copy-Item -LiteralPath $ProcessPolicyFile -Destination $projectedPolicy}
+            else{throw 'Projected process policy is missing.'}
         }
         $projectionCorrections=Join-Path $projectionControl 'corrections.json'
-        if(Test-Path -LiteralPath $CorrectionsFile -PathType Leaf){Copy-Item -LiteralPath $CorrectionsFile -Destination $projectionCorrections}
+        if(-not[string]::IsNullOrWhiteSpace($TargetCorrections)){[IO.File]::WriteAllText($projectionCorrections,$TargetCorrections,$utf8NoBom)}
+        elseif(Test-Path -LiteralPath $CorrectionsFile -PathType Leaf){Copy-Item -LiteralPath $CorrectionsFile -Destination $projectionCorrections}
         return Invoke-CorrectionEvaluation $Evaluator $projectionRoot $FrameworkWorkspace $Version $projectionConfig $projectionCorrections 'PRECHECK' -AllowMissing:($AllowMissing-or-not(Test-Path -LiteralPath $projectionCorrections -PathType Leaf))
     }finally{if(Test-Path -LiteralPath $projectionRoot){Remove-Item -LiteralPath $projectionRoot -Recurse -Force}}
 }
@@ -670,7 +1059,7 @@ if($ToVersion-cne'1.6.0'){
     $targetFramework=Join-ChildPath $frameworkRoot "versions/$ToVersion"
     if(-not(Test-Path -LiteralPath $targetFramework -PathType Container)){throw "Framework version does not exist: $ToVersion"}
     Assert-StableFrameworkRelease $targetFramework $ToVersion
-    if($ToVersion-in@('1.12.0','1.13.0')){
+    if($ToVersion-in@('1.12.0','1.13.0','1.14.0')){
         $toolchainPath=Join-ChildPath $targetFramework 'TOOLCHAIN.json';$toolchainRaw=Read-StrictUtf8NoBom $toolchainPath
         try{$toolchain=$toolchainRaw|ConvertFrom-Json}catch{throw 'FRAMEWORK_TOOLCHAIN_JSON'}
         Assert-MinimalExactFields $toolchain $toolchainRaw @('schemaVersion','frameworkVersion','contractVersion','projectSelectionField','officialBackends','conformance') 'Framework TOOLCHAIN.json'
@@ -707,8 +1096,33 @@ if (-not (Test-Path -LiteralPath $bootstrapFile -PathType Leaf)) {
     throw "Project Bootstrap does not exist: $bootstrapFile"
 }
 
+$actorRouteMigration=Get-ActorRouteMigration $repo $ToVersion $ActorRouteTaskPath $ExpectedActorRouteTaskIdentity $ActorRouteActor
+if($null-ne$actorRouteMigration){
+    $routeProjectRaw=Read-StrictUtf8NoBom $projectFile
+    try{$routeProject=$routeProjectRaw|ConvertFrom-Json}catch{throw 'ACTOR_ROUTE_PROJECT_JSON'}
+    if(-not($routeProject.id-is[string])-or[string]$routeProject.id-cne$ProjectId){throw 'ACTOR_ROUTE_PROJECT_ID'}
+    if([string]::IsNullOrWhiteSpace($ControllerId)-or-not(Test-Path -LiteralPath $controllerFile -PathType Leaf)){throw 'ACTOR_ROUTE_CURRENT_CONTROLLER_REQUIRED'}
+    $routeControllerRaw=Read-StrictUtf8NoBom $controllerFile
+    try{$routeController=$routeControllerRaw|ConvertFrom-Json}catch{throw 'ACTOR_ROUTE_CONTROLLER_JSON'}
+    Assert-MinimalController $routeController $routeControllerRaw $ProjectId $ControllerId
+    $actorRecovery=Join-Path $repo ('.framework-actor-bound-upgrade-recovery-'+$ToVersion)
+    if(Test-Path -LiteralPath $actorRecovery){
+        Resume-ActorBoundUpgrade $repo $targetFramework $ToVersion $ProjectId $controllerFile $actorRouteMigration ([bool]$Apply)
+        if($Apply){$recoveryEvaluator=Join-ChildPath $targetFramework 'scripts/check-project-corrections.ps1';$recoveryCorrections=Join-ChildPath $projectRoot 'corrections.json';if(Test-Path -LiteralPath $recoveryEvaluator -PathType Leaf){$recoveryEvaluation=Invoke-CorrectionEvaluation $recoveryEvaluator $repo $workspace $ToVersion $projectFile $recoveryCorrections 'POSTCHECK' -AllowMissing:(-not(Test-Path -LiteralPath $recoveryCorrections -PathType Leaf));Write-CorrectionEvaluation $recoveryEvaluation 'after recovered actor-bound pin projection'}}
+        return
+    }
+}
+
+$framework114Transaction=Join-Path $repo '.framework-1.14-upgrade-transaction'
+if(Test-Path -LiteralPath $framework114Transaction){
+    Invoke-Framework114CrossRootTransition $repo $projectRoot $workspace 'TRANSACTION_RECOVERY' $ToVersion $ProjectId $ControllerId $null ([bool]$Apply)
+    return
+}
+
 $transactionRoot = Join-Path $projectRoot '.framework-upgrade-transaction'
+$deterministicPreparation=Join-Path $projectRoot ('.framework-upgrade-preparation-'+$ToVersion)
 $abandonedPreparations = @(Get-ChildItem -LiteralPath $projectRoot -Directory -Force -Filter '.fwu-prep-*' -ErrorAction SilentlyContinue)
+if(Test-Path -LiteralPath $deterministicPreparation -PathType Container){$abandonedPreparations+=Get-Item -LiteralPath $deterministicPreparation}
 $hasActiveTransaction = Test-Path -LiteralPath $transactionRoot
 if ($hasActiveTransaction) {
     if (-not (Test-Path -LiteralPath $transactionRoot -PathType Container)) {
@@ -744,6 +1158,10 @@ foreach ($property in @('id', 'displayName', 'frameworkVersion')) {
 }
 if ([string]$config.id -cne $ProjectId) {
     throw "Project id does not match its directory: $($config.id)"
+}
+if(($ToVersion-ceq'1.14.0'-and[string]$config.frameworkVersion-in@('1.11.0','1.12.0','1.13.0','1.14.0'))-or([string]$config.frameworkVersion-ceq'1.14.0'-and$ToVersion-ceq'1.13.0')){
+    Invoke-Framework114CrossRootTransition $repo $projectRoot $workspace ([string]$config.frameworkVersion) $ToVersion $ProjectId $ControllerId $actorRouteMigration ([bool]$Apply)
+    return
 }
 if ($layout -cne 'repo-local') { throw 'Framework live upgrade accepts repository-local projects only.' }
     foreach ($property in @('schemaVersion', 'controlPlaneLayout', 'repositoryRoot')) {
@@ -882,7 +1300,29 @@ Write-Host "Layout: $layout"
 Write-Host "Framework: $fromVersion -> $ToVersion"
 Write-Host 'Upgrade: same-topology project pin and managed Bootstrap locator'
 
+if($null-ne$actorRouteMigration){
+    $actorObjects=@(
+        [pscustomobject]@{relative='.ai-workspace/project.json';path=$projectFile;content=$targetConfig},
+        [pscustomobject]@{relative='.ai-workspace/BOOTSTRAP.md';path=$bootstrapFile;content=$targetBootstrap}
+    )
+    if($correctionsMode-ceq'CREATE'){$actorObjects+= [pscustomobject]@{relative='.ai-workspace/corrections.json';path=$correctionsFile;content=$targetCorrections}}
+    Invoke-ActorBoundUpgrade $repo $sourceFramework $targetFramework $fromVersion $ToVersion $ProjectId $projectFile $controllerFile $actorRouteMigration $actorObjects ([bool]$Apply)
+    if($Apply){$postCorrection=Invoke-CorrectionEvaluation $evaluator $repo $workspace $ToVersion $projectFile $correctionsFile 'POSTCHECK';Write-CorrectionEvaluation $postCorrection 'after actor-bound pin projection'}
+    return
+}
+
 if (-not $Apply) {
+    $materials=@('state.json','old/project.json','old/BOOTSTRAP.md','new/project.json','new/BOOTSTRAP.md')
+    if($correctionsMode-ceq'CREATE'){$materials+='new/corrections.json'}elseif($correctionsMode-ceq'PRESERVE'){$materials+='old/corrections.json'}
+    $writeSet=New-Object 'System.Collections.Generic.List[string]'
+    $writeSet.Add('.ai-workspace/project.json');$writeSet.Add('.ai-workspace/BOOTSTRAP.md')
+    if($correctionsMode-ceq'CREATE'){$writeSet.Add('.ai-workspace/corrections.json')}
+    foreach($prefix in @(
+        ('.ai-workspace/.framework-upgrade-preparation-'+$ToVersion),
+        '.ai-workspace/.framework-upgrade-transaction',
+        ('.ai-workspace/.framework-upgrade-recovery-'+$ToVersion)
+    )){foreach($material in $materials){$writeSet.Add($prefix+'/'+$material)}}
+    Write-Output ('UPGRADE_WRITESET|'+[string]::Join('|',$writeSet))
     Write-Host 'Preview only. Upgrade preconditions passed; rerun with -Apply.'
     return
 }

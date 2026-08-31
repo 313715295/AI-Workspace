@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "frameworkVersion": "1.14.0",
+  "ownerModule": "PERSPECTIVE_LENSES.md",
+  "requirements": [
+    {
+      "requirementId": "PR_PROPORTIONALITY_WHEN_MACHINERY_ADDED",
+      "legacyAliases": [],
+      "title": "Proportional architecture",
+      "description": "Machinery-rich architecture recommendations require one compact proportionality conclusion.",
+      "selectors": {
+        "profiles": [
+          "CRITICAL"
+        ],
+        "roles": [
+          "CONTROLLER",
+          "DOMAIN_OWNER",
+          "FRAMEWORK_MAINTAINER"
+        ],
+        "phases": [
+          "PLAN"
+        ],
+        "actionKinds": [
+          "NONE"
+        ],
+        "resultKinds": [
+          "PLAN",
+          "USER_RESPONSE"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": [
+          "architecture",
+          "workflow",
+          "framework",
+          "service",
+          "registry",
+          "ledger",
+          "role",
+          "state"
+        ]
+      },
+      "fullText": "Record existing sufficiency, classification, minimum sufficient fix, added machinery and escalation trigger before recommending new roles, states, services, tasks or transitions. Routine fixes that add no machinery are exempt.",
+      "preparationRequirements": [
+        "PROPORTIONALITY_CONCLUSION"
+      ],
+      "resultRequirements": [
+        "MINIMUM_SUFFICIENT_SELECTION"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,129 @@
+{
+  "schemaVersion": 1,
+  "frameworkVersion": "1.14.0",
+  "ownerModule": "AUTHORIZATION_MODEL.md",
+  "requirements": [
+    {
+      "requirementId": "PR_ACTION_AUTHORIZATION_INDEPENDENT",
+      "legacyAliases": [],
+      "title": "Independent action authorization",
+      "description": "Every mutating or side-effecting action retains its categorical authorization gate.",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "IMPLEMENT",
+          "VERIFY",
+          "REVIEW",
+          "GIT",
+          "EXTERNAL"
+        ],
+        "actionKinds": [
+          "SOURCE_WRITE",
+          "TEST_WRITE",
+          "TEST_RUN",
+          "REVIEW_ROUTE",
+          "REVIEW_EXECUTE",
+          "OWNER_ACCEPT",
+          "GIT_STAGE",
+          "GIT_COMMIT",
+          "PUSH",
+          "BROWSER_RUN",
+          "DEVICE_RUN",
+          "EXTERNAL"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": []
+      },
+      "fullText": "Require the exact action package and current bindings. Process resolution selects requirements only; it cannot grant, merge, weaken or replace authorization, Review, OWNER_ACCEPT, Git, push, browser, device, external or protection gates.",
+      "preparationRequirements": [
+        "ACTION_PACKAGE_VALID",
+        "EXACT_SCOPE_BOUND"
+      ],
+      "resultRequirements": [
+        "ACTION_RESULT_OBSERVED"
+      ]
+    },
+    {
+      "requirementId": "PR_PROTECTED_PATH_FAIL_CLOSED",
+      "legacyAliases": [],
+      "title": "Protected boundary",
+      "description": "Protected or excluded paths fail closed and are not accessed by fallback.",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "*"
+        ],
+        "actionKinds": [
+          "*"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [
+          ".ai-workspace/"
+        ],
+        "capabilities": [],
+        "semanticTerms": [
+          "protected",
+          "excluded",
+          "forbidden"
+        ]
+      },
+      "fullText": "Honor current protected read/hash/diff/index/write boundaries. UNKNOWN or an unavailable bounded helper returns an exact blocker and never triggers broad search or fallback access.",
+      "preparationRequirements": [
+        "PROTECTION_BOUNDARY_PROVEN"
+      ],
+      "resultRequirements": [
+        "ZERO_BOUNDARY_VIOLATION"
+      ]
+    },
+    {
+      "requirementId": "PR_AUTHORITY_CONTEXT_INTENT_RECONCILIATION",
+      "legacyAliases": [],
+      "title": "Authority facts and intent remain separate",
+      "description": "Mechanical authority facts override semantic intent hints and hints never grant capability.",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "*"
+        ],
+        "actionKinds": [
+          "*"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": []
+      },
+      "fullText": "Build AuthorityContext only from current mechanically observed project, task, package, scope, identity, capability, recovery and host facts. IntentEnvelope contains only requested objective/action/result and semantic hints. Authority facts always win; UNKNOWN, unauthorized action or hint/fact mismatch blocks the governed action or conservatively loads requirements.",
+      "preparationRequirements": [
+        "AUTHORITY_CONTEXT_BOUND",
+        "INTENT_ENVELOPE_BOUND"
+      ],
+      "resultRequirements": [
+        "INTENT_AUTHORITY_RECONCILED"
+      ]
+    }
+  ]
+}
