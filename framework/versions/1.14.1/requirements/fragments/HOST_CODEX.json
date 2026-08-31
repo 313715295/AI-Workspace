@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "frameworkVersion": "1.14.1",
+  "ownerModule": "HOST_CODEX.md",
+  "requirements": [
+    {
+      "requirementId": "PR_CODEX_ROUTER_REACTIVATION",
+      "legacyAliases": [],
+      "title": "Prompt-bound router reactivation",
+      "description": "Use the repo-local navigation Skill at natural prompt and governed output boundaries without per-tool reload.",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "*"
+        ],
+        "actionKinds": [
+          "*"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": [
+          "task",
+          "review",
+          "implement",
+          "external",
+          "git",
+          "final",
+          "handoff",
+          "resume",
+          "continue"
+        ]
+      },
+      "fullText": "For non-trivial governed work, activate the Framework-managed ai-workspace-router Skill on a relevant user prompt, task/context or authority change, compaction/resume/handoff uncertainty, and before final output. Reuse unchanged source context and do not reload per tool call. If invocation is not observable, state INVOCATION_UNPROVEN rather than claiming host enforcement.",
+      "preparationRequirements": [
+        "ROUTER_CONTEXT_BOUND"
+      ],
+      "resultRequirements": [
+        "ROUTER_FINAL_READBACK"
+      ]
+    }
+  ]
+}

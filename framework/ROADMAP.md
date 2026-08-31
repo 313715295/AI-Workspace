@@ -4,6 +4,19 @@ This file contains generic release history and unselected Framework directions. 
 
 ## Release line
 
+### 1.14.1 — bounded loading and proportional release correction
+
+Status: stable and consumable after the complete 1.14.1 suite, immutable 1.14.0 payload verification, independent CRITICAL Source Review approval, separate Maintenance acceptance and deterministic release sealing. Publication state is determined by repository refs; project adoption remains a separate explicit action.
+
+Selected PATCH scope:
+
+- keep the sealed process-requirement catalog as internal resolver input without also preloading it into the model-facing recovery plan;
+- measure the full Framework-controlled context budget across the router Skill, selected load-plan modules and selected requirement pack;
+- pin PowerShell module and JavaScript module text to LF in root checkout policy so normal Windows checkouts preserve sealed payload bytes;
+- classify root maintenance, PATCH and MINOR releases, use affected tests during editing and one complete current-version suite at freeze, retain one independent Source Review and separate OWNER_ACCEPT, and use deterministic post-seal verification unless unreviewed semantic or executable bytes changed.
+
+Framework 1.15.0 remains deferred until a later user-selected need; when selected, it uses this proportional release flow. No new role, authority action, schema migration, backend, service, registry, ledger, automatic adoption or second state truth is introduced by 1.14.1.
+
 ### 1.14.0 — prompt-bound process navigation and bounded domain-local external routing
 
 Status: stable and consumable after full Windows PowerShell 7 regression, immutable 1.13 verification, fresh independent CRITICAL Source Review-13 approval, separate Maintenance acceptance and deterministic release sealing. Publication state is determined by repository refs; consumer adoption remains explicit per project.

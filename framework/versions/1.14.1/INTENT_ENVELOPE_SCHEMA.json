@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-workspace.local/framework/1.14.1/intent-envelope.schema.json",
+  "title": "AI Workspace ephemeral IntentEnvelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "objective", "requestedActionKind", "requestedResultKind",
+    "semanticHints", "pathHints", "capabilityHints", "mutationHints", "externalHints", "ambiguityState"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "objective": {"type": "string", "minLength": 1, "maxLength": 2048},
+    "requestedActionKind": {"type": "string", "minLength": 1},
+    "requestedResultKind": {"type": "string", "minLength": 1},
+    "semanticHints": {"type": "array", "maxItems": 64, "items": {"type": "string", "maxLength": 256}},
+    "pathHints": {"type": "array", "maxItems": 64, "items": {"type": "string", "maxLength": 512}},
+    "capabilityHints": {"type": "array", "maxItems": 32, "items": {"type": "string", "maxLength": 128}},
+    "mutationHints": {"type": "array", "maxItems": 32, "items": {"type": "string", "maxLength": 128}},
+    "externalHints": {"type": "array", "maxItems": 32, "items": {"type": "string", "maxLength": 256}},
+    "ambiguityState": {"enum": ["CLEAR", "UNKNOWN", "CONFLICT"]}
+  }
+}

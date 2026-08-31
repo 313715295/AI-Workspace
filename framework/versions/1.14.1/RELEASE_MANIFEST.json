@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "version": "1.14.1",
+  "lifecycle": "STABLE",
+  "releaseClass": "PATCH",
+  "scope": "all release payload files except RELEASE_MANIFEST.json",
+  "algorithm": "Ordinal relative path; path|byteLength|UPPER_SHA256; UTF-8 LF join without trailing LF; SHA256 payload",
+  "fileCount": 84,
+  "totalBytes": 781461,
+  "canonical": "547422DE8C0FE8214CA7B1B4980B97FEF065061B8146CA913650613F241693A6",
+  "baseline": "1.14.0",
+  "sourceReview": "APPROVED",
+  "sourceCandidate": "FRAMEWORK_1.14.1_SOURCE_REREVIEW_5_EXACT90_F3870ED79910F05F6E1E903DCBD85FB34E45C6F93FFA531A4B94F667EF965421",
+  "releaseIntegration": "DETERMINISTIC_STABLE_SEAL_AFTER_SOURCE_REREVIEW_5_OWNER_ACCEPT"
+}

@@ -145,21 +145,21 @@ Tool Contract、项目级工具后端和机械校验负责执行一致性；写�
 
 ## 快速开始
 
-下面的示例明确选择稳定版本 `1.14.0`；它不是全局默认版本。注册流程复制所选版本中现有的 `project-starter`，不会另外创建第二套流程模型。
+下面的示例明确选择稳定版本 `1.14.1`；它不是全局默认版本。注册流程复制所选版本中现有的 `project-starter`，不会另外创建第二套流程模型。
 
 ### 方式一：直接交给 AI 会话
 
 把下面内容复制给位于目标项目工作区的 AI 会话，并替换路径和项目名称：
 
 ```text
-我希望当前项目采用 AI Workspace Framework 1.14.0，并使用官方 powershell7 工具后端。
+我希望当前项目采用 AI Workspace Framework 1.14.1，并使用官方 powershell7 工具后端。
 
 Framework 仓库：C:\path\to\AI-Workspace
 项目 Git 根：C:\path\to\your-repository
 项目 ID：my-project
 显示名称：My Project
 
-请先只读确认真实 cwd、项目 Git 根、Framework Git 根、1.14.0 的稳定发行状态、PowerShell 7 可用性，以及本 AI 会话的真实 task/thread ID。使用该真实 ID 作为初始 ControllerId；如果宿主无法证明该 ID，请停止并说明。
+请先只读确认真实 cwd、项目 Git 根、Framework Git 根、1.14.1 的稳定发行状态、PowerShell 7 可用性，以及本 AI 会话的真实 task/thread ID。使用该真实 ID 作为初始 ControllerId；如果宿主无法证明该 ID，请停止并说明。
 
 然后运行 register-project.ps1 的预览模式，向我报告将创建的 .ai-workspace 文件、项目 pin、Controller、保留边界和所有 blocker。在我明确确认应用前不要添加 -Apply，不要修改产品源码、Git、远程或外部状态，也不要创建第二套流程。
 ```
@@ -183,7 +183,7 @@ pwsh -NoProfile -NonInteractive -File .\scripts\register-project.ps1 `
   -RepositoryPath C:\path\to\your-repository `
   -ProjectId my-project `
   -DisplayName "My Project" `
-  -FrameworkVersion 1.14.0 `
+  -FrameworkVersion 1.14.1 `
   -ControllerId <host-task-id>
 ```
 
@@ -214,7 +214,7 @@ AGENTS.md             # 宿主进入项目时的受管导航入口
     archive/          # 已归档任务卡
 ```
 
-1.14.0 还会在项目根安装受管的 `AGENTS.md` 导航块和 `.agents/skills/ai-workspace-router/SKILL.md`。它们只负责触发当前项目所选版本的恢复与流程要求解析，不成为新的规则权威；项目已有的其他 `AGENTS.md` 内容会保留，存在冲突的同名 Skill 会在任何项目写入前阻断。
+1.14.1 还会在项目根安装受管的 `AGENTS.md` 导航块和 `.agents/skills/ai-workspace-router/SKILL.md`。它们只负责触发当前项目所选版本的恢复与流程要求解析，不成为新的规则权威；项目已有的其他 `AGENTS.md` 内容会保留，存在冲突的同名 Skill 会在任何项目写入前阻断。
 
 之后让新的 AI 任务从项目的 `.ai-workspace/BOOTSTRAP.md` 开始即可。Bootstrap 会根据项目 pin、任务卡中绑定的 actor/role/phase、风险级别和宿主/拓扑能力装载对应规则，而不是要求用户重新粘贴历史聊天。
 
@@ -227,7 +227,7 @@ pwsh -NoProfile -NonInteractive -File .\scripts\upgrade-project.ps1 `
   -RepositoryPath C:\path\to\your-repository `
   -ProjectId my-project `
   -ControllerId <host-task-id> `
-  -ToVersion 1.14.0
+  -ToVersion 1.14.1
 ```
 
 升级同样默认只预览；确认比较结果和项目纠正状态后，再在独立项目授权下添加 `-Apply`。
@@ -241,7 +241,7 @@ Framework 维护过程中的动态状态属于专用控制仓库。Framework 源
 ## 使用环境与兼容性
 
 - 项目需要位于可识别的 Git 仓库中；Framework 不接管项目源码仓库或远程配置。
-- 具体运行时由项目所选 Framework 版本的 `TOOLCHAIN.json` 决定。当前快速开始使用的 1.14.0 只接受 `pwsh` / PowerShell 7，正式支持的平台为 Windows；其他已发布版本遵循各自不可变的工具合同。Linux/macOS 尚未被 1.14.0 声明为受支持平台。
+- 具体运行时由项目所选 Framework 版本的 `TOOLCHAIN.json` 决定。当前快速开始使用的 1.14.1 只接受 `pwsh` / PowerShell 7，正式支持的平台为 Windows；其他已发布版本遵循各自不可变的工具合同。Linux/macOS 尚未被 1.14.1 声明为受支持平台。
 - 当前提供明确的 Codex host 合同；其他 AI 宿主可以复用仓内流程，但需要自行提供等价的任务身份、消息真实性和工具权限信号。
 - Framework 规则可以约束协作流程，但不能替代产品事实、运行时测试、浏览器/设备证据或人工产品决定。
 

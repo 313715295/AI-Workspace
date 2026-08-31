@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "frameworkVersion": "1.14.1",
+  "ownerModule": "RECOVERY_CORE.md",
+  "requirements": [
+    {
+      "requirementId": "PR_RECOVERY_CURRENT_AUTHORITY",
+      "legacyAliases": [],
+      "title": "Current authority recovery",
+      "description": "Bind the current project pin, Controller, task, exact objects and selected workset before governed work.",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "RECOVER",
+          "DISCOVER",
+          "PLAN",
+          "IMPLEMENT",
+          "VERIFY",
+          "REVIEW",
+          "GIT",
+          "EXTERNAL"
+        ],
+        "actionKinds": [
+          "*"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": []
+      },
+      "fullText": "Use current repo-local authority and the explicit project pin. Reprove task, actor/role/phase, exact scope, protection and applicable source identities. Recovery grants no action.",
+      "preparationRequirements": [
+        "CURRENT_AUTHORITY_BOUND"
+      ],
+      "resultRequirements": []
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 4,
+  "id": "{{PROJECT_ID}}",
+  "displayName": "{{DISPLAY_NAME}}",
+  "controlPlaneLayout": "framework-maintenance-sibling",
+  "repositoryRoot": "..",
+  "frameworkVersion": "{{FRAMEWORK_VERSION}}",
+  "frameworkToolBackend": "powershell7",
+  "routineExcludedPaths": [],
+  "frameworkCapabilities": {},
+  "processPolicy": {
+    "schemaVersion": 1,
+    "locator": ".ai-workspace/process-policy.json"
+  },
+  "frameworkTarget": {
+    "repositoryId": "ai-workspace-framework",
+    "siblingDirectory": "AI-Workspace",
+    "routineExcludedPaths": []
+  }
+}

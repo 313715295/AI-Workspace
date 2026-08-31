@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "frameworkVersion": "1.14.1",
+  "ownerModule": "TASK_AND_SCOPE.md",
+  "requirements": [
+    {
+      "requirementId": "PR_TASK_SCOPE_AND_FORBIDDEN",
+      "legacyAliases": [],
+      "title": "Task scope closure",
+      "description": "Keep objective, exact scope, forbidden boundaries and evidence ceiling current.",
+      "selectors": {
+        "profiles": [
+          "STANDARD",
+          "CRITICAL"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "PLAN",
+          "IMPLEMENT",
+          "VERIFY",
+          "REVIEW"
+        ],
+        "actionKinds": [
+          "*"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": []
+      },
+      "fullText": "Before material work bind objective, exact/contingency/forbidden paths, producer and direct consumers, validation and evidence ceiling. Unknown impact does not silently narrow scope.",
+      "preparationRequirements": [
+        "TASK_SCOPE_CURRENT"
+      ],
+      "resultRequirements": [
+        "SCOPE_READBACK_COMPLETE"
+      ]
+    },
+    {
+      "requirementId": "PR_FINAL_OUTPUT_CURRENT_RESULT",
+      "legacyAliases": [],
+      "title": "Final output completeness",
+      "description": "Final delivery states the accepted current result, evidence ceiling, material limitations and unique next action.",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "*"
+        ],
+        "actionKinds": [
+          "*"
+        ],
+        "resultKinds": [
+          "USER_RESPONSE",
+          "TERMINAL",
+          "HANDOFF",
+          "REVIEW_VERDICT",
+          "OWNER_ACCEPTANCE"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": []
+      },
+      "fullText": "Before final output compare the actual result and claims with the user request and selected requirements. Missing required work is completed when safe or returned as the exact blocker; MISSING/NOT_DELIVERED is not completion.",
+      "preparationRequirements": [],
+      "resultRequirements": [
+        "REQUEST_COVERAGE_READBACK",
+        "EVIDENCE_CEILING_STATED",
+        "UNIQUE_NEXT_ACTION_STATED"
+      ]
+    }
+  ]
+}

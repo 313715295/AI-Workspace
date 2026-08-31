@@ -88,6 +88,11 @@ function Test-JsonInteger($Value) {
         $Value -is [int64] -or $Value -is [uint64]
 }
 
+function Get-ProcessCarrierContractVersion([string]$FrameworkVersion) {
+    if ($FrameworkVersion -in @('1.14.0','1.14.1')) { return '1.14.0' }
+    return $FrameworkVersion
+}
+
 function Assert-ExactObjectFields($Object,[string]$Raw,[string[]]$Expected,[string]$Label) {
     if (-not ($Object -is [pscustomobject])) { throw "$Label must be a JSON object." }
     $names = @($Object.PSObject.Properties.Name)
@@ -133,9 +138,9 @@ function New-TemplateMap([string]$Version) {
         'PROJECT.md'='PROJECT.md'; 'REVIEW_PROFILE.md'='REVIEW_PROFILE.md'; 'RELATIONSHIPS.md'='RELATIONSHIPS.md';
         'STATUS.md'='STATUS.md'; 'tasks/README.md'='tasks/README.md'
     }
-    if ($Version -in @('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0','1.12.0','1.13.0','1.14.0')) { $map['controller.json']='controller.json' }
-    if ($Version -in @('1.10.0','1.11.0','1.12.0','1.13.0','1.14.0')) { $map['corrections.json']='corrections.json' }
-    if ($Version -in @('1.13.0','1.14.0')) { $map['process-policy.json']='process-policy.json' }
+    if ($Version -in @('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0','1.12.0','1.13.0','1.14.0','1.14.1')) { $map['controller.json']='controller.json' }
+    if ($Version -in @('1.10.0','1.11.0','1.12.0','1.13.0','1.14.0','1.14.1')) { $map['corrections.json']='corrections.json' }
+    if ($Version -in @('1.13.0','1.14.0','1.14.1')) { $map['process-policy.json']='process-policy.json' }
     return $map
 }
 
@@ -145,7 +150,7 @@ function Get-OptionalFileIdentity([string]$Path) {
 }
 
 function Get-FrameworkAgentsProjection([string]$RepositoryRoot,[string]$TemplateRoot,[string]$Version) {
-    if ($Version -cne '1.14.0') { return $null }
+    if ($Version -notin @('1.14.0','1.14.1')) { return $null }
     Assert-ManagedRouterDestinations $RepositoryRoot
     $agentsTemplatePath=Join-ChildPath $TemplateRoot 'AGENTS.md'
     $skillTemplatePath=Join-ChildPath $TemplateRoot '.agents/skills/ai-workspace-router/SKILL.md'
@@ -180,13 +185,15 @@ function Get-Framework114RegistrationObjectPaths {
     return @('AGENTS.md','.agents/skills/ai-workspace-router/SKILL.md','.ai-workspace/.gitattributes','.ai-workspace/project.json','.ai-workspace/BOOTSTRAP.md','.ai-workspace/PROJECT.md','.ai-workspace/REVIEW_PROFILE.md','.ai-workspace/RELATIONSHIPS.md','.ai-workspace/STATUS.md','.ai-workspace/tasks/README.md','.ai-workspace/controller.json','.ai-workspace/corrections.json','.ai-workspace/process-policy.json')
 }
 
-function Get-Framework114RegistrationLayout([string]$RepositoryRoot,[string]$ExpectedProjectId) {
-    $material=([IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($RepositoryRoot))+"`n"+$ExpectedProjectId+"`n1.14.0")
+function Get-Framework114RegistrationLayout([string]$RepositoryRoot,[string]$ExpectedProjectId,[string]$ExpectedFrameworkVersion) {
+    if($ExpectedFrameworkVersion-notin@('1.14.0','1.14.1')){throw 'REGISTRATION_TRANSACTION_TARGET_UNSUPPORTED'}
+    $material=([IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($RepositoryRoot))+"`n"+$ExpectedProjectId+"`n"+$ExpectedFrameworkVersion)
     $transactionId=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($material))).Substring(0,32).ToLowerInvariant()
     $repoLeaf=[IO.Path]::GetFileName([IO.Path]::TrimEndingDirectorySeparator($RepositoryRoot))
     $preparationRoot=Join-Path (Split-Path -Parent $RepositoryRoot) ('.'+$repoLeaf+'.framework-registration-preparation-'+$transactionId)
     return [pscustomobject]@{
         TransactionId=$transactionId
+        FrameworkVersion=$ExpectedFrameworkVersion
         PreparationRoot=$preparationRoot
         PreparedTransactionRoot=(Join-Path $preparationRoot 'transaction')
         ControlStagingRoot=(Join-Path $preparationRoot 'control')
@@ -219,12 +226,12 @@ function Assert-ExactTransactionTree([string]$Root,[string[]]$ExpectedFiles,[str
     if($actualFiles.Count-ne$fileSet.Count-or@($actualFiles|Where-Object{-not$fileSet.Contains($_)}).Count-ne0-or$actualDirectories.Count-ne$directorySet.Count-or@($actualDirectories|Where-Object{-not$directorySet.Contains($_)}).Count-ne0){throw $ErrorCode}
 }
 
-function Read-Framework114RegistrationTransaction([string]$RepositoryRoot,[string]$TransactionRoot,[string]$ExpectedProjectId,[string]$ExpectedTransactionId) {
+function Read-Framework114RegistrationTransaction([string]$RepositoryRoot,[string]$TransactionRoot,[string]$ExpectedProjectId,[string]$ExpectedTransactionId,[string]$ExpectedFrameworkVersion) {
     Assert-NoReparseTree $TransactionRoot
     $stateRaw=Read-StrictUtf8Template (Join-Path $TransactionRoot 'state.json')
     try{$state=$stateRaw|ConvertFrom-Json}catch{throw 'REGISTRATION_TRANSACTION_STATE_JSON'}
     Assert-ExactObjectFields $state $stateRaw @('schemaVersion','transactionId','projectId','frameworkVersion','objects','controlDirectories') 'registration transaction state'
-    if(-not(Test-JsonInteger $state.schemaVersion)-or[int]$state.schemaVersion-ne2-or[string]$state.transactionId-cnotmatch'^[a-f0-9]{32}$'-or[string]$state.transactionId-cne$ExpectedTransactionId-or[string]$state.projectId-cne$ExpectedProjectId-or[string]$state.frameworkVersion-cne'1.14.0'-or-not($state.objects-is[Array])-or-not($state.controlDirectories-is[Array])){throw 'REGISTRATION_TRANSACTION_STATE_VALUES'}
+    if($ExpectedFrameworkVersion-notin@('1.14.0','1.14.1')-or-not(Test-JsonInteger $state.schemaVersion)-or[int]$state.schemaVersion-ne2-or[string]$state.transactionId-cnotmatch'^[a-f0-9]{32}$'-or[string]$state.transactionId-cne$ExpectedTransactionId-or[string]$state.projectId-cne$ExpectedProjectId-or[string]$state.frameworkVersion-cne$ExpectedFrameworkVersion-or-not($state.objects-is[Array])-or-not($state.controlDirectories-is[Array])){throw 'REGISTRATION_TRANSACTION_STATE_VALUES'}
     $expectedObjects=@(Get-Framework114RegistrationObjectPaths)
     if(@($state.objects).Count-ne$expectedObjects.Count){throw 'REGISTRATION_TRANSACTION_OBJECT_SET'}
     $seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal);$materialFiles=[Collections.Generic.List[string]]::new()
@@ -243,14 +250,14 @@ function Read-Framework114RegistrationTransaction([string]$RepositoryRoot,[strin
 function Resume-Framework114Registration([string]$RepositoryRoot,[string]$TransactionRoot,[string]$ExpectedProjectId,$Layout,[switch]$Preview){
     if([IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($TransactionRoot))-cne[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath([string]$Layout.TransactionRoot))){throw 'REGISTRATION_TRANSACTION_LOCATOR_DRIFT'}
     $completed=Assert-Framework114RegistrationRecoveryDestination $RepositoryRoot $Layout
-    $state=Read-Framework114RegistrationTransaction $RepositoryRoot $TransactionRoot $ExpectedProjectId ([string]$Layout.TransactionId)
+    $state=Read-Framework114RegistrationTransaction $RepositoryRoot $TransactionRoot $ExpectedProjectId ([string]$Layout.TransactionId) ([string]$Layout.FrameworkVersion)
     Assert-ManagedRouterDestinations $RepositoryRoot
     $controlEntries=@($state.objects|Where-Object{([string]$_.relative).StartsWith('.ai-workspace/',[StringComparison]::Ordinal)})
     $controlRoot=Join-Path $RepositoryRoot '.ai-workspace'
     if(Test-Path -LiteralPath $controlRoot -PathType Container){$actual=@(Get-ChildItem -LiteralPath $controlRoot -Recurse -File -Force|ForEach-Object{'.ai-workspace/'+$_.FullName.Substring($controlRoot.Length+1).Replace('\','/')});$expected=@($controlEntries|ForEach-Object{[string]$_.relative});if(@(Compare-Object -ReferenceObject $expected -DifferenceObject $actual -CaseSensitive|Where-Object{$_.SideIndicator-ceq'=>'}).Count-ne0){throw 'REGISTRATION_TRANSACTION_UNKNOWN_CONTROL_BYTES'}}elseif(Test-Path -LiteralPath $controlRoot){throw 'REGISTRATION_TRANSACTION_CONTROL_NOT_DIRECTORY'}
     $states=@();foreach($entry in @($state.objects)){$live=Get-OptionalFileIdentity (Join-ChildPath $RepositoryRoot ([string]$entry.relative));if($live-cne[string]$entry.oldIdentity-and$live-cne[string]$entry.newIdentity){throw ('REGISTRATION_TRANSACTION_UNKNOWN_LIVE_BYTES|'+[string]$entry.relative)};$states+=[pscustomobject]@{Entry=$entry;Live=$live}}
     $status=if(@($states|Where-Object{$_.Live-cne[string]$_.Entry.newIdentity}).Count-eq0){'NEW'}elseif(@($states|Where-Object{$_.Live-cne[string]$_.Entry.oldIdentity}).Count-eq0){'OLD'}else{'MIXED'}
-    if($Preview){return ('RECOVERY_REQUIRED|state='+$status+'|project='+$ExpectedProjectId+'|framework=1.14.0')}
+    if($Preview){return ('RECOVERY_REQUIRED|state='+$status+'|project='+$ExpectedProjectId+'|framework='+[string]$state.frameworkVersion)}
     Assert-ManagedRouterDestinations $RepositoryRoot
     foreach($directory in @($state.controlDirectories)){New-Item -ItemType Directory -Path (Join-ChildPath $RepositoryRoot ([string]$directory)) -Force|Out-Null}
     foreach($item in $states){$entry=$item.Entry;if([string]$item.Live-ceq[string]$entry.newIdentity){continue};$managed=Test-ManagedRouterRelative ([string]$entry.relative);if($managed){Assert-ManagedRouterDestinations $RepositoryRoot};$livePath=Join-ChildPath $RepositoryRoot ([string]$entry.relative);if((Get-OptionalFileIdentity $livePath)-cne[string]$entry.oldIdentity){throw ('REGISTRATION_TRANSACTION_RECHECK_DRIFT|'+[string]$entry.relative)};$stage=Join-ChildPath (Join-Path $TransactionRoot 'new') ([string]$entry.relative);New-Item -ItemType Directory -Path (Split-Path -Parent $livePath) -Force|Out-Null;if($managed){Assert-ManagedRouterDestinations $RepositoryRoot};[IO.File]::Copy($stage,$livePath,([string]$entry.oldIdentity-cne'MISSING'));if((Get-FileIdentity $livePath)-cne[string]$entry.newIdentity){throw ('REGISTRATION_TRANSACTION_POSTIMAGE_DRIFT|'+[string]$entry.relative)}}
@@ -275,8 +282,8 @@ function Commit-Framework114Registration([string]$RepositoryRoot,[string]$Contro
         $objects=@([ordered]@{relative='AGENTS.md';oldIdentity=$Projection.OldAgentsIdentity;newIdentity=(Get-FileIdentity (Join-Path $preparedTransaction 'new\AGENTS.md'))},[ordered]@{relative='.agents/skills/ai-workspace-router/SKILL.md';oldIdentity=$Projection.OldSkillIdentity;newIdentity=(Get-FileIdentity (Join-Path $preparedTransaction 'new\.agents\skills\ai-workspace-router\SKILL.md'))})
         foreach($file in @(Get-ChildItem -LiteralPath $newControl -Recurse -File -Force)){$relative='.ai-workspace/'+$file.FullName.Substring($newControl.Length+1).Replace('\','/');$objects+=[ordered]@{relative=$relative;oldIdentity='MISSING';newIdentity=(Get-FileIdentity $file.FullName)}}
         $directories=@('.ai-workspace')+@(Get-ChildItem -LiteralPath $newControl -Recurse -Directory -Force|ForEach-Object{'.ai-workspace/'+$_.FullName.Substring($newControl.Length+1).Replace('\','/')})
-        $state=[ordered]@{schemaVersion=2;transactionId=$transactionId;projectId=$ExpectedProjectId;frameworkVersion='1.14.0';objects=$objects;controlDirectories=$directories};Write-Utf8NoBom (Join-Path $preparedTransaction 'state.json') ($state|ConvertTo-Json -Depth 10)
-        $null=Read-Framework114RegistrationTransaction $RepositoryRoot $preparedTransaction $ExpectedProjectId $transactionId
+        $state=[ordered]@{schemaVersion=2;transactionId=$transactionId;projectId=$ExpectedProjectId;frameworkVersion=[string]$Layout.FrameworkVersion;objects=$objects;controlDirectories=$directories};Write-Utf8NoBom (Join-Path $preparedTransaction 'state.json') ($state|ConvertTo-Json -Depth 10)
+        $null=Read-Framework114RegistrationTransaction $RepositoryRoot $preparedTransaction $ExpectedProjectId $transactionId ([string]$Layout.FrameworkVersion)
         [IO.Directory]::Move($preparedTransaction,$transactionRoot)
         if([IO.Directory]::GetFileSystemEntries($preparationRoot).Count-eq0){[IO.Directory]::Delete($preparationRoot,$false)}
         $recovered=Resume-Framework114Registration $RepositoryRoot $transactionRoot $ExpectedProjectId $Layout
@@ -479,7 +486,7 @@ function Get-RepoLocalStarter {
 
     $frameworkPath = Join-ChildPath $FrameworkRoot "versions/$FrameworkVersion"
     Assert-StableFrameworkRelease $frameworkPath $FrameworkVersion
-    if ($FrameworkVersion -in @('1.12.0','1.13.0','1.14.0')) {
+    if ($FrameworkVersion -in @('1.12.0','1.13.0','1.14.0','1.14.1')) {
         if ($PSVersionTable.PSEdition -cne 'Core' -or $PSVersionTable.PSVersion.Major -lt 7) { throw 'FRAMEWORK_TOOL_RUNTIME_UNAVAILABLE|backend=powershell7|requires=pwsh>=7' }
         $toolchainPath=Join-ChildPath $frameworkPath 'TOOLCHAIN.json'
         $toolchainRaw=Read-StrictUtf8Template $toolchainPath
@@ -506,15 +513,15 @@ function Get-RepoLocalStarter {
         }
     }
     $projectTemplateText = Read-StrictUtf8Template (Join-ChildPath $templateRoot 'project.json')
-    $expectedSchema = if ($FrameworkVersion -in @('1.13.0','1.14.0')) { '"schemaVersion": 4' } elseif ($FrameworkVersion -in @('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0','1.12.0')) { '"schemaVersion": 3' } else { '"schemaVersion": 2' }
+    $expectedSchema = if ($FrameworkVersion -in @('1.13.0','1.14.0','1.14.1')) { '"schemaVersion": 4' } elseif ($FrameworkVersion -in @('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0','1.12.0')) { '"schemaVersion": 3' } else { '"schemaVersion": 2' }
     if (-not $projectTemplateText.Contains($expectedSchema) -or
         -not $projectTemplateText.Contains('"controlPlaneLayout": "repo-local"') -or
         -not $projectTemplateText.Contains('"repositoryRoot": ".."')) {
         throw "$Selection does not publish a valid repo-local project starter."
     }
-    if($FrameworkVersion-in@('1.12.0','1.13.0','1.14.0')-and-not$projectTemplateText.Contains('"frameworkToolBackend": "powershell7"')){throw "$Selection does not publish the required tool backend."}
-    if($FrameworkVersion-in@('1.13.0','1.14.0')-and(-not$projectTemplateText.Contains('"locator": ".ai-workspace/process-policy.json"')-or-not$TemplateMap.Contains('process-policy.json'))){throw "$Selection does not publish the required structured process policy carrier."}
-    if($FrameworkVersion-ceq'1.14.0'-and(-not(Test-Path -LiteralPath (Join-ChildPath $templateRoot 'AGENTS.md') -PathType Leaf)-or-not(Test-Path -LiteralPath (Join-ChildPath $templateRoot '.agents/skills/ai-workspace-router/SKILL.md') -PathType Leaf))){throw "$Selection does not publish the required router Skill and managed AGENTS block."}
+    if($FrameworkVersion-in@('1.12.0','1.13.0','1.14.0','1.14.1')-and-not$projectTemplateText.Contains('"frameworkToolBackend": "powershell7"')){throw "$Selection does not publish the required tool backend."}
+    if($FrameworkVersion-in@('1.13.0','1.14.0','1.14.1')-and(-not$projectTemplateText.Contains('"locator": ".ai-workspace/process-policy.json"')-or-not$TemplateMap.Contains('process-policy.json'))){throw "$Selection does not publish the required structured process policy carrier."}
+    if($FrameworkVersion-in@('1.14.0','1.14.1')-and(-not(Test-Path -LiteralPath (Join-ChildPath $templateRoot 'AGENTS.md') -PathType Leaf)-or-not(Test-Path -LiteralPath (Join-ChildPath $templateRoot '.agents/skills/ai-workspace-router/SKILL.md') -PathType Leaf))){throw "$Selection does not publish the required router Skill and managed AGENTS block."}
     $bootstrapTemplate = Read-StrictUtf8Template (Join-ChildPath $templateRoot 'BOOTSTRAP.md')
     $null = Get-RepoLocalBootstrapRegions $bootstrapTemplate (Join-ChildPath $templateRoot 'BOOTSTRAP.md')
     return [pscustomobject]@{
@@ -535,6 +542,8 @@ function Assert-RepoLocalProject {
         [Parameter(Mandatory = $true)][string]$FrameworkWorkspaceRoot,
         [string]$ExpectedControllerId
     )
+
+    $expectedProcessCarrierVersion = Get-ProcessCarrierContractVersion $ExpectedFrameworkVersion
 
     Assert-NoReparseTree $ControlRoot
     $actualFiles = @(Get-ChildItem -LiteralPath $ControlRoot -Recurse -File -Force | ForEach-Object {
@@ -565,17 +574,17 @@ function Assert-RepoLocalProject {
         throw "Existing repo-local project.json is invalid: $projectFile"
     }
     $baseFields=@('schemaVersion','id','displayName','controlPlaneLayout','repositoryRoot','frameworkVersion')
-    $schema3 = $ExpectedFrameworkVersion -in @('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0','1.12.0','1.13.0','1.14.0')
-    $expectedFields = if ($schema3) { @($baseFields + $(if($ExpectedFrameworkVersion-in@('1.12.0','1.13.0','1.14.0')){@('frameworkToolBackend')}else{@()}) + @('routineExcludedPaths','frameworkCapabilities') + $(if($ExpectedFrameworkVersion-in@('1.13.0','1.14.0')){@('processPolicy')}else{@()})) } else { $baseFields }
+    $schema3 = $ExpectedFrameworkVersion -in @('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0','1.12.0','1.13.0','1.14.0','1.14.1')
+    $expectedFields = if ($schema3) { @($baseFields + $(if($ExpectedFrameworkVersion-in@('1.12.0','1.13.0','1.14.0','1.14.1')){@('frameworkToolBackend')}else{@()}) + @('routineExcludedPaths','frameworkCapabilities') + $(if($ExpectedFrameworkVersion-in@('1.13.0','1.14.0','1.14.1')){@('processPolicy')}else{@()})) } else { $baseFields }
     Assert-ExactObjectFields $config $configRaw $expectedFields 'Existing project.json'
-    $expectedSchema = if ($ExpectedFrameworkVersion-in@('1.13.0','1.14.0')) { 4 } elseif ($schema3) { 3 } else { 2 }
+    $expectedSchema = if ($ExpectedFrameworkVersion-in@('1.13.0','1.14.0','1.14.1')) { 4 } elseif ($schema3) { 3 } else { 2 }
     if (-not (Test-JsonInteger $config.schemaVersion) -or [int]$config.schemaVersion -ne $expectedSchema -or
         -not ($config.controlPlaneLayout -is [string]) -or [string]$config.controlPlaneLayout -cne 'repo-local' -or
         -not ($config.repositoryRoot -is [string]) -or [string]$config.repositoryRoot -cne '..' -or
         -not ($config.id -is [string]) -or [string]$config.id -cne $ExpectedProjectId -or
         -not ($config.displayName -is [string]) -or [string]$config.displayName -cne $ExpectedDisplayName -or
         -not ($config.frameworkVersion -is [string]) -or [string]$config.frameworkVersion -cne $ExpectedFrameworkVersion -or
-        ($ExpectedFrameworkVersion-in@('1.12.0','1.13.0','1.14.0')-and(-not($config.frameworkToolBackend-is[string])-or[string]$config.frameworkToolBackend-cne'powershell7'))) {
+        ($ExpectedFrameworkVersion-in@('1.12.0','1.13.0','1.14.0','1.14.1')-and(-not($config.frameworkToolBackend-is[string])-or[string]$config.frameworkToolBackend-cne'powershell7'))) {
         throw "Existing .ai-workspace identity conflicts with the requested project: $ControlRoot"
     }
     if ($schema3) {
@@ -596,26 +605,26 @@ function Assert-RepoLocalProject {
             -not (Test-JsonInteger $controller.controllerEpoch) -or [int64]$controller.controllerEpoch -lt 1 -or
             -not ($controller.state -is [string]) -or [string]$controller.state -cne 'CURRENT' -or
             (-not [string]::IsNullOrWhiteSpace($ExpectedControllerId) -and [string]$controller.controllerId -cne $ExpectedControllerId)) { throw "Existing controller.json conflicts with the requested project: $controllerFile" }
-        if($ExpectedFrameworkVersion-in@('1.13.0','1.14.0')){
+        if($ExpectedFrameworkVersion-in@('1.13.0','1.14.0','1.14.1')){
             $policyFile=Join-Path $ControlRoot 'process-policy.json';$policyRaw=Read-StrictUtf8Template $policyFile
             try{$policy=$policyRaw|ConvertFrom-Json}catch{throw "Existing process-policy.json is invalid: $policyFile"}
             $policyLocatorRaw=$config.processPolicy|ConvertTo-Json -Compress
             Assert-ExactObjectFields $config.processPolicy $policyLocatorRaw @('schemaVersion','locator') 'Existing project.json processPolicy'
             if([regex]::Matches($configRaw,'"locator"\s*:').Count-ne1){throw 'Existing project.json processPolicy locator is duplicate or missing.'}
             Assert-ExactObjectFields $policy $policyRaw @('schemaVersion','contractVersion','projectId','rules') 'Existing process-policy.json'
-            if([int]$config.processPolicy.schemaVersion-ne1-or[string]$config.processPolicy.locator-cne'.ai-workspace/process-policy.json'-or[int]$policy.schemaVersion-ne1-or[string]$policy.contractVersion-cne$ExpectedFrameworkVersion-or[string]$policy.projectId-cne$ExpectedProjectId-or-not($policy.rules-is[System.Array])){throw 'Existing structured process policy is invalid.'}
+            if([int]$config.processPolicy.schemaVersion-ne1-or[string]$config.processPolicy.locator-cne'.ai-workspace/process-policy.json'-or[int]$policy.schemaVersion-ne1-or[string]$policy.contractVersion-cne$expectedProcessCarrierVersion-or[string]$policy.projectId-cne$ExpectedProjectId-or-not($policy.rules-is[System.Array])){throw 'Existing structured process policy is invalid.'}
         }
-        if ($ExpectedFrameworkVersion -in @('1.10.0','1.11.0','1.12.0','1.13.0','1.14.0')) {
+        if ($ExpectedFrameworkVersion -in @('1.10.0','1.11.0','1.12.0','1.13.0','1.14.0','1.14.1')) {
             $correctionsFile=Join-Path $ControlRoot 'corrections.json'
             $correctionsRaw=Read-StrictUtf8Template $correctionsFile
             try { $corrections=$correctionsRaw|ConvertFrom-Json } catch { throw "Existing corrections.json is invalid: $correctionsFile" }
             Assert-ExactObjectFields $corrections $correctionsRaw @('schemaVersion','contractVersion','projectId','corrections') 'Existing corrections.json'
             $isLiveControl=(Split-Path -Leaf $ControlRoot)-ceq'.ai-workspace'
-            $correctionsContractValid=if($ExpectedFrameworkVersion-ceq'1.14.0'-and$isLiveControl){
+            $correctionsContractValid=if($ExpectedFrameworkVersion-in@('1.14.0','1.14.1')-and$isLiveControl){
                 ((Test-JsonInteger $corrections.schemaVersion)-and[int]$corrections.schemaVersion-eq1-and[string]$corrections.contractVersion-ceq'1.10.0')-or
-                ((Test-JsonInteger $corrections.schemaVersion)-and[int]$corrections.schemaVersion-eq2-and[string]$corrections.contractVersion-ceq'1.14.0')
-            }elseif($ExpectedFrameworkVersion-ceq'1.14.0'){
-                (Test-JsonInteger $corrections.schemaVersion)-and[int]$corrections.schemaVersion-eq2-and[string]$corrections.contractVersion-ceq'1.14.0'
+                ((Test-JsonInteger $corrections.schemaVersion)-and[int]$corrections.schemaVersion-eq2-and[string]$corrections.contractVersion-ceq$expectedProcessCarrierVersion)
+            }elseif($ExpectedFrameworkVersion-in@('1.14.0','1.14.1')){
+                (Test-JsonInteger $corrections.schemaVersion)-and[int]$corrections.schemaVersion-eq2-and[string]$corrections.contractVersion-ceq$expectedProcessCarrierVersion
             }else{
                 (Test-JsonInteger $corrections.schemaVersion)-and[int]$corrections.schemaVersion-eq1-and[string]$corrections.contractVersion-ceq'1.10.0'
             }
@@ -656,14 +665,14 @@ if (-not (Test-Path -LiteralPath $RepositoryPath -PathType Container)) {
 }
 $repo = Get-GitRepositoryRoot ([System.IO.Path]::GetFullPath((Resolve-Path -LiteralPath $RepositoryPath).ProviderPath))
 
-if ($FrameworkVersion -in @('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0','1.12.0','1.13.0','1.14.0') -and [string]::IsNullOrWhiteSpace($ControllerId)) { throw 'ControllerId is required when registering a controlled Framework version.' }
+if ($FrameworkVersion -in @('1.6.0','1.6.1','1.7.0','1.8.0','1.9.0','1.10.0','1.11.0','1.12.0','1.13.0','1.14.0','1.14.1') -and [string]::IsNullOrWhiteSpace($ControllerId)) { throw 'ControllerId is required when registering a controlled Framework version.' }
 
 $requiredProjectDirectories = @('tasks', 'tasks/active', 'tasks/archive')
 $projectRoot = Join-Path $repo '.ai-workspace'
 $registrationTransaction=Join-Path $repo '.framework-registration-transaction'
-$registrationLayout=if($FrameworkVersion-ceq'1.14.0'){Get-Framework114RegistrationLayout $repo $ProjectId}else{$null}
+$registrationLayout=if($FrameworkVersion-in@('1.14.0','1.14.1')){Get-Framework114RegistrationLayout $repo $ProjectId $FrameworkVersion}else{$null}
 if(Test-Path -LiteralPath $registrationTransaction){
-    if($FrameworkVersion-cne'1.14.0'){throw 'REGISTRATION_TRANSACTION_TARGET_MISMATCH'}
+    if($FrameworkVersion-notin@('1.14.0','1.14.1')){throw 'REGISTRATION_TRANSACTION_TARGET_MISMATCH'}
     $emptyPreparationPresent=$false
     if(Test-Path -LiteralPath $registrationLayout.PreparationRoot){
         if(-not(Test-Path -LiteralPath $registrationLayout.PreparationRoot -PathType Container)-or[IO.Directory]::GetFileSystemEntries([string]$registrationLayout.PreparationRoot).Count-ne0){throw ('REGISTRATION_PREPARATION_CONFLICT|'+[string]$registrationLayout.PreparationRoot)}
@@ -671,18 +680,18 @@ if(Test-Path -LiteralPath $registrationTransaction){
     }
     $recovered=Resume-Framework114Registration $repo $registrationTransaction $ProjectId $registrationLayout -Preview:(-not$Apply)
     if($Apply-and$emptyPreparationPresent-and(Test-Path -LiteralPath $registrationLayout.PreparationRoot -PathType Container)-and[IO.Directory]::GetFileSystemEntries([string]$registrationLayout.PreparationRoot).Count-eq0){[IO.Directory]::Delete([string]$registrationLayout.PreparationRoot,$false)}
-    if($Apply){[pscustomobject]@{status='RECOVERED_CREATED';projectRoot=$projectRoot;frameworkVersion='1.14.0';recovery=[string]$recovered.Recovery}}else{[pscustomobject]@{status='RECOVERY_REQUIRED';projectRoot=$projectRoot;frameworkVersion='1.14.0';detail=[string]$recovered}}
+    if($Apply){[pscustomobject]@{status='RECOVERED_CREATED';projectRoot=$projectRoot;frameworkVersion=$FrameworkVersion;recovery=[string]$recovered.Recovery}}else{[pscustomobject]@{status='RECOVERY_REQUIRED';projectRoot=$projectRoot;frameworkVersion=$FrameworkVersion;detail=[string]$recovered}}
     return
 }
 if($null-ne$registrationLayout-and(Test-Path -LiteralPath $registrationLayout.PreparationRoot)){
     if(-not(Test-Path -LiteralPath $registrationLayout.PreparedTransactionRoot -PathType Container)){throw ('REGISTRATION_PREPARATION_INCOMPLETE|'+[string]$registrationLayout.PreparationRoot)}
-    $null=Read-Framework114RegistrationTransaction $repo $registrationLayout.PreparedTransactionRoot $ProjectId ([string]$registrationLayout.TransactionId)
-    if(-not$Apply){[pscustomobject]@{status='RECOVERY_REQUIRED';projectRoot=$projectRoot;frameworkVersion='1.14.0';preparationPath=[string]$registrationLayout.PreparationRoot;transactionPath=[string]$registrationLayout.TransactionRoot;recoveryPath=[string]$registrationLayout.RecoveryRoot};return}
+    $null=Read-Framework114RegistrationTransaction $repo $registrationLayout.PreparedTransactionRoot $ProjectId ([string]$registrationLayout.TransactionId) ([string]$registrationLayout.FrameworkVersion)
+    if(-not$Apply){[pscustomobject]@{status='RECOVERY_REQUIRED';projectRoot=$projectRoot;frameworkVersion=$FrameworkVersion;preparationPath=[string]$registrationLayout.PreparationRoot;transactionPath=[string]$registrationLayout.TransactionRoot;recoveryPath=[string]$registrationLayout.RecoveryRoot};return}
     $null=Assert-Framework114RegistrationRecoveryDestination $repo $registrationLayout
     [IO.Directory]::Move([string]$registrationLayout.PreparedTransactionRoot,[string]$registrationLayout.TransactionRoot)
     if([IO.Directory]::GetFileSystemEntries([string]$registrationLayout.PreparationRoot).Count-eq0){[IO.Directory]::Delete([string]$registrationLayout.PreparationRoot,$false)}
     $recovered=Resume-Framework114Registration $repo ([string]$registrationLayout.TransactionRoot) $ProjectId $registrationLayout
-    [pscustomobject]@{status='RECOVERED_CREATED';projectRoot=$projectRoot;frameworkVersion='1.14.0';recovery=[string]$recovered.Recovery}
+    [pscustomobject]@{status='RECOVERED_CREATED';projectRoot=$projectRoot;frameworkVersion=$FrameworkVersion;recovery=[string]$recovered.Recovery}
     return
 }
 if (Test-Path -LiteralPath $projectRoot) {
@@ -712,7 +721,7 @@ if (Test-Path -LiteralPath $projectRoot) {
     $requiredProjectFiles=@($templateMap.Values)
     $existingStarter = Get-RepoLocalStarter $frameworkRoot $FrameworkVersion $templateMap "Framework $FrameworkVersion"
     Assert-RepoLocalProject $projectRoot $ProjectId $DisplayName $FrameworkVersion $requiredProjectFiles $requiredProjectDirectories $existingStarter.BootstrapTemplate $workspace $ControllerId
-    if($FrameworkVersion-ceq'1.14.0'){$null=Get-FrameworkAgentsProjection $repo $existingStarter.TemplateRoot $FrameworkVersion}
+    if($FrameworkVersion-in@('1.14.0','1.14.1')){$null=Get-FrameworkAgentsProjection $repo $existingStarter.TemplateRoot $FrameworkVersion}
     [pscustomobject]@{
         status = 'ALREADY_REGISTERED'
         projectRoot = $projectRoot

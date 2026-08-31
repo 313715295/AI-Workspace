@@ -42,8 +42,13 @@ if($ToVersion-ceq'1.12.0'-and($PSVersionTable.PSEdition-cne'Core'-or$PSVersionTa
 if($ToVersion-in@('1.13.0','1.14.0')-and($PSVersionTable.PSEdition-cne'Core'-or$PSVersionTable.PSVersion.Major-lt7)){
     throw 'FRAMEWORK_TOOL_RUNTIME_UNAVAILABLE|backend=powershell7|requires=pwsh>=7'
 }
+if($ToVersion-ceq'1.14.1'-and($PSVersionTable.PSEdition-cne'Core'-or$PSVersionTable.PSVersion.Major-lt7)){
+    throw 'FRAMEWORK_TOOL_RUNTIME_UNAVAILABLE|backend=powershell7|requires=pwsh>=7'
+}
 
 function Get-OptionalIdentity([string]$Path){if(Test-Path -LiteralPath $Path -PathType Leaf){return Get-MinimalFileIdentity $Path};return 'MISSING'}
+
+function Get-ProcessCarrierContractVersion([string]$FrameworkVersion){if($FrameworkVersion-in@('1.14.0','1.14.1')){return '1.14.0'};return $FrameworkVersion}
 
 function Assert-ExactTransactionTree([string]$Root,[string[]]$ExpectedFiles,[string[]]$AdditionalDirectories,[string]$ErrorCode) {
     $fileSet=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal);$directorySet=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
@@ -58,7 +63,7 @@ function Get-ActorRouteMigration([string]$RepositoryRoot,[string]$TargetVersion,
     $provided=@(-not[string]::IsNullOrWhiteSpace($RelativePath),-not[string]::IsNullOrWhiteSpace($ExpectedIdentity),-not[string]::IsNullOrWhiteSpace($Actor))
     if(@($provided|Where-Object{$_}).Count-eq0){return $null}
     if(@($provided|Where-Object{$_}).Count-ne3){throw 'ACTOR_ROUTE_MIGRATION_FIELDS_REQUIRED'}
-    if($TargetVersion-notin@('1.13.0','1.14.0')){throw 'ACTOR_ROUTE_MIGRATION_TARGET_UNSUPPORTED'}
+    if($TargetVersion-notin@('1.13.0','1.14.0','1.14.1')){throw 'ACTOR_ROUTE_MIGRATION_TARGET_UNSUPPORTED'}
     if($RelativePath-cne$RelativePath.Replace('\','/')-or$RelativePath-cnotmatch'^\.ai-workspace/tasks/active/[^/]+\.md$'-or[IO.Path]::IsPathRooted($RelativePath)-or$RelativePath.Contains(':')){throw 'ACTOR_ROUTE_CURRENT_ACTIVE_TASK_REQUIRED'}
     if($ExpectedIdentity-cnotmatch'^\d+\|[A-F0-9]{64}$'){throw 'ACTOR_ROUTE_TASK_IDENTITY'}
     $path=Join-ChildPath $RepositoryRoot $RelativePath
@@ -201,7 +206,7 @@ function Resume-ActorBoundUpgrade([string]$RepositoryRoot,[string]$TargetFramewo
     Write-Output ('RECOVERED_UPGRADE|to='+$TargetVersion+'|recovery='+$recoveryRoot+'|writes-after-task=ZERO')
 }
 
-function Get-ManagedAgentsTransition([string]$RepositoryRoot,[string]$TargetFramework,[bool]$Install){
+function Get-ManagedAgentsTransition([string]$RepositoryRoot,[string]$SourceFramework,[string]$TargetFramework,[bool]$Install){
     Assert-ManagedRouterDestinations $RepositoryRoot
     $agentsPath=Join-Path $RepositoryRoot 'AGENTS.md';$skillPath=Join-Path $RepositoryRoot '.agents\skills\ai-workspace-router\SKILL.md'
     $templateAgents=Join-ChildPath $TargetFramework 'project-starter/AGENTS.md';$templateSkill=Join-ChildPath $TargetFramework 'project-starter/.agents/skills/ai-workspace-router/SKILL.md'
@@ -222,7 +227,7 @@ function Get-ManagedAgentsTransition([string]$RepositoryRoot,[string]$TargetFram
         # Remove only the managed block. Bytes outside the two markers are project-owned
         # and must survive a downgrade byte for byte, including blank lines and final-LF state.
         $newAgents=$current.Substring(0,$start)+$current.Substring($finish)
-        $expectedSkill=Join-ChildPath (Join-ChildPath (Split-Path -Parent $TargetFramework) '1.14.0') 'project-starter/.agents/skills/ai-workspace-router/SKILL.md'
+        $expectedSkill=Join-ChildPath $SourceFramework 'project-starter/.agents/skills/ai-workspace-router/SKILL.md'
         if(-not(Test-Path -LiteralPath $skillPath -PathType Leaf)-or-not(Test-Path -LiteralPath $expectedSkill -PathType Leaf)-or(Read-StrictUtf8NoBom $skillPath)-cne(Read-StrictUtf8NoBom $expectedSkill)){throw 'ROUTER_SKILL_DRIFT_FOR_DOWNGRADE'}
         $newSkill=$null
     }
@@ -294,19 +299,21 @@ function Invoke-Framework114CrossRootTransition([string]$RepositoryRoot,[string]
         Write-CorrectionEvaluation $postCorrection 'after recovered cross-root projection'
         Write-Output ('RECOVERED_UPGRADE|objects=6|initial='+[string]$recovered.InitialState+'|recovery='+[string]$recovered.Recovery);return
     }
-    $install=$TargetVersion-ceq'1.14.0'
-    if(($install-and$FromVersion-notin@('1.11.0','1.12.0','1.13.0','1.14.0'))-or(-not$install-and($FromVersion-cne'1.14.0'-or$TargetVersion-cne'1.13.0'))){throw 'FRAMEWORK_1_14_DIRECT_TRANSITION_PAIR'}
+    $install=$TargetVersion-in@('1.14.0','1.14.1')
+    $sourceProcessCarrierVersion=Get-ProcessCarrierContractVersion $FromVersion
+    $targetProcessCarrierVersion=Get-ProcessCarrierContractVersion $TargetVersion
+    if(($install-and$FromVersion-notin@('1.11.0','1.12.0','1.13.0','1.14.0','1.14.1'))-or(-not$install-and($FromVersion-notin@('1.14.0','1.14.1')-or$TargetVersion-cne'1.13.0'))){throw 'FRAMEWORK_1_14_DIRECT_TRANSITION_PAIR'}
     $sourceFramework=Join-ChildPath (Join-ChildPath $FrameworkWorkspace 'framework/versions') $FromVersion;$targetFramework=Join-ChildPath (Join-ChildPath $FrameworkWorkspace 'framework/versions') $TargetVersion
     $projectPath=Join-Path $ControlRoot 'project.json';$bootstrapPath=Join-Path $ControlRoot 'BOOTSTRAP.md';$controllerPath=Join-Path $ControlRoot 'controller.json';$correctionsPath=Join-Path $ControlRoot 'corrections.json';$policyPath=Join-Path $ControlRoot 'process-policy.json'
     $projectRaw=Read-StrictUtf8NoBom $projectPath;$project=$projectRaw|ConvertFrom-Json
     $baseProjectFields=@('schemaVersion','id','displayName','controlPlaneLayout','repositoryRoot','frameworkVersion')
     $sourceHasStructuredPolicy=$false
-    if($FromVersion-ceq'1.14.0'){$projectFields=@($baseProjectFields+@('frameworkToolBackend','routineExcludedPaths','frameworkCapabilities','processPolicy'));$expectedSchema=4;$sourceHasStructuredPolicy=$true}
+    if($FromVersion-in@('1.14.0','1.14.1')){$projectFields=@($baseProjectFields+@('frameworkToolBackend','routineExcludedPaths','frameworkCapabilities','processPolicy'));$expectedSchema=4;$sourceHasStructuredPolicy=$true}
     elseif($FromVersion-ceq'1.13.0'-and[int]$project.schemaVersion-eq4){$projectFields=@($baseProjectFields+@('frameworkToolBackend','routineExcludedPaths','frameworkCapabilities','processPolicy'));$expectedSchema=4;$sourceHasStructuredPolicy=$true}
     elseif($FromVersion-in@('1.12.0','1.13.0')){$projectFields=@($baseProjectFields+@('frameworkToolBackend','routineExcludedPaths','frameworkCapabilities'));$expectedSchema=3}
     else{$projectFields=@($baseProjectFields+@('routineExcludedPaths','frameworkCapabilities'));$expectedSchema=3}
     Assert-MinimalExactFields $project $projectRaw $projectFields 'Framework 1.14 transition project.json'
-    if([int]$project.schemaVersion-ne$expectedSchema-or[string]$project.id-cne$ProjectId-or[string]$project.frameworkVersion-cne$FromVersion-or($FromVersion-in@('1.12.0','1.13.0','1.14.0')-and[string]$project.frameworkToolBackend-cne'powershell7')-or[string]$project.controlPlaneLayout-cne'repo-local'-or[string]$project.repositoryRoot-cne'..'-or-not($project.routineExcludedPaths-is[Array])-or-not($project.frameworkCapabilities-is[pscustomobject])){throw 'Framework transition source project is unhealthy.'}
+    if([int]$project.schemaVersion-ne$expectedSchema-or[string]$project.id-cne$ProjectId-or[string]$project.frameworkVersion-cne$FromVersion-or($FromVersion-in@('1.12.0','1.13.0','1.14.0','1.14.1')-and[string]$project.frameworkToolBackend-cne'powershell7')-or[string]$project.controlPlaneLayout-cne'repo-local'-or[string]$project.repositoryRoot-cne'..'-or-not($project.routineExcludedPaths-is[Array])-or-not($project.frameworkCapabilities-is[pscustomobject])){throw 'Framework transition source project is unhealthy.'}
     if($sourceHasStructuredPolicy-and(-not($project.processPolicy-is[pscustomobject])-or[int]$project.processPolicy.schemaVersion-ne1-or[string]$project.processPolicy.locator-cne'.ai-workspace/process-policy.json')){throw 'FRAMEWORK_1_14_SOURCE_PROJECT_INVALID'}
     $controllerRaw=Read-StrictUtf8NoBom $controllerPath;$controller=$controllerRaw|ConvertFrom-Json;Assert-MinimalController $controller $controllerRaw $ProjectId $ControllerId
     $sourceBootstrapTemplate=Read-StrictUtf8NoBom (Join-ChildPath $sourceFramework 'project-starter/BOOTSTRAP.md');$targetBootstrapTemplate=Read-StrictUtf8NoBom (Join-ChildPath $targetFramework 'project-starter/BOOTSTRAP.md')
@@ -318,8 +325,8 @@ function Invoke-Framework114CrossRootTransition([string]$RepositoryRoot,[string]
     $renderedTarget=Render-Bootstrap $targetBootstrapTemplate $project $TargetVersion;$targetBlock=Get-ManagedBootstrapBlock $renderedTarget 'target Bootstrap';$targetBootstrap=Replace-ManagedBootstrapBlock $currentBootstrap $targetBlock.Text $currentBlock;$correctionBlockSource=if($install){$renderedTarget}else{$currentBootstrap};$targetBootstrap=Merge-CorrectionBootstrapBlock $targetBootstrap $correctionBlockSource 'preserved correction Bootstrap'
     if($sourceHasStructuredPolicy){
         $policyRaw=Read-StrictUtf8NoBom $policyPath;$policy=$policyRaw|ConvertFrom-Json;Assert-MinimalExactFields $policy $policyRaw @('schemaVersion','contractVersion','projectId','rules') 'Framework 1.14 transition process policy'
-        if([int]$policy.schemaVersion-ne1-or[string]$policy.contractVersion-cne$FromVersion-or[string]$policy.projectId-cne$ProjectId-or-not($policy.rules-is[Array])){throw 'FRAMEWORK_1_14_SOURCE_POLICY_INVALID'}
-        $policy.contractVersion=$TargetVersion;$targetPolicy=Normalize-Text ($policy|ConvertTo-Json -Depth 100)
+        if([int]$policy.schemaVersion-ne1-or[string]$policy.contractVersion-cne$sourceProcessCarrierVersion-or[string]$policy.projectId-cne$ProjectId-or-not($policy.rules-is[Array])){throw 'FRAMEWORK_1_14_SOURCE_POLICY_INVALID'}
+        if($sourceProcessCarrierVersion-ceq$targetProcessCarrierVersion){$targetPolicy=$policyRaw}else{$policy.contractVersion=$targetProcessCarrierVersion;$targetPolicy=Normalize-Text ($policy|ConvertTo-Json -Depth 100)}
     }else{
         if(Test-Path -LiteralPath $policyPath){throw 'FRAMEWORK_1_14_INACTIVE_POLICY_COLLISION'}
         $targetPolicy=(Read-StrictUtf8NoBom (Join-ChildPath $targetFramework 'project-starter/process-policy.json')).Replace('{{PROJECT_ID_JSON}}',($ProjectId|ConvertTo-Json -Compress))
@@ -327,17 +334,18 @@ function Invoke-Framework114CrossRootTransition([string]$RepositoryRoot,[string]
     $correctionsRaw=Read-StrictUtf8NoBom $correctionsPath;$corrections=$correctionsRaw|ConvertFrom-Json;Assert-MinimalExactFields $corrections $correctionsRaw @('schemaVersion','contractVersion','projectId','corrections') 'Framework 1.14 transition corrections'
     if([string]$corrections.projectId-cne$ProjectId-or-not($corrections.corrections-is[Array])){throw 'FRAMEWORK_1_14_SOURCE_CORRECTIONS_INVALID'}
     if($install){
-        if([int]$corrections.schemaVersion-eq1-and[string]$corrections.contractVersion-ceq'1.10.0' -and @($corrections.corrections).Count-eq0){$template=Read-StrictUtf8NoBom (Join-ChildPath $targetFramework 'project-starter/corrections.json');$targetCorrections=$template.Replace('{{PROJECT_ID}}',$ProjectId)}
+        if([int]$corrections.schemaVersion-eq1-and[string]$corrections.contractVersion-ceq'1.10.0'-and$sourceProcessCarrierVersion-ceq$targetProcessCarrierVersion){$targetCorrections=$correctionsRaw}
+        elseif([int]$corrections.schemaVersion-eq1-and[string]$corrections.contractVersion-ceq'1.10.0' -and @($corrections.corrections).Count-eq0){$template=Read-StrictUtf8NoBom (Join-ChildPath $targetFramework 'project-starter/corrections.json');$targetCorrections=$template.Replace('{{PROJECT_ID}}',$ProjectId)}
         elseif([int]$corrections.schemaVersion-eq1-and[string]$corrections.contractVersion-ceq'1.10.0'){$targetCorrections=$correctionsRaw}
-        elseif([int]$corrections.schemaVersion-eq2-and[string]$corrections.contractVersion-ceq'1.14.0'){$targetCorrections=$correctionsRaw}else{throw 'FRAMEWORK_1_14_SOURCE_CORRECTIONS_INVALID'}
+        elseif([int]$corrections.schemaVersion-eq2-and[string]$corrections.contractVersion-ceq$sourceProcessCarrierVersion){if($sourceProcessCarrierVersion-ceq$targetProcessCarrierVersion){$targetCorrections=$correctionsRaw}else{$corrections.contractVersion=$targetProcessCarrierVersion;$targetCorrections=Normalize-Text ($corrections|ConvertTo-Json -Depth 100)}}else{throw 'FRAMEWORK_1_14_SOURCE_CORRECTIONS_INVALID'}
     }else{
-        if([int]$corrections.schemaVersion-eq2-and[string]$corrections.contractVersion-ceq'1.14.0'){
+        if([int]$corrections.schemaVersion-eq2-and[string]$corrections.contractVersion-ceq$sourceProcessCarrierVersion){
             if(@($corrections.corrections).Count-ne0){throw 'CORRECTIONS_V2_DOWNGRADE_REVERSE_MIGRATION_REQUIRED'}
             $template=Read-StrictUtf8NoBom (Join-ChildPath $targetFramework 'project-starter/corrections.json');$targetCorrections=$template.Replace('{{PROJECT_ID}}',$ProjectId)
         }elseif([int]$corrections.schemaVersion-eq1-and[string]$corrections.contractVersion-ceq'1.10.0'){$targetCorrections=$correctionsRaw}
         else{throw 'FRAMEWORK_1_14_SOURCE_CORRECTIONS_INVALID'}
     }
-    $agents=Get-ManagedAgentsTransition $RepositoryRoot $targetFramework $install
+    $agents=Get-ManagedAgentsTransition $RepositoryRoot $sourceFramework $targetFramework $install
     $targetEvaluator=Join-ChildPath $targetFramework 'scripts/check-project-corrections.ps1'
     $preCorrection=Invoke-CorrectionEvaluationProjected $targetEvaluator $FrameworkWorkspace $TargetVersion $targetProject $targetBootstrap $correctionsPath $policyPath -TargetProcessPolicy $targetPolicy -TargetCorrections $targetCorrections
     Write-CorrectionEvaluation $preCorrection 'before cross-root projection'
@@ -1059,7 +1067,7 @@ if($ToVersion-cne'1.6.0'){
     $targetFramework=Join-ChildPath $frameworkRoot "versions/$ToVersion"
     if(-not(Test-Path -LiteralPath $targetFramework -PathType Container)){throw "Framework version does not exist: $ToVersion"}
     Assert-StableFrameworkRelease $targetFramework $ToVersion
-    if($ToVersion-in@('1.12.0','1.13.0','1.14.0')){
+    if($ToVersion-in@('1.12.0','1.13.0','1.14.0','1.14.1')){
         $toolchainPath=Join-ChildPath $targetFramework 'TOOLCHAIN.json';$toolchainRaw=Read-StrictUtf8NoBom $toolchainPath
         try{$toolchain=$toolchainRaw|ConvertFrom-Json}catch{throw 'FRAMEWORK_TOOLCHAIN_JSON'}
         Assert-MinimalExactFields $toolchain $toolchainRaw @('schemaVersion','frameworkVersion','contractVersion','projectSelectionField','officialBackends','conformance') 'Framework TOOLCHAIN.json'
@@ -1159,7 +1167,7 @@ foreach ($property in @('id', 'displayName', 'frameworkVersion')) {
 if ([string]$config.id -cne $ProjectId) {
     throw "Project id does not match its directory: $($config.id)"
 }
-if(($ToVersion-ceq'1.14.0'-and[string]$config.frameworkVersion-in@('1.11.0','1.12.0','1.13.0','1.14.0'))-or([string]$config.frameworkVersion-ceq'1.14.0'-and$ToVersion-ceq'1.13.0')){
+if(($ToVersion-in@('1.14.0','1.14.1')-and[string]$config.frameworkVersion-in@('1.11.0','1.12.0','1.13.0','1.14.0','1.14.1'))-or([string]$config.frameworkVersion-in@('1.14.0','1.14.1')-and$ToVersion-ceq'1.13.0')){
     Invoke-Framework114CrossRootTransition $repo $projectRoot $workspace ([string]$config.frameworkVersion) $ToVersion $ProjectId $ControllerId $actorRouteMigration ([bool]$Apply)
     return
 }
