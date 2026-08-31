@@ -13,7 +13,7 @@ AI Workspace Framework 为用户与 AI 共同推进的长期软件项目提供�
 - 将规划、实施、验证、独立 Review、Git、发布及外部操作拆分为独立门禁，避免一次授权被扩展成全部权限。
 - 通过受保护路径、完整对象身份、单一 writer 和范围明确的授权包，阻止越权修改、并发覆盖及工作区漂移。
 - 规范任务复用与新建、跨任务终态报告、范围门禁和安全异常路由，减少重复汇报、ACK 链和轮询。
-- 通过版本化的 `project-starter`、注册工具和升级工具，让项目复制同一套流程，同时继续拥有自己的事实、任务、Controller 和 Framework pin。
+- 通过版本化的 `project-starter` 与受控的接入、升级流程，让项目复制同一套流程，同时继续拥有自己的事实、任务、Controller 和 Framework pin。
 
 本文所说的“项目事实”，指能够从项目真实仓库复证的信息：`PROJECT.md` 中的稳定身份、边界和权威入口，`STATUS.md` 与任务卡中的当前状态和决定，`project.json`、`controller.json`、`corrections.json` 中的控制对象，以及实际产品源码、测试、Git 和运行结果。`.ai-workspace` 管理流程权威，但不替代产品源码或运行证据；聊天记录和模型总结只作定位。
 
@@ -139,6 +139,8 @@ scripts/
 
 项目采用某个发行版本后，Framework 从仓内事实恢复身份、任务、角色、阶段、范围和权限边界；在任务或上下文发生实质变化时，从 Framework 规则、仍然有效的项目纠正和项目永久流程规则中选择本次需要的完整内容。绑定事实不变时可以复用，动作前检查授权与准备，最终输出前检查实际结果、证据和交付。
 
+`requirements/fragments/*.json` 是各规范模块拥有的结构化规则来源；发行时由它们确定性生成并封存 `PROCESS_REQUIREMENTS.json`。后者是提供给 `PROCESS_REQUIREMENTS_RESOLVE` 的内部目录，集中保存稳定规则 ID、适用条件、完整规则文本以及动作前和输出前要求，供解析器校验目录完整性、叠加项目仍然有效的纠正与永久流程规则，并选出当前任务需要的规则包。它不会作为恢复模块整体加载给模型，也不是第二份规则权威；来源与生成结果不一致时，发行测试会直接拒绝。
+
 Tool Contract、项目级工具后端和机械校验负责执行一致性；写入、测试、Review、Git、发布及外部操作仍是独立门禁。项目升级时还会明确比较已被新版本吸收的纠正、仍需保留的纠正和需要人工解决的冲突。
 
 顶层 README 不逐版记录能力演进。完整发行历史见 [`framework/ROADMAP.md`](framework/ROADMAP.md)，某个版本的精确变化见该版本目录中的 `CHANGELOG.md`。
@@ -147,27 +149,26 @@ Tool Contract、项目级工具后端和机械校验负责执行一致性；写�
 
 下面的示例明确选择稳定版本 `1.14.1`；它不是全局默认版本。注册流程复制所选版本中现有的 `project-starter`，不会另外创建第二套流程模型。
 
-### 方式一：直接交给 AI 会话
+### 新项目接入
 
 把下面内容复制给位于目标项目工作区的 AI 会话，并替换路径和项目名称：
 
 ```text
-我希望当前项目采用 AI Workspace Framework 1.14.1，并使用官方 powershell7 工具后端。
+请将当前 Git 项目接入 AI Workspace Framework，并明确采用稳定版本 1.14.1。
 
 Framework 仓库：C:\path\to\AI-Workspace
-项目 Git 根：C:\path\to\your-repository
 项目 ID：my-project
 显示名称：My Project
 
-请先只读确认真实 cwd、项目 Git 根、Framework Git 根、1.14.1 的稳定发行状态、PowerShell 7 可用性，以及本 AI 会话的真实 task/thread ID。使用该真实 ID 作为初始 ControllerId；如果宿主无法证明该 ID，请停止并说明。
+请先读取 Framework 仓库的入口说明和 1.14.1 对应流程，全程保持只读，并复证当前 cwd、当前项目 Git 根、Framework Git 根、1.14.1 的稳定/可采用状态、所需工具后端与当前平台是否受支持，以及本 AI 会话的真实 task/thread ID。使用这个真实 ID 作为初始 Controller；如果宿主无法证明任务 ID，或者项目已经存在控制面、路径冲突或不满足接入条件，请停止并说明最窄 blocker。
 
-然后运行 register-project.ps1 的预览模式，向我报告将创建的 .ai-workspace 文件、项目 pin、Controller、保留边界和所有 blocker。在我明确确认应用前不要添加 -Apply，不要修改产品源码、Git、远程或外部状态，也不要创建第二套流程。
+然后按照 1.14.1 的正式项目接入流程生成一次确定性预览，向我说明将创建或更新的受管对象、项目 pin、Controller、对项目既有内容的保留边界和全部 blocker。在我明确确认前不要写入项目，不要修改产品源码，不要执行 Git、远程或其他外部操作，也不要创建第二套流程。
 ```
 
 检查预览结果后，可以直接回复该 AI 会话：
 
 ```text
-确认按刚才的预览应用项目控制面。仅执行已经展示的 .ai-workspace 写入，不修改产品源码，不执行 Git、远程或其他外部操作；完成后从新建的 BOOTSTRAP.md 做一次完整冷恢复并报告结果。
+确认按刚才的预览接入项目。只执行预览中已经声明的受管对象写入，不修改产品源码，不执行 Git、远程或其他外部操作；完成后从新建的 .ai-workspace/BOOTSTRAP.md 做一次完整冷恢复，并报告实际项目 pin、Controller、当前边界和任何未完成事项。
 ```
 
 项目完成首次采用后，后续新 AI 会话通常只需要：
@@ -176,20 +177,7 @@ Framework 仓库：C:\path\to\AI-Workspace
 请从当前项目的 .ai-workspace/BOOTSTRAP.md 开始，按其中的 loader 恢复当前项目、Controller、任务和权限边界。在恢复完成前保持只读；不要从聊天历史猜测当前 authority，也不要自行执行 Git 或外部操作。
 ```
 
-### 方式二：手动运行注册工具
-
-```powershell
-pwsh -NoProfile -NonInteractive -File .\scripts\register-project.ps1 `
-  -RepositoryPath C:\path\to\your-repository `
-  -ProjectId my-project `
-  -DisplayName "My Project" `
-  -FrameworkVersion 1.14.1 `
-  -ControllerId <host-task-id>
-```
-
-默认只执行预览。只有在取得项目写入授权后才能添加 `-Apply`。未提供 `FrameworkVersion`、版本未知、发行清单不完整或版本并非稳定版时，脚本会在写入项目之前失败。
-
-应用后，项目会获得自己的控制面：
+接入后，项目会获得自己的控制面：
 
 ```text
 AGENTS.md             # 宿主进入项目时的受管导航入口
@@ -220,17 +208,25 @@ AGENTS.md             # 宿主进入项目时的受管导航入口
 
 ## 现有项目升级
 
-`scripts/upgrade-project.ps1` 接收调用方明确提供的项目根目录和 `ToVersion`。它会校验源控制面、目标发行版本及可恢复的事务边界，预览可提前授权的确定性写集，保留项目自有的身份、Controller、常规排除项、能力配置和 Bootstrap 自定义区域，并且只修改声明过的受管对象。旧任务卡需要补齐当前 actor 时，工具要求一个同时绑定当前活动任务、actor 和完整升级写集的 Controller 授权包；升级会先投影目标 pin 与其他受管对象，最后原子替换任务卡，因此下一次恢复可以直接使用目标版本的 actor 路由。任何中断都只从固定恢复材料继续向前，不会留下需要猜测的半迁移状态。它不会搜索消费者，也不会修改其他项目。
+把下面内容复制给当前项目中的 AI 会话；升级属于这个项目自己的任务，而不是 Framework 维护仓或其他项目的操作：
 
-```powershell
-pwsh -NoProfile -NonInteractive -File .\scripts\upgrade-project.ps1 `
-  -RepositoryPath C:\path\to\your-repository `
-  -ProjectId my-project `
-  -ControllerId <host-task-id> `
-  -ToVersion 1.14.1
+```text
+请将当前项目明确升级到 AI Workspace Framework 1.14.1。
+
+Framework 仓库：C:\path\to\AI-Workspace
+
+请先从当前项目的 .ai-workspace/BOOTSTRAP.md 做完整冷恢复，复证当前项目 Git 根、当前 Framework pin、Controller、当前任务、仍然有效的项目纠正、永久项目流程规则、受保护边界和真实工作区状态。随后读取目标版本 1.14.1 的正式升级与迁移要求，但先保持只读。
+
+请先向我报告：当前版本到 1.14.1 是否存在受支持的直接升级路径；目标发行是否稳定且可采用；将修改的受管对象；会被目标版本吸收、继续保留或发生冲突的项目纠正；项目事实、Controller、自定义区域、永久流程规则和产品源码如何保持；是否需要迁移当前活动任务的 actor 路由；以及全部 blocker。如果当前版本跨度不受支持，请停止并给出受支持的最小下一步，不要自行跳过迁移边界。
+
+在我明确确认前不要写入项目。不要修改产品源码，不要执行 Git、push、远程或其他外部操作，也不要升级任何其他项目。
 ```
 
-升级同样默认只预览；确认比较结果和项目纠正状态后，再在独立项目授权下添加 `-Apply`。
+检查预览结果后，可以直接回复该 AI 会话：
+
+```text
+确认按刚才的预览升级当前项目到 1.14.1。只执行预览中已经声明并获得项目授权的受管对象写入，保留项目事实、Controller、项目纠正、永久流程规则和产品源码；如需迁移当前活动任务，按目标版本要求将任务卡作为最后一个受管对象更新。不要执行 Git、push、远程或其他外部操作。完成后必须在新 pin 下从 .ai-workspace/BOOTSTRAP.md 做一次完整冷恢复，并报告升级后的 pin、纠正比较结果、Controller、任务路由和任何未完成事项。
+```
 
 项目必须在新 pin 下完成一次全新的冷恢复，才能声明已经采用该版本。自然流程验收可以在用户之后选择的任意项目任务中完成；相关证据始终保留在项目本地。
 
