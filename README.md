@@ -102,16 +102,20 @@ Framework 不存在全局默认版本，也不存在全局 `CURRENT` 版本。
 ## 仓库结构
 
 ```text
+README.md
+LICENSE
 framework/
   ROADMAP.md
   versions/
     <version>/
       VERSION.json
       RELEASE_MANIFEST.json
-      project-starter/
-      framework-maintenance-starter/
+      CHANGELOG.md
       TOOL_CONTRACT.md
       TOOLCHAIN.json
+      requirements/
+      project-starter/
+      framework-maintenance-starter/
       scripts/
       tests/
 scripts/
@@ -188,14 +192,26 @@ pwsh -NoProfile -NonInteractive -File .\scripts\register-project.ps1 `
 应用后，项目会获得自己的控制面：
 
 ```text
+AGENTS.md             # 宿主进入项目时的受管导航入口
+.agents/
+  skills/
+    ai-workspace-router/
+      SKILL.md         # 触发当前项目所选版本的恢复与规则解析
 .ai-workspace/
+  .gitattributes      # 控制面文本字节规范
   BOOTSTRAP.md       # AI 任务的恢复入口
   project.json       # 项目身份、布局和 Framework pin
   controller.json    # 当前 Controller 身份与 epoch
+  PROJECT.md          # 项目稳定事实
+  RELATIONSHIPS.md    # 权威关系与边界
+  REVIEW_PROFILE.md   # Review 要求
   STATUS.md          # 当前热点状态
   corrections.json  # 项目纠正记录；运行时只叠加当前版本尚未吸收的要求
   process-policy.json # 项目永久流程规则；与 Framework 规则和项目纠正保持独立权威
   tasks/             # 项目自己的任务权威
+    README.md         # 当前任务索引
+    active/           # 活跃任务卡
+    archive/          # 已归档任务卡
 ```
 
 1.14.0 还会在项目根安装受管的 `AGENTS.md` 导航块和 `.agents/skills/ai-workspace-router/SKILL.md`。它们只负责触发当前项目所选版本的恢复与流程要求解析，不成为新的规则权威；项目已有的其他 `AGENTS.md` 内容会保留，存在冲突的同名 Skill 会在任何项目写入前阻断。
