@@ -304,38 +304,64 @@ function Assert-ActorBoundUpgradeAuthorization([string]$RepositoryRoot,[string]$
     if($checkerExit-ne0-or@($result|Where-Object{$_-clike'PASS|*'}).Count-ne1){throw ('ACTOR_BOUND_UPGRADE_AUTHORIZATION_REJECTED|'+($result-join';'))}
 }
 
+function Assert-ActorBoundUpgradeLegacyMaterial([string]$Root,[object[]]$StateObjects,[string]$StateText,[string]$Prefix){
+    Assert-NoReparseTree $Root
+    $files=New-Object 'System.Collections.Generic.List[string]';$files.Add('state.json')
+    foreach($item in $StateObjects){
+        if([string]$item.oldIdentity-cne'MISSING'){$files.Add('old/'+[string]$item.relative)}
+        $files.Add('new/'+[string]$item.relative)
+    }
+    Assert-ExactTransactionTree $Root $files.ToArray() ([string[]]@()) ('ACTOR_BOUND_UPGRADE_'+$Prefix+'_TREE')
+    foreach($item in $StateObjects){
+        $old=Join-ChildPath (Join-Path $Root 'old') ([string]$item.relative);$new=Join-ChildPath (Join-Path $Root 'new') ([string]$item.relative)
+        if([string]$item.oldIdentity-cne'MISSING'-and(Get-OptionalIdentity $old)-cne[string]$item.oldIdentity){throw ('ACTOR_BOUND_UPGRADE_'+$Prefix+'_OLD_DRIFT|'+[string]$item.relative)}
+        if([string]$item.oldIdentity-ceq'MISSING'-and(Test-Path -LiteralPath $old)){throw ('ACTOR_BOUND_UPGRADE_'+$Prefix+'_UNEXPECTED_OLD|'+[string]$item.relative)}
+        if((Get-OptionalIdentity $new)-cne[string]$item.newIdentity){throw ('ACTOR_BOUND_UPGRADE_'+$Prefix+'_NEW_DRIFT|'+[string]$item.relative)}
+    }
+    if((Get-MinimalFileIdentity (Join-Path $Root 'state.json'))-cne(Get-MinimalBytesIdentity ($utf8NoBom.GetBytes($StateText)))){throw ('ACTOR_BOUND_UPGRADE_'+$Prefix+'_STATE_DRIFT')}
+}
+
 function Invoke-ActorBoundUpgrade([string]$RepositoryRoot,[string]$SourceFramework,[string]$TargetFramework,[string]$FromVersion,[string]$TargetVersion,[string]$ProjectId,[string]$ProjectFile,[string]$ControllerFile,$Migration,[object[]]$Objects,[bool]$ApplyChange){
     if($TargetVersion-ceq'1.15.0'){Invoke-ActorBoundUpgrade115 $RepositoryRoot $TargetFramework $FromVersion $TargetVersion $ProjectId $ProjectFile $Migration $Objects $ApplyChange;return}
     if(@($Objects|Where-Object{Test-ManagedRouterRelative ([string]$_.relative)}).Count-gt0){Assert-ManagedRouterDestinations $RepositoryRoot}
-    $recoveryRelative='.framework-actor-bound-upgrade-recovery-'+$TargetVersion;$recoveryRoot=Join-ChildPath $RepositoryRoot $recoveryRelative;$stateRelative=$recoveryRelative+'/state.json';$statePath=Join-ChildPath $RepositoryRoot $stateRelative
+    $preparationRelative='.framework-actor-bound-upgrade-preparation-'+$TargetVersion;$preparationRoot=Join-ChildPath $RepositoryRoot $preparationRelative
+    $recoveryRelative='.framework-actor-bound-upgrade-recovery-'+$TargetVersion;$recoveryRoot=Join-ChildPath $RepositoryRoot $recoveryRelative
     $objects=@($Objects)+@([pscustomobject]@{relative=$Migration.Relative;path=$Migration.Path;content=$Migration.Content})
     $stateObjects=@();$writePaths=New-Object 'System.Collections.Generic.List[string]'
     foreach($object in $objects){
         $oldIdentity=Get-OptionalIdentity $object.path;$newIdentity=Get-MinimalBytesIdentity ($utf8NoBom.GetBytes([string]$object.content));$stateObjects+=[ordered]@{relative=$object.relative;oldIdentity=$oldIdentity;newIdentity=$newIdentity}
-        $writePaths.Add([string]$object.relative);if($oldIdentity-cne'MISSING'){$writePaths.Add($recoveryRelative+'/old/'+[string]$object.relative)};$writePaths.Add($recoveryRelative+'/new/'+[string]$object.relative)
+        $writePaths.Add([string]$object.relative)
+        if($oldIdentity-cne'MISSING'){$writePaths.Add($preparationRelative+'/old/'+[string]$object.relative);$writePaths.Add($recoveryRelative+'/old/'+[string]$object.relative)}
+        $writePaths.Add($preparationRelative+'/new/'+[string]$object.relative);$writePaths.Add($recoveryRelative+'/new/'+[string]$object.relative)
     }
-    $writePaths.Add($stateRelative);$writePaths.Add($Migration.AtomicRelative)
+    $writePaths.Add($preparationRelative+'/state.json');$writePaths.Add($recoveryRelative+'/state.json');$writePaths.Add($Migration.AtomicRelative)
     $state=[ordered]@{schemaVersion=1;projectId=$ProjectId;fromVersion=$FromVersion;toVersion=$TargetVersion;actor=$Migration.Actor;taskId=$Migration.TaskId;taskOwner=$Migration.Owner;taskRelative=$Migration.Relative;authorizationIdentity=$ExpectedAuthorizationPackageIdentity;objects=$stateObjects}
+    $stateText=Normalize-Text ($state|ConvertTo-Json -Depth 10)
     Write-Output ('UPGRADE_WRITESET|'+[string]::Join('|',$writePaths))
     foreach($relative in $writePaths){$identity=Get-OptionalIdentity (Join-ChildPath $RepositoryRoot $relative);if($identity-ceq'MISSING'){$identity='NEW'};Write-Output ('UPGRADE_PREIMAGE|'+$relative+'='+$identity)}
-    if(-not$ApplyChange){Write-Output ('WHAT_IF|from='+$FromVersion+'|to='+$TargetVersion+'|objects='+$objects.Count+'|transaction=actor-bound-forward');return}
+    if(-not$ApplyChange){Write-Output ('WHAT_IF|from='+$FromVersion+'|to='+$TargetVersion+'|objects='+$objects.Count+'|transaction=actor-bound-forward-prepared');return}
     Assert-ActorBoundUpgradeAuthorization $RepositoryRoot $SourceFramework $ProjectFile $ControllerFile $Migration @($writePaths)
+    if(Test-Path -LiteralPath $preparationRoot){throw 'ACTOR_BOUND_UPGRADE_PREPARATION_EXISTS'}
     if(Test-Path -LiteralPath $recoveryRoot){throw 'ACTOR_BOUND_UPGRADE_RECOVERY_EXISTS'}
     try{
-        foreach($item in $stateObjects){$object=@($objects|Where-Object{$_.relative-ceq[string]$item.relative})[0];if(Test-ManagedRouterRelative ([string]$item.relative)){Assert-ManagedRouterDestinations $RepositoryRoot};$old=Join-ChildPath (Join-Path $recoveryRoot 'old') ([string]$item.relative);$new=Join-ChildPath (Join-Path $recoveryRoot 'new') ([string]$item.relative);if([string]$item.oldIdentity-cne'MISSING'){New-Item -ItemType Directory -Path (Split-Path -Parent $old) -Force|Out-Null;[IO.File]::Copy($object.path,$old,$false)};New-Item -ItemType Directory -Path (Split-Path -Parent $new) -Force|Out-Null;Write-Utf8NoBom $new ([string]$object.content)}
-        Write-Utf8NoBom $statePath ($state|ConvertTo-Json -Depth 10)
+        foreach($item in $stateObjects){$object=@($objects|Where-Object{$_.relative-ceq[string]$item.relative})[0];if(Test-ManagedRouterRelative ([string]$item.relative)){Assert-ManagedRouterDestinations $RepositoryRoot};$old=Join-ChildPath (Join-Path $preparationRoot 'old') ([string]$item.relative);$new=Join-ChildPath (Join-Path $preparationRoot 'new') ([string]$item.relative);if([string]$item.oldIdentity-cne'MISSING'){New-Item -ItemType Directory -Path (Split-Path -Parent $old) -Force|Out-Null;[IO.File]::Copy($object.path,$old,$false)};New-Item -ItemType Directory -Path (Split-Path -Parent $new) -Force|Out-Null;Write-Utf8NoBom $new ([string]$object.content)}
+        Write-Utf8NoBom (Join-Path $preparationRoot 'state.json') $stateText
         foreach($item in $stateObjects){if(Test-ManagedRouterRelative ([string]$item.relative)){Assert-ManagedRouterDestinations $RepositoryRoot};$live=Get-OptionalIdentity (Join-ChildPath $RepositoryRoot ([string]$item.relative));if($live-cne[string]$item.oldIdentity){throw ('OBJECT_DRIFT|'+[string]$item.relative)}}
+        Assert-ActorBoundUpgradeLegacyMaterial $preparationRoot $stateObjects $stateText 'PREPARATION'
+        [IO.Directory]::Move($preparationRoot,$recoveryRoot)
+        Assert-ActorBoundUpgradeLegacyMaterial $recoveryRoot $stateObjects $stateText 'RECOVERY'
         $taskStage=Join-ChildPath (Join-Path $recoveryRoot 'new') $Migration.Relative;$check=@(& (Join-ChildPath $TargetFramework 'scripts/check-task-card.ps1') -TaskPath $taskStage 2>&1|ForEach-Object{[string]$_});if($LASTEXITCODE-ne0-or@($check|Where-Object{$_-clike'PASS*'}).Count-ne1){throw ('ACTOR_ROUTE_TARGET_TASK_REJECTED|'+($check-join';'))}
         $atomic=Join-ChildPath $RepositoryRoot $Migration.AtomicRelative;New-Item -ItemType Directory -Path (Split-Path -Parent $atomic) -Force|Out-Null;[IO.File]::Copy($taskStage,$atomic,$false)
         foreach($item in @($stateObjects|Where-Object{[string]$_.relative-cne$Migration.Relative})){$managed=Test-ManagedRouterRelative ([string]$item.relative);if($managed){Assert-ManagedRouterDestinations $RepositoryRoot};$livePath=Join-ChildPath $RepositoryRoot ([string]$item.relative);New-Item -ItemType Directory -Path (Split-Path -Parent $livePath) -Force|Out-Null;if($managed){Assert-ManagedRouterDestinations $RepositoryRoot};Set-UpgradeFile (Join-ChildPath (Join-Path $recoveryRoot 'new') ([string]$item.relative)) $livePath ([string]$item.oldIdentity) ([string]$item.newIdentity)}
         if((Get-OptionalIdentity $Migration.Path)-cne$Migration.OldIdentity){throw 'ACTOR_ROUTE_TASK_DRIFT'}
         [IO.File]::Move($atomic,$Migration.Path,$true)
         if((Get-OptionalIdentity $Migration.Path)-cne$Migration.NewIdentity){throw 'ACTOR_ROUTE_POSTIMAGE_DRIFT'}
-        Write-Output ('UPGRADED|objects='+$objects.Count+'|transaction=actor-bound-forward|recovery='+$recoveryRoot+'|writes-after-task=ZERO')
-    }catch{throw "Actor-bound Framework upgrade stopped; deterministic recovery material is preserved. $($_.Exception.Message)"}
+        Write-Output ('UPGRADED|objects='+$objects.Count+'|transaction=actor-bound-forward-prepared|recovery='+$recoveryRoot+'|writes-after-task=ZERO')
+    }catch{throw "Actor-bound Framework upgrade stopped; exact preparation/recovery material is preserved. $($_.Exception.Message)"}
 }
 
 function Resume-ActorBoundUpgrade([string]$RepositoryRoot,[string]$TargetFramework,[string]$TargetVersion,[string]$ProjectId,[string]$ControllerFile,$Migration,[bool]$ApplyChange){
+    $preparationRelative='.framework-actor-bound-upgrade-preparation-'+$TargetVersion
     $recoveryRelative='.framework-actor-bound-upgrade-recovery-'+$TargetVersion;$recoveryRoot=Join-ChildPath $RepositoryRoot $recoveryRelative;$statePath=Join-Path $recoveryRoot 'state.json'
     if(-not(Test-Path -LiteralPath $recoveryRoot -PathType Container)){throw 'ACTOR_BOUND_UPGRADE_RECOVERY_NOT_DIRECTORY'};Assert-NoReparseTree $recoveryRoot
     $raw=Read-StrictUtf8NoBom $statePath;try{$state=$raw|ConvertFrom-Json}catch{throw 'ACTOR_BOUND_UPGRADE_RECOVERY_JSON'}
@@ -351,6 +377,8 @@ function Resume-ActorBoundUpgrade([string]$RepositoryRoot,[string]$TargetFramewo
     if(-not($package.exactPaths-is[Array])-or-not($package.objectIdentities-is[Array])){throw 'ACTOR_BOUND_UPGRADE_AUTHORIZATION_PATHSET'}
     $declaredPaths=@($package.exactPaths|ForEach-Object{[string]$_});$declaredSet=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     foreach($relative in $declaredPaths){$null=Join-ChildPath $RepositoryRoot $relative;if(-not$declaredSet.Add($relative)){throw 'ACTOR_BOUND_UPGRADE_AUTHORIZATION_PATHSET'}}
+    $usesPreparedPathset=@($declaredPaths|Where-Object{$_.StartsWith($preparationRelative+'/',[StringComparison]::Ordinal)}).Count-gt0
+    if($usesPreparedPathset-and(Test-Path -LiteralPath (Join-ChildPath $RepositoryRoot $preparationRelative))){throw 'ACTOR_BOUND_UPGRADE_PREPARATION_REAPPEARED'}
     $identityMap=@{}
     foreach($identityEntry in @($package.objectIdentities)){
         if(-not($identityEntry-is[pscustomobject])-or$null-eq$identityEntry.PSObject.Properties['path']-or$null-eq$identityEntry.PSObject.Properties['identity']){throw 'ACTOR_BOUND_UPGRADE_AUTHORIZATION_OBJECT_IDENTITIES'}
@@ -367,12 +395,14 @@ function Resume-ActorBoundUpgrade([string]$RepositoryRoot,[string]$TargetFramewo
         $null=Join-ChildPath $RepositoryRoot ([string]$entry.relative)
         $expectedOldIdentity=if([string]$entry.oldIdentity-ceq'MISSING'){'NEW'}else{[string]$entry.oldIdentity}
         if(-not$identityMap.ContainsKey([string]$entry.relative)-or[string]$identityMap[[string]$entry.relative]-cne$expectedOldIdentity){throw 'ACTOR_BOUND_UPGRADE_RECOVERY_AUTHORIZATION_PREIMAGE_DRIFT'}
-        $reconstructed.Add([string]$entry.relative);$reconstructed.Add($recoveryRelative+'/new/'+[string]$entry.relative);if([string]$entry.oldIdentity-cne'MISSING'){$reconstructed.Add($recoveryRelative+'/old/'+[string]$entry.relative)}
+        $reconstructed.Add([string]$entry.relative);$reconstructed.Add($recoveryRelative+'/new/'+[string]$entry.relative)
+        if($usesPreparedPathset){$reconstructed.Add($preparationRelative+'/new/'+[string]$entry.relative)}
+        if([string]$entry.oldIdentity-cne'MISSING'){$reconstructed.Add($recoveryRelative+'/old/'+[string]$entry.relative);if($usesPreparedPathset){$reconstructed.Add($preparationRelative+'/old/'+[string]$entry.relative)}}
         foreach($kind in @('old','new')){$identity=[string]$entry.($kind+'Identity');$material=Join-ChildPath (Join-Path $recoveryRoot $kind) ([string]$entry.relative);if($identity-cne'MISSING'){if(-not(Test-Path -LiteralPath $material -PathType Leaf)-or(Get-MinimalFileIdentity $material)-cne$identity){throw 'ACTOR_BOUND_UPGRADE_RECOVERY_MATERIAL'};$materialFiles.Add($kind+'/'+[string]$entry.relative)}elseif(Test-Path -LiteralPath $material){throw 'ACTOR_BOUND_UPGRADE_RECOVERY_UNEXPECTED_MATERIAL'}}
         $live=Get-OptionalIdentity (Join-ChildPath $RepositoryRoot ([string]$entry.relative));if($live-cne[string]$entry.oldIdentity-and$live-cne[string]$entry.newIdentity){if([string]$entry.relative-ceq$Migration.Relative){throw 'ACTOR_ROUTE_TASK_DRIFT'};throw ('ACTOR_BOUND_UPGRADE_UNKNOWN_LIVE_BYTES|'+[string]$entry.relative)};$liveStates+=[pscustomobject]@{Entry=$entry;Live=$live}
     }
     Assert-ExactTransactionTree $recoveryRoot (@('state.json')+@($materialFiles)) ([string[]]@()) 'ACTOR_BOUND_UPGRADE_RECOVERY_TREE_CLOSURE'
-    $reconstructed.Add($recoveryRelative+'/state.json');$reconstructed.Add($Migration.AtomicRelative)
+    $reconstructed.Add($recoveryRelative+'/state.json');if($usesPreparedPathset){$reconstructed.Add($preparationRelative+'/state.json')};$reconstructed.Add($Migration.AtomicRelative)
     [string[]]$reconstructedSorted=@($reconstructed);[string[]]$declaredSorted=@($declaredPaths);[Array]::Sort($reconstructedSorted,[StringComparer]::Ordinal);[Array]::Sort($declaredSorted,[StringComparer]::Ordinal)
     if($reconstructedSorted.Count-ne$declaredSorted.Count-or[string]::Join("`n",$reconstructedSorted)-cne[string]::Join("`n",$declaredSorted)){throw 'ACTOR_BOUND_UPGRADE_RECOVERY_AUTHORIZATION_PATHSET_DRIFT'}
     if(-not$seen.Contains($Migration.Relative)-or[string]@($state.objects)[-1].relative-cne$Migration.Relative){throw 'ACTOR_BOUND_UPGRADE_TASK_NOT_LAST'}
