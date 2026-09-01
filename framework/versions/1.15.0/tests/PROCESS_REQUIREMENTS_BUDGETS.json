@@ -1,0 +1,91 @@
+{
+  "schemaVersion": 1,
+  "frameworkVersion": "1.15.0",
+  "estimatedTokenFormula": "ceiling(UTF8Bytes/4)",
+  "baseline": {
+    "version": "1.14.1",
+    "catalogIdentity": "17826|DC9FF91E54F579E80E08CD787023C9BF7BEE1D8C96AED315BE6D3EC41A2249C4",
+    "host": "Windows 10.0.26200 / PowerShell 7.6.4 / AMD64 Family 25 Model 116 / 16 logical processors",
+    "warmups": 3,
+    "measuredRuns": 30,
+    "process": "cold pwsh process",
+    "filesystem": "warmed",
+    "worstP95Ms": {"DISCOVER": 1047.182, "ADMIT_ACTION": 814.838, "FINALIZE_OUTPUT": 840.725}
+  },
+  "candidate": {
+    "catalogIdentity": "48098|2B84B06C7B682CE90AE6409F6BBF23A8C1920A66E7D1F25DFE797A806AF9EB17",
+    "fixtureContractIdentity": "4990|84DE61044452C7660CD850AE82A4209FA0E19B7761B54D817057F9E12D75D5DF",
+    "measurementHarnessIdentity": "15681|F4DF0AA5BFA11376634B7EE7389CD29283F073A226F83E22C41E029DA3142C22",
+    "authorityContextFieldCount": 24,
+    "intentEnvelopeFieldCount": 10,
+    "receiptSourceBindingFieldCount": 10
+  },
+  "fixtures": [
+    {"fixtureId": "no_match", "fixtureIdentity": "0602BDA60CC317A45C8BC3695EABA6A980E8444C32B549E3C336246B855E1DCE", "selectedPackBytes": 11061, "selectedPackEstimatedTokens": 2766, "selectedRequirementCount": 7, "observedRuntimeMs": {"DISCOVER": {"median": 1096.178, "p95": 1149.371}, "ADMIT_ACTION": {"median": 730.607, "p95": 766.160}, "FINALIZE_OUTPUT": {"median": 731.162, "p95": 740.673}}},
+    {"fixtureId": "ordinary_source", "fixtureIdentity": "5D596B512675523599F2A869C712AE580AFEF49C1FED9C67B227719DDC0450B4", "selectedPackBytes": 13810, "selectedPackEstimatedTokens": 3453, "selectedRequirementCount": 8, "observedRuntimeMs": {"DISCOVER": {"median": 1294.874, "p95": 1306.342}, "ADMIT_ACTION": {"median": 946.432, "p95": 988.151}, "FINALIZE_OUTPUT": {"median": 742.865, "p95": 767.789}}},
+    {"fixtureId": "critical_review", "fixtureIdentity": "62C1C37232E3F20DAF4165E8A9C65F3CCEC08D2B0AFFE8CC5DE221EAA9C60589", "selectedPackBytes": 24043, "selectedPackEstimatedTokens": 6011, "selectedRequirementCount": 14, "observedRuntimeMs": {"DISCOVER": {"median": 1338.943, "p95": 1354.332}, "ADMIT_ACTION": {"median": 958.890, "p95": 966.820}, "FINALIZE_OUTPUT": {"median": 752.679, "p95": 753.199}}},
+    {"fixtureId": "domain_external", "fixtureIdentity": "80ED0F8798C28C693D16DAC020F7D990C8D508CB638868C45695BD493A484827", "selectedPackBytes": 11885, "selectedPackEstimatedTokens": 2972, "selectedRequirementCount": 9, "observedRuntimeMs": {"DISCOVER": {"median": 1326.581, "p95": 1426.743}, "ADMIT_ACTION": {"median": 987.202, "p95": 991.899}, "FINALIZE_OUTPUT": {"median": 746.936, "p95": 760.724}}},
+    {"fixtureId": "framework_maintenance_review", "fixtureIdentity": "2C0C0842F80A73F4DA6B59E9BE2C52827CCB7910490AC55FDC1537B0F0BB3FB4", "selectedPackBytes": 25555, "selectedPackEstimatedTokens": 6389, "selectedRequirementCount": 15, "observedRuntimeMs": {"DISCOVER": {"median": 1345.004, "p95": 1395.607}, "ADMIT_ACTION": {"median": 969.465, "p95": 1028.008}, "FINALIZE_OUTPUT": {"median": 751.447, "p95": 756.373}}},
+    {"fixtureId": "worst_unknown", "fixtureIdentity": "F56055458B276B427F6BCF0D778448046D628D48918798C18388721AF007FC0D", "selectedPackBytes": 30827, "selectedPackEstimatedTokens": 7707, "selectedRequirementCount": 22, "observedRuntimeMs": {"DISCOVER": {"median": 1344.718, "p95": 1383.691}, "ADMIT_ACTION": {"median": 987.929, "p95": 1009.035}, "FINALIZE_OUTPUT": {"median": 765.313, "p95": 768.167}}}
+  ],
+  "endToEndContexts": [
+    {
+      "caseId": "ordinary_source",
+      "routerSkillBytes": 4452,
+      "loadPlanModules": [],
+      "loadPlanBytes": 0,
+      "selectedPackBytes": 13810,
+      "frameworkControlledBytes": 18262,
+      "frameworkControlledEstimatedTokens": 4566,
+      "catalogModelLoaded": false,
+      "projectTaskFactsExcluded": true
+    },
+    {
+      "caseId": "critical_review",
+      "routerSkillBytes": 4452,
+      "loadPlanModules": [],
+      "loadPlanBytes": 0,
+      "selectedPackBytes": 24043,
+      "frameworkControlledBytes": 28495,
+      "frameworkControlledEstimatedTokens": 7124,
+      "catalogModelLoaded": false,
+      "projectTaskFactsExcluded": true
+    },
+    {
+      "caseId": "framework_maintenance_review",
+      "routerSkillBytes": 4452,
+      "loadPlanModules": [],
+      "loadPlanBytes": 0,
+      "selectedPackBytes": 25555,
+      "frameworkControlledBytes": 30007,
+      "frameworkControlledEstimatedTokens": 7502,
+      "catalogModelLoaded": false,
+      "projectTaskFactsExcluded": true
+    }
+  ],
+  "measurementContract": {
+    "warmupsPerModeAndFixture": 1,
+    "measuredRunsPerModeAndFixture": 5,
+    "statistics": ["median", "nearest-rank-p95"],
+    "toleranceFormula": "ceiling(max(2.0 * baselineP95Ms, baselineP95Ms + 250))"
+  },
+  "ceilings": {
+    "routerSkillBytes": 8192,
+    "routerSkillEstimatedTokens": 2048,
+    "intentEnvelopeBytes": 4096,
+    "intentEnvelopeEstimatedTokens": 1024,
+    "authorityContextBytes": 8192,
+    "authorityContextEstimatedTokens": 2048,
+    "ordinarySelectedPackBytes": 32768,
+    "ordinarySelectedPackEstimatedTokens": 8192,
+    "absoluteSelectedPackBytes": 65536,
+    "absoluteSelectedPackEstimatedTokens": 16384,
+    "frameworkControlledContextBytes": 98304,
+    "frameworkControlledContextEstimatedTokens": 24576,
+    "p95Ms": {"DISCOVER": 2095, "ADMIT_ACTION": 1630, "FINALIZE_OUTPUT": 1682},
+    "independentModelCalls": {"structuredTaskIntent": 0, "defaultOrdinaryPrompt": 0, "optionalProviderMaximum": 1},
+    "sourceBuildCount": 1,
+    "decisionBuildCount": 1
+  },
+  "evidenceCeiling": "Bounded five-run Windows PowerShell 7 sample and structural conformance for Framework-controlled router, module and selected-pack bytes only; it is not a statistical performance certification, and project/task facts, semantic attention, cross-platform and natural-value proof are excluded."
+}

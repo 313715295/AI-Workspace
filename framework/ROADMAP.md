@@ -4,6 +4,20 @@ This file contains generic release history and unselected Framework directions. 
 
 ## Release line
 
+### 1.15.0 — rule-block progressive loading and host-global navigation
+
+Status: stable and consumable after complete Windows PowerShell 7 candidate evidence, immutable 1.14.1 regression, independent CRITICAL Source Review approval, separate Maintenance acceptance and deterministic release sealing. Publication and project adoption remain later explicit actions.
+
+Selected minimum-sufficient scope:
+
+- discover applicable requirements from the complete metadata-only native catalog, then load only their exact canonical Markdown blocks before action admission and output finalization;
+- retain `LOAD_PLAN` as support and compatibility fallback rather than a normal rule prefilter, reuse selected sources while bound context is unchanged, and conservatively expand only unresolved `UNKNOWN` applicability;
+- publish one host-global, navigation-only `ai-workspace-router` Skill for compatible 1.14+ projects without installing it automatically or making it an authority source;
+- add deterministic actor-bound 1.14/1.14.1-to-1.15 upgrade preparation and forward recovery, with the current task written last and no later project write;
+- preserve the single composer, existing categorical action gates, project-owned rules/corrections, immutable stable versions and Windows-only PowerShell 7 evidence ceiling.
+
+Explicitly not selected: a second composer or authority, duplicated rule bodies in fragments/catalog, all-document conversion, per-tool reload, service, registry, ledger, background cache/poller, automatic Skill installation, automatic project adoption, new backend, three-platform claim or pre-release natural-sample gate.
+
 ### 1.14.1 — bounded loading and proportional release correction
 
 Status: stable and consumable after the complete 1.14.1 suite, immutable 1.14.0 payload verification, independent CRITICAL Source Review approval, separate Maintenance acceptance and deterministic release sealing. Publication state is determined by repository refs; project adoption remains a separate explicit action.
@@ -15,7 +29,7 @@ Selected PATCH scope:
 - pin PowerShell module and JavaScript module text to LF in root checkout policy so normal Windows checkouts preserve sealed payload bytes;
 - classify root maintenance, PATCH and MINOR releases, use affected tests during editing and one complete current-version suite at freeze, retain one independent Source Review and separate OWNER_ACCEPT, and use deterministic post-seal verification unless unreviewed semantic or executable bytes changed.
 
-Framework 1.15.0 remains deferred until a later user-selected need; when selected, it uses this proportional release flow. No new role, authority action, schema migration, backend, service, registry, ledger, automatic adoption or second state truth is introduced by 1.14.1.
+Framework 1.15.0 was later selected under this proportional release flow. No new role, authority action, schema migration, backend, service, registry, ledger, automatic adoption or second state truth was introduced by 1.14.1 itself.
 
 ### 1.14.0 — prompt-bound process navigation and bounded domain-local external routing
 

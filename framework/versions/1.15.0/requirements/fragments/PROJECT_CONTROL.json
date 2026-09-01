@@ -1,0 +1,361 @@
+{
+  "schemaVersion": 2,
+  "frameworkVersion": "1.15.0",
+  "ownerModule": "PROJECT_CONTROL.md",
+  "requirements": [
+    {
+      "requirementId": "PR_PROJECT_REGISTRATION_EXPLICIT_VERSION",
+      "legacyAliases": [],
+      "title": "Explicit project registration",
+      "description": "Register only an explicit sealed version and exact Controller into a safe destination.",
+      "selectors": {
+        "profiles": [
+          "STANDARD",
+          "CRITICAL"
+        ],
+        "roles": [
+          "CONTROLLER",
+          "FRAMEWORK_MAINTAINER"
+        ],
+        "phases": [
+          "PLAN",
+          "IMPLEMENT",
+          "VERIFY"
+        ],
+        "actionKinds": [
+          "CONTROL_WRITE"
+        ],
+        "resultKinds": [
+          "IMPLEMENTATION_RESULT",
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": [
+          "register",
+          "registration",
+          "new project"
+        ]
+      },
+      "exactBlockLocator": "AIW-REQUIREMENT:PR_PROJECT_REGISTRATION_EXPLICIT_VERSION",
+      "preparationRequirements": [
+        "TARGET_RELEASE_SEALED",
+        "DESTINATION_SAFE"
+      ],
+      "resultRequirements": [
+        "PROJECT_PIN_EXPLICIT"
+      ]
+    },
+    {
+      "requirementId": "PR_PROJECT_UPGRADE_ACTOR_BOUND",
+      "legacyAliases": [],
+      "title": "Actor-bound project upgrade",
+      "description": "Upgrade a project only from an exact actor-bound pre/post image plan and promoted recovery boundary.",
+      "selectors": {
+        "profiles": [
+          "CRITICAL"
+        ],
+        "roles": [
+          "CONTROLLER",
+          "FRAMEWORK_MAINTAINER"
+        ],
+        "phases": [
+          "PLAN",
+          "IMPLEMENT",
+          "VERIFY"
+        ],
+        "actionKinds": [
+          "CONTROL_WRITE"
+        ],
+        "resultKinds": [
+          "IMPLEMENTATION_RESULT",
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": [
+          "upgrade",
+          "adoption",
+          "migration",
+          "pin"
+        ]
+      },
+      "exactBlockLocator": "AIW-REQUIREMENT:PR_PROJECT_UPGRADE_ACTOR_BOUND",
+      "preparationRequirements": [
+        "UPGRADE_SCHEMA3_PACKAGE_VALID",
+        "LIVE_PRE_POST_IDENTITIES_BOUND",
+        "RECOVERY_PROMOTION_READY"
+      ],
+      "resultRequirements": [
+        "UPGRADE_TERMINAL_IDENTITIES_VERIFIED"
+      ]
+    },
+    {
+      "requirementId": "PR_PROCESS_REQUIREMENTS_THREE_SOURCE_COMPOSITION",
+      "legacyAliases": [],
+      "title": "Three-source process composition",
+      "description": "Compose sealed Framework rules, effective corrections and permanent project policy without merging authority.",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "RECOVER",
+          "DISCOVER",
+          "PLAN",
+          "IMPLEMENT",
+          "VERIFY",
+          "REVIEW",
+          "GIT",
+          "EXTERNAL"
+        ],
+        "actionKinds": [
+          "*"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": [
+          "correction",
+          "policy",
+          "requirement",
+          "process"
+        ]
+      },
+      "exactBlockLocator": "AIW-REQUIREMENT:PR_PROCESS_REQUIREMENTS_THREE_SOURCE_COMPOSITION",
+      "preparationRequirements": [
+        "THREE_RULE_SOURCES_BOUND"
+      ],
+      "resultRequirements": [
+        "SOURCE_COMPOSITION_IDENTITY_REPORTED"
+      ]
+    },
+    {
+      "requirementId": "PR_TOOL_CONTRACT_BACKEND",
+      "legacyAliases": [],
+      "title": "Tool Contract backend",
+      "description": "Resolve language-independent operations through the project-selected sealed backend.",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "RECOVER",
+          "DISCOVER",
+          "PLAN",
+          "IMPLEMENT",
+          "VERIFY",
+          "REVIEW",
+          "GIT",
+          "EXTERNAL"
+        ],
+        "actionKinds": [
+          "*"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": [
+          "toolchain",
+          "backend",
+          "operation",
+          "runtime"
+        ]
+      },
+      "exactBlockLocator": "AIW-REQUIREMENT:PR_TOOL_CONTRACT_BACKEND",
+      "preparationRequirements": [
+        "TOOL_CONTRACT_BOUND"
+      ],
+      "resultRequirements": [
+        "BACKEND_OPERATION_RESOLVED"
+      ]
+    },
+    {
+      "requirementId": "PR_CONTROLLER_HANDOFF_DIRECTIONAL",
+      "legacyAliases": [],
+      "title": "Directional Controller handoff",
+      "description": "Write the Controller object last and close predecessor routing without inferring retirement.",
+      "selectors": {
+        "profiles": [
+          "CRITICAL"
+        ],
+        "roles": [
+          "CONTROLLER"
+        ],
+        "phases": [
+          "PLAN",
+          "IMPLEMENT",
+          "VERIFY"
+        ],
+        "actionKinds": [
+          "CONTROL_WRITE"
+        ],
+        "resultKinds": [
+          "IMPLEMENTATION_RESULT",
+          "TERMINAL",
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": [
+          "controller",
+          "handoff",
+          "takeover",
+          "epoch"
+        ]
+      },
+      "exactBlockLocator": "AIW-REQUIREMENT:PR_CONTROLLER_HANDOFF_DIRECTIONAL",
+      "preparationRequirements": [
+        "CONTROLLER_HANDOFF_PREIMAGE_BOUND"
+      ],
+      "resultRequirements": [
+        "TAKEOVER_COMPLETE_RECORDED"
+      ]
+    },
+    {
+      "requirementId": "PR_KNOWLEDGE_REFERENCE_LIFECYCLE",
+      "legacyAliases": [],
+      "title": "Optional Knowledge capability",
+      "description": "Keep Knowledge project-local, request-scoped, non-authoritative and explicitly maintained.",
+      "selectors": {
+        "profiles": [
+          "STANDARD",
+          "CRITICAL"
+        ],
+        "roles": [
+          "CONTROLLER",
+          "DOMAIN_OWNER",
+          "EXECUTOR"
+        ],
+        "phases": [
+          "DISCOVER",
+          "PLAN",
+          "IMPLEMENT",
+          "VERIFY"
+        ],
+        "actionKinds": [
+          "*"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [
+          "KNOWLEDGE_REFERENCE"
+        ],
+        "semanticTerms": [
+          "knowledge",
+          "reference"
+        ]
+      },
+      "exactBlockLocator": "AIW-REQUIREMENT:PR_KNOWLEDGE_REFERENCE_LIFECYCLE",
+      "preparationRequirements": [
+        "KNOWLEDGE_CAPABILITY_BOUND"
+      ],
+      "resultRequirements": [
+        "KNOWLEDGE_RESULT_CLASSIFIED"
+      ]
+    },
+    {
+      "requirementId": "PR_OWNER_FIRST_DIRECT_DOMAIN_ROUTE",
+      "legacyAliases": [],
+      "title": "Owner-first direct domain route",
+      "description": "Let the current Domain Owner route unchanged domain work directly and escalate only real Controller boundaries.",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "DOMAIN_OWNER",
+          "EXECUTOR",
+          "REVIEWER",
+          "CONTROLLER"
+        ],
+        "phases": [
+          "PLAN",
+          "IMPLEMENT",
+          "VERIFY",
+          "REVIEW",
+          "EXTERNAL"
+        ],
+        "actionKinds": [
+          "*"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": [
+          "owner",
+          "reviewer",
+          "executor",
+          "route",
+          "controller"
+        ]
+      },
+      "exactBlockLocator": "AIW-REQUIREMENT:PR_OWNER_FIRST_DIRECT_DOMAIN_ROUTE",
+      "preparationRequirements": [
+        "DOMAIN_TASK_OWNER_BOUND"
+      ],
+      "resultRequirements": [
+        "DIRECT_CONSUMER_BOUND"
+      ]
+    },
+    {
+      "requirementId": "PR_CORRECTIONS_V2_COMPATIBILITY",
+      "legacyAliases": [],
+      "title": "Project corrections v2 compatibility",
+      "description": "Select structured corrections progressively while preserving v1 history and fail-safe version movement.",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "CONTROLLER",
+          "DOMAIN_OWNER",
+          "FRAMEWORK_MAINTAINER"
+        ],
+        "phases": [
+          "RECOVER",
+          "DISCOVER",
+          "PLAN",
+          "IMPLEMENT",
+          "VERIFY",
+          "REVIEW"
+        ],
+        "actionKinds": [
+          "*"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": [
+          "correction",
+          "upgrade",
+          "downgrade",
+          "policy"
+        ]
+      },
+      "exactBlockLocator": "AIW-REQUIREMENT:PR_CORRECTIONS_V2_COMPATIBILITY",
+      "preparationRequirements": [
+        "CORRECTION_SCHEMA_COMPATIBLE"
+      ],
+      "resultRequirements": [
+        "CORRECTION_EFFECTIVE_SET_REPORTED"
+      ]
+    }
+  ]
+}

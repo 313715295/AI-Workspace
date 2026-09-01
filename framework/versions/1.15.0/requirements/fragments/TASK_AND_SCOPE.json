@@ -1,0 +1,186 @@
+{
+  "schemaVersion": 2,
+  "frameworkVersion": "1.15.0",
+  "ownerModule": "TASK_AND_SCOPE.md",
+  "requirements": [
+    {
+      "requirementId": "PR_TASK_LAUNCH_AND_ROUTE",
+      "legacyAliases": [],
+      "title": "Task launch and direct route",
+      "description": "Choose REUSE, MUST_NEW or BLOCKED and keep long-lived ownership separate from temporary task hats.",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "RECOVER",
+          "DISCOVER",
+          "PLAN",
+          "IMPLEMENT",
+          "VERIFY",
+          "REVIEW",
+          "GIT",
+          "EXTERNAL"
+        ],
+        "actionKinds": [
+          "*"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": [
+          "task",
+          "route",
+          "owner",
+          "actor",
+          "handoff",
+          "executor"
+        ]
+      },
+      "exactBlockLocator": "AIW-REQUIREMENT:PR_TASK_LAUNCH_AND_ROUTE",
+      "preparationRequirements": [
+        "TASK_ROUTE_DECISION_BOUND"
+      ],
+      "resultRequirements": [
+        "UNIQUE_NEXT_ROUTE_BOUND"
+      ]
+    },
+    {
+      "requirementId": "PR_WORKFLOW_TRANSITION_MECHANICAL_BOUNDARY",
+      "legacyAliases": [],
+      "title": "Mechanical workflow transition",
+      "description": "Resolve governed task transitions from current authenticated facts without creating authority.",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "RECOVER",
+          "DISCOVER",
+          "PLAN",
+          "IMPLEMENT",
+          "VERIFY",
+          "REVIEW",
+          "GIT",
+          "EXTERNAL"
+        ],
+        "actionKinds": [
+          "*"
+        ],
+        "resultKinds": [
+          "TERMINAL",
+          "HANDOFF",
+          "REVIEW_VERDICT",
+          "OWNER_ACCEPTANCE",
+          "IMPLEMENTATION_RESULT",
+          "GIT_RESULT",
+          "EXTERNAL_RESULT"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": [
+          "transition",
+          "message",
+          "handoff",
+          "terminal"
+        ]
+      },
+      "exactBlockLocator": "AIW-REQUIREMENT:PR_WORKFLOW_TRANSITION_MECHANICAL_BOUNDARY",
+      "preparationRequirements": [
+        "WORKFLOW_INPUT_BOUND"
+      ],
+      "resultRequirements": [
+        "WORKFLOW_DECISION_OBSERVED"
+      ]
+    },
+    {
+      "requirementId": "PR_TASK_SCOPE_AND_FORBIDDEN",
+      "legacyAliases": [],
+      "title": "Task scope closure",
+      "description": "Keep objective, exact scope, forbidden boundaries, current route and evidence ceiling current.",
+      "selectors": {
+        "profiles": [
+          "STANDARD",
+          "CRITICAL"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "PLAN",
+          "IMPLEMENT",
+          "VERIFY",
+          "REVIEW"
+        ],
+        "actionKinds": [
+          "*"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": []
+      },
+      "exactBlockLocator": "AIW-REQUIREMENT:PR_TASK_SCOPE_AND_FORBIDDEN",
+      "preparationRequirements": [
+        "TASK_SCOPE_CURRENT"
+      ],
+      "resultRequirements": [
+        "SCOPE_READBACK_COMPLETE"
+      ]
+    },
+    {
+      "requirementId": "PR_FINAL_OUTPUT_CURRENT_RESULT",
+      "legacyAliases": [],
+      "title": "Final output completeness",
+      "description": "Deliver the accepted current result, evidence ceiling, material limitations and unique next action.",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "RECOVER",
+          "DISCOVER",
+          "PLAN",
+          "IMPLEMENT",
+          "VERIFY",
+          "REVIEW",
+          "GIT",
+          "EXTERNAL"
+        ],
+        "actionKinds": [
+          "*"
+        ],
+        "resultKinds": [
+          "USER_RESPONSE",
+          "TERMINAL",
+          "HANDOFF",
+          "REVIEW_VERDICT",
+          "OWNER_ACCEPTANCE"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": []
+      },
+      "exactBlockLocator": "AIW-REQUIREMENT:PR_FINAL_OUTPUT_CURRENT_RESULT",
+      "preparationRequirements": [],
+      "resultRequirements": [
+        "REQUEST_COVERAGE_READBACK",
+        "EVIDENCE_CEILING_STATED",
+        "UNIQUE_NEXT_ACTION_STATED"
+      ]
+    }
+  ]
+}
