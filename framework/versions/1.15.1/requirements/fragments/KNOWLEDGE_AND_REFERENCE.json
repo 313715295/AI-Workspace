@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 2,
+  "frameworkVersion": "1.15.1",
+  "ownerModule": "KNOWLEDGE_AND_REFERENCE.md",
+  "requirements": [
+    {
+      "requirementId": "PR_KNOWLEDGE_REFERENCE_QUERY",
+      "legacyAliases": [],
+      "title": "Knowledge reference query",
+      "description": "Discover compact metadata and query at most three request-scoped non-authoritative entries.",
+      "selectors": {
+        "profiles": [
+          "STANDARD",
+          "CRITICAL"
+        ],
+        "roles": [
+          "CONTROLLER",
+          "DOMAIN_OWNER",
+          "EXECUTOR"
+        ],
+        "phases": [
+          "DISCOVER",
+          "PLAN"
+        ],
+        "actionKinds": [
+          "NONE"
+        ],
+        "resultKinds": [
+          "PLAN",
+          "USER_RESPONSE",
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [
+          "KNOWLEDGE_REFERENCE"
+        ],
+        "semanticTerms": [
+          "knowledge",
+          "reference"
+        ]
+      },
+      "exactBlockLocator": "AIW-REQUIREMENT:PR_KNOWLEDGE_REFERENCE_QUERY",
+      "preparationRequirements": [
+        "KNOWLEDGE_INDEX_VALID"
+      ],
+      "resultRequirements": [
+        "KNOWLEDGE_QUERY_RESULTS_CLASSIFIED"
+      ]
+    },
+    {
+      "requirementId": "PR_KNOWLEDGE_IMPACT_MAINTENANCE",
+      "legacyAliases": [],
+      "title": "Knowledge impact maintenance",
+      "description": "After accepted authority changes, detect affected entries and refresh or mark stale without background writes.",
+      "selectors": {
+        "profiles": [
+          "STANDARD",
+          "CRITICAL"
+        ],
+        "roles": [
+          "DOMAIN_OWNER",
+          "CONTROLLER"
+        ],
+        "phases": [
+          "VERIFY"
+        ],
+        "actionKinds": [
+          "CONTROL_WRITE",
+          "SOURCE_WRITE"
+        ],
+        "resultKinds": [
+          "OWNER_ACCEPTANCE",
+          "IMPLEMENTATION_RESULT",
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [
+          "KNOWLEDGE_REFERENCE"
+        ],
+        "semanticTerms": [
+          "knowledge",
+          "authority",
+          "stale",
+          "impact"
+        ]
+      },
+      "exactBlockLocator": "AIW-REQUIREMENT:PR_KNOWLEDGE_IMPACT_MAINTENANCE",
+      "preparationRequirements": [
+        "CHANGED_AUTHORITY_PATHS_BOUND"
+      ],
+      "resultRequirements": [
+        "KNOWLEDGE_IMPACT_RESOLVED"
+      ]
+    }
+  ]
+}

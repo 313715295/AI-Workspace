@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 3,
+  "releaseVersion": "1.15.1",
+  "versions": [
+    {
+      "version": "1.9.0",
+      "releaseCanonical": "CA45F4F243FE4B934BA8F851EE627ABA9E6A89562EFA0CAFCD77FF62DC02A4B5",
+      "incorporatedCorrectionIds": ["COMPACT_NON_INTERRUPT_DELIVERY", "HEALTHY_REBIND_NOT_FULL_COLD", "OWNER_FIRST_DIRECT_DOMAIN_ROUTE", "PRE_RECOMMENDATION_PROPORTIONALITY"],
+      "incorporationMappings": [],
+      "conflictingCorrectionIds": []
+    },
+    {
+      "version": "1.10.0",
+      "releaseCanonical": "D3D087A579DB625F4ADAC7770E7ACA8E00F8B85F30DAF3F13890D854FA3E2CF3",
+      "incorporatedCorrectionIds": ["COMPACT_NON_INTERRUPT_DELIVERY", "HEALTHY_REBIND_NOT_FULL_COLD", "OWNER_FIRST_DIRECT_DOMAIN_ROUTE", "PRE_RECOMMENDATION_PROPORTIONALITY", "PROJECT_CORRECTION_LIFECYCLE"],
+      "incorporationMappings": [],
+      "conflictingCorrectionIds": []
+    },
+    {
+      "version": "1.11.0",
+      "releaseCanonical": "9258EED083F7FA5F59915AFB7199462C75A18395E6C435248C1E872DEFE66C2D",
+      "incorporatedCorrectionIds": ["COMPACT_NON_INTERRUPT_DELIVERY", "HEALTHY_REBIND_NOT_FULL_COLD", "OWNER_FIRST_DIRECT_DOMAIN_ROUTE", "PRE_RECOMMENDATION_PROPORTIONALITY", "PROJECT_CORRECTION_LIFECYCLE"],
+      "incorporationMappings": [],
+      "conflictingCorrectionIds": []
+    },
+    {
+      "version": "1.12.0",
+      "releaseCanonical": "D843F1433729659B529A291F8F831579BA6B4291DD1E16D52382CCFBE07E3DC7",
+      "incorporatedCorrectionIds": ["COMPACT_NON_INTERRUPT_DELIVERY", "HEALTHY_REBIND_NOT_FULL_COLD", "OWNER_FIRST_DIRECT_DOMAIN_ROUTE", "PRE_RECOMMENDATION_PROPORTIONALITY", "PROJECT_CORRECTION_LIFECYCLE"],
+      "incorporationMappings": [],
+      "conflictingCorrectionIds": []
+    },
+    {
+      "version": "1.13.0",
+      "releaseCanonical": "8C927A908CAFBA76661F3814967BC91086C05FA99E3E33DFF80273512F21898C",
+      "incorporatedCorrectionIds": [],
+      "incorporationMappings": [],
+      "conflictingCorrectionIds": []
+    },
+    {
+      "version": "1.14.0",
+      "releaseCanonical": "D0E2AA2294150E6D3A23233EBA62592DDD72070E6E0DC19B8D89E684C65CAD57",
+      "incorporatedCorrectionIds": [],
+      "incorporationMappings": [],
+      "conflictingCorrectionIds": []
+    },
+    {
+      "version": "1.15.1",
+      "releaseCanonical": "SELF",
+      "incorporatedCorrectionIds": [],
+      "incorporationMappings": [],
+      "conflictingCorrectionIds": []
+    }
+  ]
+}

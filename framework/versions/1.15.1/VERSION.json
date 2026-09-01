@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "version": "1.15.1",
+  "lifecycle": "STABLE",
+  "releaseClass": "PATCH",
+  "consumable": true,
+  "baseline": "1.15.0",
+  "projectPinEligible": true
+}

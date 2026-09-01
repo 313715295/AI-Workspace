@@ -4,6 +4,14 @@ This file contains generic release history and unselected Framework directions. 
 
 ## Release line
 
+### 1.15.1 — bounded current-pin adoption bridge and derived Router fixture
+
+Status: stable and consumable after complete 1.15.1 evidence, immutable 1.15.0 and 1.14.1 verification, independent CRITICAL Source Review approval, separate Maintenance acceptance and deterministic release sealing. Publication and project adoption remain later explicit actions.
+
+Selected minimum-sufficient scope: admit only the exact 1.14.x current-pin `SELECTED_RULE_PACK_BUDGET_EXCEEDED` adoption case when the same sealed composer supplies every complete selected rule body under the 1.15.1 absolute ceiling and all existing actor-bound gates remain valid; derive Router context bytes from the canonical Skill while independently asserting identity, required navigation semantics and the maximum ceiling.
+
+Explicitly deferred to 1.16: Router trigger restructuring, Skill compression, compact receipts, process JSON lifecycle cleanup, generic consumer adoption fast paths and future-first roadmap presentation.
+
 ### 1.15.0 — rule-block progressive loading and host-global navigation
 
 Status: stable and consumable after complete Windows PowerShell 7 candidate evidence, immutable 1.14.1 regression, independent CRITICAL Source Review approval, separate Maintenance acceptance and deterministic release sealing. Publication and project adoption remain later explicit actions.
