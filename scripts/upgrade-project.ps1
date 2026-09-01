@@ -105,13 +105,13 @@ function Get-ActorRouteMigration([string]$RepositoryRoot,[string]$TargetVersion,
     }
     $header=[regex]::Matches($raw,'(?m)^#\s+(?<task>[0-9A-Za-z][0-9A-Za-z._-]*)\s+[-—]')
     $owner=[regex]::Matches($raw,'(?m)^- Owner:\s*`?(?<owner>[^`\r\n]+?)`?\s*$')
-    $active=[regex]::Matches($raw,'(?m)^- Range summary:.*(?:^|;)\s*lifecycle=ACTIVE(?:;|$).*')
+    $range=[regex]::Matches($raw,'(?m)^- Range summary:\s*profile=(?<profile>MICRO|STANDARD|CRITICAL); lifecycle=(?<lifecycle>ACTIVE_WRITE|ACTIVE|REVIEW|CLOSED);(?: current_exact=(?<exact>[^;]+);)? expected_paths=\[(?<expected>[^\]]*)\]; actual_paths=\[(?<actual>[^\]]*)\]\s*$')
     $schemaPattern=if($TargetVersion-ceq'1.15.0'){'(?m)^- Task schema:\s*(?<version>1\.11\.0|1\.14\.0|1\.14\.1)\s*$'}else{'(?m)^- Task schema:\s*(?<version>1\.11\.0)\s*$'}
     $schema=[regex]::Matches($raw,$schemaPattern)
     $legacy=[regex]::Matches($raw,'(?m)^- Work route:\s*role=(?<role>CONTROLLER|DOMAIN_OWNER|EXECUTOR|REVIEWER|FRAMEWORK_MAINTAINER);\s*phase=(?<phase>DISCOVER|PLAN|IMPLEMENT|VERIFY|REVIEW|GIT|EXTERNAL|RECOVER)\s*$')
     $current=[regex]::Matches($raw,'(?m)^- Work route:\s*actor=(?<actor>[^;\s]+);\s*role=(?<role>CONTROLLER|DOMAIN_OWNER|EXECUTOR|REVIEWER|FRAMEWORK_MAINTAINER);\s*phase=(?<phase>DISCOVER|PLAN|IMPLEMENT|VERIFY|REVIEW|GIT|EXTERNAL|RECOVER)\s*$')
     $fileTask=[IO.Path]::GetFileNameWithoutExtension($RelativePath)
-    if($header.Count-ne1-or[string]$header[0].Groups['task'].Value-cne$fileTask-or$owner.Count-ne1-or[string]::IsNullOrWhiteSpace([string]$owner[0].Groups['owner'].Value)-or$active.Count-ne1){throw 'ACTOR_ROUTE_CURRENT_TASK_BINDING_REQUIRED'}
+    if($header.Count-ne1-or[string]$header[0].Groups['task'].Value-cne$fileTask-or$owner.Count-ne1-or[string]::IsNullOrWhiteSpace([string]$owner[0].Groups['owner'].Value)-or$range.Count-ne1-or[string]$range[0].Groups['lifecycle'].Value-cne'ACTIVE'){throw 'ACTOR_ROUTE_CURRENT_TASK_BINDING_REQUIRED'}
     if($schema.Count-ne1){throw 'ACTOR_ROUTE_SOURCE_SCHEMA_REQUIRED'}
     if($legacy.Count-eq1-and$current.Count-eq0){
         $replacement='- Work route: actor='+$Actor+'; role='+[string]$legacy[0].Groups['role'].Value+'; phase='+[string]$legacy[0].Groups['phase'].Value
@@ -120,11 +120,12 @@ function Get-ActorRouteMigration([string]$RepositoryRoot,[string]$TargetVersion,
         $target=$raw
     }else{throw 'ACTOR_ROUTE_SOURCE_BINDING_REQUIRED'}
     $target=$target.Substring(0,$schema[0].Index)+'- Task schema: '+$TargetVersion+$target.Substring($schema[0].Index+$schema[0].Length)
+    $actualPaths=if([string]::IsNullOrWhiteSpace([string]$range[0].Groups['actual'].Value)){@()}else{@([string]$range[0].Groups['actual'].Value -split '\|')}
     $directory=[IO.Path]::GetDirectoryName($RelativePath).Replace('\','/')
     $atomicRelative=$directory+'/.'+[IO.Path]::GetFileName($RelativePath)+'.actor-route-new'
     $newIdentity=Get-MinimalBytesIdentity ($utf8NoBom.GetBytes($target))
     if($null-ne$recoveryState){$entry=@($recoveryState.objects|Where-Object{[string]$_.relative-ceq$RelativePath});if($entry.Count-ne1-or[string]$entry[0].oldIdentity-cne$ExpectedIdentity-or[string]$entry[0].newIdentity-cne$newIdentity-or[string]$recoveryState.taskId-cne$fileTask-or[string]$recoveryState.taskOwner-cne[string]$owner[0].Groups['owner'].Value){throw 'ACTOR_BOUND_UPGRADE_RECOVERY_BINDING_DRIFT'}}
-    return [pscustomobject]@{Relative=$RelativePath;Path=$path;OldIdentity=$ExpectedIdentity;NewIdentity=$newIdentity;Actor=$Actor;TaskId=$fileTask;Owner=[string]$owner[0].Groups['owner'].Value;AtomicRelative=$atomicRelative;Content=$target}
+    return [pscustomobject]@{Relative=$RelativePath;Path=$path;OldIdentity=$ExpectedIdentity;NewIdentity=$newIdentity;Actor=$Actor;TaskId=$fileTask;Owner=[string]$owner[0].Groups['owner'].Value;ActualPaths=$actualPaths;AtomicRelative=$atomicRelative;Content=$target}
 }
 
 function Get-ActorBoundUpgrade115Plan([string]$RepositoryRoot,[string]$TargetFramework,[string]$FromVersion,[string]$TargetVersion,[string]$ProjectId,$Migration,[object[]]$Objects){
@@ -223,7 +224,7 @@ function Invoke-ActorBoundUpgrade115([string]$RepositoryRoot,[string]$TargetFram
         $recoveryParent=Split-Path -Parent $recoveryRoot;New-Item -ItemType Directory -Path $recoveryParent -Force|Out-Null
         [IO.Directory]::Move($preparationRoot,$recoveryRoot)
         Assert-ActorBoundUpgrade115Material $recoveryRoot $plan 'RECOVERY'
-        $taskStage=Join-ChildPath (Join-Path $recoveryRoot 'new') $Migration.Relative;$check=@(& (Join-ChildPath $TargetFramework 'scripts/check-task-card.ps1') -TaskPath $taskStage 2>&1|ForEach-Object{[string]$_});if($LASTEXITCODE-ne0-or@($check|Where-Object{$_-clike'PASS*'}).Count-ne1){throw ('ACTOR_ROUTE_TARGET_TASK_REJECTED|'+($check-join';'))}
+        $taskStage=Join-ChildPath (Join-Path $recoveryRoot 'new') $Migration.Relative;$check=@(& (Join-ChildPath $TargetFramework 'scripts/check-task-card.ps1') -TaskPath $taskStage -ObservedActualPath @($Migration.ActualPaths) 2>&1|ForEach-Object{[string]$_});if($LASTEXITCODE-ne0-or@($check|Where-Object{$_-clike'PASS*'}).Count-ne1){throw ('ACTOR_ROUTE_TARGET_TASK_REJECTED|'+($check-join';'))}
         foreach($record in @($plan.Records|Where-Object{[string]$_.relative-cne$Migration.Relative})){
             Assert-ActorBoundLivePath $RepositoryRoot ([string]$record.relative)
             if((Get-OptionalIdentity ([string]$record.path))-cne[string]$record.oldIdentity){throw ('OBJECT_DRIFT|'+[string]$record.relative)}
@@ -273,7 +274,7 @@ function Resume-ActorBoundUpgrade115([string]$RepositoryRoot,[string]$TargetFram
     Write-Output ('UPGRADE_RECOVERY_WRITESET|'+[string]::Join('|',@($remaining.relative)))
     if(-not$ApplyChange){Write-Output ('RECOVERY_REQUIRED|from='+[string]$state.fromVersion+'|to='+$TargetVersion+'|remaining='+$remaining.Count);return}
     if($remaining.Count-eq0){Write-Output ('RECOVERY_COMPLETE|to='+$TargetVersion+'|writes=ZERO');return}
-    $taskStage=Join-ChildPath (Join-Path $recoveryRoot 'new') $Migration.Relative;$check=@(& (Join-ChildPath $TargetFramework 'scripts/check-task-card.ps1') -TaskPath $taskStage 2>&1|ForEach-Object{[string]$_});if($LASTEXITCODE-ne0-or@($check|Where-Object{$_-clike'PASS*'}).Count-ne1){throw ('ACTOR_ROUTE_TARGET_TASK_REJECTED|'+($check-join';'))}
+    $taskStage=Join-ChildPath (Join-Path $recoveryRoot 'new') $Migration.Relative;$check=@(& (Join-ChildPath $TargetFramework 'scripts/check-task-card.ps1') -TaskPath $taskStage -ObservedActualPath @($Migration.ActualPaths) 2>&1|ForEach-Object{[string]$_});if($LASTEXITCODE-ne0-or@($check|Where-Object{$_-clike'PASS*'}).Count-ne1){throw ('ACTOR_ROUTE_TARGET_TASK_REJECTED|'+($check-join';'))}
     foreach($record in @($remaining|Where-Object{[string]$_.relative-cne$Migration.Relative})){
         Assert-ActorBoundLivePath $RepositoryRoot ([string]$record.relative)
         if([string]$record.newIdentity-ceq'ABSENT'){[IO.File]::Delete([string]$record.path)}else{New-Item -ItemType Directory -Path (Split-Path -Parent ([string]$record.path)) -Force|Out-Null;[IO.File]::Copy((Join-ChildPath (Join-Path $recoveryRoot 'new') ([string]$record.relative)),[string]$record.path,$true)}
@@ -350,7 +351,7 @@ function Invoke-ActorBoundUpgrade([string]$RepositoryRoot,[string]$SourceFramewo
         Assert-ActorBoundUpgradeLegacyMaterial $preparationRoot $stateObjects $stateText 'PREPARATION'
         [IO.Directory]::Move($preparationRoot,$recoveryRoot)
         Assert-ActorBoundUpgradeLegacyMaterial $recoveryRoot $stateObjects $stateText 'RECOVERY'
-        $taskStage=Join-ChildPath (Join-Path $recoveryRoot 'new') $Migration.Relative;$check=@(& (Join-ChildPath $TargetFramework 'scripts/check-task-card.ps1') -TaskPath $taskStage 2>&1|ForEach-Object{[string]$_});if($LASTEXITCODE-ne0-or@($check|Where-Object{$_-clike'PASS*'}).Count-ne1){throw ('ACTOR_ROUTE_TARGET_TASK_REJECTED|'+($check-join';'))}
+        $taskStage=Join-ChildPath (Join-Path $recoveryRoot 'new') $Migration.Relative;$check=@(& (Join-ChildPath $TargetFramework 'scripts/check-task-card.ps1') -TaskPath $taskStage -ObservedActualPath @($Migration.ActualPaths) 2>&1|ForEach-Object{[string]$_});if($LASTEXITCODE-ne0-or@($check|Where-Object{$_-clike'PASS*'}).Count-ne1){throw ('ACTOR_ROUTE_TARGET_TASK_REJECTED|'+($check-join';'))}
         $atomic=Join-ChildPath $RepositoryRoot $Migration.AtomicRelative;New-Item -ItemType Directory -Path (Split-Path -Parent $atomic) -Force|Out-Null;[IO.File]::Copy($taskStage,$atomic,$false)
         foreach($item in @($stateObjects|Where-Object{[string]$_.relative-cne$Migration.Relative})){$managed=Test-ManagedRouterRelative ([string]$item.relative);if($managed){Assert-ManagedRouterDestinations $RepositoryRoot};$livePath=Join-ChildPath $RepositoryRoot ([string]$item.relative);New-Item -ItemType Directory -Path (Split-Path -Parent $livePath) -Force|Out-Null;if($managed){Assert-ManagedRouterDestinations $RepositoryRoot};Set-UpgradeFile (Join-ChildPath (Join-Path $recoveryRoot 'new') ([string]$item.relative)) $livePath ([string]$item.oldIdentity) ([string]$item.newIdentity)}
         if((Get-OptionalIdentity $Migration.Path)-cne$Migration.OldIdentity){throw 'ACTOR_ROUTE_TASK_DRIFT'}
@@ -413,7 +414,7 @@ function Resume-ActorBoundUpgrade([string]$RepositoryRoot,[string]$TargetFramewo
     Write-Output ('UPGRADE_RECOVERY_WRITESET|'+[string]::Join('|',$writePaths))
     if(-not$ApplyChange){Write-Output ('RECOVERY_REQUIRED|from='+[string]$state.fromVersion+'|to='+$TargetVersion+'|remaining='+$writePaths.Count);return}
     if($writePaths.Count-eq0){Write-Output ('RECOVERY_COMPLETE|to='+$TargetVersion+'|writes=ZERO');return}
-    $taskStage=Join-ChildPath (Join-Path $recoveryRoot 'new') $Migration.Relative;$check=@(& (Join-ChildPath $TargetFramework 'scripts/check-task-card.ps1') -TaskPath $taskStage 2>&1|ForEach-Object{[string]$_});if($LASTEXITCODE-ne0-or@($check|Where-Object{$_-clike'PASS*'}).Count-ne1){throw ('ACTOR_ROUTE_TARGET_TASK_REJECTED|'+($check-join';'))}
+    $taskStage=Join-ChildPath (Join-Path $recoveryRoot 'new') $Migration.Relative;$check=@(& (Join-ChildPath $TargetFramework 'scripts/check-task-card.ps1') -TaskPath $taskStage -ObservedActualPath @($Migration.ActualPaths) 2>&1|ForEach-Object{[string]$_});if($LASTEXITCODE-ne0-or@($check|Where-Object{$_-clike'PASS*'}).Count-ne1){throw ('ACTOR_ROUTE_TARGET_TASK_REJECTED|'+($check-join';'))}
     $atomic=Join-ChildPath $RepositoryRoot $Migration.AtomicRelative;if((Get-OptionalIdentity $atomic)-ceq'MISSING'){New-Item -ItemType Directory -Path (Split-Path -Parent $atomic) -Force|Out-Null;[IO.File]::Copy($taskStage,$atomic,$false)}elseif((Get-OptionalIdentity $atomic)-cne$Migration.NewIdentity){throw 'ACTOR_ROUTE_ATOMIC_STAGE_DRIFT'}
     foreach($item in @($liveStates|Where-Object{[string]$_.Entry.relative-cne$Migration.Relative})){
         if($item.Live-ceq[string]$item.Entry.newIdentity){continue};$managed=Test-ManagedRouterRelative ([string]$item.Entry.relative);if($managed){Assert-ManagedRouterDestinations $RepositoryRoot};$livePath=Join-ChildPath $RepositoryRoot ([string]$item.Entry.relative);New-Item -ItemType Directory -Path (Split-Path -Parent $livePath) -Force|Out-Null;if($managed){Assert-ManagedRouterDestinations $RepositoryRoot};Set-UpgradeFile (Join-ChildPath (Join-Path $recoveryRoot 'new') ([string]$item.Entry.relative)) $livePath ([string]$item.Entry.oldIdentity) ([string]$item.Entry.newIdentity)

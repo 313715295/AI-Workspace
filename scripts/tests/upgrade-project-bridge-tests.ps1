@@ -20,11 +20,22 @@ Confirm ($errors.Count-eq0) 'upgrade-script-parses'
 $functions=@{}
 foreach($functionAst in $ast.FindAll({param($node)$node-is[Management.Automation.Language.FunctionDefinitionAst]},$true)){$functions[$functionAst.Name]=[string]$functionAst.Extent.Text}
 Confirm $functions.ContainsKey('Assert-ActorBoundUpgradeLegacyMaterial') 'legacy-material-check-present'
+Confirm $functions.ContainsKey('Get-ActorRouteMigration') 'actor-route-migration-present'
+Confirm $functions.ContainsKey('Invoke-ActorBoundUpgrade115') '1.15-invoke-present'
+Confirm $functions.ContainsKey('Resume-ActorBoundUpgrade115') '1.15-resume-present'
 Confirm $functions.ContainsKey('Invoke-ActorBoundUpgrade') 'legacy-invoke-present'
 Confirm $functions.ContainsKey('Resume-ActorBoundUpgrade') 'legacy-resume-present'
 
+$migration=[string]$functions['Get-ActorRouteMigration']
+$invoke115=[string]$functions['Invoke-ActorBoundUpgrade115']
+$resume115=[string]$functions['Resume-ActorBoundUpgrade115']
 $invoke=[string]$functions['Invoke-ActorBoundUpgrade']
 $resume=[string]$functions['Resume-ActorBoundUpgrade']
+Confirm ($migration.Contains("Groups['actual']")-and$migration.Contains('ActualPaths=$actualPaths')) 'migration-binds-pre-upgrade-task-actual-pathset'
+Confirm $invoke115.Contains('-ObservedActualPath @($Migration.ActualPaths)') '1.15-forward-check-receives-task-actual-pathset'
+Confirm $resume115.Contains('-ObservedActualPath @($Migration.ActualPaths)') '1.15-resume-check-receives-task-actual-pathset'
+Confirm $invoke.Contains('-ObservedActualPath @($Migration.ActualPaths)') 'legacy-forward-check-receives-task-actual-pathset'
+Confirm $resume.Contains('-ObservedActualPath @($Migration.ActualPaths)') 'legacy-resume-check-receives-task-actual-pathset'
 Confirm $invoke.Contains(".framework-actor-bound-upgrade-preparation-") 'deterministic-preparation-locator'
 Confirm $invoke.Contains(".framework-actor-bound-upgrade-recovery-") 'deterministic-recovery-locator'
 Confirm $invoke.Contains('$preparationRelative+''/old/''') 'preview-includes-preparation-old'
