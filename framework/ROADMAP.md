@@ -8,16 +8,37 @@ No additional process machinery is queued merely because a release exists. A lat
 
 - Host-enforced authenticity remains optional. Consider a trusted adapter or hook only if a supported host path needs enforcement beyond mechanical preflight and exposes testable host-derived signals.
 - Knowledge context budgets remain unselected until natural DISCOVER/QUERY use demonstrates growth that compact metadata and the three-ID limit do not contain.
+- Process-boundary artifact compaction is admitted as a version-unselected future candidate. Preserve the `DISCOVER -> ADMIT_ACTION -> FINALIZE_OUTPUT` separation and every source-identity, authorization, obligation, exact-scope and postimage check, while making physical inputs temporary, normalizing the reusable DISCOVER receipt to one copy of each bound fact, separating mode-specific ADMIT/FINALIZE payloads, moving diagnostic-only counters out of the receipt and adding total artifact-byte regressions. Do not add another authority, service, ledger or weaker categorical gate.
 - Project/model success, rework, time and cost samples stay project-local; Framework may consume anonymized conclusions later but does not store those measurements.
 - Do not add an actor registry, Reviewer pool, handoff ledger, wait/ACK protocol, background service or second status truth without a new proportionality result and direct failure evidence.
 
 A future item enters a version only after the user or authorized maintainer selects its release, scope, owner, evidence and Review route. No placeholder draft tree is required.
 
+## Version-unselected candidate — proportional governance and operational simplification
+
+State: admitted for future evaluation; no version, implementation task or release is selected. Two project corrections are being tried naturally in Maintenance and Pocket before any normative absorption decision.
+
+Minimum candidate:
+
+- preserve complete selected-rule loading at natural task, context and authority boundaries; reuse it during continuous unchanged work; re-front only compact obligations before a governed action or formal delivery; reload when bound context is uncertain or materially changes;
+- distinguish an authorization preimage from its authorized writer postimage so self-produced postimages are not treated as external drift; renewing an exact action/path/grantee package must not by itself force FULL_COLD or rebuild unchanged rule sources;
+- apply `FINALIZE_OUTPUT` to formal governed delivery rather than intermediate progress, and narrow workflow/FULL_COLD triggers to real task, role, phase, authority, protection, impact or user-decision changes;
+- keep visible task creation explicit or isolation-driven, and keep logical `CLOSED` separate from physical archive;
+- compact ephemeral `DISCOVER`, `ADMIT_ACTION`, `FINALIZE_OUTPUT`, authorization, diagnostic, transaction and non-deliverable candidate artifacts without removing their source identities, exact scope, obligations, receipts or categorical gates;
+- default ephemeral artifacts to `.ai-workspace/runtime/<task-id>/<actor-or-thread-id>/`; append `/.ai-workspace/runtime/` idempotently to the project Git-root `.gitignore` without overwriting or reformatting it, reuse an equivalent rule, and stop on a conflicting negation; system temp is an explicit reported fallback only;
+- keep one root-canonical Router Skill and an explicit host-installed copy; later releases carry compatibility metadata rather than another complete Skill body;
+- add the already-admitted generic fast path for adopting an unchanged, sealed, compatible version in a healthy project: one deterministic preflight, one bounded authorization, one atomic managed projection with task-last write, and one target-pin FULL_COLD; conflicts fall back to the existing migration route;
+- keep release work proportional: affected tests while editing, one complete freeze suite, one independent Source Review, focused rereview only after an actual same-scope candidate repair, separate `OWNER_ACCEPT` and seal, then one exact Git publication preflight. Reuse of the same Reviewer is allowed while independence remains.
+
+Hard boundaries remain unchanged: SOURCE/TEST/REVIEW/OWNER_ACCEPT/GIT/PUSH/BROWSER/DEVICE/EXTERNAL are independent; protected paths, independent CRITICAL Review, stable-version immutability, exact Git scope and user-decision drift remain fail-closed. No actor registry, Reviewer pool, handoff or consumption ledger, ACK/heartbeat/poller, service, per-tool hook, global risk score, Knowledge expansion, stronger host-authenticity claim, accepted-state projection, automatic consumer upgrade or three-platform CI is admitted.
+
+Evidence required only after a version is selected: focused boundary and artifact-budget regressions, same-context reuse and uncertainty reload, authorized postimage versus external drift, formal versus intermediate finalization, fast-adoption qualify/fallback/atomicity cases, one complete current-version suite and immutable previous-version verification. Natural project evidence decides which parts are absorbed; the two correction records remain project evidence until a released coverage map proves incorporation.
+
 ## Release history
 
 ### 1.16.0 — adoption profile and compact boundary receipts
 
-Status: stable and consumable after complete Windows PowerShell 7 evidence, immutable 1.15.1 verification, independent CRITICAL Source Review approval, separate Maintenance `OWNER_ACCEPT` and deterministic sealing. Git/publication and project adoption remain separate later actions.
+Status: stable, consumable and published to both configured remote `main` refs at `666ce84d533360ae3d8571232ed5c7860bdb9016` after complete Windows PowerShell 7 evidence, immutable 1.15.1 verification, independent CRITICAL Source Review approval, separate Maintenance `OWNER_ACCEPT` and deterministic sealing. Project adoption remains separate.
 
 Selected minimum-sufficient scope:
 

@@ -33,6 +33,23 @@ param(
 
     [string]$ExpectedCurrentProcessInputIdentity,
 
+    [string]$ProjectCorrectionsMigrationPath,
+
+    [string]$ExpectedProjectCorrectionsMigrationIdentity,
+
+    [switch]$ReviewProjectCorrectionsMigration,
+
+    [switch]$PrepareProjectCorrectionsMigrationReview,
+
+    [switch]$PrepareProjectCorrectionsMigrationReviewReturn,
+
+    [ValidatePattern('^[0-9A-Za-z][0-9A-Za-z._-]*$')]
+    [string]$ProjectCorrectionsMigrationReviewer,
+
+    [string]$ProjectCorrectionsMigrationReviewDispositionPath,
+
+    [string]$ExpectedProjectCorrectionsMigrationReviewDispositionIdentity,
+
     [switch]$Apply,
 
     [string]$WorkspaceRoot
@@ -1039,6 +1056,213 @@ function Get-CurrentPinProcessBridge([string]$RepositoryRoot,[string]$FrameworkW
     return [pscustomobject]@{UserDecision=[string]$input.userDecision;ResolverReason=$resolverReason;Capabilities=@($declaredCapabilities);BudgetMode=$budgetMode;SelectedRequirementCount=@($composition.selectedRequirements).Count;SelectedPackBytes=$packBytes;SelectedPackIdentity=(Get-UpperSha256Bytes ($utf8NoBom.GetBytes($packJson)));SourceCompositionIdentity=[string]$composition.sourceCompositionIdentity}
 }
 
+function Get-CurrentTaskBinding([string]$RepositoryRoot,[string]$TargetVersion,[string]$RelativePath,[string]$ExpectedIdentity,[string]$Actor,[string]$RequiredLifecycle='ACTIVE') {
+    $provided=@(-not[string]::IsNullOrWhiteSpace($RelativePath),-not[string]::IsNullOrWhiteSpace($ExpectedIdentity),-not[string]::IsNullOrWhiteSpace($Actor))
+    if(@($provided|Where-Object{$_}).Count-ne3){throw 'CURRENT_TASK_BINDING_FIELDS_REQUIRED'}
+    if($RelativePath-cne$RelativePath.Replace('\','/')-or$RelativePath-cnotmatch'^\.ai-workspace/tasks/active/[^/]+\.md$'-or[IO.Path]::IsPathRooted($RelativePath)-or$RelativePath.Contains(':')){throw 'CURRENT_TASK_ACTIVE_PATH_REQUIRED'}
+    if($ExpectedIdentity-cnotmatch'^\d+\|[A-F0-9]{64}$'){throw 'CURRENT_TASK_IDENTITY'}
+    $path=Join-ChildPath $RepositoryRoot $RelativePath
+    if(-not(Test-Path -LiteralPath $path -PathType Leaf)-or(Get-MinimalFileIdentity $path)-cne$ExpectedIdentity){throw 'CURRENT_TASK_DRIFT'}
+    $raw=Read-StrictUtf8NoBom $path
+    $header=[regex]::Matches($raw,'(?m)^#\s+(?<task>[0-9A-Za-z][0-9A-Za-z._-]*)\s+[-—]')
+    $owner=[regex]::Matches($raw,'(?m)^- Owner:\s*`?(?<owner>[^`\r\n]+?)`?\s*$')
+    $range=[regex]::Matches($raw,'(?m)^- Range summary:\s*profile=(?<profile>MICRO|STANDARD|CRITICAL);\s*lifecycle=(?<lifecycle>ACTIVE_WRITE|ACTIVE|REVIEW|CLOSED);(?:\s*current_exact=(?<exact>[^;]+);)?\s*expected_paths=\[(?<expected>[^\]]*)\];\s*actual_paths=\[(?<actual>[^\]]*)\]\s*$')
+    $route=[regex]::Matches($raw,'(?m)^- Work route:\s*actor=(?<actor>[^;\s]+);\s*role=(?<role>CONTROLLER|DOMAIN_OWNER|EXECUTOR|REVIEWER|FRAMEWORK_MAINTAINER);\s*phase=(?<phase>DISCOVER|PLAN|IMPLEMENT|VERIFY|REVIEW|GIT|EXTERNAL|RECOVER)\s*$')
+    $schema=[regex]::Matches($raw,'(?m)^- Task schema:\s*'+[regex]::Escape($TargetVersion)+'\s*$')
+    $fileTask=[IO.Path]::GetFileNameWithoutExtension($RelativePath)
+    if($RequiredLifecycle-cnotin@('ACTIVE','REVIEW')){throw 'CURRENT_TASK_LIFECYCLE_REQUIRED'}
+    if($header.Count-ne1-or[string]$header[0].Groups['task'].Value-cne$fileTask-or$owner.Count-ne1-or[string]::IsNullOrWhiteSpace([string]$owner[0].Groups['owner'].Value)-or$range.Count-ne1-or[string]$range[0].Groups['lifecycle'].Value-cne$RequiredLifecycle-or$route.Count-ne1-or[string]$route[0].Groups['actor'].Value-cne$Actor-or$schema.Count-ne1){throw 'CURRENT_TASK_BINDING_REQUIRED'}
+    $actualPaths=if([string]::IsNullOrWhiteSpace([string]$range[0].Groups['actual'].Value)){@()}else{@([string]$range[0].Groups['actual'].Value -split '\|')}
+    return [pscustomobject]@{Relative=$RelativePath;Path=$path;OldIdentity=$ExpectedIdentity;Actor=$Actor;TaskId=$fileTask;Owner=[string]$owner[0].Groups['owner'].Value;Profile=[string]$range[0].Groups['profile'].Value;Role=[string]$route[0].Groups['role'].Value;Phase=[string]$route[0].Groups['phase'].Value;ActualPaths=$actualPaths}
+}
+
+function Get-ProjectCorrectionsReviewTaskProjection($TaskBinding,[string]$ReviewerActor) {
+    if([string]::IsNullOrWhiteSpace($ReviewerActor)-or$ReviewerActor-cnotmatch'^[0-9A-Za-z][0-9A-Za-z._-]*$'){throw 'PROJECT_CORRECTIONS_MIGRATION_REVIEWER_REQUIRED'}
+    if([string]$TaskBinding.Role-cne'CONTROLLER'-or[string]$TaskBinding.Actor-ceq$ReviewerActor-or[string]$TaskBinding.Owner-ceq$ReviewerActor){throw 'PROJECT_CORRECTIONS_MIGRATION_REVIEWER_BINDING_INVALID'}
+    $raw=Read-StrictUtf8NoBom $TaskBinding.Path
+    $route=[regex]::Matches($raw,'(?m)^- Work route:\s*actor=(?<actor>[^;\s]+);\s*role=(?<role>CONTROLLER|DOMAIN_OWNER|EXECUTOR|REVIEWER|FRAMEWORK_MAINTAINER);\s*phase=(?<phase>DISCOVER|PLAN|IMPLEMENT|VERIFY|REVIEW|GIT|EXTERNAL|RECOVER)\s*$')
+    $range=[regex]::Matches($raw,'(?m)^- Range summary:\s*profile=(?<profile>MICRO|STANDARD|CRITICAL);\s*lifecycle=(?<lifecycle>ACTIVE_WRITE|ACTIVE|REVIEW|CLOSED);(?:\s*current_exact=(?<exact>[^;]+);)?\s*expected_paths=\[(?<expected>[^\]]*)\];\s*actual_paths=\[(?<actual>[^\]]*)\]\s*$')
+    if($route.Count-ne1-or$range.Count-ne1-or[string]$route[0].Groups['actor'].Value-cne[string]$TaskBinding.Actor-or[string]$route[0].Groups['role'].Value-cne'CONTROLLER'-or[string]$range[0].Groups['lifecycle'].Value-cne'ACTIVE'){throw 'PROJECT_CORRECTIONS_MIGRATION_CONTROLLER_TASK_BINDING_REQUIRED'}
+    $routePostimage='- Work route: actor='+$ReviewerActor+'; role=REVIEWER; phase=REVIEW'
+    $rangePostimage=[regex]::Replace([string]$range[0].Value,'(?<=;\s*lifecycle=)ACTIVE(?=;)','REVIEW')
+    $postimage=$raw.Replace([string]$route[0].Value,$routePostimage).Replace([string]$range[0].Value,$rangePostimage)
+    if($postimage-ceq$raw-or[regex]::Matches($postimage,'(?m)^- Work route:\s*actor='+[regex]::Escape($ReviewerActor)+';\s*role=REVIEWER;\s*phase=REVIEW\s*$').Count-ne1-or[regex]::Matches($postimage,'(?m)^- Range summary:\s*profile=(?:MICRO|STANDARD|CRITICAL);\s*lifecycle=REVIEW;').Count-ne1){throw 'PROJECT_CORRECTIONS_MIGRATION_REVIEW_TASK_PROJECTION'}
+    return [pscustomobject]@{Relative=$TaskBinding.Relative;Preimage=$TaskBinding.OldIdentity;Postimage=(Get-MinimalBytesIdentity ($utf8NoBom.GetBytes($postimage)));Reviewer=$ReviewerActor;Content=$postimage}
+}
+
+function Get-ProjectCorrectionsReviewReturnTaskProjection([string]$RepositoryRoot,[string]$TargetVersion,[string]$ProjectId,[string]$ControllerId,[string]$ControllerFile,$TaskBinding,[string]$ReviewerActor,[string]$CandidateRelative,[string]$CandidateIdentity) {
+    if([string]::IsNullOrWhiteSpace($ReviewerActor)-or[string]$TaskBinding.Actor-cne$ReviewerActor-or[string]$TaskBinding.Role-cne'REVIEWER'-or[string]$TaskBinding.Phase-cne'REVIEW'-or[string]$TaskBinding.Owner-cne$ControllerId-or[string]$TaskBinding.Actor-ceq$ControllerId){throw 'PROJECT_CORRECTIONS_MIGRATION_REVIEW_RETURN_BINDING_INVALID'}
+    $dispositionProvided=@(-not[string]::IsNullOrWhiteSpace($ProjectCorrectionsMigrationReviewDispositionPath),-not[string]::IsNullOrWhiteSpace($ExpectedProjectCorrectionsMigrationReviewDispositionIdentity))
+    if(@($dispositionProvided|Where-Object{$_}).Count-ne2){throw 'PROJECT_CORRECTIONS_MIGRATION_REVIEW_TERMINAL_REQUIRED'}
+    if($ExpectedProjectCorrectionsMigrationReviewDispositionIdentity-cnotmatch'^\d+\|[A-F0-9]{64}$'-or-not(Test-Path -LiteralPath $ProjectCorrectionsMigrationReviewDispositionPath -PathType Leaf)){throw 'PROJECT_CORRECTIONS_MIGRATION_REVIEW_TERMINAL_INPUT'}
+    Assert-MinimalPathInsideRepo $RepositoryRoot $ProjectCorrectionsMigrationReviewDispositionPath
+    if((Get-MinimalFileIdentity $ProjectCorrectionsMigrationReviewDispositionPath)-cne$ExpectedProjectCorrectionsMigrationReviewDispositionIdentity){throw 'PROJECT_CORRECTIONS_MIGRATION_REVIEW_TERMINAL_DRIFT'}
+    $repositoryResolved=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($RepositoryRoot));$dispositionResolved=[IO.Path]::GetFullPath((Resolve-Path -LiteralPath $ProjectCorrectionsMigrationReviewDispositionPath));$dispositionRelative=$dispositionResolved.Substring($repositoryResolved.Length+1).Replace('\','/')
+    $controllerRaw=Read-StrictUtf8NoBom $ControllerFile;try{$controller=$controllerRaw|ConvertFrom-Json}catch{throw 'PROJECT_CORRECTIONS_MIGRATION_CONTROLLER_JSON'}
+    Assert-MinimalController $controller $controllerRaw $ProjectId $ControllerId
+    $terminalRaw=Read-StrictUtf8NoBom $ProjectCorrectionsMigrationReviewDispositionPath;Assert-StrictJsonMemberSet $terminalRaw 'PROJECT_CORRECTIONS_MIGRATION_REVIEW_TERMINAL_DUPLICATE_MEMBER'
+    try{$terminal=$terminalRaw|ConvertFrom-Json}catch{throw 'PROJECT_CORRECTIONS_MIGRATION_REVIEW_TERMINAL_JSON'}
+    $terminalFields=@('schemaVersion','receiptType','status','projectId','frameworkVersion','taskId','taskIdentity','taskOwner','reviewer','controllerId','controllerEpoch','controllerControlIdentity','candidatePath','candidateIdentity','verdict')
+    Assert-MinimalExactFields $terminal $terminalRaw $terminalFields 'Project corrections migration Review terminal'
+    $controllerControlIdentity=Get-MinimalFileIdentity $ControllerFile
+    if(-not(Test-MinimalJsonInteger $terminal.schemaVersion)-or[int]$terminal.schemaVersion-ne1-or[string]$terminal.receiptType-cne'PROJECT_CORRECTIONS_MIGRATION_REVIEW_TERMINAL'-or[string]$terminal.status-cne'COMPLETE'-or[string]$terminal.projectId-cne$ProjectId-or[string]$terminal.frameworkVersion-cne$TargetVersion-or[string]$terminal.taskId-cne[string]$TaskBinding.TaskId-or[string]$terminal.taskIdentity-cne[string]$TaskBinding.OldIdentity-or[string]$terminal.taskOwner-cne[string]$TaskBinding.Owner-or[string]$terminal.reviewer-cne$ReviewerActor-or[string]$terminal.controllerId-cne$ControllerId-or-not(Test-MinimalJsonInteger $terminal.controllerEpoch)-or[int64]$terminal.controllerEpoch-ne[int64]$controller.controllerEpoch-or[string]$terminal.controllerControlIdentity-cne$controllerControlIdentity-or[string]$terminal.candidatePath-cne$CandidateRelative-or[string]$terminal.candidateIdentity-cne$CandidateIdentity-or[string]$terminal.verdict-cnotin@('APPROVED','CHANGES_REQUIRED','CHANGES_REQUESTED','REJECTED')){throw 'PROJECT_CORRECTIONS_MIGRATION_REVIEW_TERMINAL_BINDING'}
+    $raw=Read-StrictUtf8NoBom $TaskBinding.Path
+    $route=[regex]::Matches($raw,'(?m)^- Work route:\s*actor=(?<actor>[^;\s]+);\s*role=(?<role>CONTROLLER|DOMAIN_OWNER|EXECUTOR|REVIEWER|FRAMEWORK_MAINTAINER);\s*phase=(?<phase>DISCOVER|PLAN|IMPLEMENT|VERIFY|REVIEW|GIT|EXTERNAL|RECOVER)\s*$')
+    $range=[regex]::Matches($raw,'(?m)^- Range summary:\s*profile=(?<profile>MICRO|STANDARD|CRITICAL);\s*lifecycle=(?<lifecycle>ACTIVE_WRITE|ACTIVE|REVIEW|CLOSED);(?:\s*current_exact=(?<exact>[^;]+);)?\s*expected_paths=\[(?<expected>[^\]]*)\];\s*actual_paths=\[(?<actual>[^\]]*)\]\s*$')
+    if($route.Count-ne1-or$range.Count-ne1-or[string]$range[0].Groups['lifecycle'].Value-cne'REVIEW'){throw 'PROJECT_CORRECTIONS_MIGRATION_REVIEW_RETURN_BINDING_INVALID'}
+    $routePostimage='- Work route: actor='+$ControllerId+'; role=CONTROLLER; phase=PLAN'
+    $rangePostimage=[regex]::Replace([string]$range[0].Value,'(?<=;\s*lifecycle=)REVIEW(?=;)','ACTIVE')
+    $postimage=$raw.Replace([string]$route[0].Value,$routePostimage).Replace([string]$range[0].Value,$rangePostimage)
+    if($postimage-ceq$raw-or[regex]::Matches($postimage,'(?m)^- Work route:\s*actor='+[regex]::Escape($ControllerId)+';\s*role=CONTROLLER;\s*phase=PLAN\s*$').Count-ne1-or[regex]::Matches($postimage,'(?m)^- Range summary:\s*profile=(?:MICRO|STANDARD|CRITICAL);\s*lifecycle=ACTIVE;').Count-ne1){throw 'PROJECT_CORRECTIONS_MIGRATION_REVIEW_RETURN_TASK_PROJECTION'}
+    return [pscustomobject]@{Relative=$TaskBinding.Relative;Preimage=$TaskBinding.OldIdentity;Postimage=(Get-MinimalBytesIdentity ($utf8NoBom.GetBytes($postimage)));Controller=$ControllerId;ControllerEpoch=[int]$controller.controllerEpoch;ControllerControlIdentity=$controllerControlIdentity;Reviewer=$ReviewerActor;DispositionRelative=$dispositionRelative;DispositionIdentity=$ExpectedProjectCorrectionsMigrationReviewDispositionIdentity;Verdict=[string]$terminal.verdict;Content=$postimage}
+}
+
+function Get-SameVersionCorrectionsMigration([string]$RepositoryRoot,[string]$FrameworkWorkspace,[string]$TargetFramework,[string]$TargetVersion,[string]$ProjectId,[string]$ProjectFile,[string]$BootstrapFile,[string]$ControllerFile,$TaskBinding,[bool]$ReviewAdmission,[bool]$ReviewBindingAdmission,[bool]$ReviewReturnAdmission,[string]$ReviewerActor,[string]$ControllerActor) {
+    if(@(@($ReviewAdmission,$ReviewBindingAdmission,$ReviewReturnAdmission)|Where-Object{$_}).Count-gt1){throw 'PROJECT_CORRECTIONS_MIGRATION_REVIEW_MODE_CONFLICT'}
+    $provided=@(-not[string]::IsNullOrWhiteSpace($ProjectCorrectionsMigrationPath),-not[string]::IsNullOrWhiteSpace($ExpectedProjectCorrectionsMigrationIdentity))
+    if(@($provided|Where-Object{$_}).Count-ne2){throw 'PROJECT_CORRECTIONS_MIGRATION_FIELDS_REQUIRED'}
+    if($ExpectedProjectCorrectionsMigrationIdentity-cnotmatch'^\d+\|[A-F0-9]{64}$'-or-not(Test-Path -LiteralPath $ProjectCorrectionsMigrationPath -PathType Leaf)){throw 'PROJECT_CORRECTIONS_MIGRATION_INPUT'}
+    Assert-MinimalPathInsideRepo $RepositoryRoot $ProjectCorrectionsMigrationPath
+    if((Get-MinimalFileIdentity $ProjectCorrectionsMigrationPath)-cne$ExpectedProjectCorrectionsMigrationIdentity){throw 'PROJECT_CORRECTIONS_MIGRATION_INPUT_DRIFT'}
+    $repositoryResolved=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($RepositoryRoot));$candidateResolved=[IO.Path]::GetFullPath((Resolve-Path -LiteralPath $ProjectCorrectionsMigrationPath));$candidateRelative=$candidateResolved.Substring($repositoryResolved.Length+1).Replace('\','/')
+    $correctionsFile=Join-ChildPath $RepositoryRoot '.ai-workspace/corrections.json'
+    if(-not(Test-Path -LiteralPath $correctionsFile -PathType Leaf)){throw 'PROJECT_CORRECTIONS_MIGRATION_SOURCE_MISSING'}
+    $oldIdentity=Get-MinimalFileIdentity $correctionsFile
+    if($oldIdentity-ceq$ExpectedProjectCorrectionsMigrationIdentity){throw 'PROJECT_CORRECTIONS_ALREADY_MIGRATED'}
+    $oldRaw=Read-StrictUtf8NoBom $correctionsFile;$candidateRaw=Read-StrictUtf8NoBom $ProjectCorrectionsMigrationPath
+    if($candidateRaw.Contains("`r")-or-not$candidateRaw.EndsWith("`n")){throw 'PROJECT_CORRECTIONS_MIGRATION_TEXT_FORMAT'}
+    Assert-StrictJsonMemberSet $oldRaw 'PROJECT_CORRECTIONS_SOURCE_DUPLICATE_MEMBER';Assert-StrictJsonMemberSet $candidateRaw 'PROJECT_CORRECTIONS_MIGRATION_DUPLICATE_MEMBER'
+    try{$old=$oldRaw|ConvertFrom-Json;$candidate=$candidateRaw|ConvertFrom-Json}catch{throw 'PROJECT_CORRECTIONS_MIGRATION_JSON'}
+    $topFields=@('schemaVersion','contractVersion','projectId','corrections')
+    Assert-MinimalExactFields $old $oldRaw $topFields 'Current project corrections';Assert-MinimalExactFields $candidate $candidateRaw $topFields 'Candidate project corrections'
+    if(-not(Test-MinimalJsonInteger $old.schemaVersion)-or[int]$old.schemaVersion-ne1-or[string]$old.contractVersion-cne'1.10.0'-or[string]$old.projectId-cne$ProjectId-or-not($old.corrections-is[Array])){throw 'PROJECT_CORRECTIONS_MIGRATION_SOURCE_SCHEMA'}
+    $contract=Get-ProcessCarrierContractVersion $TargetVersion
+    if(-not(Test-MinimalJsonInteger $candidate.schemaVersion)-or[int]$candidate.schemaVersion-ne2-or[string]$candidate.contractVersion-cne$contract-or[string]$candidate.projectId-cne$ProjectId-or-not($candidate.corrections-is[Array])){throw 'PROJECT_CORRECTIONS_MIGRATION_TARGET_SCHEMA'}
+    if(@($old.corrections).Count-ne@($candidate.corrections).Count){throw 'PROJECT_CORRECTIONS_MIGRATION_RECORD_SET'}
+    $historical=@('correctionId','introducedAgainstFramework','requirementReason','effectiveRule','applicability','decisionLocator')
+    $candidateFields=@($historical+@('selectors','preparationRequirements','resultRequirements','requiredFacts','mechanicalCheckRefs'))
+    for($index=0;$index-lt@($old.corrections).Count;$index++){
+        $oldRecord=@($old.corrections)[$index];$candidateRecord=@($candidate.corrections)[$index]
+        Assert-MinimalExactFields $oldRecord ($oldRecord|ConvertTo-Json -Depth 20 -Compress) $historical 'Current correction record'
+        Assert-MinimalExactFields $candidateRecord ($candidateRecord|ConvertTo-Json -Depth 50 -Compress) $candidateFields 'Candidate correction record'
+        foreach($name in $historical){if(-not($oldRecord.$name-is[string])-or[string]$oldRecord.$name-cne[string]$candidateRecord.$name){throw ('PROJECT_CORRECTIONS_MIGRATION_HISTORICAL_DRIFT|'+[string]$oldRecord.correctionId+'|'+$name)}}
+    }
+
+    $taskProjection=if($ReviewBindingAdmission){Get-ProjectCorrectionsReviewTaskProjection $TaskBinding $ReviewerActor}elseif($ReviewReturnAdmission){Get-ProjectCorrectionsReviewReturnTaskProjection $RepositoryRoot $TargetVersion $ProjectId $ControllerActor $ControllerFile $TaskBinding $ReviewerActor $candidateRelative $ExpectedProjectCorrectionsMigrationIdentity}else{$null}
+
+    $inputProvided=@(-not[string]::IsNullOrWhiteSpace($CurrentProcessInputPath),-not[string]::IsNullOrWhiteSpace($ExpectedCurrentProcessInputIdentity))
+    if(@($inputProvided|Where-Object{$_}).Count-ne2){throw 'PROJECT_CORRECTIONS_MIGRATION_PROCESS_INPUT_REQUIRED'}
+    if($ExpectedCurrentProcessInputIdentity-cnotmatch'^\d+\|[A-F0-9]{64}$'-or-not(Test-Path -LiteralPath $CurrentProcessInputPath -PathType Leaf)-or(Get-MinimalFileIdentity $CurrentProcessInputPath)-cne$ExpectedCurrentProcessInputIdentity){throw 'PROJECT_CORRECTIONS_MIGRATION_PROCESS_INPUT_DRIFT'}
+    $inputRaw=Read-StrictUtf8NoBom $CurrentProcessInputPath;Assert-StrictJsonMemberSet $inputRaw 'PROJECT_CORRECTIONS_MIGRATION_PROCESS_DUPLICATE_MEMBER'
+    try{$input=$inputRaw|ConvertFrom-Json}catch{throw 'PROJECT_CORRECTIONS_MIGRATION_PROCESS_JSON'}
+    $expectedInputFields=@('schemaVersion','mode','projectRoot','frameworkRoot','taskPath','expectedProjectConfigIdentity','expectedCorrectionsIdentity','expectedTaskIdentity','observedActor','capabilities','exactPaths','forbiddenPaths','protectedPaths','authorizationPackagePath','expectedAuthorizationIdentity','userDecision','recoveryState','hostEnforcementGrade','invocationState','intentEnvelope','evaluationOnly')
+    $inputNames=@($input.PSObject.Properties.Name)
+    if(-not($input-is[pscustomobject])-or$inputNames.Count-ne$expectedInputFields.Count-or@($expectedInputFields|Where-Object{$_-cnotin$inputNames}).Count-ne0){throw 'PROJECT_CORRECTIONS_MIGRATION_PROCESS_FIELDS'}
+    $repository=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($RepositoryRoot));$workspace=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($FrameworkWorkspace))
+    $inputRepository=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Resolve-Path -LiteralPath ([string]$input.projectRoot))))
+    $inputWorkspace=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Resolve-Path -LiteralPath ([string]$input.frameworkRoot))))
+    $inputTask=[IO.Path]::GetFullPath((Resolve-Path -LiteralPath ([string]$input.taskPath)));
+    $expectedEvaluationOnly=-not$ReviewAdmission
+    if(-not(Test-MinimalJsonInteger $input.schemaVersion)-or[int]$input.schemaVersion-ne2-or[string]$input.mode-cne'DISCOVER'-or-not($input.evaluationOnly-is[bool])-or[bool]$input.evaluationOnly-ne$expectedEvaluationOnly-or$inputRepository-cne$repository-or$inputWorkspace-cne$workspace-or$inputTask-cne[IO.Path]::GetFullPath([string]$TaskBinding.Path)){throw 'PROJECT_CORRECTIONS_MIGRATION_PROCESS_SCOPE'}
+    if([string]$input.expectedProjectConfigIdentity-cne(Get-MinimalFileIdentity $ProjectFile)-or[string]$input.expectedCorrectionsIdentity-cne$oldIdentity-or[string]$input.expectedTaskIdentity-cne[string]$TaskBinding.OldIdentity-or[string]$input.observedActor-cne[string]$TaskBinding.Actor){throw 'PROJECT_CORRECTIONS_MIGRATION_PROCESS_BINDING'}
+    $projectRaw=Read-StrictUtf8NoBom $ProjectFile;try{$project=$projectRaw|ConvertFrom-Json}catch{throw 'PROJECT_CORRECTIONS_MIGRATION_PROJECT_JSON'}
+    $declaredCapabilities=@(Get-ExactEnabledCapabilityIds $project $projectRaw);$inputCapabilities=@($input.capabilities|ForEach-Object{[string]$_});$sortedCapabilities=@($inputCapabilities);[Array]::Sort($sortedCapabilities,[StringComparer]::Ordinal)
+    if(-not($input.capabilities-is[Array])-or[string]::Join("`n",$inputCapabilities)-cne[string]::Join("`n",$sortedCapabilities)-or[string]::Join("`n",$sortedCapabilities)-cne[string]::Join("`n",$declaredCapabilities)){throw 'PROJECT_CORRECTIONS_MIGRATION_CAPABILITY_DRIFT'}
+    $forbidden=@($input.forbiddenPaths);$protected=@($input.protectedPaths)
+    $expectedExactPath=if($ReviewAdmission-or$ReviewReturnAdmission){$candidateRelative}elseif($ReviewBindingAdmission){[string]$TaskBinding.Relative}else{'.ai-workspace/corrections.json'}
+    if(@($input.exactPaths).Count-ne1-or[string]$input.exactPaths[0]-cne$expectedExactPath-or'src/'-cnotin$forbidden-or@(@('test/','tests/')|Where-Object{$_-cin$forbidden}).Count-eq0-or'assets/'-cnotin$forbidden-or'.ai-workspace/'-cnotin$protected){throw 'PROJECT_CORRECTIONS_MIGRATION_PROCESS_BOUNDARY'}
+    if([string]::IsNullOrWhiteSpace([string]$input.userDecision)-or[string]$input.recoveryState-cne'FULL_COLD'-or[string]$input.invocationState-cnotin@('PROVEN_EXPLICIT','PROVEN_MANAGED')-or[string]$input.hostEnforcementGrade-cnotin@('FRAMEWORK_GATED','INSTRUCTION_BOUND')){throw 'PROJECT_CORRECTIONS_MIGRATION_PROCESS_CONTEXT'}
+    if($ReviewAdmission){
+        if([string]::IsNullOrWhiteSpace($AuthorizationPackagePath)-or[string]::IsNullOrWhiteSpace($ExpectedAuthorizationPackageIdentity)-or[string]$input.authorizationPackagePath-cne[IO.Path]::GetFullPath($AuthorizationPackagePath)-or[string]$input.expectedAuthorizationIdentity-cne$ExpectedAuthorizationPackageIdentity-or(Get-MinimalFileIdentity $AuthorizationPackagePath)-cne$ExpectedAuthorizationPackageIdentity){throw 'PROJECT_CORRECTIONS_MIGRATION_REVIEW_AUTHORIZATION_DRIFT'}
+    }elseif([string]$input.authorizationPackagePath-cne'NOT_REQUIRED'-or[string]$input.expectedAuthorizationIdentity-cne'NOT_REQUIRED'-or[string]$input.userDecision-ceq'NOT_REQUIRED'){throw 'PROJECT_CORRECTIONS_MIGRATION_PROCESS_CONTEXT'}
+    $intent=$input.intentEnvelope;$intentRaw=$intent|ConvertTo-Json -Depth 20 -Compress
+    Assert-MinimalExactFields $intent $intentRaw @('schemaVersion','objective','requestedActionKind','requestedResultKind','semanticHints','pathHints','capabilityHints','mutationHints','externalHints','ambiguityState') 'project corrections migration intent'
+    foreach($name in @('semanticHints','pathHints','capabilityHints','mutationHints','externalHints')){if(-not($intent.$name-is[Array])-or@($intent.$name|Where-Object{-not($_-is[string])}).Count-ne0){throw ('PROJECT_CORRECTIONS_MIGRATION_INTENT_ARRAY|'+$name)}}
+    $expectedAction=if($ReviewAdmission-or$ReviewReturnAdmission){'REVIEW_EXECUTE'}else{'NONE'};$expectedResult=if($ReviewAdmission-or$ReviewReturnAdmission){'REVIEW_VERDICT'}else{'PLAN'};$requiredReviewHint=if($ReviewAdmission){'pre-apply independent review'}elseif($ReviewBindingAdmission){'review task binding admission'}elseif($ReviewReturnAdmission){'review terminal return admission'}else{'same-version project-control migration'}
+    if(-not(Test-MinimalJsonInteger $intent.schemaVersion)-or[int]$intent.schemaVersion-ne1-or[string]::IsNullOrWhiteSpace([string]$intent.objective)-or[string]$intent.requestedActionKind-cne$expectedAction-or[string]$intent.requestedResultKind-cne$expectedResult-or[string]$intent.ambiguityState-cne'CLEAR'-or@($intent.mutationHints).Count-ne0-or@($intent.externalHints).Count-ne0-or@($intent.pathHints).Count-ne1-or[string]$intent.pathHints[0]-cne$expectedExactPath-or'Project corrections migration'-cnotin@($intent.semanticHints)-or$requiredReviewHint-cnotin@($intent.semanticHints)){throw 'PROJECT_CORRECTIONS_MIGRATION_INTENT_NOT_BOUNDED'}
+
+    $resolver=Join-ChildPath $TargetFramework 'scripts/resolve-process-requirements.ps1';$pwsh=[Environment]::ProcessPath
+    if([string]::IsNullOrWhiteSpace($pwsh)){throw 'POWERSHELL7_PROCESS_PATH_UNAVAILABLE'}
+    $oldPreference=$ErrorActionPreference;$ErrorActionPreference='Continue'
+    try{$currentOutput=@(& $pwsh -NoProfile -NonInteractive -File $resolver -InputPath $CurrentProcessInputPath -AsJson 2>&1|ForEach-Object{[string]$_});$currentCode=$LASTEXITCODE}finally{$ErrorActionPreference=$oldPreference}
+    if($currentOutput.Count-ne1-or$currentCode-notin@(0,2)){throw ('PROJECT_CORRECTIONS_MIGRATION_CURRENT_DISCOVER_INVALID|'+($currentOutput-join';'))}
+    try{$currentResult=$currentOutput[0]|ConvertFrom-Json}catch{throw 'PROJECT_CORRECTIONS_MIGRATION_CURRENT_DISCOVER_JSON'}
+    $currentReason=if($currentCode-eq0-and[string]$currentResult.status-cin@('PASS','EVALUATION_ONLY')){'PASS'}elseif($currentCode-eq2-and[string]$currentResult.status-ceq'FAIL'-and[string]$currentResult.reason-clike'SELECTED_RULE_PACK_BUDGET_EXCEEDED*'){'SELECTED_RULE_PACK_BUDGET_EXCEEDED'}else{throw 'PROJECT_CORRECTIONS_MIGRATION_CURRENT_DISCOVER_REJECTED'}
+    if(($ReviewAdmission-or$ReviewBindingAdmission-or$ReviewReturnAdmission)-and$currentReason-cne'SELECTED_RULE_PACK_BUDGET_EXCEEDED'){throw 'PROJECT_CORRECTIONS_MIGRATION_REVIEW_NORMAL_ROUTE_AVAILABLE'}
+
+    $currentSelectedRequirements=@();$currentSelectedPackBytes=0;$currentSelectedPackIdentity='NOT_REQUIRED';$currentSourceCompositionIdentity='NOT_REQUIRED'
+    if($ReviewAdmission-or$ReviewBindingAdmission-or$ReviewReturnAdmission){
+        $modulePath=Join-ChildPath $TargetFramework 'scripts/ProcessRequirementComposition.psm1';$module=Import-Module $modulePath -Force -PassThru
+        $compositionAction=if($ReviewAdmission-or$ReviewReturnAdmission){'REVIEW_EXECUTE'}else{'CONTROL_WRITE'};$compositionResult=if($ReviewAdmission-or$ReviewReturnAdmission){'REVIEW_VERDICT'}else{'CONTROL_STATE'}
+        try{$semanticObjective=([string]$intent.objective+' '+[string]::Join(' ',@($intent.semanticHints+$intent.externalHints))).Trim();$currentComposition=Invoke-ProcessRequirementComposition -ProjectRoot $RepositoryRoot -FrameworkRoot $FrameworkWorkspace -TargetVersion $TargetVersion -ExpectedProjectConfigIdentity ([string]$input.expectedProjectConfigIdentity) -ExpectedCorrectionsIdentity $oldIdentity -Profile ([string]$TaskBinding.Profile) -Role ([string]$TaskBinding.Role) -Phase ([string]$TaskBinding.Phase) -Actor ([string]$TaskBinding.Actor) -TaskIdentity ([string]$TaskBinding.OldIdentity) -Capabilities @($declaredCapabilities) -Objective $semanticObjective -ActionKind $compositionAction -ResultKind $compositionResult -ExactPaths @($expectedExactPath)}finally{if($null-ne$module){Remove-Module $module -Force}}
+        if([string]$currentComposition.status-cnotin@('PASS','EVALUATION_ONLY')-or[int]$currentComposition.sourceBuildCount-ne1-or@($currentComposition.selectedRequirements).Count-lt1){throw 'PROJECT_CORRECTIONS_MIGRATION_REVIEW_CURRENT_COMPOSITION'}
+        foreach($requirement in @($currentComposition.selectedRequirements)){if(-not($requirement-is[pscustomobject])-or[string]::IsNullOrWhiteSpace([string]$requirement.requirementId)-or[string]::IsNullOrWhiteSpace([string]$requirement.fullText)){throw 'PROJECT_CORRECTIONS_MIGRATION_REVIEW_COMPLETE_RULES_REQUIRED'}}
+        $currentPackJson=@($currentComposition.selectedRequirements)|ConvertTo-Json -Depth 50 -Compress;$currentSelectedPackBytes=$utf8NoBom.GetByteCount($currentPackJson);$reviewBridgeCeiling=[int]$script:ActiveAdoptionProfile.processBudgets.legacySchema1CorrectionCompatibilityBytes
+        if($currentSelectedPackBytes-le[int]$script:ActiveAdoptionProfile.processBudgets.ordinarySelectedPackBytes-or$currentSelectedPackBytes-gt$reviewBridgeCeiling){throw 'PROJECT_CORRECTIONS_MIGRATION_REVIEW_BRIDGE_BUDGET'}
+        $currentSelectedRequirements=@($currentComposition.selectedRequirements);$currentSelectedPackIdentity=Get-UpperSha256Bytes ($utf8NoBom.GetBytes($currentPackJson));$currentSourceCompositionIdentity=[string]$currentComposition.sourceCompositionIdentity
+    }
+    $projectionRoot=Join-Path ([IO.Path]::GetTempPath()) ('aiw-project-corrections-migration-'+[guid]::NewGuid().ToString('N'));$projectionControl=Join-Path $projectionRoot '.ai-workspace'
+    try{
+        New-Item -ItemType Directory -Path $projectionControl -Force|Out-Null
+        if($ReviewAdmission){& git -C $projectionRoot init -q;if($LASTEXITCODE-ne0){throw 'PROJECT_CORRECTIONS_MIGRATION_PROJECTION_GIT_INIT'}}
+        foreach($source in @($ProjectFile,$BootstrapFile,$ControllerFile)){Copy-Item -LiteralPath $source -Destination (Join-Path $projectionControl ([IO.Path]::GetFileName($source)))}
+        $policy=Join-ChildPath $RepositoryRoot '.ai-workspace/process-policy.json';if(Test-Path -LiteralPath $policy -PathType Leaf){Copy-Item -LiteralPath $policy -Destination (Join-Path $projectionControl 'process-policy.json')}
+        [IO.File]::WriteAllText((Join-Path $projectionControl 'corrections.json'),$candidateRaw,$utf8NoBom)
+        $projectedTask=Join-ChildPath $projectionRoot ([string]$TaskBinding.Relative);New-Item -ItemType Directory -Path (Split-Path -Parent $projectedTask) -Force|Out-Null;Copy-Item -LiteralPath $TaskBinding.Path -Destination $projectedTask
+        if($ReviewAdmission-or$ReviewReturnAdmission){$projectedCandidate=Join-ChildPath $projectionRoot $candidateRelative;New-Item -ItemType Directory -Path (Split-Path -Parent $projectedCandidate) -Force|Out-Null;Copy-Item -LiteralPath $ProjectCorrectionsMigrationPath -Destination $projectedCandidate}
+        $input.projectRoot=$projectionRoot;$input.frameworkRoot=$FrameworkWorkspace;$input.taskPath=$projectedTask;$input.expectedCorrectionsIdentity=$ExpectedProjectCorrectionsMigrationIdentity
+        $projectedInput=Join-Path $projectionRoot 'process-input.json';[IO.File]::WriteAllText($projectedInput,(Normalize-Text ($input|ConvertTo-Json -Depth 50)),$utf8NoBom)
+        $oldPreference=$ErrorActionPreference;$ErrorActionPreference='Continue'
+        try{$projectedOutput=@(& $pwsh -NoProfile -NonInteractive -File $resolver -InputPath $projectedInput -AsJson 2>&1|ForEach-Object{[string]$_});$projectedCode=$LASTEXITCODE}finally{$ErrorActionPreference=$oldPreference}
+        if($projectedCode-ne0-or$projectedOutput.Count-ne1){throw ('PROJECT_CORRECTIONS_MIGRATION_PROJECTED_DISCOVER_REJECTED|'+($projectedOutput-join';'))}
+        try{$projectedResult=$projectedOutput[0]|ConvertFrom-Json}catch{throw 'PROJECT_CORRECTIONS_MIGRATION_PROJECTED_DISCOVER_JSON'}
+        $projectedReceipt=if($null-ne$projectedResult.PSObject.Properties['compactReceipt']){$projectedResult.compactReceipt}else{$projectedResult}
+        $ordinaryCeiling=[int]$script:ActiveAdoptionProfile.processBudgets.ordinarySelectedPackBytes
+        if([string]$projectedReceipt.status-cnotin@('PASS','EVALUATION_ONLY')-or[int]$projectedReceipt.sourceBuildCount-ne1-or[int]$projectedReceipt.legacyCorrectionsFullReadCount-ne0-or[int]$projectedReceipt.selectedPackBytes-gt$ordinaryCeiling-or[string]$projectedReceipt.sourceBindings.correctionsIdentity-cne$ExpectedProjectCorrectionsMigrationIdentity){throw 'PROJECT_CORRECTIONS_MIGRATION_PROJECTED_DISCOVER_INCOMPLETE'}
+    }finally{if(Test-Path -LiteralPath $projectionRoot){Remove-Item -LiteralPath $projectionRoot -Recurse -Force}}
+    return [pscustomobject]@{ReviewAdmission=$ReviewAdmission;ReviewBindingAdmission=$ReviewBindingAdmission;ReviewReturnAdmission=$ReviewReturnAdmission;TaskProjection=$taskProjection;Relative='.ai-workspace/corrections.json';Path=$correctionsFile;OldIdentity=$oldIdentity;NewIdentity=$ExpectedProjectCorrectionsMigrationIdentity;CandidateRelative=$candidateRelative;CandidatePath=$ProjectCorrectionsMigrationPath;CandidateRaw=$candidateRaw;Actor=$TaskBinding.Actor;TaskId=$TaskBinding.TaskId;Owner=$TaskBinding.Owner;TaskRelative=$TaskBinding.Relative;TaskIdentity=$TaskBinding.OldIdentity;UserDecision=[string]$input.userDecision;AuthorizationIdentity=$(if($ReviewAdmission){$ExpectedAuthorizationPackageIdentity}else{'NOT_REQUIRED'});CurrentDiscover=$currentReason;CurrentSelectedPackBytes=$currentSelectedPackBytes;CurrentSelectedPackIdentity=$currentSelectedPackIdentity;CurrentSourceCompositionIdentity=$currentSourceCompositionIdentity;CurrentSelectedRequirements=@($currentSelectedRequirements);ProjectedSelectedPackBytes=[int]$projectedReceipt.selectedPackBytes;ProjectedSelectionIdentity=[string]$projectedReceipt.selectionIdentity;ProjectedSourceIdentity=[string]$projectedReceipt.sourceCompositionIdentity;ProjectedSelectedObligations=@($projectedReceipt.selectedObligations);ProjectedSourceBindings=$projectedReceipt.sourceBindings}
+}
+
+function Invoke-SameVersionCorrectionsMigration([string]$RepositoryRoot,[string]$TargetFramework,[string]$TargetVersion,[string]$ProjectFile,$TaskBinding,$Migration,[bool]$ApplyChange) {
+    if([bool]$Migration.ReviewBindingAdmission){
+        if($ApplyChange){throw 'PROJECT_CORRECTIONS_MIGRATION_REVIEW_BINDING_APPLY_FORBIDDEN'}
+        $receipt=[ordered]@{schemaVersion=1;receiptType='PROJECT_CORRECTIONS_MIGRATION_REVIEW_TASK_BINDING_ADMISSION';status='PASS';projectId=(Read-StrictUtf8NoBom $ProjectFile|ConvertFrom-Json).id;frameworkVersion=$TargetVersion;taskId=$Migration.TaskId;taskOwner=$Migration.Owner;controller=$Migration.Actor;candidatePath=$Migration.CandidateRelative;candidateIdentity=$Migration.NewIdentity;taskBinding=[ordered]@{path=$Migration.TaskProjection.Relative;preimage=$Migration.TaskProjection.Preimage;postimage=$Migration.TaskProjection.Postimage;reviewer=$Migration.TaskProjection.Reviewer;postimageText=$Migration.TaskProjection.Content};currentSource=[ordered]@{resolverResult=$Migration.CurrentDiscover;sourceCompositionIdentity=$Migration.CurrentSourceCompositionIdentity;selectedPackBytes=$Migration.CurrentSelectedPackBytes;selectedPackIdentity=$Migration.CurrentSelectedPackIdentity;selectedRuleBlocks=@($Migration.CurrentSelectedRequirements)};projectedDiscover=[ordered]@{status='PASS';sourceCompositionIdentity=$Migration.ProjectedSourceIdentity;selectionIdentity=$Migration.ProjectedSelectionIdentity;selectedPackBytes=$Migration.ProjectedSelectedPackBytes;selectedObligations=@($Migration.ProjectedSelectedObligations);sourceBindings=$Migration.ProjectedSourceBindings};taskBindingWriteAuthorized=$false;reviewAuthorizationValidated=$false;migrationApplyAuthorized=$false;semanticCorrectnessProven=$false;evidenceCeilings=@('CURRENT_RESOLVER_BUDGET_BRIDGED','CONTROLLER_TASK_BINDING_PROJECTION_ONLY','REVIEW_INDEPENDENCE_NOT_YET_PROVEN','CORRECTIONS_APPLY_NOT_AUTHORIZED')}
+        Write-Output ($receipt|ConvertTo-Json -Depth 50 -Compress)
+        return
+    }
+    if([bool]$Migration.ReviewReturnAdmission){
+        if($ApplyChange){throw 'PROJECT_CORRECTIONS_MIGRATION_REVIEW_RETURN_APPLY_FORBIDDEN'}
+        $receipt=[ordered]@{schemaVersion=1;receiptType='PROJECT_CORRECTIONS_MIGRATION_REVIEW_TERMINAL_RETURN_ADMISSION';status='PASS';projectId=(Read-StrictUtf8NoBom $ProjectFile|ConvertFrom-Json).id;frameworkVersion=$TargetVersion;taskId=$Migration.TaskId;taskOwner=$Migration.Owner;controller=[ordered]@{id=$Migration.TaskProjection.Controller;epoch=$Migration.TaskProjection.ControllerEpoch;state='CURRENT';controlIdentity=$Migration.TaskProjection.ControllerControlIdentity};reviewer=$Migration.TaskProjection.Reviewer;candidatePath=$Migration.CandidateRelative;candidateIdentity=$Migration.NewIdentity;reviewDisposition=[ordered]@{path=$Migration.TaskProjection.DispositionRelative;identity=$Migration.TaskProjection.DispositionIdentity;status='COMPLETE';verdict=$Migration.TaskProjection.Verdict};taskBinding=[ordered]@{path=$Migration.TaskProjection.Relative;preimage=$Migration.TaskProjection.Preimage;postimage=$Migration.TaskProjection.Postimage;actor=$Migration.TaskProjection.Controller;role='CONTROLLER';phase='PLAN';lifecycle='ACTIVE';postimageText=$Migration.TaskProjection.Content};currentSource=[ordered]@{resolverResult=$Migration.CurrentDiscover;sourceCompositionIdentity=$Migration.CurrentSourceCompositionIdentity;selectedPackBytes=$Migration.CurrentSelectedPackBytes;selectedPackIdentity=$Migration.CurrentSelectedPackIdentity;selectedRuleBlocks=@($Migration.CurrentSelectedRequirements)};projectedDiscover=[ordered]@{status='PASS';sourceCompositionIdentity=$Migration.ProjectedSourceIdentity;selectionIdentity=$Migration.ProjectedSelectionIdentity;selectedPackBytes=$Migration.ProjectedSelectedPackBytes;selectedObligations=@($Migration.ProjectedSelectedObligations);sourceBindings=$Migration.ProjectedSourceBindings};taskBindingWriteAuthorized=$false;migrationApplyAuthorized=$false;ownerAcceptAuthorized=$false;semanticCorrectnessProven=$false;evidenceCeilings=@('CURRENT_RESOLVER_BUDGET_BRIDGED','REVIEW_TERMINAL_AND_CURRENT_BINDING_VALIDATED','CONTROLLER_TASK_RETURN_PROJECTION_ONLY','TASK_WRITE_NOT_AUTHORIZED','CORRECTIONS_APPLY_NOT_AUTHORIZED')}
+        Write-Output ($receipt|ConvertTo-Json -Depth 50 -Compress)
+        return
+    }
+    if([bool]$Migration.ReviewAdmission){
+        if($ApplyChange){throw 'PROJECT_CORRECTIONS_MIGRATION_REVIEW_APPLY_FORBIDDEN'}
+        $receipt=[ordered]@{schemaVersion=1;receiptType='PROJECT_CORRECTIONS_MIGRATION_REVIEW_ADMISSION';status='PASS';projectId=(Read-StrictUtf8NoBom $ProjectFile|ConvertFrom-Json).id;frameworkVersion=$TargetVersion;taskId=$Migration.TaskId;taskIdentity=$Migration.TaskIdentity;taskOwner=$Migration.Owner;reviewer=$Migration.Actor;candidatePath=$Migration.CandidateRelative;candidateIdentity=$Migration.NewIdentity;reviewAuthorizationIdentity=$Migration.AuthorizationIdentity;currentSource=[ordered]@{resolverResult=$Migration.CurrentDiscover;sourceCompositionIdentity=$Migration.CurrentSourceCompositionIdentity;selectedPackBytes=$Migration.CurrentSelectedPackBytes;selectedPackIdentity=$Migration.CurrentSelectedPackIdentity;selectedRuleBlocks=@($Migration.CurrentSelectedRequirements)};projectedDiscover=[ordered]@{status='PASS';sourceCompositionIdentity=$Migration.ProjectedSourceIdentity;selectionIdentity=$Migration.ProjectedSelectionIdentity;selectedPackBytes=$Migration.ProjectedSelectedPackBytes;selectedObligations=@($Migration.ProjectedSelectedObligations);sourceBindings=$Migration.ProjectedSourceBindings};reviewAuthorizationValidated=$true;migrationApplyAuthorized=$false;semanticCorrectnessProven=$false;evidenceCeilings=@('CURRENT_RESOLVER_BUDGET_BRIDGED','ROOT_TOOL_REVIEW_ADMISSION_ONLY','SEMANTIC_REVIEW_NOT_PROVEN','MIGRATION_APPLY_NOT_AUTHORIZED')}
+        Write-Output ($receipt|ConvertTo-Json -Depth 50 -Compress)
+        return
+    }
+    Write-Output ('PROJECT_CONTROL_MIGRATION_PREIMAGE|'+$Migration.Relative+'='+$Migration.OldIdentity)
+    Write-Output ('PROJECT_CONTROL_MIGRATION_POSTIMAGE|'+$Migration.Relative+'='+$Migration.NewIdentity)
+    Write-Output ('PROJECT_CONTROL_MIGRATION_DISCOVER|current='+$Migration.CurrentDiscover+'|projected=PASS|bytes='+$Migration.ProjectedSelectedPackBytes+'|selection='+$Migration.ProjectedSelectionIdentity+'|source='+$Migration.ProjectedSourceIdentity)
+    Write-Output ('UPGRADE_WRITESET|'+$Migration.Relative)
+    if(-not$ApplyChange){Write-Output ('WHAT_IF|from='+$TargetVersion+'|to='+$TargetVersion+'|objects=1|transaction=atomic-project-control-migration');return}
+    $script:CurrentPinBudgetBridge=[pscustomobject]@{UserDecision=[string]$Migration.UserDecision}
+    $plan=[pscustomobject]@{State=[pscustomobject]@{toVersion=$TargetVersion};ExactPaths=@([string]$Migration.Relative);Preimages=@([pscustomobject]@{path=[string]$Migration.Relative;identity=[string]$Migration.OldIdentity});Postimages=@([pscustomobject]@{path=[string]$Migration.Relative;identity=[string]$Migration.NewIdentity})}
+    $authorizationMigration=[pscustomobject]@{Actor=$TaskBinding.Actor;TaskId=$TaskBinding.TaskId;Owner=$TaskBinding.Owner;Relative=$TaskBinding.Relative;OldIdentity=$TaskBinding.OldIdentity}
+    Assert-ActorBoundUpgrade115Authorization $RepositoryRoot $TargetFramework $ProjectFile $authorizationMigration $plan
+    if((Get-MinimalFileIdentity $Migration.CandidatePath)-cne$Migration.NewIdentity-or(Get-MinimalFileIdentity $Migration.Path)-cne$Migration.OldIdentity){throw 'PROJECT_CORRECTIONS_MIGRATION_PREFLIGHT_DRIFT'}
+    $tempRoot=[IO.Path]::GetTempPath();if([IO.Path]::GetPathRoot($tempRoot)-cne[IO.Path]::GetPathRoot($Migration.Path)){throw 'PROJECT_CORRECTIONS_MIGRATION_ATOMIC_TEMP_VOLUME'}
+    $tempPath=Join-Path $tempRoot ('aiw-project-corrections-'+[guid]::NewGuid().ToString('N')+'.json')
+    try{
+        [IO.File]::WriteAllBytes($tempPath,$utf8NoBom.GetBytes([string]$Migration.CandidateRaw))
+        if((Get-MinimalFileIdentity $tempPath)-cne$Migration.NewIdentity-or(Get-MinimalFileIdentity $Migration.Path)-cne$Migration.OldIdentity){throw 'PROJECT_CORRECTIONS_MIGRATION_FINAL_DRIFT'}
+        [IO.File]::Move($tempPath,$Migration.Path,$true)
+    }finally{if(Test-Path -LiteralPath $tempPath -PathType Leaf){[IO.File]::Delete($tempPath)}}
+    if((Get-MinimalFileIdentity $Migration.Path)-cne$Migration.NewIdentity){throw 'PROJECT_CORRECTIONS_MIGRATION_POSTIMAGE_DRIFT'}
+    Write-Output ('PROJECT_CONTROL_MIGRATION_APPLIED|version='+$TargetVersion+'|corrections='+$Migration.NewIdentity+'|selectedPackBytes='+$Migration.ProjectedSelectedPackBytes+'|next=FRESH_DISCOVER')
+}
+
 function ConvertTo-MinimalFrameworkLocator([string]$Value) {
     if([string]::IsNullOrWhiteSpace($Value)-or$Value-cne$Value.Trim()){throw 'Framework capability locator is empty or has outer whitespace.'}
     $path=$Value.Replace('\','/')
@@ -1480,7 +1704,11 @@ if (-not (Test-Path -LiteralPath $bootstrapFile -PathType Leaf)) {
     throw "Project Bootstrap does not exist: $bootstrapFile"
 }
 
-$actorRouteMigration=Get-ActorRouteMigration $repo $ToVersion $ActorRouteTaskPath $ExpectedActorRouteTaskIdentity $ActorRouteActor
+$projectCorrectionsMigrationArguments=@(-not[string]::IsNullOrWhiteSpace($ProjectCorrectionsMigrationPath),-not[string]::IsNullOrWhiteSpace($ExpectedProjectCorrectionsMigrationIdentity))
+$projectCorrectionsMigrationAnyArguments=@($projectCorrectionsMigrationArguments+[bool]$ReviewProjectCorrectionsMigration+[bool]$PrepareProjectCorrectionsMigrationReview+[bool]$PrepareProjectCorrectionsMigrationReviewReturn+(-not[string]::IsNullOrWhiteSpace($ProjectCorrectionsMigrationReviewer))+(-not[string]::IsNullOrWhiteSpace($ProjectCorrectionsMigrationReviewDispositionPath))+(-not[string]::IsNullOrWhiteSpace($ExpectedProjectCorrectionsMigrationReviewDispositionIdentity)))
+$projectCorrectionsMigrationRequested=@($projectCorrectionsMigrationAnyArguments|Where-Object{$_}).Count-gt0
+if($projectCorrectionsMigrationRequested-and@($projectCorrectionsMigrationArguments|Where-Object{$_}).Count-ne2){throw 'PROJECT_CORRECTIONS_MIGRATION_FIELDS_REQUIRED'}
+$actorRouteMigration=if($projectCorrectionsMigrationRequested){$null}else{Get-ActorRouteMigration $repo $ToVersion $ActorRouteTaskPath $ExpectedActorRouteTaskIdentity $ActorRouteActor}
 if($null-ne$actorRouteMigration){
     $routeProjectRaw=Read-StrictUtf8NoBom $projectFile
     try{$routeProject=$routeProjectRaw|ConvertFrom-Json}catch{throw 'ACTOR_ROUTE_PROJECT_JSON'}
@@ -1544,6 +1772,25 @@ foreach ($property in @('id', 'displayName', 'frameworkVersion')) {
 }
 if ([string]$config.id -cne $ProjectId) {
     throw "Project id does not match its directory: $($config.id)"
+}
+if($projectCorrectionsMigrationRequested){
+    if(@(@([bool]$ReviewProjectCorrectionsMigration,[bool]$PrepareProjectCorrectionsMigrationReview,[bool]$PrepareProjectCorrectionsMigrationReviewReturn)|Where-Object{$_}).Count-gt1){throw 'PROJECT_CORRECTIONS_MIGRATION_REVIEW_MODE_CONFLICT'}
+    if(-not$PrepareProjectCorrectionsMigrationReviewReturn-and(-not[string]::IsNullOrWhiteSpace($ProjectCorrectionsMigrationReviewDispositionPath)-or-not[string]::IsNullOrWhiteSpace($ExpectedProjectCorrectionsMigrationReviewDispositionIdentity))){throw 'PROJECT_CORRECTIONS_MIGRATION_REVIEW_TERMINAL_WITHOUT_RETURN_MODE'}
+    if(-not($PrepareProjectCorrectionsMigrationReview-or$PrepareProjectCorrectionsMigrationReviewReturn)-and-not[string]::IsNullOrWhiteSpace($ProjectCorrectionsMigrationReviewer)){throw 'PROJECT_CORRECTIONS_MIGRATION_REVIEWER_WITHOUT_BINDING_MODE'}
+    if(($PrepareProjectCorrectionsMigrationReview-or$PrepareProjectCorrectionsMigrationReviewReturn)-and[string]::IsNullOrWhiteSpace($ProjectCorrectionsMigrationReviewer)){throw 'PROJECT_CORRECTIONS_MIGRATION_REVIEWER_REQUIRED'}
+    if($ReviewProjectCorrectionsMigration-and$Apply){throw 'PROJECT_CORRECTIONS_MIGRATION_REVIEW_APPLY_FORBIDDEN'}
+    if($PrepareProjectCorrectionsMigrationReview-and$Apply){throw 'PROJECT_CORRECTIONS_MIGRATION_REVIEW_BINDING_APPLY_FORBIDDEN'}
+    if($PrepareProjectCorrectionsMigrationReviewReturn-and$Apply){throw 'PROJECT_CORRECTIONS_MIGRATION_REVIEW_RETURN_APPLY_FORBIDDEN'}
+    if(-not(Test-AdoptionProfileVersion $ToVersion)-or[string]$config.frameworkVersion-cne$ToVersion){throw 'PROJECT_CORRECTIONS_MIGRATION_SAME_PIN_REQUIRED'}
+    if([string]::IsNullOrWhiteSpace($ControllerId)-or-not(Test-Path -LiteralPath $controllerFile -PathType Leaf)){throw 'PROJECT_CORRECTIONS_MIGRATION_CURRENT_CONTROLLER_REQUIRED'}
+    $controllerRaw=Read-StrictUtf8NoBom $controllerFile;try{$controller=$controllerRaw|ConvertFrom-Json}catch{throw 'PROJECT_CORRECTIONS_MIGRATION_CONTROLLER_JSON'};Assert-MinimalController $controller $controllerRaw $ProjectId $ControllerId
+    $requiredLifecycle=if($ReviewProjectCorrectionsMigration-or$PrepareProjectCorrectionsMigrationReviewReturn){'REVIEW'}else{'ACTIVE'}
+    $taskBinding=Get-CurrentTaskBinding $repo $ToVersion $ActorRouteTaskPath $ExpectedActorRouteTaskIdentity $ActorRouteActor $requiredLifecycle
+    if($PrepareProjectCorrectionsMigrationReview-and([string]$taskBinding.Actor-cne$ControllerId-or[string]$taskBinding.Role-cne'CONTROLLER')){throw 'PROJECT_CORRECTIONS_MIGRATION_CONTROLLER_TASK_BINDING_REQUIRED'}
+    if($PrepareProjectCorrectionsMigrationReviewReturn-and([string]$taskBinding.Actor-cne$ProjectCorrectionsMigrationReviewer-or[string]$taskBinding.Role-cne'REVIEWER'-or[string]$taskBinding.Phase-cne'REVIEW'-or[string]$taskBinding.Owner-cne$ControllerId)){throw 'PROJECT_CORRECTIONS_MIGRATION_REVIEW_RETURN_BINDING_INVALID'}
+    $correctionsMigration=Get-SameVersionCorrectionsMigration $repo $workspace $targetFramework $ToVersion $ProjectId $projectFile $bootstrapFile $controllerFile $taskBinding ([bool]$ReviewProjectCorrectionsMigration) ([bool]$PrepareProjectCorrectionsMigrationReview) ([bool]$PrepareProjectCorrectionsMigrationReviewReturn) $ProjectCorrectionsMigrationReviewer $ControllerId
+    Invoke-SameVersionCorrectionsMigration $repo $targetFramework $ToVersion $projectFile $taskBinding $correctionsMigration ([bool]$Apply)
+    return
 }
 if(($ToVersion-in@('1.15.0','1.15.1')-or(Test-AdoptionProfileVersion $ToVersion))-and[string]$config.frameworkVersion-ceq$ToVersion){
     if([string]::IsNullOrWhiteSpace($ControllerId)){throw ('ControllerId is required to validate an already-upgraded Framework '+$ToVersion+' project.')}
