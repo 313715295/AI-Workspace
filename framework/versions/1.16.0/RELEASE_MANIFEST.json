@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "version": "1.16.0",
+  "lifecycle": "STABLE",
+  "releaseClass": "MINOR",
+  "scope": "all release payload files except RELEASE_MANIFEST.json",
+  "algorithm": "Ordinal relative path; path|byteLength|UPPER_SHA256; UTF-8 LF join without trailing LF; SHA256 payload",
+  "fileCount": 86,
+  "totalBytes": 903178,
+  "canonical": "D8F81216066273C441DFAF4E4B4B4113F23C601C08EC2D741A1F20CBF7CA79CC",
+  "baseline": "1.15.1",
+  "sourceReview": "APPROVED",
+  "sourceCandidate": "FRAMEWORK_1.16.0_ROOT_RELEASE_EXTRACTION_REREVIEW_EXACT96_B4C56BCE5B2DF355563CE0320E250640BE7F8972C60B87FA332E00E5B66ADDF9",
+  "releaseIntegration": "DETERMINISTIC_STABLE_SEAL_AFTER_ROOT_EXTRACTION_FOCUSED_REREVIEW_OWNER_ACCEPT"
+}

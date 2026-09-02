@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "frameworkVersion": "1.16.0",
+  "lifecycle": "STABLE",
+  "core": [
+    "RECOVERY_CORE.md"
+  ],
+  "roles": {
+    "CONTROLLER": ["AUTHORIZATION_MODEL.md"],
+    "DOMAIN_OWNER": ["AUTHORIZATION_MODEL.md"],
+    "EXECUTOR": [],
+    "REVIEWER": [],
+    "FRAMEWORK_MAINTAINER": ["AUTHORIZATION_MODEL.md"]
+  },
+  "profiles": {
+    "MICRO": [],
+    "STANDARD": [],
+    "CRITICAL": ["REVIEW_AND_EVIDENCE.md"]
+  },
+  "phases": {
+    "DISCOVER": [],
+    "PLAN": ["TASK_AND_SCOPE.md", "AUTHORIZATION_MODEL.md"],
+    "IMPLEMENT": ["TASK_AND_SCOPE.md"],
+    "VERIFY": ["REVIEW_AND_EVIDENCE.md"],
+    "REVIEW": ["TASK_AND_SCOPE.md", "REVIEW_AND_EVIDENCE.md"],
+    "GIT": ["GIT_AND_EXTERNAL.md", "AUTHORIZATION_MODEL.md"],
+    "EXTERNAL": ["GIT_AND_EXTERNAL.md", "AUTHORIZATION_MODEL.md"],
+    "RECOVER": ["PROJECT_CONTROL.md"]
+  },
+  "hosts": {
+    "CODEX": ["HOST_CODEX.md"],
+    "GENERIC": []
+  },
+  "topologies": {
+    "REPO_LOCAL": [],
+    "FRAMEWORK_MAINTENANCE_SIBLING": ["FRAMEWORK_MAINTENANCE.md"]
+  },
+  "capabilities": {
+    "KNOWLEDGE_REFERENCE": {
+      "hosts": ["CODEX"],
+      "modules": ["KNOWLEDGE_AND_REFERENCE.md"]
+    }
+  },
+  "requirementFragments": [
+    {"ownerModule": "AUTHORIZATION_MODEL.md", "sidecar": "requirements/fragments/AUTHORIZATION_MODEL.json"},
+    {"ownerModule": "FRAMEWORK_MAINTENANCE.md", "sidecar": "requirements/fragments/FRAMEWORK_MAINTENANCE.json"},
+    {"ownerModule": "GIT_AND_EXTERNAL.md", "sidecar": "requirements/fragments/GIT_AND_EXTERNAL.json"},
+    {"ownerModule": "HOST_CODEX.md", "sidecar": "requirements/fragments/HOST_CODEX.json"},
+    {"ownerModule": "KNOWLEDGE_AND_REFERENCE.md", "sidecar": "requirements/fragments/KNOWLEDGE_AND_REFERENCE.json"},
+    {"ownerModule": "PERSPECTIVE_LENSES.md", "sidecar": "requirements/fragments/PERSPECTIVE_LENSES.json"},
+    {"ownerModule": "PROJECT_CONTROL.md", "sidecar": "requirements/fragments/PROJECT_CONTROL.json"},
+    {"ownerModule": "RECOVERY_CORE.md", "sidecar": "requirements/fragments/RECOVERY_CORE.json"},
+    {"ownerModule": "REVIEW_AND_EVIDENCE.md", "sidecar": "requirements/fragments/REVIEW_AND_EVIDENCE.json"},
+    {"ownerModule": "TASK_AND_SCOPE.md", "sidecar": "requirements/fragments/TASK_AND_SCOPE.json"}
+  ],
+  "order": [
+    "RECOVERY_CORE.md",
+    "FRAMEWORK_MAINTENANCE.md",
+    "TASK_AND_SCOPE.md",
+    "REVIEW_AND_EVIDENCE.md",
+    "GIT_AND_EXTERNAL.md",
+    "PROJECT_CONTROL.md",
+    "AUTHORIZATION_MODEL.md",
+    "HOST_CODEX.md",
+    "KNOWLEDGE_AND_REFERENCE.md",
+    "PERSPECTIVE_LENSES.md"
+  ]
+}

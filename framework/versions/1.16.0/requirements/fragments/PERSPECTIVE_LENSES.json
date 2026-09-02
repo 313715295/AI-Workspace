@@ -1,0 +1,102 @@
+{
+  "schemaVersion": 2,
+  "frameworkVersion": "1.16.0",
+  "ownerModule": "PERSPECTIVE_LENSES.md",
+  "requirements": [
+    {
+      "requirementId": "PR_PERSPECTIVE_LENS_SELECTION",
+      "legacyAliases": [],
+      "title": "Risk-focused perspective selection",
+      "description": "Select only review lenses that can materially change the current task judgment.",
+      "selectors": {
+        "profiles": [
+          "STANDARD",
+          "CRITICAL"
+        ],
+        "roles": [
+          "CONTROLLER",
+          "DOMAIN_OWNER",
+          "REVIEWER",
+          "FRAMEWORK_MAINTAINER"
+        ],
+        "phases": [
+          "PLAN",
+          "VERIFY",
+          "REVIEW"
+        ],
+        "actionKinds": [
+          "NONE",
+          "TEST_RUN",
+          "REVIEW_EXECUTE"
+        ],
+        "resultKinds": [
+          "PLAN",
+          "USER_RESPONSE",
+          "REVIEW_VERDICT",
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": [
+          "review",
+          "risk",
+          "architecture",
+          "test",
+          "release"
+        ]
+      },
+      "exactBlockLocator": "AIW-REQUIREMENT:PR_PERSPECTIVE_LENS_SELECTION",
+      "preparationRequirements": [
+        "RELEVANT_LENSES_SELECTED"
+      ],
+      "resultRequirements": [
+        "FINDINGS_DEDUPLICATED"
+      ]
+    },
+    {
+      "requirementId": "PR_PROPORTIONALITY_WHEN_MACHINERY_ADDED",
+      "legacyAliases": [],
+      "title": "Proportional architecture",
+      "description": "Machinery-rich architecture recommendations require one compact proportionality conclusion.",
+      "selectors": {
+        "profiles": [
+          "CRITICAL"
+        ],
+        "roles": [
+          "CONTROLLER",
+          "DOMAIN_OWNER",
+          "FRAMEWORK_MAINTAINER"
+        ],
+        "phases": [
+          "PLAN"
+        ],
+        "actionKinds": [
+          "NONE"
+        ],
+        "resultKinds": [
+          "PLAN",
+          "USER_RESPONSE"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": [
+          "architecture",
+          "workflow",
+          "framework",
+          "service",
+          "registry",
+          "ledger",
+          "role",
+          "state"
+        ]
+      },
+      "exactBlockLocator": "AIW-REQUIREMENT:PR_PROPORTIONALITY_WHEN_MACHINERY_ADDED",
+      "preparationRequirements": [
+        "PROPORTIONALITY_CONCLUSION"
+      ],
+      "resultRequirements": [
+        "MINIMUM_SUFFICIENT_SELECTION"
+      ]
+    }
+  ]
+}

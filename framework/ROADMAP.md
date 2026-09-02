@@ -2,7 +2,34 @@
 
 This file contains generic release history and unselected Framework directions. It is not a task board, authorization object, consumer registry or project evidence store.
 
-## Release line
+## Future admission triggers
+
+No additional process machinery is queued merely because a release exists. A later version is considered only when project evidence shows a remaining failure that the current minimum cannot express safely.
+
+- Host-enforced authenticity remains optional. Consider a trusted adapter or hook only if a supported host path needs enforcement beyond mechanical preflight and exposes testable host-derived signals.
+- Knowledge context budgets remain unselected until natural DISCOVER/QUERY use demonstrates growth that compact metadata and the three-ID limit do not contain.
+- Project/model success, rework, time and cost samples stay project-local; Framework may consume anonymized conclusions later but does not store those measurements.
+- Do not add an actor registry, Reviewer pool, handoff ledger, wait/ACK protocol, background service or second status truth without a new proportionality result and direct failure evidence.
+
+A future item enters a version only after the user or authorized maintainer selects its release, scope, owner, evidence and Review route. No placeholder draft tree is required.
+
+## Release history
+
+### 1.16.0 — adoption profile and compact boundary receipts
+
+Status: stable and consumable after complete Windows PowerShell 7 evidence, immutable 1.15.1 verification, independent CRITICAL Source Review approval, separate Maintenance `OWNER_ACCEPT` and deterministic sealing. Git/publication and project adoption remain separate later actions.
+
+Selected minimum-sufficient scope:
+
+- declare one fixed adoption profile for registration eligibility, direct sources, schema4 project control, PowerShell 7, host-global Router navigation, task-last writes, exact enabled-capability binding and process-pack budgets;
+- return selected complete canonical blocks once at DISCOVER, then reuse a compact no-`fullText` receipt at action/output boundaries while all source and context bindings remain current;
+- use a 32768-byte ordinary pack ceiling and 65536-byte general absolute ceiling, with an explicit 98304-byte exception only for verified effective schema1 corrections under clear/no-custom/no-mismatch conditions;
+- safely delete only explicitly requested exact temporary `aiw-*.json` inputs, on success or failure, without recursive or unsafe cleanup;
+- allow only one narrow schema2 CONTROL task preimage-to-postimage finalization while preserving task ID/Owner and rejecting every other drift;
+- drive root registration and direct 1.14.1/1.15.0/1.15.1 upgrades from the profile and pass exact sorted enabled capability IDs unchanged;
+- keep release governance outside normal runtime fragment selection and keep all stable payloads immutable.
+
+Explicitly not selected: another schema, composer, service, registry, ledger, cache, poller, automatic consumer discovery/adoption, automatic host Skill installation, new backend or broader platform claim.
 
 ### 1.15.1 — bounded current-pin adoption bridge and derived Router fixture
 
@@ -163,14 +190,3 @@ Explicitly not selected: mutable task-field manifests, repository authorization-
 Status: stable, consumable and immutable. It introduced a repository-bound Maintenance control topology and kept ordinary repo-local projects independent.
 
 Earlier releases remain immutable historical contracts.
-
-## Future admission triggers
-
-No additional process machinery is queued merely because 1.13.0 is released. A later version is considered only when post-adoption project evidence shows a remaining failure that its minimum cannot express safely.
-
-- Host-enforced authenticity remains optional. Consider a trusted adapter/hook only if a supported host path actually needs enforcement beyond mechanical preflight and exposes testable host-derived signals.
-- Knowledge context budgets remain unselected until natural DISCOVER/QUERY use demonstrates measurable context growth that compact metadata and the three-ID limit do not contain.
-- Project/model success, rework, time and cost samples stay project-local; Framework may consume anonymized conclusions later but does not store those measurements.
-- Do not add an actor registry, Reviewer pool, handoff ledger, wait/ACK protocol, background service or second status truth without a new proportionality result and direct failure evidence.
-
-A future item enters a version only after the user or authorized maintainer selects its release, scope, owner, evidence and Review route. No placeholder draft tree is required.
