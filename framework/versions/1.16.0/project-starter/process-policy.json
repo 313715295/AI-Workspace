@@ -1,6 +1,7 @@
 {
   "schemaVersion": 1,
-  "contractVersion": "1.14.0",
+  "contractVersion": "1.16.0",
   "projectId": {{PROJECT_ID_JSON}},
+  "selectedRulePackBytes": 32768,
   "rules": []
 }

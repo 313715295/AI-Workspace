@@ -7,7 +7,7 @@
   "required": [
     "schemaVersion", "projectId", "projectRoot", "repositoryGitTop",
     "frameworkVersion", "frameworkSealIdentity", "controllerIdentity", "taskIdentity",
-    "actor", "role", "phase", "profile", "exactScope", "forbiddenScope",
+    "taskActor", "actor", "role", "phase", "profile", "exactScope", "forbiddenScope",
     "protectedScope", "authorizationIdentity", "authorizedActions", "observedCapabilities", "projectConfigIdentity",
     "correctionsIdentity", "policyIdentity", "userDecision", "recoveryState", "hostEnforcementGrade"
   ],
@@ -20,6 +20,7 @@
     "frameworkSealIdentity": {"type": "string", "minLength": 1},
     "controllerIdentity": {"type": "string", "pattern": "^(MISSING|[0-9]+\\|[A-F0-9]{64})$"},
     "taskIdentity": {"type": "string", "pattern": "^[0-9]+\\|[A-F0-9]{64}$"},
+    "taskActor": {"type": "string", "minLength": 1},
     "actor": {"type": "string", "minLength": 1},
     "role": {"enum": ["CONTROLLER", "DOMAIN_OWNER", "EXECUTOR", "REVIEWER", "FRAMEWORK_MAINTAINER"]},
     "phase": {"enum": ["DISCOVER", "PLAN", "IMPLEMENT", "VERIFY", "REVIEW", "GIT", "EXTERNAL", "RECOVER"]},

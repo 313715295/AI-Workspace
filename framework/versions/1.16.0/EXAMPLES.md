@@ -2,30 +2,24 @@
 
 ## New project
 
-After 1.16.0 becomes stable, explicit registration copies its exact starter. The project receives its own pin, Controller, corrections object and empty process-policy. Framework stores no consumer record.
+`1.16.0` stable 后，显式 registration 复制 exact starter。项目获得自己的 pin、Controller、corrections、空 process-policy 与 root `.gitignore` runtime rule；Framework 不保存 consumer record。
 
 ## Existing project
 
-A schema3 1.12 project previews `ToVersion=1.16.0`. Upgrade preserves its corrections and current `PROJECT-CUSTOM`, adds the project-level backend field, an empty structured policy carrier and the managed router projection in one recoverable transaction; it does not invent or move policy rules. Existing two-field tasks remain readable; the owner binds the real actor only when a task reaches its first 1.14 substantive boundary.
+1.14.1/1.15.x project 预览 `ToVersion=1.16.0`。工具在隔离 projection 中先写 target policy/budget 与 migrated task route，运行 target resolver PASS 后才准备可恢复 transaction。non-task object 先写，task 最后写，之后零写入。
 
-## Task actor and loading
+## Task actor 与 independent Reviewer
 
-A current card declares `Work route: actor=task-123; role=EXECUTOR; phase=IMPLEMENT`. The loader rejects a caller that reports another actor. Changing to an independent Reviewer requires an owner-authorized task update to the same whole-file route; resource or package changes cannot rewrite it.
+current card 可声明 `Work route: actor=task-123; role=EXECUTOR; phase=VERIFY`。DOMAIN_OWNER 给 `review-task-9` 签发纯 `REVIEW_EXECUTE` package 后，任务卡仍保持 `task-123`；receipt 报告 `taskActor=task-123`、`actor=review-task-9`、`role=REVIEWER`、`phase=REVIEW`。
 
 ## Progressive requirements
 
-For a source edit, `DISCOVER` selects complete Framework rules for current recovery, task scope and action authorization, plus every applicable structured project rule. An unmatched free-text correction remains in the result under its project-scoped alias and explicit legacy ceiling.
+`DISCOVER` 一次返回完整 selected Framework rules 与 applicable project rules，并生成 compact receipt。`ADMIT_ACTION` 在 preparation receipt 缺失或 exact object 漂移时阻塞；结构 PASS 不授予 `SOURCE_WRITE`。`FINALIZE_OUTPUT` 在 result、`OBJECT_POSTIMAGE|path|identity` 或 delivery evidence 缺失时阻塞，并保持 `semanticCorrectnessProven=false`。
 
-`ADMIT_ACTION` blocks when a selected preparation receipt is absent or an authorized exact object has drifted since DISCOVER. A structural PASS does not grant SOURCE_WRITE, so the separate exact authorization checker must also pass. `FINALIZE_OUTPUT` blocks when requested result, exact `OBJECT_POSTIMAGE|path|identity` evidence or direct-delivery evidence is absent and still reports `semanticCorrectnessProven=false`.
+## Runtime artifact
 
-## Exact correction absorption
-
-A project correction is suppressed only when the release mapping binds its project-scoped alias, native Framework requirement, sealed catalog identity and canonical six-field source-record identity. If the rule or reason changed under the same correction ID, the correction remains effective and the resolver reports `SOURCE_RECORD_IDENTITY_MISMATCH_RETAINED`.
-
-## Permanent project-rule migration
-
-Before migration, normative `PROJECT-CUSTOM` is fully loaded once and reused. A later project-owned transaction may create structured policy rules, add the config locator and retire the exact migrated legacy bytes together. Distinct rules may coexist during migration, but an identical effective rule active in corrections, structured policy or `PROJECT-CUSTOM` fails with `CONFLICT_PROJECT_RULE_DUPLICATE_EFFECTIVE_RULE`.
+默认 input 位于 `.ai-workspace/runtime/TASK-001/task-123/discover.json`。resolver 在 `-DeleteInputOnExit` 下只删除经过 task/actor binding、非 reparse 且文件名安全的 exact file。项目 runtime 不可用时才使用 system temp `aiw-*.json`。
 
 ## Host ceiling
 
-A conforming adapter may prove that it invoked the resolver. An instruction-only host reports `INSTRUCTION_BOUND / INVOCATION_UNPROVEN`. Neither grade proves that the model understood or semantically applied a rule correctly.
+conforming adapter 可以证明调用 resolver；instruction-only host 报告 `INSTRUCTION_BOUND / INVOCATION_UNPROVEN`。两者都不证明 model 已正确理解或语义应用规则。

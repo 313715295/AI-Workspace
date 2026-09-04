@@ -1,59 +1,63 @@
-# Authorization model
+# 授权模型
 
 <!-- AIW-REQUIREMENT:PR_ACTION_AUTHORIZATION_INDEPENDENT:BEGIN -->
-Authorization is explicit, scoped and phase-local. It is not inferred from recovery, Review, a task assignment or chat intent.
+授权必须显式、限域，并且只对当前 phase 有效。不得从 recovery、Review、任务分配或聊天意图中推断授权。
 
 ## Actions
 
-`CONTROL_WRITE`, `SOURCE_WRITE`, `TEST_WRITE`, `TEST_RUN`, `BROWSER_RUN`, `DEVICE_RUN`, `REVIEW_ROUTE`, `REVIEW_EXECUTE`, `GIT_STAGE`, `GIT_COMMIT`, `PUSH`, `EXTERNAL`.
+`CONTROL_WRITE`、`SOURCE_WRITE`、`TEST_WRITE`、`TEST_RUN`、`BROWSER_RUN`、`DEVICE_RUN`、`REVIEW_ROUTE`、`REVIEW_EXECUTE`、`OWNER_ACCEPT`、`GIT_STAGE`、`GIT_COMMIT`、`PUSH`、`EXTERNAL`。
 
-Safe in-scope reads need no implementation package. Every mutating or side-effecting action above remains distinct.
+范围内的安全读取不需要 implementation package。以上每个会修改状态或产生副作用的 action 都保持独立。
 
 ## Package binding
 
-A package binds framework version, task ID and current whole-task identity, profile, lifecycle, owner, issuer, grantee, action set, exact paths, whole-object identities, decision class, user confirmation and project-config identity. The checker compares the package grantee with the task-bound actor as well as the observed host actor. Controller and repository fields remain conditional on topology and issuer role.
+package 绑定 framework version、task ID 与当前整张任务卡 identity、profile、lifecycle、owner、issuer、grantee、action set、exact paths、whole-object identities、decision class、user confirmation 与 project-config identity。checker 同时比较 package grantee、任务卡中的当前 actor 与 host 实际 actor；Controller 和 repository 字段是否必需，由 topology 与 issuer role 决定。
 
-Package JSON is parsed as strict security input. Duplicate members are rejected recursively after escape decoding, including Unicode-escaped names that decode to an existing member; last-member-wins parser behavior never resolves authority.
+package JSON 按严格安全输入解析。转义解码后出现的递归重复 member 也必须拒绝；不得用 last-member-wins 行为解释权限。
 
-Required invalidators include task, owner, grantee, action set, path set, object, user decision, Controller epoch, repository and project-config drift. Unknown drift fails closed.
+必需 invalidator 包括 task、owner、grantee、action set、path set、object、user decision、Controller epoch、repository 与 project-config drift。未知 drift 一律 fail closed。
 
-The selected tool backend is contained in project config and is therefore bound by `projectConfigIdentity` in both repo-local schema1 and Maintenance schema2 packages. Packages do not repeat `frameworkToolBackend`; a backend/config byte change invalidates them without creating a second selection truth.
+tool backend 由 project config 选择，因此 repo-local package 与由 root adapter 预先验证的 repository-bound package 都通过 `projectConfigIdentity` 绑定它。package 不重复 `frameworkToolBackend`；backend/config 字节变化会使 package 失效，不创建第二个选择真相。repository-bound package 不能直接调用 version checker，必须先经过拥有 topology authority 的 root adapter；version checker只复用通用 action、task、object 与Controller绑定语义。
 
-Framework 1.16.0 accepts an `ObservedAction` array. One unchanged lease may preflight several granted actions once; the checker returns one result per requested action. Duplicate, unknown or ungranted actions fail. Existing single-action callers remain valid.
+Framework `1.16.0` 接受 `ObservedAction` array。同一个未变化 lease 可以一次预检多个已授予 action，checker 对每个 action 返回独立结果。重复、未知或未授予 action 必须失败；原有单 action 调用仍有效。
 
-Batch preflight does not merge capabilities: a successful `SOURCE_WRITE` result is not `TEST_RUN`, Review or Git authority. Once a bound identity, repository or decision drifts, issue a fresh package for later phases.
+schema3 project-upgrade package 可包含 `targetFrameworkSnapshot={canonical,manifestIdentity}`。stable adoption 保持向后兼容；local candidate pilot 则必须由 root upgrader 要求该字段，并与当次重算 payload 及最终 manifest identity 精确一致。它只是逐次使用的候选绑定，不创建发布 ledger 或第二份 release truth。
 
-`PROCESS_REQUIREMENTS_RESOLVE/ADMIT_ACTION` consumes the current task/source decision and verifies required preparation, but returns `authorityGranted=false`. Both the process decision and the independent action checker must pass. Neither can substitute for the other.
+批量预检不会合并能力：`SOURCE_WRITE` PASS 不等于 `TEST_RUN`、Review 或 Git 权限。任何绑定 identity、repository 或 decision 漂移后，后续 phase 必须使用新 package。
 
-There is no repository authorization-consumption ledger. Validity ends through the bound invalidators and explicit phase release. If the host cannot prove single consumption, do not claim it.
+`PROCESS_REQUIREMENTS_RESOLVE/ADMIT_ACTION` 消费当前 task/source decision 并校验 preparation，但始终返回 `authorityGranted=false`。process decision 与独立 action checker 必须分别 PASS，彼此不能替代。
+
+仓库内不设置 authorization-consumption ledger。有效期由绑定的 invalidators 和显式 phase release 结束；host 无法证明 single consumption 时，不得声称已单次消费。
 <!-- AIW-REQUIREMENT:PR_ACTION_AUTHORIZATION_INDEPENDENT:END -->
 
 <!-- AIW-REQUIREMENT:PR_PROTECTED_PATH_FAIL_CLOSED:BEGIN -->
-Protected or excluded read/hash/diff/index/write boundaries remain exact and fail closed. UNKNOWN scope or an unavailable bounded helper returns the narrow blocker and never authorizes broad search, fallback access or a widened path set.
+protected 或 excluded 的 read/hash/diff/index/write 边界必须精确且 fail closed。scope 为 UNKNOWN 或 bounded helper 不可用时，只返回最窄 blocker；不得扩大搜索、使用绕行读取或放宽 path set。
 <!-- AIW-REQUIREMENT:PR_PROTECTED_PATH_FAIL_CLOSED:END -->
 
 <!-- AIW-REQUIREMENT:PR_AUTHORITY_CONTEXT_INTENT_RECONCILIATION:BEGIN -->
-Build authority context only from current mechanically observed project, Controller, task, package, scope, identity, capability, recovery and host facts. Treat the requested objective/action/result and semantic hints as an intent envelope only. Authority facts always win; UNKNOWN, unauthorized action or a hint/fact mismatch blocks the governed action or conservatively selects the affected rule blocks.
+authority context 只能来自当前机械观察到的 project、Controller、task、package、scope、identity、capability、recovery 与 host facts。requested objective/action/result 和 semantic hints 只构成 intent envelope。authority facts 始终优先；UNKNOWN、未授权 action 或 hint/fact mismatch 会阻止受治理 action，或保守选择受影响的完整规则块。
 <!-- AIW-REQUIREMENT:PR_AUTHORITY_CONTEXT_INTENT_RECONCILIATION:END -->
 
 <!-- AIW-REQUIREMENT:PR_DYNAMIC_ROLE_DIRECT_ISSUANCE:BEGIN -->
-## Controller and roles
+## Controller、Owner 与临时角色
 
-`controller.json` is the sole literal current Controller ID/epoch. A PROJECT_CONTROLLER issuer must match that object exactly. DOMAIN_OWNER cannot impersonate Controller fields.
+`controller.json` 是当前 Controller ID/epoch 的唯一字面真相。PROJECT_CONTROLLER issuer 必须与其精确一致；DOMAIN_OWNER 不得伪装 Controller 字段。
 
-Only PROJECT_CONTROLLER and DOMAIN_OWNER are long-lived responsibilities. Executor, writer, Reviewer, Git, browser, device and resource route are temporary task/phase hats. A fresh package is required when its action, grantee, path/object set or user decision changes; this invalidates the old package, not the healthy recovery baseline, and does not by itself require PROJECT_CONTROLLER issuance.
+PROJECT_CONTROLLER 与 DOMAIN_OWNER 是长期责任。Executor、writer、Reviewer、Git、browser、device 与 resource route 都是临时 task/phase 角色。action、grantee、path/object set 或 user decision 改变时需要新 package；旧 package 因此失效，但健康 recovery baseline 不会自动失效，也不因此强制由 PROJECT_CONTROLLER 签发。
 
-Inside an unchanged domain task, the DOMAIN_OWNER is the default direct issuer and phase consumer. The Owner may execute, select an eligible actor, issue a pure `REVIEW_EXECUTE` package to an independent Reviewer, receive the verdict and perform `OWNER_ACCEPT` without a Controller relay. A qualified cross-domain actor may write while the task owner remains unchanged. For CRITICAL Review, the task owner, package issuer, candidate writer and every material contributor remain disqualified from the final independent Reviewer role.
+任务卡的 Owner 表示责任归属，`Work route` 表示当前生产 actor；一次临时 action 的 grantee 不取得任务归属。对纯 `REVIEW_EXECUTE`，可把独立 Reviewer 写入 package grantee，同时保持任务卡 Owner、Work route、task identity 与候选 bytes 不变。resolver 用该 grantee 形成当前 action context，并保留 `taskActor` 作为任务生产路线证据；Reviewer verdict 直接返回 Owner，不需要 Controller→Reviewer→Controller 的任务改绑。只有真实责任转移才可改写任务路线。
 
-Route through PROJECT_CONTROLLER only when it owns the unique next action or must resolve an owner/public-decision, cross-domain contract, protected-path, project-phase, Git/device/external or resource-conflict boundary. Resource selection alone grants no authority.
+在未变化的 domain task 内，DOMAIN_OWNER 是默认直接 issuer 与 phase consumer。Owner 可执行、选择合格 actor、向独立 Reviewer 签发纯 `REVIEW_EXECUTE` package、接收 verdict 并执行 `OWNER_ACCEPT`。接受动作复用现有 scoped package，绑定当前 task 和 exact result；`OWNER_ACCEPT` 的 grantee 必须是经当前任务卡复证的 Owner，并继续满足既有 actor 绑定。它不要求新增授权格式，也不因获准接受而获得任何写入、安装、Git 或 external 权限。合格的跨域 actor 可以写入，任务 Owner 仍保持不变。CRITICAL Review 中，task owner、package issuer、candidate writer 与所有 material contributor 都不能成为最终独立 Reviewer。
 
-Controller handoff is directional and ends at `TAKEOVER_COMPLETE`. Predecessor read-only grace is not routing authority and not retirement permission.
+只有 PROJECT_CONTROLLER 拥有唯一 next action，或必须解决 owner/public-decision、cross-domain contract、protected-path、project-phase、Git/device/external 或 resource-conflict 边界时，才路由至 PROJECT_CONTROLLER。resource selection 本身不授予权限。
+
+Controller handoff 是单向过程，并在 `TAKEOVER_COMPLETE` 结束。predecessor 的只读宽限不是 routing authority，也不是 retirement permission。
 <!-- AIW-REQUIREMENT:PR_DYNAMIC_ROLE_DIRECT_ISSUANCE:END -->
 
 <!-- AIW-REQUIREMENT:PR_USER_DECISION_DRIFT:BEGIN -->
-## User decisions
+## User decision
 
-A user confirmation remains valid while the frozen decision, scope, risk and boundary are unchanged. Material or unknown drift requires a new decision; unrelated metadata or deterministic projection does not.
+只要冻结的 decision、scope、risk 与 boundary 未变化，user confirmation 就继续有效。material 或 UNKNOWN drift 需要新 decision；无关 metadata 或 deterministic projection 不需要。
 
-Drift classes are `MATERIAL / UNRELATED_METADATA / PROJECTION / UNKNOWN`. Immutable candidates, protected objects and canonical evidence retain strict whole-object stops.
+drift class 为 `MATERIAL / UNRELATED_METADATA / PROJECTION / UNKNOWN`。immutable candidate、protected object 与 canonical evidence 仍执行严格 whole-object stop。
 <!-- AIW-REQUIREMENT:PR_USER_DECISION_DRIFT:END -->

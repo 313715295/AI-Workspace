@@ -2,24 +2,22 @@
 
 ## Cold recovery
 
-Prove cwd and Git top. Read only the repo-local project/controller/Bootstrap, current task locator and the minimum facts needed to bind profile, actor, role, phase, proposed action/result, paths, capabilities and authority sources. Resolve the pinned Framework. Run `PROCESS_REQUIREMENTS_RESOLVE / DISCOVER` against the complete catalog, load every returned exact Markdown block plus the selected current corrections/project-policy rules, then load only required non-rule supporting artifacts. Recovery is read-only; report owner, task, boundaries, evidence ceiling and unique next action. If the compatible host-global router Skill was not proven to run, follow Bootstrap directly and say so.
+证明 cwd 与 Git top。读取 repo-local project/controller/Bootstrap、current task locator 与绑定 profile、task owner、task actor、action actor、role、phase、action/result、paths、capabilities 和 authority sources 所需的最小 facts。解析 pinned Framework，对完整 catalog 执行 `PROCESS_REQUIREMENTS_RESOLVE / DISCOVER`，一次加载全部 returned exact Markdown blocks 与 selected corrections/project-policy rules，再加载必要 supporting artifacts。Recovery 只读；报告 boundary、evidence ceiling 与 unique next action。compatible root Router 未证明运行时，直接走 Bootstrap 并如实说明。
 
 ## Implementation launch
 
-Given a valid signed package, bind task, owner, actor, Controller epoch, actions, exact paths/identities, repository/config and user decision. Run `PROCESS_REQUIREMENTS_RESOLVE / ADMIT_ACTION`, then compose the unchanged authorization and workflow-route checks from `<FW>/TOOLCHAIN.json`. Begin the granted actions without a second START only when every required gate passes. Otherwise return the narrow drift or missing preparation.
+用 signed package 绑定 task、owner、actor、Controller epoch、actions、exact paths/identities、repository/config 与 user decision。执行 `PROCESS_REQUIREMENTS_RESOLVE / ADMIT_ACTION`，再通过 `<FW>/TOOLCHAIN.json` 完成 authorization 与 workflow-route checks。全部 gate PASS 后无需第二次 START 即可开始；否则返回最窄 drift 或 missing preparation。
 
 ## Task routing
 
-Evaluate project, cwd/Git top, outcome, task-owner continuity, actor eligibility, lineage, resource availability, independent-context need, protection, Git/device/external boundary and current public decision. Materialize only the strict ephemeral input, resolve `WORKFLOW_ROUTE_RESOLVE` through `<FW>/TOOLCHAIN.json` and remove the input afterward; the operation fails closed on missing or conflicting mandatory facts. Return exactly `REUSE`, `MUST_NEW` or `BLOCKED`. A supported resource rebind is REUSE, explicit independent execution may be MUST_NEW, and authority/protection/public-decision drift is BLOCKED.
+评估 project、cwd/Git top、outcome、task-owner continuity、actor eligibility、lineage、resource、independent-context need、protection、Git/device/external boundary 与 public decision。把 strict ephemeral input 写入 `.ai-workspace/runtime/<task>/<actor>/`，通过 Tool Contract 运行 `WORKFLOW_ROUTE_RESOLVE`，随后删除 input。mandatory facts 任一缺失或冲突都 `fail closed`；只返回 `REUSE`、`MUST_NEW` 或 `BLOCKED`。
 
-For terminal delivery, authenticated task messages, Controller handoff and hot-state projection, invoke the matching `TERMINAL`, `MESSAGE`, `HANDOFF` or `HOT_STATE` operation before claiming the transition. At the pre-output boundary run `PROCESS_REQUIREMENTS_RESOLVE / FINALIZE_OUTPUT` against the actual result and delivery. `TERMINAL` must name the proposed consumer and whether a real Controller escalation boundary exists; fresh authorization alone is not such a boundary.
-
-For Codex independent tasks, use one compact terminal delivery. Use `wait_threads` only when that exact result blocks the current unique next action and no other safe work remains; never use it as progress, ACK or read-confirmation ritual.
+`TERMINAL`、`MESSAGE`、`HANDOFF` 与 `HOT_STATE` 必须在声称 transition 前调用相应 operation。最终输出前，用实际 result/delivery 执行 `FINALIZE_OUTPUT`。Codex independent task 只做一次 compact terminal delivery；只有 exact result 阻塞 unique next action 且无其他安全工作时才用 `wait_threads`。
 
 ## Review
 
-Consume a pure Review package, independently verify the frozen candidate and return findings, evidence ceiling and Git disposition. Do not write or repair. Review approval remains separate from `OWNER_ACCEPT`.
+消费纯 Review package，独立校验 frozen candidate，返回 findings、evidence ceiling 与 Git disposition；不得写入或 repair。Reviewer 是临时 action grantee，不改写 task Work route。Review approval 与 `OWNER_ACCEPT` 分离。
 
 ## Framework maintenance
 
-Start from the Maintenance control repository. Modify only a new final-version candidate and authorized root integration paths. Never edit stable releases, discover consumers or change project pins. During implementation run affected checks; at freeze run one complete current-version suite, then independent Source Review, separate `OWNER_ACCEPT`, sealing and deterministic post-seal verification. Git and push remain later independent gates.
+从 Maintenance control repo 开始，只修改授权的新 final-version candidate 与 root integration paths。不得改 stable release、discover consumer 或改 project pin。实现期只跑 affected checks；freeze 时只跑一次完整 current-version suite，然后依次独立完成 Source Review、`OWNER_ACCEPT`、seal 与 deterministic post-seal verification。Git/push 是后续独立 gate。

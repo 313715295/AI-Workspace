@@ -101,6 +101,8 @@ Framework 不存在全局默认版本，也不存在全局 `CURRENT` 版本。
 
 Framework 1.16.0 只有在上述稳定字段、独立 Review 和规范化发行清单全部通过时才可采用；任一条件仍为候选或待处理时，注册和升级都必须停止。满足条件也不会自动授权 Git 发布，或自动升级、发现、记录任何消费者。下方快速开始以 1.16.0 为明确目标，并把这项机械验证作为写入前置条件。
 
+当前工作区中的 1.16.0 是本地 `CANDIDATE`，因此下方 stable registration/adoption 示例在当前 bytes 上应 fail closed。候选实现把 selected-rule-pack budget 放入项目 `.ai-workspace/process-policy.json.selectedRulePackBytes`，默认 `32768`、absolute cap `98304`；upgrade 先在 target projection 中迁移任务路线并运行 target resolver，再写 pin。临时过程文件默认位于 `.ai-workspace/runtime/<task>/<actor>/`，由 root `.gitignore` 排除。
+
 ## 仓库结构
 
 ```text
@@ -108,6 +110,10 @@ README.md
 LICENSE
 framework/
   ROADMAP.md
+  maintenance-overlay/
+    OVERLAY.json
+    BOOTSTRAP.md
+    AGENTS.md
   versions/
     <version>/
       VERSION.json
@@ -117,10 +123,10 @@ framework/
       TOOLCHAIN.json
       requirements/
       project-starter/
-      framework-maintenance-starter/
       scripts/
       tests/
 scripts/
+  MaintenanceOverlay.psm1
   register-project.ps1
   upgrade-project.ps1
 ```
@@ -149,7 +155,7 @@ Tool Contract、项目级工具后端和机械校验负责执行一致性；写�
 
 ## 快速开始
 
-下面的示例明确选择目标版本 `1.16.0`；它不是全局默认版本，只有通过前述稳定性验证后才能采用。注册流程复制所选版本中现有的 `project-starter`，不会另外创建第二套流程模型。
+下面的示例明确选择目标版本 `1.16.0`；它不是全局默认版本，只有通过前述稳定性验证后才能采用。普通注册复制所选版本的 `project-starter`。Framework Maintenance 注册先使用同一个通用 starter，再由 root `framework/maintenance-overlay/` 确定性替换 project config、Bootstrap managed block 与 AGENTS managed block；覆盖层只服务初始化、升级和迁移，不是运行时 authority 或第二套流程模型。
 
 ### 新项目接入
 
@@ -243,7 +249,7 @@ Framework 维护过程中的动态状态属于专用控制仓库。Framework 源
 
 除非文件明确另有声明，本仓库全部内容统一采用 [Apache License 2.0](LICENSE)。该许可证允许个人及商业使用、修改和分发，也允许将 Framework 用于闭源项目；它不会自动改变消费者项目中独立产品源码的许可证。
 
-从 `project-starter` 或 `framework-maintenance-starter` 复制、生成或修改的 Framework 文件仍适用 Apache-2.0。对外分发这些文件时，应随附许可证、保留适用声明，并按照许可证要求标明发生过的重要修改。
+从 `project-starter` 或 root `maintenance-overlay` 复制、生成或修改的 Framework 文件仍适用 Apache-2.0。对外分发这些文件时，应随附许可证、保留适用声明，并按照许可证要求标明发生过的重要修改。
 
 ## 安全边界
 

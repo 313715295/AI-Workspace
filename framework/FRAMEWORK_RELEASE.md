@@ -1,49 +1,68 @@
 # Framework release process
 
-This root-owned process governs Framework release work across versions. It is not part of a sealed version payload, a consumer runtime rule pack, a project task or a second authority. The Maintenance control repository supplies the current task, authorization, Review and evidence; this file supplies the reusable release sequence.
+本 root-owned 流程管理跨版本 Framework release。它不属于 sealed version payload、consumer runtime rule pack、project task 或第二 authority。Maintenance control repo 提供 current task、authorization、Review 与 evidence；本文只提供可复用顺序。
 
 ## Release classification
 
-- `ROOT_MAINTENANCE`: bounded repository-level documentation, license, checkout policy, release procedure or integration tooling that does not change a sealed version payload. It receives exact-path validation and affected tests but is not a Framework version release.
-- `PATCH`: a bounded compatible correction that adds no public capability, authority action, schema migration, role, backend or consumer requirement.
-- `MINOR`: a new Framework capability or public process/schema behavior with compatible project adoption.
+- `ROOT_MAINTENANCE`：不改变 sealed payload 的 root docs、license、checkout policy、release procedure 或 integration tooling；使用 exact-path validation 与 affected tests，但不是 version release。
+- `PATCH`：兼容且边界明确的修正，不新增 public capability、authority action、schema migration、role、backend 或 consumer requirement。
+- `MINOR`：新增 Framework capability 或 public process/schema behavior，并保留兼容 adoption。
 
-Unknown impact, a new authority boundary or a migration requirement cannot be classified as PATCH. Classification changes before candidate freeze reopen scope and authorization.
+unknown impact、新 authority boundary 或 migration requirement 不能归为 PATCH。candidate freeze 前 classification change 会重开 scope/authorization。
 
 ## Direct-version candidate
 
-Develop a new version directly in `framework/versions/<version>/`; no parallel draft tree is required. A directory is not consumable merely because it exists. Registration and upgrade require stable lifecycle fields plus a complete canonical `RELEASE_MANIFEST.json` with `sourceReview=APPROVED` and non-pending integration.
+直接在 `framework/versions/<version>/` 开发，不需要 parallel draft tree。目录存在不代表 consumable。stable registration/upgrade 只接受 lifecycle stable、canonical `RELEASE_MANIFEST.json`、`sourceReview=APPROVED` 与 non-pending integration。
 
-The version payload contains only version-owned runtime rules, schemas, compatibility/adoption facts, tests and explanatory material. It does not copy this release process. Version-specific release identity and evidence belong in `VERSION.json`, `RELEASE_MANIFEST.json`, `CHANGELOG.md` and the Maintenance task evidence.
+payload 只含 version-owned runtime rules、schemas、compatibility/adoption facts、tests 与 explanation；不复制本文，也不复制完整 Framework Maintenance starter。root `framework/maintenance-overlay/` 与 `scripts/MaintenanceOverlay.psm1` 是可变 integration input，由 root tools 在 registration/upgrade 时叠加到通用 `project-starter`；它们不进入 version manifest，也不是 live project authority。version-specific identity/evidence 位于 `VERSION.json`、`RELEASE_MANIFEST.json`、`CHANGELOG.md` 与 Maintenance task。
 
-## Candidate and testing
+## Local candidate pilot
 
-The payload is every file in the version except `RELEASE_MANIFEST.json`, ordered by ordinal relative path. Each row is `path|byteLength|UPPER_SHA256`; rows join with UTF-8 LF and no trailing LF; the payload identity is SHA256 over those rows.
+需要自然 project use 时，保持 direct version directory，并标记 `CANDIDATE / consumable=false / projectPinEligible=false`。`ADOPTION_PROFILE.json.localCandidatePilotEligible=true`。实现期 manifest 保持 `CANDIDATE / sourceReview=PENDING / releaseIntegration=PENDING`；进入试点前，manifest 必须把最终 payload、一次完整套件及独立 Source Review 绑定为同一候选证据，`sourceReview` 才投影为 `APPROVED`，而 `releaseIntegration` 仍为 `PENDING`。
 
-During implementation run affected tests. At final candidate freeze run the complete current-version suite once. Always prove the immutable baseline payload identity. Re-run a baseline's executable suite only when shared root tools, upgrade compatibility, Tool Contract or that baseline's execution boundary is affected.
+local candidate 按四个阶段推进：
 
-Freeze final current-facing README/ROADMAP wording before Source Review. Do not change free-form or executable bytes during deterministic sealing.
+1. `CANDIDATE_IMPLEMENTATION`：只实现冻结范围并运行 affected tests。
+2. `PRE_PILOT_VERIFICATION`：冻结一份 pilot snapshot，运行一次 complete current-version suite，并取得一次 independent CRITICAL Source Review。
+3. `LOCAL_PILOT`：显式选择的 project 按顺序使用同一份已测试、已 Review 的 snapshot。先由 Maintenance，再由选定 consumer；finding 先报告，不自动修复。
+4. `RELEASE_CLOSURE`：snapshot 未变化时复用 identity-bound full-suite 与 Review evidence；发生修正时只按实际 delta 运行 affected validation 与 proportionate rereview。然后才分别进入 `OWNER_ACCEPT`、seal、Git/push、publication 与 adoption。
 
-## Review, acceptance and sealing
+显式选择的 existing project 可在 `LOCAL_PILOT` 运行 root upgrader `-LocalCandidatePilot`。这是 project-owned pilot decision，不是 stable adoption。upgrader 必须在 project boundary 前重算 payload 并与 manifest 的 file count、bytes、canonical、完整套件及 Source Review evidence 一致；实际写入使用的 schema3 project authorization 还必须携带 `targetFrameworkSnapshot={canonical,manifestIdentity}`，逐次绑定最终 manifest。preview 只读，不以自身授予项目写入。工具复用普通 actor-bound transaction，不注册新项目、不发布、不创建第二 candidate tree，也不把 finding 自动转成 project correction。
 
-1. Freeze the exact non-consumable candidate and release the writer.
-2. One independent CRITICAL Source Review evaluates every changed normative/executable byte, exact payload, affected root projection, tests and immutable baseline boundary.
-3. Same-scope repairs return to the same still-independent Reviewer for a focused rereview; broadened impact requires a full rereview.
-4. Maintenance `OWNER_ACCEPT` separately accepts the exact approved candidate.
-5. A bounded sealing writer changes only enumerated lifecycle fields and the excluded release manifest. Reviewed/generated root projections must already contain their final wording.
-6. Deterministic checks recompute the final payload and verify the seal allowlist, manifest and staged diff. A second semantic post-seal Review is unnecessary when no unreviewed free-form or executable byte changed. Any such change reopens Source Review.
-7. `GIT_STAGE` stages only the exact sealed allowlist. Before commit, a deterministic publication preflight must prove that the index pathset and every staged object identity equal the approved postimage, no unauthorized path is staged, release paths have no unstaged delta, the authorized parent is unchanged and all remote preconditions still match.
-8. When every preflight fact is mechanically proven, `GIT_COMMIT` may proceed without a routine independent staged Git Review. Any path, byte, parent, repository-boundary or integration ambiguity stops the commit: use an independent staged Git Review when the approved postimage is unchanged but publication integrity cannot be established mechanically, reusing the same Reviewer when independence remains, or reopen Source Review when free-form/executable candidate bytes changed. After commit, verify the resulting commit, parent, committed pathset and protected-safe repository state before any remote action.
-9. This Framework repository publishes `github/main` first and `origin/main` second. Before the first push, both remote refs must equal the authorized parent; after each push, read back that remote at the exact release commit. Any preflight, push or readback failure stops the sequence before the later remote and forbids implicit retry, force, tag or compensation without fresh recovery and authority.
+同一 project 已 pin 该 candidate version、但 pilot snapshot 后续发生变化时，仍使用 `-LocalCandidatePilot`。工具先根据旧 pilot state 证明 live 托管对象确实来自上一候选投影，再生成当前 snapshot 的 Bootstrap/AGENTS 管理区、process policy、Maintenance overlay 与 runtime ignore；完全一致时只重绑 `upgrade-recovery/<version>/state.json`，存在可证明的旧候选托管差异时则输出一次 fresh schema3 exact pre/postimage 写集并按“托管对象在前、state 在后”刷新。刷新后的 state 明确分离原始跨版本 `objects` 恢复材料与当前 `projectionObjects`，不会把未同步的 old/new material 冒充当前候选恢复材料；普通异常会反向回滚，进程被强制终止造成的未知 live/state 组合则停止并要求精确恢复，不宣称跨进程原子性。项目自定义区、corrections 内容、任务正文和未知字节不被改写；任一来源无法证明仍 fail closed。该路线不复跑发布门，也不允许 stable 同版本重绑。
 
-One explicit user authorization may pre-authorize this exact ordered Git sequence, but it does not merge its action packages, evidence or failure boundaries.
+candidate 自身 Bootstrap/resolver/checks 必须支持 declared lifecycle；target projection preflight 在任何 pin write 前 PASS。candidate bytes 变化使旧 source context 失效，需要 fresh project recovery；不自动重写已选 pin。finding 在正常 Framework source authority 下修复同一 candidate。
 
-Review approval, `OWNER_ACCEPT`, sealing, Git publication and consumer adoption are distinct outcomes. A stable release never selects a global default or changes a project pin.
+pilot 不接受 raw、未完整测试或未 Review 的 candidate，不让 candidate generally consumable，也不授予 Git/push。project 仍独立决定是否采用 sealed release。
 
-## Incorporated corrections and platform evidence
+## Candidate 与 testing
 
-Correction coverage metadata cannot prove incorporation by itself. Suppression requires the original reason and boundary to be implemented in applicable native requirements, covered by behavior tests and accepted in Source Review with exact mapping evidence.
+payload 是 version 内除 `RELEASE_MANIFEST.json` 外的全部文件，按 ordinal relative path 排序。每行 `path|byteLength|UPPER_SHA256`，以 UTF-8 LF 连接且无 trailing LF；payload identity 是这些行的 SHA256。
 
-Platform support remains evidence-bound. A release claims only the platforms declared by its sealed Tool Contract and supported by actual conformance evidence.
+实现期只跑 affected tests。final candidate freeze 只跑一次 complete current-version suite。始终证明 immutable baseline payload identity。只有 shared root tools、upgrade compatibility、Tool Contract 或 baseline execution boundary 受影响时，才重跑 baseline executable suite。
 
-This process adds no release service, registry, queue, ledger, persistent receipt, second authority or automatic consumer operation.
+Source Review 前冻结 README/ROADMAP 等 current-facing wording。deterministic sealing 期间不得修改 free-form 或 executable bytes。
+
+## Review、acceptance 与 sealing
+
+1. 冻结 exact non-consumable candidate，并 release writer。
+2. 一个 independent CRITICAL Source Review 检查全部 changed normative/executable bytes、exact payload、root projection、tests 与 immutable baseline。
+3. same-scope repair 返回同一个仍 independent Reviewer 做 focused rereview；broadened impact 需要 full rereview。
+4. Maintenance `OWNER_ACCEPT` 独立接受 exact approved candidate。
+5. bounded sealing writer 只改 enumerated lifecycle fields 与 excluded manifest；reviewed/generated root projection 已是 final wording。
+6. deterministic checks 重算 payload，校验 seal allowlist、manifest 与 staged diff。没有未 Review 的 free-form/executable change 时，不需要第二次 semantic post-seal Review。
+7. `GIT_STAGE` 只 stage exact sealed allowlist。commit 前 deterministic publication preflight 证明 index pathset/staged identities、authorized parent、无 unauthorized/unstaged release delta 与 remote preconditions。
+8. preflight 全部证明后才可 `GIT_COMMIT`。任何 path/byte/parent/repository/integration ambiguity 都停止；若 candidate bytes 变则重开 Source Review。
+9. publication 顺序为 `github/main` 后 `origin/main`。首 push 前两端 refs 必须等于 authorized parent；每次 push 后回读 exact release commit。失败即停止，不 implicit retry、force、tag 或 compensate。
+
+一次 explicit user authorization 可以预授权同一 exact ordered Git sequence，但不合并 action package、evidence 或 failure boundary。
+
+Review approval、`OWNER_ACCEPT`、seal、Git publication 与 consumer adoption 是不同 outcome。stable release 不设置 global default，也不改 project pin。
+
+## Correction 与 platform evidence
+
+coverage metadata 本身不能证明 correction incorporated。suppression 需要 original reason/boundary 已由 applicable native requirements 实现、behavior tests 覆盖，并在 Source Review 中以 exact mapping evidence 接受。
+
+platform support 由 evidence 限定。release 只声称 sealed Tool Contract 声明且实际 conformance 已证明的平台。
+
+本流程不增加 release service、registry、queue、ledger、persistent receipt、第二 authority 或 automatic consumer operation。

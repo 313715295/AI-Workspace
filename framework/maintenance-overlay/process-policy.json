@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "contractVersion": {{PROCESS_CONTRACT_VERSION_JSON}},
+  "projectId": {{PROJECT_ID_JSON}},
+  "selectedRulePackBytes": {{SELECTED_RULE_PACK_BYTES}},
+  "rules": [
+    {
+      "ruleId": "FRAMEWORK_MAINTENANCE_SIBLING_TOPOLOGY",
+      "requirementReason": "Framework Maintenance 必须把动态控制权威与 Framework target bytes 保持在两个明确的 sibling Git repository 中。",
+      "effectiveRule": "Maintenance control repository 持有 .ai-workspace、Controller、task、authorization 与 Review routing；Framework target repository 只持有通用 Framework source、version payload 与 root tools。每个受治理动作必须分别绑定 CONTROL 或 configured target repository，且不得把 target 变成第二 control plane。",
+      "selectors": {
+        "profiles": ["STANDARD", "CRITICAL"],
+        "roles": ["FRAMEWORK_MAINTAINER", "CONTROLLER"],
+        "phases": ["RECOVER", "DISCOVER", "PLAN", "IMPLEMENT", "VERIFY", "REVIEW", "GIT", "EXTERNAL"],
+        "actionKinds": ["*"],
+        "resultKinds": ["*"],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": ["framework", "maintenance", "release", "target"]
+      },
+      "preparationRequirements": ["CONTROL_TARGET_TOPOLOGY_BOUND"],
+      "resultRequirements": ["CROSS_REPOSITORY_BOUNDARIES_PRESERVED"],
+      "decisionLocator": "framework/maintenance-overlay/process-policy.json#FRAMEWORK_MAINTENANCE_SIBLING_TOPOLOGY"
+    }
+  ]
+}

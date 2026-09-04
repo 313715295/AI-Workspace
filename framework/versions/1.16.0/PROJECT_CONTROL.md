@@ -1,83 +1,91 @@
 # Project control
 
 <!-- AIW-REQUIREMENT:PR_PROJECT_REGISTRATION_EXPLICIT_VERSION:BEGIN -->
-A project's repo-local `.ai-workspace/project.json.frameworkVersion` is its only version-selection authority. Framework root stores no consumer records and has no global default selector.
+项目 repo-local `.ai-workspace/project.json.frameworkVersion` 是唯一 version-selection authority。Framework root 不保存 consumer record，也没有 global default selector。
 
 ## Registration
 
-Root `scripts/register-project.ps1` requires an explicit exact version and Controller ID. Before any project write it validates:
+root `scripts/register-project.ps1` 要求显式 exact version 与 Controller ID。任何项目写入前必须校验：
 
-- target `VERSION.json` is `STABLE`, consumable and pin-eligible;
-- target `RELEASE_MANIFEST.json` matches the canonical payload and says source Review is approved;
-- target `project-starter` inventory is exact;
-- destination Git top, path and existing control-plane conditions are safe;
-- the selected version's `TOOLCHAIN.json` is exact, `pwsh` satisfies its sole official `powershell7` backend and the current host platform is declared by that backend.
+- target `VERSION.json` 为 `STABLE`、consumable 且 pin-eligible；
+- target `RELEASE_MANIFEST.json` 匹配 canonical payload，且 source Review 为 approved；
+- target `project-starter` inventory 精确；
+- destination Git top、path 与既有 control-plane condition 安全；
+- selected version 的 `TOOLCHAIN.json` 精确，`pwsh` 满足唯一 official `powershell7` backend，且该 backend 声明当前 host platform。
 
-It materializes exactly the selected version's `project-starter`. For 1.16.0 that starter records `frameworkToolBackend=powershell7`, an empty `.ai-workspace/process-policy.json` and its single project-config locator. The starter is the reusable project process; registration does not invent another process.
+工具只物化 selected version 的 `project-starter`。对 `1.16.0`，starter 写入 `frameworkToolBackend=powershell7`、空 `.ai-workspace/process-policy.json`、单一 project-config locator，以及项目选择的 `selectedRulePackBytes`；缺省值为 `32768`，不得超过 Framework absolute cap `98304`。starter 是可复用 project process，registration 不发明第二套流程。
+
+registration 还对 repository root `.gitignore` 做幂等投影：复用已有等价 `.ai-workspace/runtime` rule；不存在时只追加 `/.ai-workspace/runtime/`；相反 negation 必须 fail closed。该写入与 control-plane material 同属可恢复 transaction，并保留原 newline style。
 <!-- AIW-REQUIREMENT:PR_PROJECT_REGISTRATION_EXPLICIT_VERSION:END -->
 
 <!-- AIW-REQUIREMENT:PR_PROJECT_UPGRADE_ACTOR_BOUND:BEGIN -->
 ## Upgrade
 
-Root `scripts/upgrade-project.ps1` requires caller-supplied `RepositoryPath`, `ControllerId` and exact `ToVersion`. It validates the target release before writes, accepts healthy schema3 sources supported by the migration matrix, and preserves:
+root `scripts/upgrade-project.ps1` 要求 caller 提供 `RepositoryPath`、`ControllerId` 与 exact `ToVersion`。写入前校验 target release，接收 migration matrix 声明的健康 schema3 source，并保留：
 
-- project ID and display name;
-- repo-local layout and repository root;
-- Controller ID, epoch and state;
-- routine exclusions and capabilities;
-- Bootstrap project custom region.
+- project ID 与 display name；
+- repo-local layout 与 repository root；
+- Controller ID、epoch 与 state；
+- routine exclusions 与 capabilities；
+- Bootstrap project custom region。
 
-For a 1.16.0 target, upgrade also projects the target starter's project-level backend field and requires both PowerShell 7 and a platform declared by that backend before recovery or project mutation. The field is inherited by every task and is not copied into authorization packages; existing project-config identity binding already invalidates packages when it changes.
+升级到 `1.16.0` 时，还投影 target starter 的项目级 backend、`selectedRulePackBytes` 与 runtime ignore rule，并在 recovery 或 project mutation 前要求 PowerShell 7 与 declared platform。backend 由所有任务继承，不复制进 authorization package；既有 `projectConfigIdentity` binding 会在该字段变化时使 package 失效。
 
-An exact 1.14.0/1.14.1 → 1.16.0 adoption may use the current-pin budget bridge only when the current sealed resolver fails solely with `SELECTED_RULE_PACK_BUDGET_EXCEEDED`. The caller supplies the strict read-only current-process input and expected identity. The upgrade tool independently composes the complete current selection, retains all selected rule bodies and admits the transition only when that complete pack fits the 1.16.0 absolute ceiling. This observation grants no write and does not weaken or replace the actor-bound schema3 package, exact object checks, protected paths, user decision, transaction recovery or task-last stop.
+对支持的 direct source，升级不得先让 current-pin resolver 决定成败。工具在 system temp 中创建隔离 Git projection，先写入 target project、Bootstrap、corrections、process policy、已迁移的 task `actor + role + phase` route 与项目预算，再调用 target `PROCESS_REQUIREMENTS_RESOLVE/DISCOVER`。只有完整 target selected pack 在项目选择预算内 PASS 时，才可准备实际 transaction。这样 1.11/1.12 两字段任务卡或旧 pin 的较低预算不会形成 target-before-pin deadlock。projection 只产生机械证据，不授予 write，也不替代 actor-bound package、exact object check、protected path、user decision、transaction recovery 或 task-last stop。
 
-Only declared managed objects change. The tool does not search for consumers, modify source/product files, stage/commit/push or update another project.
+只有声明的 managed objects 会改变。工具不搜索 consumers，不修改 source/product file，不 stage/commit/push，也不更新其他项目。
 
-The 1.16.0 starter makes the current task's actor/role/phase Work route the loader input and adds one process-policy carrier for permanent project-specific process rules. It does not move task state into Framework root, create a consumer record or make the task index a second authority.
+`1.16.0` starter 以 current task 的 actor/role/phase Work route 作为 loader input，并用唯一 process-policy carrier 保存 permanent project-specific process rules。它不把 task state 移入 Framework root，不创建 consumer record，也不把 task index 变成第二 authority。
+
+local candidate pilot 在任何 project preflight 前重算 candidate payload，并要求 manifest 声明、完整套件证据及独立 Source Review evidence 全部绑定同一 canonical。实际 project mutation 的 schema3 authorization 必须额外绑定当次 `canonical + manifestIdentity`；candidate 或 manifest 任一字节变化都会拒绝旧 package。
+
+已经 pin 到当前版本的项目若因 `.ai-workspace/process-policy.json.selectedRulePackBytes` 过小而在 `DISCOVER` 自锁，可使用 root upgrader 的 `-RepairSelectedRulePackBudget`。preview 只报告 configured/required/proposed 并在隔离投影中证明新 policy 可通过；apply 只接受当前 Controller task、精确单一路径 `CONTROL_WRITE` package、实际超限原因和 `<=98304` 的项目选择值，且只替换该字段。正常 resolver 可工作、对象漂移或投影不通过时不得进入该窄通道。
 <!-- AIW-REQUIREMENT:PR_PROJECT_UPGRADE_ACTOR_BOUND:END -->
 
 <!-- AIW-REQUIREMENT:PR_PROCESS_REQUIREMENTS_THREE_SOURCE_COMPOSITION:BEGIN -->
 ## Progressive process requirements
 
-`PROCESS_REQUIREMENTS_RESOLVE` is the one front door for all Framework-governed work. `DISCOVER` composes sealed Framework requirements, still-effective corrections and permanent project rules without merging their authority. `ADMIT_ACTION` checks preparation before a distinct action; `FINALIZE_OUTPUT` checks actual result and delivery before the final output. The returned source/decision receipts are ephemeral and non-authoritative.
+`PROCESS_REQUIREMENTS_RESOLVE` 是所有 Framework-governed work 的唯一入口。`DISCOVER` 组合 sealed Framework requirements、仍有效 corrections 与 permanent project rules，但不合并其 authority。`ADMIT_ACTION` 在独立 action 前校验 preparation；`FINALIZE_OUTPUT` 在最终输出前校验 actual result 与 delivery。source/decision receipt 是 ephemeral、non-authoritative artifact。
 
-New projects use `.ai-workspace/process-policy.json`. A legacy project with real PROJECT-CUSTOM rules keeps that region as the bound project-rule source until one separately reviewed atomic migration both writes the structured carrier and retires the migrated normative bytes. Empty-source claims and dual-carrier rules fail closed. No role, service, registry, poller, ledger or executable project DSL is added.
+新项目使用 `.ai-workspace/process-policy.json`，其中 `selectedRulePackBytes` 由项目在 `1..98304` 内选择。runtime 只按该项目值判断 selected pack，Framework absolute cap 只是上界；不再保留 ordinary/absolute/legacy 三档运行时豁免。
+
+存在真实 PROJECT-CUSTOM rules 的 legacy project，在一个经过独立 Review 的 atomic migration 同时写入 structured carrier 并退役已迁移 normative bytes 前，继续把该 region 作为 bound project-rule source。empty-source claim 与 dual-carrier rule 必须 fail closed。不增加 role、service、registry、poller、ledger 或 executable project DSL。
 <!-- AIW-REQUIREMENT:PR_PROCESS_REQUIREMENTS_THREE_SOURCE_COMPOSITION:END -->
 
 <!-- AIW-REQUIREMENT:PR_TOOL_CONTRACT_BACKEND:BEGIN -->
 ## Tool backend
 
-`TOOL_CONTRACT.md` defines language-independent operations and `TOOLCHAIN.json` maps them to sealed entrypoints. Framework 1.16.0 offers only `powershell7`; the host/AI resolves and invokes those entrypoints directly. There is no launcher, task-level backend choice, runtime generation or automatic installation. A future backend switch is project-level adoption work and is not exposed until a release contains a second official backend.
+`TOOL_CONTRACT.md` 定义 language-independent operations，`TOOLCHAIN.json` 把它们映射到 sealed entrypoints。Framework `1.16.0` 只提供 `powershell7`；host/AI 直接解析并调用 entrypoint。不增加 launcher、task-level backend choice、runtime generation 或 automatic installation。未来 backend switch 属于 project-level adoption，只有 release 含第二个 official backend 时才可暴露。
 <!-- AIW-REQUIREMENT:PR_TOOL_CONTRACT_BACKEND:END -->
 
 <!-- AIW-REQUIREMENT:PR_CONTROLLER_HANDOFF_DIRECTIONAL:BEGIN -->
 ## Controller lifecycle
 
-The machine truth is `controller.json`. Handoff freezes old/new identity and epoch, writes hot projections first when authorized, writes the Controller object last, and finishes `TAKEOVER_COMPLETE`. Old read-only grace may preserve bytes for recovery but does not retain long-term routing authority or authorize cleanup.
+machine truth 是 `controller.json`。handoff 冻结 old/new identity 与 epoch；有授权时先写 hot projections，最后写 Controller object，并以 `TAKEOVER_COMPLETE` 结束。old read-only grace 可以为 recovery 保留 bytes，但不保留长期 routing authority，也不授权 cleanup。
 <!-- AIW-REQUIREMENT:PR_CONTROLLER_HANDOFF_DIRECTIONAL:END -->
 
 <!-- AIW-REQUIREMENT:PR_KNOWLEDGE_REFERENCE_LIFECYCLE:BEGIN -->
 ## Knowledge capability
 
-Knowledge reference remains optional, project-local and non-authoritative. `DISCOVER` returns compact metadata; `QUERY` validates at most three selected IDs at request scope. A read-only changed-authority impact check helps the owning task refresh or mark affected entries stale at its normal acceptance boundary. No background service or automatic write exists, and Knowledge cannot change product facts, task authority or Framework pin.
+Knowledge reference 仍为 optional、project-local、non-authoritative。`DISCOVER` 返回 compact metadata；`QUERY` 在 request scope 最多校验三个 selected IDs。只读 changed-authority impact check 帮助 owning task 在正常 acceptance boundary 刷新或标记 stale entry。不增加 background service 或 automatic write；Knowledge 不能改变 product facts、task authority 或 Framework pin。
 <!-- AIW-REQUIREMENT:PR_KNOWLEDGE_REFERENCE_LIFECYCLE:END -->
 
 <!-- AIW-REQUIREMENT:PR_OWNER_FIRST_DIRECT_DOMAIN_ROUTE:BEGIN -->
 ## Owner-first project work
 
-Project adoption loads the 1.16.0 starter and task contract, but it does not rewrite existing task cards or sessions. Inside an unchanged domain task, DOMAIN_OWNER directly selects temporary actors/Reviewers, issues fresh scoped packages and receives their results. PROJECT_CONTROLLER handles only a Controller-owned next action or an owner/public-decision, cross-domain-contract, protected-path, project-phase, Git/device/external or resource-conflict boundary.
+project adoption 加载 `1.16.0` starter 与 task contract，但不批量重写 existing task card 或 session。在未变化的 domain task 内，DOMAIN_OWNER 直接选择 temporary actor/Reviewer、签发新的 scoped package 并接收结果。PROJECT_CONTROLLER 只处理 Controller-owned next action，或 owner/public-decision、cross-domain-contract、protected-path、project-phase、Git/device/external、resource-conflict boundary。
 <!-- AIW-REQUIREMENT:PR_OWNER_FIRST_DIRECT_DOMAIN_ROUTE:END -->
 
 <!-- AIW-REQUIREMENT:PR_CORRECTIONS_V2_COMPATIBILITY:BEGIN -->
 ## Project corrections
 
-`.ai-workspace/corrections.json` is an independent project authority object. It is neither a task card nor the permanent PROJECT-CUSTOM region. A task may discover or update a correction, but task lifecycle and chat history do not control its retention.
+`.ai-workspace/corrections.json` 是独立 project authority object；它既不是 task card，也不是 permanent PROJECT-CUSTOM region。task 可以发现或更新 correction，但 task lifecycle 与 chat history 不控制其保留。
 
-Each record preserves a stable correction ID, the Framework version/range against which it was introduced, the observed failure/reason, effective rule, applicability boundary and decision/evidence locator. There is no partial-incorporation state. Framework 1.16.0 preserves historical ID coverage but permits runtime suppression only through a payload-sealed mapping that matches the project-scoped alias, native requirement, catalog identity and canonical source-record identity.
+每条 record 保存 stable correction ID、introduced-against Framework version/range、observed failure/reason、effective rule、applicability boundary 与 decision/evidence locator。不设 partial-incorporation state。Framework `1.16.0` 保留 historical ID coverage；runtime suppression 只接受 payload-sealed mapping，且必须同时匹配 project-scoped alias、native requirement、catalog identity 与 canonical source-record identity。
 
-Effective project rules are the correction records not exactly incorporated by the explicit pinned version. Incorporated records remain project evidence and are not applied twice or deleted. Missing mappings, source drift and invalid coverage retain the correction; an unambiguous declared conflict blocks adoption before the pin write. When the compatibility wrapper evaluates an older target that has only historical ID-level coverage, it reports `LEGACY_ID_ONLY_RETAINED` and keeps those records effective rather than treating coarse metadata as exact proof.
+effective project rules 是没有被 explicit pinned version 精确吸收的 correction records。incorporated record 继续作为 project evidence 保留，不重复应用也不删除。missing mapping、source drift 与 invalid coverage 会保留 correction；明确 declared conflict 在 pin write 前阻止 adoption。compatibility wrapper 评估只有 historical ID-level coverage 的旧 target 时，报告 `LEGACY_ID_ONLY_RETAINED` 并保持 record effective，不把粗粒度 metadata 当成精确证明。
 
-Coverage metadata is not semantic proof. A Framework release incorporates a correction only when the effective requirement is implemented in applicable normative modules reachable through the load manifest, exercised by behavior tests and accepted by independent Review against the original reason and boundary. No correction-to-module registry or absorption ledger is created.
+coverage metadata 不是 semantic proof。release 只有在 effective requirement 已进入 load manifest 可达的 applicable normative modules、被 behavior tests 覆盖，并由 independent Review 对照 original reason/boundary 接受后，才可声明吸收 correction。不创建 correction-to-module registry 或 absorption ledger。
 
-Registration materializes one empty corrections object. Upgrade validates and reports incorporated, still-effective and conflicting records before pin projection, preserves existing correction bytes and legacy PROJECT-CUSTOM bytes, adds no structured policy to a customized legacy region, and rechecks after projection. Adopting an older or alternate version re-evaluates the same records; it never silently retires them.
+registration 创建一个空 corrections object。upgrade 在 pin projection 前校验并报告 incorporated、still-effective 与 conflicting records；保留 existing correction bytes 与 legacy PROJECT-CUSTOM bytes；对 customized legacy region 不自动添加 structured policy，并在 projection 后复检。采用旧版或 alternate version 时重新评估相同 records，绝不静默退役。
 <!-- AIW-REQUIREMENT:PR_CORRECTIONS_V2_COMPATIBILITY:END -->

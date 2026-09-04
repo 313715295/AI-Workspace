@@ -16,7 +16,7 @@ param(
     [ValidateSet('CODEX','GENERIC')]
     [string]$HostName = 'GENERIC',
 
-    [ValidateSet('REPO_LOCAL','FRAMEWORK_MAINTENANCE_SIBLING')]
+    [ValidateSet('REPO_LOCAL')]
     [string]$Topology = 'REPO_LOCAL',
 
     [string[]]$Capability = @(),

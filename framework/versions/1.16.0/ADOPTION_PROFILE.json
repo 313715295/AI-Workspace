@@ -1,19 +1,21 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "frameworkVersion": "1.16.0",
   "registrationEligible": true,
+  "localCandidatePilotEligible": true,
   "directSourceVersions": ["1.14.1", "1.15.0", "1.15.1"],
   "projectControl": {
     "schemaVersion": 4,
-    "processCarrierContractVersion": "1.14.0",
+    "processCarrierContractVersion": "1.16.0",
     "frameworkToolBackend": "powershell7",
-    "navigationProjection": "HOST_GLOBAL_SKILL_MANAGED_AGENTS",
+    "navigationProjection": "ROOT_CANONICAL_SKILL_MANAGED_AGENTS",
     "taskLastWriteRequired": true,
-    "capabilityBinding": "EXACT_ENABLED_IDS"
+    "capabilityBinding": "EXACT_ENABLED_IDS",
+    "runtimeArtifactRoot": ".ai-workspace/runtime",
+    "runtimeGitIgnoreRule": "/.ai-workspace/runtime/"
   },
-  "processBudgets": {
-    "ordinarySelectedPackBytes": 32768,
-    "absoluteSelectedPackBytes": 65536,
-    "legacySchema1CorrectionCompatibilityBytes": 98304
+  "processBudget": {
+    "defaultSelectedRulePackBytes": 32768,
+    "absoluteSelectedRulePackBytes": 98304
   }
 }

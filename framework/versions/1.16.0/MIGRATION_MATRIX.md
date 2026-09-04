@@ -1,40 +1,33 @@
 # Framework 1.16.0 migration matrix
 
-| Source | Target | Required behavior |
+| Source | Target | 必需行为 |
 |---|---|---|
-| new project | explicit stable 1.16.0 | read `ADOPTION_PROFILE.json`; require its PowerShell 7 backend and Controller ID; preview deterministic same-volume preparation plus fixed active/recovery locators and the exact 12-object write set; fully render, validate and bind the transaction before the first repository write; create schema4 config, schema2 corrections and an empty process-policy carrier; project only the managed `AGENTS.md` block and never install a repo-local Skill |
-| healthy repo-local schema4 1.14.1 | 1.16.0 | direct source declared by `ADOPTION_PROFILE.json`; require one current active Framework-adoption task with an explicitly bound actor plus one closed schema3 `ACTOR_BOUND_PROJECT_UPGRADE` package; preserve project facts, Controller, process-policy and corrections; remove only the exact sealed 1.14.1 repo-local Skill; write every non-task object before the task, write the task last and perform no later write |
-| healthy repo-local schema4 1.15.0 | 1.16.0 | direct source declared by `ADOPTION_PROFILE.json`; use the same actor-bound task-last transaction, preserve project facts, Controller, process-policy and corrections, keep the host-global router projection and perform no write after the task |
-| healthy repo-local schema4 1.15.1 | 1.16.0 | direct source declared by `ADOPTION_PROFILE.json`; use the same actor-bound task-last transaction, preserve project facts, Controller, process-policy and corrections, keep the host-global router projection and perform no write after the task |
-| healthy repo-local schema4 1.16.0 | 1.16.0 | validate the profile-declared backend, policy carrier, Bootstrap, Controller, corrections and managed AGENTS projection through the pinned release, with no repo-local router Skill requirement; return already upgraded |
-| direct-source project with modified/missing managed AGENTS block or modified/extra/missing repo-local Skill bytes | 1.16.0 | stop before preparation with the exact conflict; do not normalize, delete or replace project-owned or unknown bytes |
-| direct-source project without a current actor-bound active task | 1.16.0 | stop with `ACTOR_BOUND_PROJECT_UPGRADE_ROUTE_REQUIRED`; no actor inference and no bulk task rewrite |
-| schema3 or schema4 version absent from `ADOPTION_PROFILE.json.directSourceVersions` | 1.16.0 | blocked from the direct route; first adopt a supported stable intermediate version |
-| schema3 project with free-text corrections | 1.16.0 | not a direct source; after a lawful intermediate migration, derive project-scoped aliases and canonical source identities, suppress only exact sealed mappings and retain unmatched records |
-| project with normative `PROJECT-CUSTOM` | 1.16.0 | preserve it as current project authority until a separately reviewed atomic migration establishes one structured process-policy carrier; do not claim compact progressive selection for legacy free text |
-| unavailable backend/runtime or unsupported platform | 1.16.0 | fail closed before project write; no install, download or implicit fallback |
-| downgrade from 1.16.0 | older release | no automatic direct route; require a separately reviewed reverse migration that restores any release-specific project artifacts and avoids dual authority |
+| new project | explicit stable 1.16.0 | 读取 `ADOPTION_PROFILE.json`；要求 PowerShell 7、Controller ID 与 project-selected budget；在首个 repository write 前完整 render/validate/bind 可恢复 transaction；创建 schema4 config、schema2 corrections、process-policy 与 runtime ignore rule；只投影 managed `AGENTS.md` block，不安装 repo-local Skill |
+| healthy schema4 1.14.1 | 1.16.0 | profile 声明的 direct source；绑定 current active adoption task、authenticated actor 与 schema3 `ACTOR_BOUND_PROJECT_UPGRADE` package；允许 task card schema 1.11/1.12 两字段 route 在 target projection 中迁移；移除且仅移除 sealed 1.14.1 repo-local Skill；task 最后写，之后零写入 |
+| healthy schema4 1.15.0 / 1.15.1 | 1.16.0 | 使用相同 actor-bound task-last transaction；保留 project facts、Controller、rules 与 corrections；保持 root canonical Router 路线 |
+| root Maintenance adapter 接受的既有 control project | 1.16.0 | source allowlist、sibling topology、`frameworkTarget`、legacy template 与 overlay 投影全部由 root `framework/maintenance-overlay/` 和 root upgrader验证；version profile只提供通用 target project contract |
+| healthy schema4 1.16.0 | 1.16.0 | 通过 pinned release 校验 backend、project-selected budget、Bootstrap、Controller、corrections、runtime ignore 与 managed AGENTS；返回 already upgraded |
+| managed AGENTS 或 repo-local Skill bytes 冲突 | 1.16.0 | preparation 前停止；不得 normalize、delete 或 replace project-owned/unknown bytes |
+| 缺少 current actor-bound active task | 1.16.0 | 返回 `ACTOR_BOUND_PROJECT_UPGRADE_ROUTE_REQUIRED`；不得推断 actor 或批量重写 tasks |
+| project pin 不在 `directSourceVersions` | 1.16.0 | direct route blocked；先采用受支持 stable intermediate version |
+| normative `PROJECT-CUSTOM` | 1.16.0 | 在单独 Review 的 atomic migration 建立唯一 structured carrier 前继续保留其 authority；不得声称 legacy free text 已 compact selection |
+| unavailable backend/runtime 或 unsupported platform | 1.16.0 | project write 前 fail closed；不 install、download 或 implicit fallback |
+| downgrade | older release | 没有 automatic direct route；需要单独 Review 的 reverse migration |
 
-Adoption is project-owned. It never changes another project pin or installs the host-global Skill. The canonical Skill is published at `framework/versions/1.16.0/host/skills/ai-workspace-router/SKILL.md` with a byte-identical root projection for host installation, but host installation remains a separate host action.
+adoption 由项目拥有，不改变其他 project pin，也不安装 host Skill。唯一 canonical Skill 位于 repository root `skills/ai-workspace-router/SKILL.md`；version 内 `host/skills/ai-workspace-router/SKILL.md` 只是 `VERSION_CONTRACT / REFERENCE_ONLY / NON_INSTALLABLE` 历史。
 
 ## Actor-bound upgrade contract
 
-The read-only plan is produced before any preparation write and reports:
+read-only plan 在任何 preparation write 前报告 sealed target canonical/manifest identity、全部 exact path/preimage、每个 live object 的 final identity 或 `ABSENT`、deterministic preparation/recovery paths 与 task-last 顺序。
 
-- the sealed target release canonical plus manifest identity;
-- every exact path and preimage;
-- the final identity (or `ABSENT`) of every live object;
-- deterministic preparation and formal recovery paths under `.ai-workspace`;
-- the task as the final live object.
+schema3 package 必须精确绑定 `bundle=ACTOR_BOUND_PROJECT_UPGRADE`、`profile=CRITICAL`、`issuerRole=PROJECT_CONTROLLER`、`actions=[CONTROL_WRITE]`、Controller/task/project、完整 path/preimage set 与 live object 的 `postObjectIdentities`。`POST_OBJECT_DRIFT` 是 invalidator。普通 repo-local source 由 target profile的 direct source list约束；root Maintenance adapter另行验证其 source、layout、topology与overlay，不把这些专属条件写回version contract。
 
-A valid schema3 package has exactly `bundle=ACTOR_BOUND_PROJECT_UPGRADE`, `profile=CRITICAL`, `issuerRole=PROJECT_CONTROLLER`, `actions=[CONTROL_WRITE]`, required Controller/task/project bindings, the complete exact path/preimage set and a `postObjectIdentities` entry for every live object. Paths without postimages are preparation/recovery material only and must have preimage `NEW`. `POST_OBJECT_DRIFT` is an invalidator. Schema1 and schema2 packages retain their existing contracts.
+升级先建立 target projection：target project、Bootstrap、corrections、process-policy、`selectedRulePackBytes` 与 migrated task route 全部就位后，调用 target resolver。只有完整 selected pack 在项目 ceiling 内 PASS 才继续；旧 resolver 的 budget 或两字段格式不能抢先阻塞 target adoption。
 
-The root upgrade bridge derives the exact sorted enabled capability IDs from the current project configuration and passes those IDs unchanged to the sealed current-pin resolver and composer. Intent capability hints must equal that exact set and grant nothing. Any direct-source-specific compatibility evidence remains an input only: it never replaces the schema3 package, protected paths, task-last transaction, recovery, Review, `OWNER_ACCEPT`, Git or external gates.
+apply 时，首写前复检 package，准备并校验 exact old/new/state material，原子提升到 formal recovery，再推进 live non-task objects，最后写 current task。task write 成功即 transaction terminal；不得随后 cleanup、改 status 或写 recovery。
 
-On apply, the tool rechecks the package before the first write, prepares exact old/new/state material, validates it, atomically promotes it to the formal recovery directory, validates it again, then advances live non-task objects. The current task is validated and copied last. A successful task write is terminal for the transaction: no cleanup, status rewrite or other live/recovery write follows it.
+formal recovery 是 forward-only。resume 必须重证 target release、package identity、actor/task/owner、Controller ID/epoch、exact state tree 与 final postimages。live object 只能等于 original preimage 或 declared final identity；unknown/intermediate bytes fail closed。
 
-A formal recovery directory is forward-only. Resume requires the same target release, package identity, actor/task/owner, Controller ID/epoch, exact state tree and final postimages. Every live object must equal either its original preimage or declared final identity; unknown/intermediate bytes fail closed. Preparation or recovery material is retained as evidence and is not silently cleaned.
+## Progressive-loading migration
 
-## Progressive-loading migration effect
-
-Existing project corrections and structured process-policy records remain project authority. Framework-native rules use schema2 fragments and exact Markdown blocks. `DISCOVER` returns the full selected blocks once plus a compact receipt containing only identities and obligations for `ADMIT_ACTION` and `FINALIZE_OUTPUT`. Legacy free-text carriers remain complete-read compatibility inputs; only a verified effective schema1 correction with no PROJECT-CUSTOM, ambiguity, conflict or source-identity mismatch may use the explicit 98304-byte compatibility ceiling and must report `LEGACY_SCHEMA1_CORRECTION_COMPATIBILITY`. `LOAD_PLAN_RESOLVE` remains available for non-rule support and bounded affected-module fallback, not as a catalog exclusion step.
+Framework-native rules 使用 schema2 fragments 与 exact Markdown blocks。`DISCOVER` 一次返回完整 selected blocks，并另给只含 binding/obligations 的 compact receipt。`ADMIT_ACTION` 与 `FINALIZE_OUTPUT` 复用 receipt。project policy 决定 runtime selected-pack ceiling，absolute cap 固定为 `98304`；不再使用 legacy tier exception。`LOAD_PLAN_RESOLVE` 只处理 non-rule support 与 bounded fallback。

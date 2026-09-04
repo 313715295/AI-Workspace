@@ -13,7 +13,7 @@ param(
     [string]$ObservedOwner,
 
     [Parameter(Mandatory = $true)]
-    [ValidateSet('CONTROL_WRITE','SOURCE_WRITE','TEST_WRITE','TEST_RUN','BROWSER_RUN','DEVICE_RUN','REVIEW_ROUTE','REVIEW_EXECUTE','GIT_STAGE','GIT_COMMIT','PUSH','EXTERNAL')]
+    [ValidateSet('CONTROL_WRITE','SOURCE_WRITE','TEST_WRITE','TEST_RUN','BROWSER_RUN','DEVICE_RUN','REVIEW_ROUTE','REVIEW_EXECUTE','OWNER_ACCEPT','GIT_STAGE','GIT_COMMIT','PUSH','EXTERNAL')]
     [string[]]$ObservedAction,
 
     [Parameter(Mandatory = $true)]
@@ -31,7 +31,9 @@ param(
 
     [string]$TaskPath,
 
-    [string]$ExpectedTaskIdentity
+    [string]$ExpectedTaskIdentity,
+
+    [switch]$RootRepositoryBindingValidated
 )
 
 $ErrorActionPreference = 'Stop'
@@ -197,6 +199,7 @@ $baseFields = @('schemaVersion','frameworkVersion','taskId','profile','lifecycle
 $controllerFields = @('issuerControllerId','issuerControllerEpoch','controllerControlIdentity')
 $repositoryFields = @('repositoryId')
 $upgradePostimageFields = @('postObjectIdentities')
+$upgradeSnapshotFields = @('targetFrameworkSnapshot')
 $criticalReviewFields = @('candidateWriter','materialContributors')
 $criticalReviewPackage = [string]$package.profile -ceq 'CRITICAL' -and 'REVIEW_EXECUTE' -in @($package.actions)
 $domainExternalPackage = [string]$package.issuerRole -ceq 'DOMAIN_OWNER' -and 'EXTERNAL' -in @($package.actions)
@@ -204,7 +207,10 @@ $actualFields = @($package.PSObject.Properties.Name)
 $expectedFields = @($baseFields) + @('projectConfigIdentity')
 if ([string]$package.issuerRole -ceq 'PROJECT_CONTROLLER') { $expectedFields += $controllerFields }
 if ((Test-JsonInteger $package.schemaVersion) -and [int]$package.schemaVersion -eq 2) { $expectedFields += $repositoryFields }
-if ((Test-JsonInteger $package.schemaVersion) -and [int]$package.schemaVersion -eq 3) { $expectedFields += $upgradePostimageFields }
+if ((Test-JsonInteger $package.schemaVersion) -and [int]$package.schemaVersion -eq 3) {
+    $expectedFields += $upgradePostimageFields
+    if ($null -ne $package.PSObject.Properties['targetFrameworkSnapshot']) { $expectedFields += $upgradeSnapshotFields }
+}
 if ($criticalReviewPackage) { $expectedFields += $criticalReviewFields }
 if ($domainExternalPackage) { $expectedFields += @('externalBinding') }
 if ($actualFields.Count -ne $expectedFields.Count -or @($expectedFields | Where-Object { $_ -cnotin $actualFields }).Count -ne 0) {
@@ -258,11 +264,13 @@ try {
     $taskOwnerMatches=[regex]::Matches($taskRaw,'(?m)^- Owner:\s*(?<owner>[^\s]+)\s*$')
     $taskRouteMatches=[regex]::Matches($taskRaw,'(?m)^- Work route:\s*actor=(?<actor>[^;\s]+);\s*role=(?<role>CONTROLLER|DOMAIN_OWNER|EXECUTOR|REVIEWER|FRAMEWORK_MAINTAINER);\s*phase=(?<phase>DISCOVER|PLAN|IMPLEMENT|VERIFY|REVIEW|GIT|EXTERNAL|RECOVER)\s*$')
     if($taskIdMatches.Count-ne1-or$taskOwnerMatches.Count-ne1-or$taskRouteMatches.Count-ne1){throw 'TASK_BINDING_FIELDS'}
-    if([string]$taskIdMatches[0].Groups['id'].Value-cne$ObservedTaskId-or[string]$taskOwnerMatches[0].Groups['owner'].Value-cne$ObservedOwner-or[string]$taskRouteMatches[0].Groups['actor'].Value-cne$ObservedActor){throw 'TASK_BINDING_DRIFT'}
+    $temporaryReviewGrantee=@($package.actions).Count-eq1-and[string]$package.actions[0]-ceq'REVIEW_EXECUTE'
+    if([string]$taskIdMatches[0].Groups['id'].Value-cne$ObservedTaskId-or[string]$taskOwnerMatches[0].Groups['owner'].Value-cne$ObservedOwner-or(-not$temporaryReviewGrantee-and[string]$taskRouteMatches[0].Groups['actor'].Value-cne$ObservedActor)){throw 'TASK_BINDING_DRIFT'}
+    if($temporaryReviewGrantee-and[string]$taskRouteMatches[0].Groups['actor'].Value-ceq$ObservedActor){throw 'REVIEW_GRANTEE_NOT_TEMPORARY'}
 } catch { Add-Reason $reasons ([string]$_.Exception.Message) }
 
 $schema2ProjectId = $null
-if ([int]$package.schemaVersion -in @(1,3)) {
+if ([int]$package.schemaVersion -eq 1 -or ([int]$package.schemaVersion -eq 3 -and -not $RootRepositoryBindingValidated)) {
     try {
         foreach ($name in @('GIT_DIR','GIT_WORK_TREE','GIT_COMMON_DIR')) {
             $value = [Environment]::GetEnvironmentVariable($name,'Process')
@@ -298,7 +306,7 @@ if ([int]$package.schemaVersion -in @(1,3)) {
             -not ($schema1Config.repositoryRoot -is [string]) -or [string]$schema1Config.repositoryRoot -cne '..' -or
             -not ($schema1Config.frameworkVersion -is [string]) -or
             ([int]$package.schemaVersion -eq 1 -and [string]$schema1Config.frameworkVersion -cne '1.16.0') -or
-            ([int]$package.schemaVersion -eq 3 -and [string]$schema1Config.frameworkVersion -cnotin @('1.14.0','1.14.1')) -or
+            ([int]$package.schemaVersion -eq 3 -and [string]$schema1Config.frameworkVersion -cnotin @('1.14.1','1.15.0','1.15.1')) -or
             -not ($schema1Config.frameworkToolBackend -is [string]) -or [string]$schema1Config.frameworkToolBackend -cne 'powershell7' -or
             -not ($schema1Config.routineExcludedPaths -is [System.Array])) { throw 'PROJECT_CONFIG_VALUES' }
         if(([int]$schema1Config.schemaVersion-eq4)-ne$schema1HasPolicy){throw 'PROJECT_CONFIG_PROCESS_POLICY_MODE'}
@@ -316,6 +324,23 @@ if ([int]$package.schemaVersion -in @(1,3)) {
         Add-Reason $reasons ('SCHEMA1_REQUIRES_REPO_LOCAL_SCHEMA3|' + [string]$_.Exception.Message)
     }
 }
+if ([int]$package.schemaVersion -in @(2,3) -and $RootRepositoryBindingValidated) {
+    try {
+        if ([string]::IsNullOrWhiteSpace($ProjectConfigPath) -or [string]::IsNullOrWhiteSpace($ExpectedProjectConfigIdentity)) { throw 'PROJECT_CONFIG_BINDING_REQUIRED' }
+        $normalizedConfigPath = Normalize-RelativePath $ProjectConfigPath
+        if ($normalizedConfigPath -cne '.ai-workspace/project.json') { throw 'PROJECT_CONFIG_PATH_NOT_CANONICAL' }
+        if (-not (Test-Path -LiteralPath $ProjectConfigPath -PathType Leaf)) { throw 'PROJECT_CONFIG_MISSING' }
+        if (((Get-Item -LiteralPath $ProjectConfigPath -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'PROJECT_CONFIG_REPARSE' }
+        $actualConfigIdentity = Get-FileIdentity $ProjectConfigPath
+        if ([string]$package.projectConfigIdentity -cne $ExpectedProjectConfigIdentity -or $actualConfigIdentity -cne $ExpectedProjectConfigIdentity) { throw 'PROJECT_CONFIG_DRIFT' }
+        $configRaw = Read-StrictUtf8 $ProjectConfigPath
+        try { $config = $configRaw | ConvertFrom-Json } catch { throw 'PROJECT_CONFIG_JSON' }
+        if (-not ($config -is [pscustomobject]) -or -not ($config.id -is [string]) -or [string]::IsNullOrWhiteSpace([string]$config.id)) { throw 'PROJECT_CONFIG_ID' }
+        $schema2ProjectId = [string]$config.id
+    } catch {
+        Add-Reason $reasons ([string]$_.Exception.Message)
+    }
+}
 if ([int]$package.schemaVersion -eq 2) {
     foreach ($field in $repositoryFields) {
         if ($null -eq $package.PSObject.Properties[$field]) { Add-Reason $reasons "FIELD_MISSING_$field" }
@@ -323,65 +348,14 @@ if ([int]$package.schemaVersion -eq 2) {
     }
     if ([string]::IsNullOrWhiteSpace([string]$package.repositoryId)) { Add-Reason $reasons 'REPOSITORY_ID_EMPTY' }
     if ([string]$package.repositoryId -cne $ObservedRepositoryId) { Add-Reason $reasons 'REPOSITORY_DRIFT' }
-    if ([string]::IsNullOrWhiteSpace($ProjectConfigPath) -or [string]::IsNullOrWhiteSpace($ExpectedProjectConfigIdentity)) {
-        Add-Reason $reasons 'PROJECT_CONFIG_BINDING_REQUIRED'
-    } else {
-        try {
-            $normalizedConfigPath = Normalize-RelativePath $ProjectConfigPath
-            if ($normalizedConfigPath -cne '.ai-workspace/project.json') { throw 'PROJECT_CONFIG_PATH_NOT_CANONICAL' }
-            if (-not (Test-Path -LiteralPath $ProjectConfigPath -PathType Leaf)) { throw 'PROJECT_CONFIG_MISSING' }
-            if (((Get-Item -LiteralPath $ProjectConfigPath -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'PROJECT_CONFIG_REPARSE' }
-            $actualConfigIdentity = Get-FileIdentity $ProjectConfigPath
-            if ([string]$package.projectConfigIdentity -cne $ExpectedProjectConfigIdentity -or $actualConfigIdentity -cne $ExpectedProjectConfigIdentity) { throw 'PROJECT_CONFIG_DRIFT' }
-            $configRaw = Read-StrictUtf8 $ProjectConfigPath
-            try { $config = $configRaw | ConvertFrom-Json } catch { throw 'PROJECT_CONFIG_JSON' }
-            $configHasPolicy=$null-ne$config.PSObject.Properties['processPolicy']
-            $configFields = @('schemaVersion','id','displayName','controlPlaneLayout','repositoryRoot','frameworkVersion','frameworkToolBackend','routineExcludedPaths','frameworkCapabilities')+$(if($configHasPolicy){@('processPolicy')}else{@()})+@('frameworkTarget')
-            $configNames = @($config.PSObject.Properties.Name)
-            if (-not ($config -is [pscustomobject]) -or $configNames.Count -ne $configFields.Count -or @($configFields | Where-Object { $_ -cnotin $configNames }).Count -ne 0) { throw 'PROJECT_CONFIG_FIELDS' }
-            $configFieldCounts = [ordered]@{
-                schemaVersion = 1; id = 1; displayName = 1; controlPlaneLayout = 1; repositoryRoot = 1
-                frameworkVersion = 1; frameworkToolBackend = 1; routineExcludedPaths = 2; frameworkCapabilities = 1; frameworkTarget = 1
-                repositoryId = 1; siblingDirectory = 1
-            }
-            if($configHasPolicy){$configFieldCounts['schemaVersion']=2;$configFieldCounts['processPolicy']=1;$configFieldCounts['locator']=1}
-            foreach ($entry in $configFieldCounts.GetEnumerator()) {
-                if ([regex]::Matches($configRaw,'"'+[regex]::Escape([string]$entry.Key)+'"\s*:').Count -ne [int]$entry.Value) { throw 'PROJECT_CONFIG_DUPLICATE_OR_MISSING_FIELD' }
-            }
-            if (-not (Test-JsonInteger $config.schemaVersion) -or [int]$config.schemaVersion -ne 4 -or
-                -not ($config.id -is [string]) -or [string]::IsNullOrWhiteSpace([string]$config.id) -or
-                -not ($config.controlPlaneLayout -is [string]) -or [string]$config.controlPlaneLayout -cne 'framework-maintenance-sibling' -or
-                -not ($config.repositoryRoot -is [string]) -or [string]$config.repositoryRoot -cne '..' -or
-                -not ($config.frameworkVersion -is [string]) -or [string]$config.frameworkVersion -cne '1.16.0' -or
-                -not ($config.frameworkToolBackend -is [string]) -or [string]$config.frameworkToolBackend -cne 'powershell7' -or
-                -not ($config.frameworkTarget -is [pscustomobject]) -or
-                -not ($config.frameworkTarget.repositoryId -is [string]) -or [string]::IsNullOrWhiteSpace([string]$config.frameworkTarget.repositoryId)) { throw 'PROJECT_CONFIG_VALUES' }
-            $targetFields = @('repositoryId','siblingDirectory','routineExcludedPaths')
-            $targetNames = @($config.frameworkTarget.PSObject.Properties.Name)
-            if ($targetNames.Count -ne $targetFields.Count -or @($targetFields | Where-Object { $_ -cnotin $targetNames }).Count -ne 0) { throw 'FRAMEWORK_TARGET_FIELDS' }
-            if ([string]$config.frameworkTarget.repositoryId -ceq 'CONTROL' -or
-                -not ($config.frameworkTarget.siblingDirectory -is [string]) -or
-                -not ($config.frameworkTarget.routineExcludedPaths -is [System.Array]) -or
-                -not ($config.routineExcludedPaths -is [System.Array]) -or
-                -not ($config.frameworkCapabilities -is [pscustomobject]) -or
-                @($config.frameworkCapabilities.PSObject.Properties).Count -ne 0) { throw 'PROJECT_CONFIG_VALUES' }
-            if($configHasPolicy){
-                $policyNames=@($config.processPolicy.PSObject.Properties.Name)
-                if(-not($config.processPolicy-is[pscustomobject])-or$policyNames.Count-ne2-or'schemaVersion'-cnotin$policyNames-or'locator'-cnotin$policyNames-or[int]$config.processPolicy.schemaVersion-ne1-or[string]$config.processPolicy.locator-cne'.ai-workspace/process-policy.json'){throw 'PROJECT_CONFIG_PROCESS_POLICY'}
-            }
-            $normalizedSibling = Normalize-RelativePath ([string]$config.frameworkTarget.siblingDirectory)
-            if ($normalizedSibling.Contains('/')) { throw 'FRAMEWORK_TARGET_SIBLING_NOT_SINGLE_COMPONENT' }
-            $allowedRepositoryIds = @('CONTROL',[string]$config.frameworkTarget.repositoryId)
-            if ([string]$package.repositoryId -cnotin $allowedRepositoryIds) { throw 'REPOSITORY_ID_UNKNOWN' }
-            $schema2ProjectId = [string]$config.id
-        } catch {
-            Add-Reason $reasons ([string]$_.Exception.Message)
-        }
-    }
+    if (-not $RootRepositoryBindingValidated) { Add-Reason $reasons 'ROOT_REPOSITORY_BINDING_REQUIRED' }
 }
 
-$allowedActions = @('CONTROL_WRITE','SOURCE_WRITE','TEST_WRITE','TEST_RUN','BROWSER_RUN','DEVICE_RUN','REVIEW_ROUTE','REVIEW_EXECUTE','GIT_STAGE','GIT_COMMIT','PUSH','EXTERNAL')
+$allowedActions = @('CONTROL_WRITE','SOURCE_WRITE','TEST_WRITE','TEST_RUN','BROWSER_RUN','DEVICE_RUN','REVIEW_ROUTE','REVIEW_EXECUTE','OWNER_ACCEPT','GIT_STAGE','GIT_COMMIT','PUSH','EXTERNAL')
 $actions = @($package.actions)
+if ('OWNER_ACCEPT' -cin $actions -and [string]$package.grantee -cne [string]$package.owner) {
+    Add-Reason $reasons 'OWNER_ACCEPT_REQUIRES_CURRENT_TASK_OWNER'
+}
 foreach ($actionValue in $actions) {
     if (-not ($actionValue -is [string])) { Add-Reason $reasons 'ACTION_TYPE'; continue }
     $action = [string]$actionValue
@@ -489,50 +463,6 @@ if ([int]$package.schemaVersion -eq 2) {
             -not ($schema2Controller.controllerId -is [string]) -or [string]::IsNullOrWhiteSpace([string]$schema2Controller.controllerId) -or
             -not (Test-JsonInteger $schema2Controller.controllerEpoch) -or [int64]$schema2Controller.controllerEpoch -lt 1 -or
             -not ($schema2Controller.state -is [string]) -or [string]$schema2Controller.state -cne 'CURRENT') { throw 'CONTROLLER_VALUES' }
-    } catch {
-        Add-Reason $reasons ([string]$_.Exception.Message)
-    }
-}
-
-if ([int]$package.schemaVersion -eq 2) {
-    try {
-        if ([string]::IsNullOrWhiteSpace($ProjectConfigPath) -or [string]::IsNullOrWhiteSpace($ExpectedProjectConfigIdentity)) { throw 'PROJECT_CONFIG_BINDING_REQUIRED' }
-        $resolverPath = Join-Path $PSScriptRoot 'resolve-framework-maintenance-target.ps1'
-        if (-not (Test-Path -LiteralPath $resolverPath -PathType Leaf)) { throw 'MAINTENANCE_RESOLVER_MISSING' }
-        $configFullPath = [IO.Path]::GetFullPath($ProjectConfigPath)
-        $controlPlaneRoot = Split-Path -Parent $configFullPath
-        $controlRepositoryRoot = Split-Path -Parent $controlPlaneRoot
-        $resolverArguments = @(
-            '-NoProfile','-NonInteractive','-File',$resolverPath,
-            '-ControlRepositoryPath',$controlRepositoryRoot,
-            '-ExpectedProjectConfigIdentity',$ExpectedProjectConfigIdentity,
-            '-AsJson'
-        )
-        $oldPreference = $ErrorActionPreference
-        $ErrorActionPreference = 'Continue'
-        try {
-            $pwshExecutable = [Environment]::ProcessPath
-            if ([string]::IsNullOrWhiteSpace($pwshExecutable)) { throw 'POWERSHELL7_PROCESS_PATH_UNAVAILABLE' }
-            $resolverOutput = @(& $pwshExecutable @resolverArguments 2>&1 | ForEach-Object { [string]$_ })
-            $resolverCode = $LASTEXITCODE
-        } finally {
-            $ErrorActionPreference = $oldPreference
-        }
-        if ($resolverCode -ne 0 -or $resolverOutput.Count -ne 1) {
-            throw ('MAINTENANCE_STEADY_STATE_REQUIRED|' + ($resolverOutput -join ';'))
-        }
-        try { $resolvedMaintenance = $resolverOutput[0] | ConvertFrom-Json } catch { throw 'MAINTENANCE_RESOLVER_RESULT_JSON' }
-        if (-not ($resolvedMaintenance -is [pscustomobject]) -or
-            [string]$resolvedMaintenance.status -cne 'PASS' -or
-            [string]$resolvedMaintenance.projectId -cne [string]$schema2ProjectId -or
-            [string]$resolvedMaintenance.projectConfigIdentity -cne $ExpectedProjectConfigIdentity -or
-            [string]$resolvedMaintenance.controlRepositoryId -cne 'CONTROL' -or
-            [string]$resolvedMaintenance.controllerId -cne [string]$schema2Controller.controllerId -or
-            [int64]$resolvedMaintenance.controllerEpoch -ne [int64]$schema2Controller.controllerEpoch -or
-            [string]$resolvedMaintenance.controllerState -cne 'CURRENT') { throw 'MAINTENANCE_RESOLVER_RESULT_DRIFT' }
-        if ([string]$package.repositoryId -cne 'CONTROL' -and [string]$package.repositoryId -cne [string]$resolvedMaintenance.targetRepositoryId) {
-            throw 'MAINTENANCE_RESOLVER_REPOSITORY_DRIFT'
-        }
     } catch {
         Add-Reason $reasons ([string]$_.Exception.Message)
     }
@@ -660,6 +590,15 @@ if ([int]$package.schemaVersion -eq 3) {
         if ([string]$identityMap[$path] -cne 'NEW') { Add-Reason $reasons 'RECOVERY_PATH_PREIMAGE_NOT_NEW' }
     }
     if ($postIdentityMap.Count -eq 0) { Add-Reason $reasons 'POST_IDENTITY_EMPTY' }
+    if ($null -ne $package.PSObject.Properties['targetFrameworkSnapshot']) {
+        $snapshot=$package.targetFrameworkSnapshot
+        if (-not ($snapshot -is [pscustomobject]) -or @($snapshot.PSObject.Properties.Name).Count -ne 2 -or $null -eq $snapshot.PSObject.Properties['canonical'] -or $null -eq $snapshot.PSObject.Properties['manifestIdentity']) {
+            Add-Reason $reasons 'TARGET_FRAMEWORK_SNAPSHOT_FIELDS'
+        }
+        elseif (-not ($snapshot.canonical -is [string]) -or [string]$snapshot.canonical -cnotmatch '^[A-F0-9]{64}$' -or -not ($snapshot.manifestIdentity -is [string]) -or [string]$snapshot.manifestIdentity -cnotmatch '^\d+\|[A-F0-9]{64}$') {
+            Add-Reason $reasons 'TARGET_FRAMEWORK_SNAPSHOT_FORMAT'
+        }
+    }
 }
 
 $observedIdentityMap = New-Object 'System.Collections.Generic.Dictionary[string,string]' ([System.StringComparer]::OrdinalIgnoreCase)

@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 2,
+  "overlayId": "framework-maintenance-sibling",
+  "baseStarter": "project-starter",
+  "controlPlaneLayout": "framework-maintenance-sibling",
+  "targetControlPlanePolicy": "ABSENT",
+  "managedTemplates": {
+    "bootstrap": "BOOTSTRAP.md",
+    "agents": "AGENTS.md",
+    "projectConfigSchema": "PROJECT_CONFIG_SCHEMA.json",
+    "processPolicy": "process-policy.json"
+  },
+  "legacySourceVersions": ["1.15.0", "1.15.1"]
+}

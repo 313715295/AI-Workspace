@@ -1,11 +1,11 @@
 # Framework 1.16.0 post-release project observation
 
-This file is `NON_AUTHORITY / OPTIONAL / PROJECT_LOCAL` guidance. It is not a release gate, runtime ledger, project authority, permission source or requirement to create evaluation work, and it does not block the stable seal.
+本文是 `NON_AUTHORITY / OPTIONAL / PROJECT_LOCAL` 指南，不是 release gate、runtime ledger、project authority、permission source，也不要求创建 evaluation work。
 
-- Observation begins only after a project explicitly adopts stable Framework 1.16.0 through its normal pin-adoption boundary.
-- Use normal project tasks. Do not create synthetic tasks, child tasks or artificial actions to obtain samples, and do not require a fixed sample count or time window.
-- When an observation is materially useful, keep one compact record on the originating task: bound task and boundary, source-composition/selection/decision identities, actual result, and any false block, missed requirement or unnecessary load. Unfavorable results remain valid evidence.
-- The project owns that evidence. Framework stores no consumer identity, task copy, measurement ledger or standing observation report and requires no delivery or ACK.
-- A project may later send an anonymized conclusion through the ordinary Framework-gap intake. That conclusion may justify a later version but does not retroactively change the 1.16 release or another project's pin.
+- 只有项目通过正常 pin-adoption boundary 显式采用 stable `1.16.0` 后才开始 observation。
+- 使用正常 project task；不得为取样创建 synthetic task、child task 或 artificial action，也不规定固定 sample count/time window。
+- observation 有实际价值时，在来源 task 保留一条 compact record：bound task/boundary、source-composition/selection/decision identities、actual result，以及 false block、missed requirement 或 unnecessary load。负面结果同样有效。
+- evidence 属于来源项目。Framework 不保存 consumer identity、task copy、measurement ledger 或 standing report，也不要求 delivery/ACK。
+- 项目以后可以通过普通 Framework-gap intake 提供 anonymized conclusion；它可支持未来版本，但不追溯改变 `1.16.0` 或其他 project pin。
 
-Framework conformance fixtures remain separate from project observations. Mechanical PASS cannot prove semantic correctness, attention, host invocation or cost/quality improvement; project observations do not replace conformance, independent Review, OWNER_ACCEPT or release sealing.
+Framework conformance fixture 与 project observation 分离。机械 PASS 不证明 semantic correctness、attention、host invocation 或 cost/quality improvement；observation 也不替代 conformance、independent Review、`OWNER_ACCEPT` 或 release sealing。

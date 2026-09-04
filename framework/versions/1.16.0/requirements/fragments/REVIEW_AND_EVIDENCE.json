@@ -94,16 +94,13 @@
       "description": "Keep product/domain acceptance distinct from independent Review and later actions.",
       "selectors": {
         "profiles": [
-          "STANDARD",
-          "CRITICAL"
+          "*"
         ],
         "roles": [
-          "DOMAIN_OWNER",
-          "CONTROLLER",
-          "FRAMEWORK_MAINTAINER"
+          "*"
         ],
         "phases": [
-          "VERIFY"
+          "*"
         ],
         "actionKinds": [
           "OWNER_ACCEPT"

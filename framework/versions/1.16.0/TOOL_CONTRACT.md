@@ -1,70 +1,76 @@
 # Tool Contract v1
 
-Framework operations are language-independent contracts. A backend is an immutable implementation selected once by the adopting project, not a task role, action, resource route or authorization capability.
+Framework operation 是 language-independent contract。backend 是 adopting project 一次选择的 immutable implementation，不是 task role、action、resource route 或 authorization capability。
 
 ## PROCESS_REQUIREMENTS_RESOLVE
 
-The operation has three logical modes over one source composer:
+一个 source composer 提供三个 logical mode：
 
-- `DISCOVER` strictly binds project, task whole identity, host-authenticated actor, role, phase, profile, project-declared capabilities, objective/action/result kind and normalized exact scope. `pathHints` must be inside that scope, `capabilityHints` must be observed, and mutation/external hints must agree with the requested action. A CLEAR contradiction fails; UNKNOWN retains a conservative-load ceiling and cannot admit the governed action. Caller capability drift, unknown action/result kinds and unsafe relative paths fail closed. It selects against the complete generated metadata catalog, verifies each selected locator against the owning Markdown module and returns every exact complete block once plus a separate compact receipt containing identities and obligations only. Still-effective corrections and permanent project rules remain independently sourced. The result binds one source-composition identity and a separate selection identity over the complete normalized intent.
-- `ADMIT_ACTION` consumes only the exact compact DISCOVER receipt, revalidates every bound task/Framework/catalog/coverage/project/correction/policy/custom source identity, reruns the complete authorization observation against current exact object bytes and checks selected preparation requirements before a distinct governed action. It never grants the action.
-- `FINALIZE_OUTPUT` performs the same source revalidation and checks observable result/delivery completeness before the actual final output. For every authorized exact path, result receipts contain exactly one `OBJECT_POSTIMAGE|<relative-path>|<byteLength|UPPER_SHA256>` matching the current repository object.
+- `DISCOVER` 严格绑定 project、task whole identity、task Owner、task Work route actor、host-authenticated action actor、effective role/phase、profile、project-declared capabilities、objective/action/result kind 与 normalized exact scope。`pathHints` 必须位于 scope 内，`capabilityHints` 必须已观察，mutation/external hints 必须匹配 requested action。CLEAR contradiction 失败；UNKNOWN 保留 conservative-load ceiling，不能 admit governed action。resolver 对完整 generated metadata catalog 选择，校验 selected locator 与 owning Markdown module，一次返回每个 exact complete block，并另给只含 identities/obligations 的 compact receipt。still-effective corrections 与 permanent project rules 保持独立 source。
+- 对纯 `REVIEW_EXECUTE`，package grantee 可以不同于 task Work route actor，但 task Owner、task identity 与 candidate 不变。receipt/AuthorityContext 同时绑定 `taskActor` 与 action `actor`，effective role/phase 为 `REVIEWER/REVIEW`。其他 action 仍要求 grantee、observed actor 与 task route 一致。
+- `ADMIT_ACTION` 只消费 exact compact DISCOVER receipt，复检 task/Framework/catalog/coverage/project/correction/policy/custom identities，按 current exact object bytes 重跑 authorization observation，并校验 selected preparation；它不授予 action。
+- `FINALIZE_OUTPUT` 做同样 source revalidation，并在实际 final output 前校验 observable result/delivery。每个 authorized exact path 必须恰有一个 `OBJECT_POSTIMAGE|<relative-path>|<byteLength|UPPER_SHA256>`，且匹配 current repository object。
 
-UNKNOWN semantic applicability conservatively loads the rule. Schema1 free-text corrections and legacy PROJECT-CUSTOM use full-source compatibility loading and unchanged-context reuse, with `LEGACY_PROGRESSIVE_SELECTION_UNPROVEN`; no selection-saving claim is made. A selected pack above 32768 bytes fails unless it contains a verified effective schema1 correction and has no PROJECT-CUSTOM, ambiguity, source conflict or source-identity mismatch; that narrow case may use the 98304-byte ceiling and emits `LEGACY_SCHEMA1_CORRECTION_COMPATIBILITY`. Schema2, PROJECT-CUSTOM and ordinary packs never inherit that ceiling. Source composition, progressive selection and boundary-decision identities are distinct, with separate invalidators; selection binds the full intent envelope and boundary decisions also bind the discovered context identity. A backend may reread unchanged bytes and must not claim a physical cache hit unless observed. Receipts are ephemeral, non-authoritative and never a repository ledger.
+UNKNOWN semantic applicability 保守加载规则。schema1 free-text correction 与 legacy PROJECT-CUSTOM 使用 full-source compatibility loading 和 unchanged-context reuse，并报告 `LEGACY_PROGRESSIVE_SELECTION_UNPROVEN`。
 
-`-DeleteInputOnExit` deletes only the exact literal `aiw-*.json` input under the operating-system temporary directory after either success or failure. Reparse points and paths outside that directory fail before deletion. The caller removes the compact receipt immediately after `FINALIZE_OUTPUT`, invalidation or abort.
+runtime selected-pack ceiling 只来自 `.ai-workspace/process-policy.json.selectedRulePackBytes`。该值必须是 `1..98304` 的 integer；Framework absolute cap 固定为 `98304`。pack 超过项目值即 `SELECTED_RULE_PACK_BUDGET_EXCEEDED`。不再设置 ordinary/absolute/legacy runtime tier 或 correction exception。
 
-`requirements/fragments/*.json` owns native requirement IDs, deterministic selectors, exact Markdown locators and preparation/result gates. Marked Markdown blocks are the sole native rule bodies. `PROCESS_REQUIREMENTS.json` is their deterministic sealed metadata projection: it is an internal operation input, is never independently edited or loaded into the model, and contains no native rule body. The host reads only selected complete rules returned by `DISCOVER`.
+source composition、progressive selection 与 boundary decision identity 分离，并拥有各自 invalidators。selection 绑定完整 intent envelope，boundary decision 也绑定 discovered context identity。backend 可以重读 unchanged bytes，但 host 未观察时不得声称 physical cache hit。receipt 是 ephemeral、non-authoritative artifact，不是 repository ledger。
 
-`LOAD_PLAN_RESOLVE` remains the same compatibility/support operation. It may identify non-rule supporting artifacts, Framework-wide maintenance/explanation context and bounded affected-module fallback, but it is not a pre-DISCOVER catalog filter and cannot silently exclude a requirement.
+`-DeleteInputOnExit` 只删除经过安全验证的 exact input：
 
-Legacy schema-1 process input remains discovery/evaluation compatibility only. It has no bound authorization package or complete AuthorityContext, so a categorical governed action can never pass `ADMIT_ACTION` or `FINALIZE_OUTPUT`; the resolver returns `LEGACY_AUTHORITY_CONTEXT_UNBOUND`. Schema 2 is required for any governed action boundary.
+- 首选 project-local `.ai-workspace/runtime/<task>/<actor>/<safe-name>.json`，其中 task/actor 必须匹配 input binding，路径不得是 reparse；
+- 只有 project runtime 不可用时，才接受 operating-system temp 下的 exact non-reparse `aiw-*.json`，并公开 fallback evidence ceiling；
+- success 或 failure 都只删除该 exact file；unsafe cleanup request 在删除前失败。
 
-Mechanical PASS proves only current identities and supplied structural receipts. It does not prove semantic correctness, model attention, host invocation or an independent authorization/Review/Git/external gate.
+caller 在 `FINALIZE_OUTPUT`、invalidation 或 abort 后立即删除 compact receipt。
 
-## Current-pin adoption budget bridge
+`requirements/fragments/*.json` 拥有 native requirement ID、deterministic selectors、exact Markdown locator 与 preparation/result gates。marked Markdown block 是唯一 native rule body。`PROCESS_REQUIREMENTS.json` 是 deterministic sealed metadata projection，只作为 internal operation input，不独立编辑，也不把 native rule body 加载进 model。host 只读取 DISCOVER 返回的 selected complete rules。
 
-Root project upgrade derives direct sources and all fixed target behavior from `ADOPTION_PROFILE.json`. Any additional current-pin process input is strict, read-only and actor/task/owner/Controller/project bound; mutation, action authorization, Review, Git, external and product paths are invalid.
+`LOAD_PLAN_RESOLVE` 保持 compatibility/support operation，可定位 non-rule supporting artifacts、Framework-wide maintenance/explanation context 与 bounded affected-module fallback；它不是 pre-DISCOVER catalog filter，不能静默排除 requirement。
 
-The tool derives the exact sorted enabled capability IDs from current project config, requires intent capability hints to equal that set, and passes the IDs unchanged to the sealed current-pin resolver and composer. It retains every complete selected Markdown block and applies the fixed ceilings declared by the target profile. Resolver ambiguity, extra output, source drift, incomplete module mapping, composer failure or an oversized complete pack fails closed.
+legacy schema1 process input 只用于 discovery/evaluation compatibility。它没有 bound authorization package 或 complete AuthorityContext，因此 categorical governed action 不能通过 ADMIT/FINALIZE，并返回 `LEGACY_AUTHORITY_CONTEXT_UNBOUND`。governed action boundary 必须使用 schema2。
 
-This is a compatibility observation, not an alternate resolver, authority or consumer fast path. The existing schema3 actor-bound upgrade package, exact pre/postimages, protected paths, project decision, task-last write, forward recovery and every later Review/acceptance/Git/external gate remain independent and unchanged.
+机械 PASS 只证明 current identities 与 supplied structural receipts，不证明 semantic correctness、model attention、host invocation 或独立 authorization/Review/Git/external gate。
+
+## Target-before-pin adoption preflight
+
+root project upgrade 从 `ADOPTION_PROFILE.json` 取得 direct sources 与 target behavior。对 profile target，它创建隔离的 target projection，写入 target project、Bootstrap、corrections、process policy、project-selected budget 与 migrated current task route，然后调用 target `PROCESS_REQUIREMENTS_RESOLVE/DISCOVER`。只有 complete selected pack 在项目 ceiling 内 PASS 才可准备 actual transaction。
+
+旧 current-process input 若提供，只作为 exact-bound user decision 来源，不执行 current-pin resolver；因此旧 budget 或 1.11/1.12 two-field task schema 不会形成 target-before-pin deadlock。
+
+该 preflight 是 compatibility observation，不是 alternate resolver、authority 或 consumer fast path。schema3 actor-bound upgrade package、exact pre/postimages、protected paths、project decision、task-last write、forward recovery 与后续 Review/acceptance/Git/external gate 保持独立。
 
 ## Project selection
 
-The exact project authority field is `.ai-workspace/project.json.frameworkToolBackend`. Framework 1.16.0 accepts only `powershell7`; registration and upgrade write that value deterministically. Every task and operation inherits it. Authorization packages do not repeat the value: their existing `projectConfigIdentity` binding invalidates the package when the selection or any other project config byte changes.
+project authority field 是 `.ai-workspace/project.json.frameworkToolBackend`。`1.16.0` 只接受 `powershell7`；registration/upgrade deterministic 写入该值。所有 task/operation 继承它。authorization package 不重复该字段；既有 `projectConfigIdentity` 会在 selection 或其他 config byte 改变时使 package 失效。
 
-The host reads the project pin, then the pinned version's sealed `TOOLCHAIN.json`. It requires an exact backend ID match, an `OFFICIAL` backend, a supported platform and an available runtime meeting the declared edition/version. Unknown fields, unknown backend, missing entrypoint, path escape, unavailable runtime or contract drift fails closed before the requested operation. Framework does not install or download a runtime.
+host 先读 project pin，再读 pinned `TOOLCHAIN.json`。backend ID、`OFFICIAL` status、platform、runtime edition/version 与 exact entrypoint 都必须匹配。unknown field/backend、missing entrypoint、path escape、unavailable runtime 或 contract drift 在 operation 前 fail closed。Framework 不 install/download runtime。
 
 ## Router compatibility
 
-The host-global `ai-workspace-router` Skill is navigation only. Framework 1.15+ declares compatibility in sealed `TOOLCHAIN.json` with the exact three required operations, process-catalog schema/version and native rule-body source. Framework 1.14.0 and 1.14.1 are admitted only through the exact known Tool Contract identities embedded in the sealed Skill. A missing, conflicting or unknown declaration falls back to the pinned project's repo-local Bootstrap and reports `INCOMPATIBLE_OR_UNKNOWN`.
+唯一 canonical `ai-workspace-router` Skill 位于 repository root `skills/ai-workspace-router/SKILL.md`，只负责 navigation。`TOOLCHAIN.json.routerCompatibility.canonicalSkillPath` 绑定该路径，`versionContractPath` 指向 version 内的 `REFERENCE_ONLY / VERSION_CONTRACT / NON_INSTALLABLE` history file。
 
-The canonical Skill source is `host/skills/ai-workspace-router/SKILL.md`; the Framework root contains its byte-identical distribution projection. Installing or updating a host-global copy is a separate explicit host-write action. Registration and project upgrade never perform it and no installation registry or ledger exists.
+Framework 1.15+ 通过 sealed `TOOLCHAIN.json` 声明 exact operations、process-catalog schema/version 与 native rule-body source。1.14.0/1.14.1 只通过 root Skill 内的已知 Tool Contract identities 接入。declaration 缺失、冲突或 unknown 时，回到 pinned project Bootstrap 并报告 `INCOMPATIBLE_OR_UNKNOWN`。
+
+install/update host-global Skill 是独立 explicit host-write action。registration/upgrade 不执行安装，也不创建 installation registry/ledger。
 
 ## Invocation
 
-Operation names and entrypoint paths come only from `TOOLCHAIN.json`. Paths are version-root-relative, NFC-normalized, forward-slash logical locators with no absolute path, drive, empty component, `.` or `..`. The host invokes the selected entrypoint directly with the operation's documented arguments; no user-facing launcher or generated wrapper is part of the contract.
+operation name 与 entrypoint path 只来自 `TOOLCHAIN.json`。path 是 version-root-relative、NFC-normalized、forward-slash locator，不得 absolute、drive、empty component、`.` 或 `..`。host 直接调用 selected entrypoint，不提供 user-facing launcher 或 generated wrapper。
 
-The official `powershell7` backend is invoked with `pwsh -NoProfile -NonInteractive -File <entrypoint> ...`. Each 1.16.0 backend entrypoint independently rejects a non-Core runtime or PowerShell major version below 7.
+official backend 使用 `pwsh -NoProfile -NonInteractive -File <entrypoint> ...`。每个 `1.16.0` entrypoint 独立拒绝 non-Core runtime 或 PowerShell major < 7。
 
-## Results and evidence
+## Results 与 evidence
 
-Exit code `0` means the operation returned its documented accepted result. Any nonzero exit fails the requested boundary; callers preserve the entrypoint's explicit reason instead of guessing success from prose. Structured `-AsJson` output, when supported by an operation, is preferred for host decisions. Human-readable output is a projection of the same result, not another authority object.
+exit code `0` 表示 operation 返回 documented accepted result；nonzero 使 requested boundary 失败，caller 保留 explicit reason，不从 prose 猜测成功。支持时优先用 structured `-AsJson`。human-readable output 只是同一 result 的 projection，不是 authority object。
 
-File identities remain `byteLength|UPPER_SHA256` over exact bytes. JSON and Markdown payloads use strict UTF-8 without BOM and LF line endings. Security-relevant JSON rejects duplicate members recursively after JSON escape decoding; a parser's last-member behavior is never authority. Repository-relative evidence uses forward slashes. Platform conformance compares normalized status, reason, operation, relative locator and identity fields; it never compares temporary roots or raw absolute paths.
+file identity 为 exact bytes 上的 `byteLength|UPPER_SHA256`。JSON/Markdown 使用 strict UTF-8 no BOM 与 LF。security-relevant JSON 在 escape decoding 后递归拒绝 duplicate members。repository-relative evidence 使用 forward slashes。
 
-The contract permits later platform admission, but each released toolchain lists only platforms it actually supports. 1.16.0 lists Windows only. Platform-specific evidence requirements remain explicit:
-
-- Windows uses reparse-point and case-insensitive path probes where the filesystem reports them.
-- Linux uses symbolic-link, executable/permission and case-sensitive probes.
-- macOS uses symbolic-link and permission probes while accepting the actual volume's reported case behavior.
-- Git safe-directory, separator normalization and strict UTF-8/LF fixtures run on every platform.
-
-A platform is supported only after its actual conformance run passes. Missing CI/host evidence is a capability ceiling, not inferred compatibility.
+`1.16.0` 只列 Windows。未来 platform 只有在实际 conformance run PASS 后才受支持；missing CI/host evidence 是 capability ceiling，不得推断 compatibility。
 
 ## Backend lifecycle
 
-Backend selection changes only at a project adoption/switch boundary after a released Framework version supplies the target backend. The project must have no active writer/reviewer lease, must invalidate outstanding packages through project config identity drift, project the managed config transactionally and complete fresh recovery plus conformance checks. Framework 1.16.0 supplies only one backend, so it intentionally provides no switch command.
+backend selection 只在 released Framework 已提供 target backend 的 project adoption/switch boundary 改变。项目必须没有 active writer/reviewer lease，通过 project config drift 使 outstanding package 失效，transactionally 投影 config，并完成 fresh recovery/conformance。`1.16.0` 只有一个 backend，因此不提供 switch command。
 
-This contract adds no backend registry, service, ledger, plugin market, runtime code generation, task-level choice or global Framework default. Skills and ordinary host tools remain host concerns.
+本 contract 不增加 backend registry、service、ledger、plugin market、runtime code generation、task-level choice 或 global Framework default。

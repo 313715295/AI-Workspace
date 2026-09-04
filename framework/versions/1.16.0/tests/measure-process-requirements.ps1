@@ -56,14 +56,16 @@ try{
     $project=[ordered]@{schemaVersion=4;id=('measure-'+[string]$fixture.fixtureId);displayName='Measurement Fixture';controlPlaneLayout='repo-local';repositoryRoot='..';frameworkVersion='1.16.0';frameworkToolBackend='powershell7';routineExcludedPaths=@();frameworkCapabilities=$fixtureCapabilities;processPolicy=[ordered]@{schemaVersion=1;locator='.ai-workspace/process-policy.json'}}
     $projectPath=Join-Path $projectRoot '.ai-workspace\project.json';Write-Utf8 $projectPath ($project|ConvertTo-Json -Depth 20)
     Write-Utf8 (Join-Path $projectRoot '.ai-workspace\controller.json') (([ordered]@{schemaVersion=1;projectId=$project.id;controllerId='fixture-controller';controllerEpoch=1;state='CURRENT'})|ConvertTo-Json -Depth 10)
-    Write-Utf8 (Join-Path $projectRoot '.ai-workspace\corrections.json') (([ordered]@{schemaVersion=2;contractVersion='1.14.0';projectId=$project.id;corrections=@()})|ConvertTo-Json -Depth 20)
-    Write-Utf8 (Join-Path $projectRoot '.ai-workspace\process-policy.json') (([ordered]@{schemaVersion=1;contractVersion='1.14.0';projectId=$project.id;rules=@()})|ConvertTo-Json -Depth 20)
+    Write-Utf8 (Join-Path $projectRoot '.ai-workspace\corrections.json') (([ordered]@{schemaVersion=2;contractVersion='1.16.0';projectId=$project.id;corrections=@()})|ConvertTo-Json -Depth 20)
+    Write-Utf8 (Join-Path $projectRoot '.ai-workspace\process-policy.json') (([ordered]@{schemaVersion=1;contractVersion='1.16.0';projectId=$project.id;selectedRulePackBytes=32768;rules=@()})|ConvertTo-Json -Depth 20)
     Write-Utf8 (Join-Path $projectRoot '.ai-workspace\BOOTSTRAP.md') "<!-- PROJECT-CUSTOM:BEGIN -->`nNo permanent project rule.`n<!-- PROJECT-CUSTOM:END -->`n"
     foreach($relative in @($fixture.exactPaths)){Write-Utf8 (Join-Path $projectRoot $relative) ("fixture object "+$relative+"`n")}
     $taskId=('MEASURE-'+([string]$fixture.fixtureId).ToUpperInvariant().Replace('_','-'))
     $taskOwner=if([string]$fixture.actionKind-ceq'REVIEW_EXECUTE'){'fixture-owner'}else{[string]$fixture.actor}
     $taskPath=Join-Path $projectRoot ('.ai-workspace\tasks\active\'+$taskId+'.md')
-    Write-Utf8 $taskPath ("# "+$taskId+" - measurement fixture`n`n- Task schema: 1.16.0`n- Owner: "+$taskOwner+"`n- Work route: actor="+[string]$fixture.actor+"; role="+[string]$fixture.role+"; phase="+[string]$fixture.phase+"`n- Range summary: profile="+[string]$fixture.profile+"; lifecycle=ACTIVE; expected_paths=[]; actual_paths=[]`n")
+    $taskActor=if([string]$fixture.actionKind-ceq'REVIEW_EXECUTE'){'fixture-writer'}else{[string]$fixture.actor}
+    $taskRole=if([string]$fixture.actionKind-ceq'REVIEW_EXECUTE'){'EXECUTOR'}else{[string]$fixture.role};$taskPhase=if([string]$fixture.actionKind-ceq'REVIEW_EXECUTE'){'VERIFY'}else{[string]$fixture.phase}
+    Write-Utf8 $taskPath ("# "+$taskId+" - measurement fixture`n`n- Task schema: 1.16.0`n- Owner: "+$taskOwner+"`n- Work route: actor="+$taskActor+"; role="+$taskRole+"; phase="+$taskPhase+"`n- Range summary: profile="+[string]$fixture.profile+"; lifecycle=ACTIVE; expected_paths=[]; actual_paths=[]`n")
     $authorizationPath='NOT_REQUIRED';$authorizationIdentity='NOT_REQUIRED';$userDecision='NOT_REQUIRED'
     if([string]$fixture.actionKind-cne'NONE'){
       $userDecision=if([string]$fixture.actionKind-ceq'REVIEW_EXECUTE'){'NOT_REQUIRED'}else{'USER_MEASUREMENT_BOUNDARY_APPROVED'};$authorizationPath=Join-Path $projectRoot '.ai-workspace\measure-authorization.json'

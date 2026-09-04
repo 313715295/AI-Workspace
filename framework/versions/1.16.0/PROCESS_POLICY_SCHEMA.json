@@ -3,11 +3,12 @@
   "title": "AI-Workspace project-specific process policy",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "contractVersion", "projectId", "rules"],
+  "required": ["schemaVersion", "contractVersion", "projectId", "selectedRulePackBytes", "rules"],
   "properties": {
     "schemaVersion": {"const": 1},
-    "contractVersion": {"const": "1.14.0"},
+    "contractVersion": {"const": "1.16.0"},
     "projectId": {"type": "string", "minLength": 1},
+    "selectedRulePackBytes": {"type": "integer", "minimum": 1, "maximum": 98304},
     "rules": {
       "type": "array",
       "items": {

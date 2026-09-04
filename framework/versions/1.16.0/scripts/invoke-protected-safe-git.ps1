@@ -186,7 +186,7 @@ try {
     $configSchemaVersion = [int]$config.schemaVersion
     $repoLocalLayout = $config.controlPlaneLayout -is [string] -and [string]$config.controlPlaneLayout -ceq 'repo-local'
     if ($configSchemaVersion -in @(3,4) -and $repoLocalLayout) {
-        if ($RepositoryId -cne 'PROJECT') { throw 'REPOSITORY_ID_REQUIRES_MAINTENANCE_LAYOUT' }
+        if ($RepositoryId -cne 'PROJECT') { throw 'REPOSITORY_ID_PROJECT_ONLY' }
         $expectedFields = @('schemaVersion','id','displayName','controlPlaneLayout','repositoryRoot','frameworkVersion','frameworkToolBackend','routineExcludedPaths','frameworkCapabilities')
         if ($configSchemaVersion -eq 4) { $expectedFields += 'processPolicy' }
         $names = @($config.PSObject.Properties.Name)
@@ -211,30 +211,8 @@ try {
         }
         Assert-FrameworkCapabilities $config.frameworkCapabilities $raw
         $selectedExclusions = @($config.routineExcludedPaths)
-    } elseif ($configSchemaVersion -eq 4) {
-        $resolver = Join-Path $PSScriptRoot 'resolve-framework-maintenance-target.ps1'
-        $resolverArguments = @('-NoProfile','-NonInteractive','-File',$resolver,'-ControlRepositoryPath',$controlRoot,'-ExpectedProjectConfigIdentity',$ExpectedProjectConfigIdentity,'-AsJson')
-        $oldPreference = $ErrorActionPreference
-        $ErrorActionPreference = 'Continue'
-        try {
-            $pwshExecutable = [Environment]::ProcessPath
-            if ([string]::IsNullOrWhiteSpace($pwshExecutable)) { throw 'POWERSHELL7_PROCESS_PATH_UNAVAILABLE' }
-            $resolverOutput = @(& $pwshExecutable @resolverArguments 2>&1 | ForEach-Object { [string]$_ }); $resolverCode = $LASTEXITCODE
-        }
-        finally { $ErrorActionPreference = $oldPreference }
-        if ($resolverCode -ne 0 -or $resolverOutput.Count -ne 1) { throw ('MAINTENANCE_TARGET_RESOLUTION_FAILED|' + ($resolverOutput -join ';')) }
-        try { $resolved = $resolverOutput[0] | ConvertFrom-Json } catch { throw 'MAINTENANCE_TARGET_RESOLUTION_JSON' }
-        if ($RepositoryId -ceq 'CONTROL') {
-            $root = $controlRoot
-            $selectedExclusions = @($config.routineExcludedPaths)
-        } elseif ($RepositoryId -ceq [string]$resolved.targetRepositoryId) {
-            $root = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath([string]$resolved.targetRoot))
-            $selectedExclusions = @($config.frameworkTarget.routineExcludedPaths)
-        } else {
-            throw 'REPOSITORY_ID_UNKNOWN'
-        }
     } else {
-        throw 'PROJECT_CONFIG_SCHEMA_UNSUPPORTED'
+        throw 'PROJECT_CONFIG_REPO_LOCAL_REQUIRED'
     }
 
     Assert-GitTop $controlRoot 'PROJECT'

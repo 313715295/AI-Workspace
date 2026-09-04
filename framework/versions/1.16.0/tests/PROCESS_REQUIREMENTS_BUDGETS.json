@@ -13,20 +13,20 @@
     "worstP95Ms": {"DISCOVER": 1047.182, "ADMIT_ACTION": 814.838, "FINALIZE_OUTPUT": 840.725}
   },
   "candidate": {
-    "catalogIdentity": "41210|55C0E96561C8C176664AABA58E19B528B02DF11F59EE0FD8FE4BD50D398BB7CF",
+    "catalogIdentity": "39872|C5C4E5019CB148F8394C2E0710A0EE39895C41643622FBD7D107E9E88B57F5D3",
     "fixtureContractIdentity": "4990|B73AEA3E3E1963BCF0ECB1242A3E03A2C1503B38B03CBABB1706F33A39308993",
-    "measurementHarnessIdentity": "15713|296F4A9417C3D5AEF99BFA2BA5D9F82D07F66341FAE7D83D67E11C19F68EAB42",
-    "authorityContextFieldCount": 24,
+    "measurementHarnessIdentity": "16024|6A467694627ACADC5F590C58B2137CBCCA282190E8A7AB40985EE86791494A89",
+    "authorityContextFieldCount": 25,
     "intentEnvelopeFieldCount": 10,
-    "receiptSourceBindingFieldCount": 10
+    "receiptSourceBindingFieldCount": 11
   },
   "fixtures": [
-    {"fixtureId": "no_match", "fixtureIdentity": "0602BDA60CC317A45C8BC3695EABA6A980E8444C32B549E3C336246B855E1DCE", "selectedPackBytes": 11242, "selectedPackEstimatedTokens": 2811, "selectedRequirementCount": 7, "observedRuntimeMs": {"DISCOVER": {"median": 1176.941, "p95": 1187.748}, "ADMIT_ACTION": {"median": 798.556, "p95": 803.565}, "FINALIZE_OUTPUT": {"median": 778.391, "p95": 786.937}}},
-    {"fixtureId": "ordinary_source", "fixtureIdentity": "5D596B512675523599F2A869C712AE580AFEF49C1FED9C67B227719DDC0450B4", "selectedPackBytes": 13991, "selectedPackEstimatedTokens": 3498, "selectedRequirementCount": 8, "observedRuntimeMs": {"DISCOVER": {"median": 1380.298, "p95": 1383.971}, "ADMIT_ACTION": {"median": 1011.153, "p95": 1048.515}, "FINALIZE_OUTPUT": {"median": 792.901, "p95": 824.280}}},
-    {"fixtureId": "critical_review", "fixtureIdentity": "62C1C37232E3F20DAF4165E8A9C65F3CCEC08D2B0AFFE8CC5DE221EAA9C60589", "selectedPackBytes": 21244, "selectedPackEstimatedTokens": 5311, "selectedRequirementCount": 12, "observedRuntimeMs": {"DISCOVER": {"median": 1418.942, "p95": 1440.488}, "ADMIT_ACTION": {"median": 1041.644, "p95": 1043.673}, "FINALIZE_OUTPUT": {"median": 807.707, "p95": 811.376}}},
-    {"fixtureId": "domain_external", "fixtureIdentity": "80ED0F8798C28C693D16DAC020F7D990C8D508CB638868C45695BD493A484827", "selectedPackBytes": 12066, "selectedPackEstimatedTokens": 3017, "selectedRequirementCount": 9, "observedRuntimeMs": {"DISCOVER": {"median": 1426.452, "p95": 1458.498}, "ADMIT_ACTION": {"median": 1059.608, "p95": 1060.456}, "FINALIZE_OUTPUT": {"median": 797.483, "p95": 818.700}}},
-    {"fixtureId": "framework_maintenance_review", "fixtureIdentity": "028F2A36B8F2D37D362118D70A7C573E920FB3670D8BB4CECCE8B7F72C359437", "selectedPackBytes": 22756, "selectedPackEstimatedTokens": 5689, "selectedRequirementCount": 13, "observedRuntimeMs": {"DISCOVER": {"median": 1421.295, "p95": 1431.773}, "ADMIT_ACTION": {"median": 1026.338, "p95": 1031.811}, "FINALIZE_OUTPUT": {"median": 804.974, "p95": 814.599}}},
-    {"fixtureId": "worst_unknown", "fixtureIdentity": "F56055458B276B427F6BCF0D778448046D628D48918798C18388721AF007FC0D", "selectedPackBytes": 31008, "selectedPackEstimatedTokens": 7752, "selectedRequirementCount": 22, "observedRuntimeMs": {"DISCOVER": {"median": 1407.332, "p95": 1449.591}, "ADMIT_ACTION": {"median": 1059.060, "p95": 1073.782}, "FINALIZE_OUTPUT": {"median": 830.484, "p95": 834.995}}}
+    {"fixtureId": "no_match", "fixtureIdentity": "0602BDA60CC317A45C8BC3695EABA6A980E8444C32B549E3C336246B855E1DCE", "selectedPackBytes": 12021, "selectedPackEstimatedTokens": 3006, "selectedRequirementCount": 7, "observedRuntimeMs": {"DISCOVER": {"median": 1184.569, "p95": 1193.540}, "ADMIT_ACTION": {"median": 811.744, "p95": 821.372}, "FINALIZE_OUTPUT": {"median": 804.889, "p95": 812.179}}},
+    {"fixtureId": "ordinary_source", "fixtureIdentity": "5D596B512675523599F2A869C712AE580AFEF49C1FED9C67B227719DDC0450B4", "selectedPackBytes": 15619, "selectedPackEstimatedTokens": 3905, "selectedRequirementCount": 8, "observedRuntimeMs": {"DISCOVER": {"median": 1414.018, "p95": 1436.502}, "ADMIT_ACTION": {"median": 1067.449, "p95": 1077.982}, "FINALIZE_OUTPUT": {"median": 831.784, "p95": 835.892}}},
+    {"fixtureId": "critical_review", "fixtureIdentity": "62C1C37232E3F20DAF4165E8A9C65F3CCEC08D2B0AFFE8CC5DE221EAA9C60589", "selectedPackBytes": 22863, "selectedPackEstimatedTokens": 5716, "selectedRequirementCount": 12, "observedRuntimeMs": {"DISCOVER": {"median": 1454.014, "p95": 1459.510}, "ADMIT_ACTION": {"median": 1057.494, "p95": 1079.085}, "FINALIZE_OUTPUT": {"median": 830.663, "p95": 848.728}}},
+    {"fixtureId": "domain_external", "fixtureIdentity": "80ED0F8798C28C693D16DAC020F7D990C8D508CB638868C45695BD493A484827", "selectedPackBytes": 12991, "selectedPackEstimatedTokens": 3248, "selectedRequirementCount": 9, "observedRuntimeMs": {"DISCOVER": {"median": 1524.945, "p95": 1568.438}, "ADMIT_ACTION": {"median": 1151.662, "p95": 1202.586}, "FINALIZE_OUTPUT": {"median": 841.374, "p95": 851.013}}},
+    {"fixtureId": "framework_maintenance_review", "fixtureIdentity": "028F2A36B8F2D37D362118D70A7C573E920FB3670D8BB4CECCE8B7F72C359437", "selectedPackBytes": 22876, "selectedPackEstimatedTokens": 5719, "selectedRequirementCount": 12, "observedRuntimeMs": {"DISCOVER": {"median": 1435.420, "p95": 1449.675}, "ADMIT_ACTION": {"median": 1074.619, "p95": 1111.440}, "FINALIZE_OUTPUT": {"median": 829.537, "p95": 840.932}}},
+    {"fixtureId": "worst_unknown", "fixtureIdentity": "F56055458B276B427F6BCF0D778448046D628D48918798C18388721AF007FC0D", "selectedPackBytes": 31145, "selectedPackEstimatedTokens": 7787, "selectedRequirementCount": 21, "observedRuntimeMs": {"DISCOVER": {"median": 1465.460, "p95": 1480.440}, "ADMIT_ACTION": {"median": 1085.443, "p95": 1090.680}, "FINALIZE_OUTPUT": {"median": 846.411, "p95": 853.631}}}
   ],
   "endToEndContexts": [
     {
@@ -61,12 +61,10 @@
     "intentEnvelopeEstimatedTokens": 1024,
     "authorityContextBytes": 8192,
     "authorityContextEstimatedTokens": 2048,
-    "ordinarySelectedPackBytes": 32768,
-    "ordinarySelectedPackEstimatedTokens": 8192,
-    "absoluteSelectedPackBytes": 65536,
-    "absoluteSelectedPackEstimatedTokens": 16384,
-    "legacySchema1CorrectionCompatibilityBytes": 98304,
-    "legacySchema1CorrectionCompatibilityEstimatedTokens": 24576,
+    "defaultSelectedRulePackBytes": 32768,
+    "defaultSelectedRulePackEstimatedTokens": 8192,
+    "absoluteSelectedRulePackBytes": 98304,
+    "absoluteSelectedRulePackEstimatedTokens": 24576,
     "frameworkControlledContextBytes": 98304,
     "frameworkControlledContextEstimatedTokens": 24576,
     "p95Ms": {"DISCOVER": 2095, "ADMIT_ACTION": 1630, "FINALIZE_OUTPUT": 1682},
@@ -74,5 +72,5 @@
     "sourceBuildCount": 1,
     "decisionBuildCount": 1
   },
-  "evidenceCeiling": "Bounded five-run Windows PowerShell 7 sample and structural conformance for Framework-controlled router, module and selected-pack bytes only; it is not a statistical performance certification, and project/task facts, semantic attention, cross-platform and natural-value proof are excluded."
+  "evidenceCeiling": "Bounded five-run Windows PowerShell 7 measurement and structural conformance for Framework-controlled router, module and selected-pack bytes only; this is not a statistical performance certification, and project/task facts, semantic attention, cross-platform behavior and natural-value proof are excluded."
 }

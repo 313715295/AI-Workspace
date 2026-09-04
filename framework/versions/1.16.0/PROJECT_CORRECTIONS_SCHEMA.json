@@ -63,7 +63,7 @@
       "required": ["schemaVersion", "contractVersion", "projectId", "corrections"],
       "properties": {
         "schemaVersion": {"const": 2},
-        "contractVersion": {"const": "1.14.0"},
+        "contractVersion": {"const": "1.16.0"},
         "projectId": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
         "corrections": {
           "type": "array",

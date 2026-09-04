@@ -674,54 +674,6 @@
       ]
     },
     {
-      "requirementId": "PR_FRAMEWORK_MAINTENANCE_TOPOLOGY",
-      "legacyAliases": [],
-      "title": "Framework Maintenance topology",
-      "description": "Keep Maintenance control authority and Framework target bytes in distinct sibling repositories.",
-      "ownerModule": "FRAMEWORK_MAINTENANCE.md",
-      "selectors": {
-        "profiles": [
-          "STANDARD",
-          "CRITICAL"
-        ],
-        "roles": [
-          "FRAMEWORK_MAINTAINER",
-          "CONTROLLER"
-        ],
-        "phases": [
-          "RECOVER",
-          "DISCOVER",
-          "PLAN",
-          "IMPLEMENT",
-          "VERIFY",
-          "REVIEW",
-          "GIT",
-          "EXTERNAL"
-        ],
-        "actionKinds": [
-          "*"
-        ],
-        "resultKinds": [
-          "*"
-        ],
-        "pathPrefixes": [],
-        "capabilities": [],
-        "semanticTerms": [
-          "framework",
-          "maintenance",
-          "release",
-          "target"
-        ]
-      },
-      "exactBlockLocator": "AIW-REQUIREMENT:PR_FRAMEWORK_MAINTENANCE_TOPOLOGY",
-      "preparationRequirements": [
-        "CONTROL_TARGET_TOPOLOGY_BOUND"
-      ],
-      "resultRequirements": [
-        "CROSS_REPOSITORY_BOUNDARIES_PRESERVED"
-      ]
-    },
-    {
       "requirementId": "PR_GIT_PUSH_SEPARATE",
       "legacyAliases": [],
       "title": "Git and push separation",
@@ -902,16 +854,13 @@
       "ownerModule": "REVIEW_AND_EVIDENCE.md",
       "selectors": {
         "profiles": [
-          "STANDARD",
-          "CRITICAL"
+          "*"
         ],
         "roles": [
-          "DOMAIN_OWNER",
-          "CONTROLLER",
-          "FRAMEWORK_MAINTAINER"
+          "*"
         ],
         "phases": [
-          "VERIFY"
+          "*"
         ],
         "actionKinds": [
           "OWNER_ACCEPT"

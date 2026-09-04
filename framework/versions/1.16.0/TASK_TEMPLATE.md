@@ -89,11 +89,15 @@
 
 Fresh package只表示旧action/grantee/path/object/decision绑定已失效，不表示必须由Controller签发。相同domain/task/outcome下，DOMAIN_OWNER默认直接选择临时executor或独立Reviewer、签发范围包并接收终态；仅在owner/public decision、跨域合同、保护、项目phase、Git/device/external或resource conflict边界上收Controller。CRITICAL `REVIEW_EXECUTE`还必须绑定`candidateWriter`与`materialContributors`；Owner、issuer、writer和material contributors均不得成为独立Reviewer。
 
-Framework Maintenance sibling任务把`schemaVersion`改为`2`并增加`repositoryId`；`projectConfigIdentity`是1.13+包的共同字段，schema2只额外在`invalidatesOn`增加`REPOSITORY_CHANGE`。同一包的所有exact都相对于该repository ID的Git top；控制仓和Framework目标仓分别建包，不把共同父目录写入exact。
+纯`REVIEW_EXECUTE`的Reviewer只是action grantee：任务卡的Owner、`Work route`、task identity与candidate bytes保持不变。resolver在AuthorityContext中同时记录`taskActor`和当前action `actor`，并把effective role/phase设为`REVIEWER/REVIEW`。只有真实任务责任转移才改写`Work route`。
+
+需要由root adapter管理多个repository的任务，可使用`schemaVersion=2`并增加`repositoryId`；`projectConfigIdentity`是1.13+包的共同字段，schema2只额外在`invalidatesOn`增加`REPOSITORY_CHANGE`。同一包的所有exact都相对于该repository ID的Git top，各repository分别建包，不把共同父目录写入exact。schema2必须先经过相应root adapter的topology验证，不能直接调用version checker冒充完整入口。
 
 `Work route`原子绑定当前host-authenticated actor、临时role与phase，不授予任何action。任务卡是该字段的权威，tasks index只是locator/projection。schema 1.16.0必须使用三字段语法；1.11/1.12两字段卡可只读恢复并返回`LEGACY_ACTOR_CONTEXT_UNBOUND`，但第一次1.14实质动作前必须由当前Owner在同一卡自然rebind，不能从owner、包、prompt或host标签推断actor。
 
 在初次恢复、task/actor/role/phase/profile/capability/objective/exact-scope变化，以及进入独立action/result边界时，调用`PROCESS_REQUIREMENTS_RESOLVE`。`DISCOVER`只返回选中的完整规则和源绑定；`ADMIT_ACTION`检查准备完整性；`FINALIZE_OUTPUT`检查实际结果、交付和声明。它不替代或授予任何action gate。
+
+ephemeral input与receipt默认写入`.ai-workspace/runtime/<task>/<actor>/`，并由root `.gitignore`中的`/.ai-workspace/runtime/`排除；project runtime不可用时才使用system temp `aiw-*.json`。
 
 1.16.0 checker允许一次传入多个`ObservedAction`，并逐action返回结果；这只减少同一未漂移lease的重复预检，不合并action能力。任一绑定对象或decision漂移后，后续阶段必须使用fresh package。任务卡不新增字段级manifest，仓库也不新增授权消费ledger。
 
