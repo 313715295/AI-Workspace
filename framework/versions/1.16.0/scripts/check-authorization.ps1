@@ -264,9 +264,10 @@ try {
     $taskOwnerMatches=[regex]::Matches($taskRaw,'(?m)^- Owner:\s*(?<owner>[^\s]+)\s*$')
     $taskRouteMatches=[regex]::Matches($taskRaw,'(?m)^- Work route:\s*actor=(?<actor>[^;\s]+);\s*role=(?<role>CONTROLLER|DOMAIN_OWNER|EXECUTOR|REVIEWER|FRAMEWORK_MAINTAINER);\s*phase=(?<phase>DISCOVER|PLAN|IMPLEMENT|VERIFY|REVIEW|GIT|EXTERNAL|RECOVER)\s*$')
     if($taskIdMatches.Count-ne1-or$taskOwnerMatches.Count-ne1-or$taskRouteMatches.Count-ne1){throw 'TASK_BINDING_FIELDS'}
-    $temporaryReviewGrantee=@($package.actions).Count-eq1-and[string]$package.actions[0]-ceq'REVIEW_EXECUTE'
-    if([string]$taskIdMatches[0].Groups['id'].Value-cne$ObservedTaskId-or[string]$taskOwnerMatches[0].Groups['owner'].Value-cne$ObservedOwner-or(-not$temporaryReviewGrantee-and[string]$taskRouteMatches[0].Groups['actor'].Value-cne$ObservedActor)){throw 'TASK_BINDING_DRIFT'}
-    if($temporaryReviewGrantee-and[string]$taskRouteMatches[0].Groups['actor'].Value-ceq$ObservedActor){throw 'REVIEW_GRANTEE_NOT_TEMPORARY'}
+    $temporaryActionKinds=@('CONTROL_WRITE','SOURCE_WRITE','TEST_WRITE','TEST_RUN','REVIEW_EXECUTE','GIT_STAGE','GIT_COMMIT','PUSH','BROWSER_RUN','DEVICE_RUN','EXTERNAL')
+    $temporaryActionGrantee=@($package.actions).Count-eq1-and[string]$package.actions[0]-cin$temporaryActionKinds
+    if([string]$taskIdMatches[0].Groups['id'].Value-cne$ObservedTaskId-or[string]$taskOwnerMatches[0].Groups['owner'].Value-cne$ObservedOwner-or(-not$temporaryActionGrantee-and[string]$taskRouteMatches[0].Groups['actor'].Value-cne$ObservedActor)){throw 'TASK_BINDING_DRIFT'}
+    if([string]$package.actions[0]-ceq'REVIEW_EXECUTE'-and[string]$taskRouteMatches[0].Groups['actor'].Value-ceq$ObservedActor){throw 'REVIEW_GRANTEE_NOT_TEMPORARY'}
 } catch { Add-Reason $reasons ([string]$_.Exception.Message) }
 
 $schema2ProjectId = $null
@@ -306,7 +307,7 @@ if ([int]$package.schemaVersion -eq 1 -or ([int]$package.schemaVersion -eq 3 -an
             -not ($schema1Config.repositoryRoot -is [string]) -or [string]$schema1Config.repositoryRoot -cne '..' -or
             -not ($schema1Config.frameworkVersion -is [string]) -or
             ([int]$package.schemaVersion -eq 1 -and [string]$schema1Config.frameworkVersion -cne '1.16.0') -or
-            ([int]$package.schemaVersion -eq 3 -and [string]$schema1Config.frameworkVersion -cnotin @('1.14.1','1.15.0','1.15.1')) -or
+            ([int]$package.schemaVersion -eq 3 -and ([int]$schema1Config.schemaVersion -ne 4 -or [string]$schema1Config.frameworkVersion -cnotmatch '^\d+\.\d+\.\d+$')) -or
             -not ($schema1Config.frameworkToolBackend -is [string]) -or [string]$schema1Config.frameworkToolBackend -cne 'powershell7' -or
             -not ($schema1Config.routineExcludedPaths -is [System.Array])) { throw 'PROJECT_CONFIG_VALUES' }
         if(([int]$schema1Config.schemaVersion-eq4)-ne$schema1HasPolicy){throw 'PROJECT_CONFIG_PROCESS_POLICY_MODE'}

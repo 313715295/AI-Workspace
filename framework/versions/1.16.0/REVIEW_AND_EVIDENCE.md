@@ -11,6 +11,8 @@ Review 不授予 write、Git、push 或 external capability。
 
 对未变化的 domain task，DOMAIN_OWNER 可以直接选择 independent Reviewer，并签发纯 `REVIEW_EXECUTE` package；PROJECT_CONTROLLER 不是强制签名或 delivery hop。临时 Reviewer 只成为 action grantee，不改写 task Owner、Work route actor、task identity 或 candidate bytes。CRITICAL scope 下，task owner、issuer、candidate writer 与 material solution contributor 必须被机械排除；合格 cross-domain writer 仍是 writer/contributor，不改变 task ownership。`OWNER_ACCEPT` 是之后的 domain/product gate，不是 Review。
 
+正常 Review 闭环只有一次纯分派与一次可用终态。Reviewer 在发送 verdict 前完成 candidate identity、范围、finding 与 evidence ceiling 的收尾；发送后 package 按终态失效，Reviewer 不修改 Owner 的任务卡、STATUS/index，不删除 Owner 的 package，也不等待“释放/ACK”。Owner 只在唯一任务卡记录当前结论并关闭后续 writer/acceptance route；STATUS 与 task index 仅保存定位、lifecycle 或 routing 投影。详细 finding 只保留一份 canonical evidence。交付通道失败只重送同一终态，不重做 Review 或生成反向授权。
+
 ## Candidate freeze
 
 stable candidate 标识 repository、parent/baseline、exact files、byte identities、canonical payload、known dirty/index state、writer release 与 evidence ceiling。canonical immutable evidence 只存一次并由其他对象引用；不要在 mutable card 之间复制，也不要增加 field-level manifest。

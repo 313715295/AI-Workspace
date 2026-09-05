@@ -6,27 +6,162 @@
     "selectors": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["profiles", "roles", "phases", "actionKinds", "resultKinds", "pathPrefixes", "capabilities", "semanticTerms"],
+      "required": [
+        "profiles",
+        "roles",
+        "phases",
+        "actionKinds",
+        "resultKinds",
+        "pathPrefixes",
+        "capabilities",
+        "semanticTerms"
+      ],
       "properties": {
-        "profiles": {"type": "array", "items": {"type": "string"}},
-        "roles": {"type": "array", "items": {"type": "string"}},
-        "phases": {"type": "array", "items": {"type": "string"}},
-        "actionKinds": {"type": "array", "items": {"type": "string"}},
-        "resultKinds": {"type": "array", "items": {"type": "string"}},
-        "pathPrefixes": {"type": "array", "items": {"type": "string"}},
-        "capabilities": {"type": "array", "items": {"type": "string"}},
-        "semanticTerms": {"type": "array", "items": {"type": "string"}}
+        "profiles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "roles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "phases": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "actionKinds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "resultKinds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "pathPrefixes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "semanticTerms": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "deterministicTriggers": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "actionKinds",
+            "resultKinds"
+          ],
+          "properties": {
+            "actionKinds": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "CONTROL_WRITE",
+                  "SOURCE_WRITE",
+                  "TEST_WRITE",
+                  "TEST_RUN",
+                  "REVIEW_ROUTE",
+                  "REVIEW_EXECUTE",
+                  "OWNER_ACCEPT",
+                  "GIT_STAGE",
+                  "GIT_COMMIT",
+                  "PUSH",
+                  "BROWSER_RUN",
+                  "DEVICE_RUN",
+                  "EXTERNAL"
+                ]
+              }
+            },
+            "resultKinds": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "PLAN",
+                  "USER_RESPONSE",
+                  "TERMINAL",
+                  "HANDOFF",
+                  "REVIEW_VERDICT",
+                  "OWNER_ACCEPTANCE",
+                  "IMPLEMENTATION_RESULT",
+                  "TEST_RESULT",
+                  "GIT_RESULT",
+                  "EXTERNAL_RESULT"
+                ]
+              }
+            }
+          },
+          "anyOf": [
+            {
+              "properties": {
+                "actionKinds": {
+                  "minItems": 1
+                }
+              }
+            },
+            {
+              "properties": {
+                "resultKinds": {
+                  "minItems": 1
+                }
+              }
+            }
+          ]
+        },
+        "semanticMatch": {
+          "const": "TOKEN"
+        }
       }
     },
     "historicalFields": {
       "type": "object",
       "properties": {
-        "correctionId": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"},
-        "introducedAgainstFramework": {"type": "string", "minLength": 1},
-        "requirementReason": {"type": "string", "minLength": 1},
-        "effectiveRule": {"type": "string", "minLength": 1},
-        "applicability": {"type": "string", "minLength": 1},
-        "decisionLocator": {"type": "string", "minLength": 1}
+        "correctionId": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$"
+        },
+        "introducedAgainstFramework": {
+          "type": "string",
+          "minLength": 1
+        },
+        "requirementReason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "effectiveRule": {
+          "type": "string",
+          "minLength": 1
+        },
+        "applicability": {
+          "type": "string",
+          "minLength": 1
+        },
+        "decisionLocator": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     }
   },
@@ -34,24 +169,55 @@
     {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schemaVersion", "contractVersion", "projectId", "corrections"],
+      "required": [
+        "schemaVersion",
+        "contractVersion",
+        "projectId",
+        "corrections"
+      ],
       "properties": {
-        "schemaVersion": {"const": 1},
-        "contractVersion": {"const": "1.10.0"},
-        "projectId": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+        "schemaVersion": {
+          "const": 1
+        },
+        "contractVersion": {
+          "const": "1.10.0"
+        },
+        "projectId": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
         "corrections": {
           "type": "array",
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["correctionId", "introducedAgainstFramework", "requirementReason", "effectiveRule", "applicability", "decisionLocator"],
+            "required": [
+              "correctionId",
+              "introducedAgainstFramework",
+              "requirementReason",
+              "effectiveRule",
+              "applicability",
+              "decisionLocator"
+            ],
             "properties": {
-              "correctionId": {"$ref": "#/$defs/historicalFields/properties/correctionId"},
-              "introducedAgainstFramework": {"$ref": "#/$defs/historicalFields/properties/introducedAgainstFramework"},
-              "requirementReason": {"$ref": "#/$defs/historicalFields/properties/requirementReason"},
-              "effectiveRule": {"$ref": "#/$defs/historicalFields/properties/effectiveRule"},
-              "applicability": {"$ref": "#/$defs/historicalFields/properties/applicability"},
-              "decisionLocator": {"$ref": "#/$defs/historicalFields/properties/decisionLocator"}
+              "correctionId": {
+                "$ref": "#/$defs/historicalFields/properties/correctionId"
+              },
+              "introducedAgainstFramework": {
+                "$ref": "#/$defs/historicalFields/properties/introducedAgainstFramework"
+              },
+              "requirementReason": {
+                "$ref": "#/$defs/historicalFields/properties/requirementReason"
+              },
+              "effectiveRule": {
+                "$ref": "#/$defs/historicalFields/properties/effectiveRule"
+              },
+              "applicability": {
+                "$ref": "#/$defs/historicalFields/properties/applicability"
+              },
+              "decisionLocator": {
+                "$ref": "#/$defs/historicalFields/properties/decisionLocator"
+              }
             }
           }
         }
@@ -60,29 +226,102 @@
     {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schemaVersion", "contractVersion", "projectId", "corrections"],
+      "required": [
+        "schemaVersion",
+        "contractVersion",
+        "projectId",
+        "corrections"
+      ],
       "properties": {
-        "schemaVersion": {"const": 2},
-        "contractVersion": {"const": "1.16.0"},
-        "projectId": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+        "schemaVersion": {
+          "const": 2
+        },
+        "contractVersion": {
+          "const": "1.16.0"
+        },
+        "projectId": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
         "corrections": {
           "type": "array",
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["correctionId", "introducedAgainstFramework", "requirementReason", "effectiveRule", "applicability", "decisionLocator", "selectors", "preparationRequirements", "resultRequirements", "requiredFacts", "mechanicalCheckRefs"],
+            "required": [
+              "correctionId",
+              "introducedAgainstFramework",
+              "requirementReason",
+              "effectiveRule",
+              "applicability",
+              "decisionLocator",
+              "selectors",
+              "preparationRequirements",
+              "resultRequirements",
+              "requiredFacts",
+              "mechanicalCheckRefs"
+            ],
             "properties": {
-              "correctionId": {"$ref": "#/$defs/historicalFields/properties/correctionId"},
-              "introducedAgainstFramework": {"$ref": "#/$defs/historicalFields/properties/introducedAgainstFramework"},
-              "requirementReason": {"$ref": "#/$defs/historicalFields/properties/requirementReason"},
-              "effectiveRule": {"$ref": "#/$defs/historicalFields/properties/effectiveRule"},
-              "applicability": {"$ref": "#/$defs/historicalFields/properties/applicability"},
-              "decisionLocator": {"$ref": "#/$defs/historicalFields/properties/decisionLocator"},
-              "selectors": {"$ref": "#/$defs/selectors"},
-              "preparationRequirements": {"type": "array", "items": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"}},
-              "resultRequirements": {"type": "array", "items": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"}},
-              "requiredFacts": {"type": "array", "items": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"}},
-              "mechanicalCheckRefs": {"type": "array", "items": {"enum": ["CURRENT_AUTHORITY_BOUND", "ACTION_PACKAGE_VALID", "EXACT_SCOPE_BOUND", "TASK_SCOPE_CURRENT", "PROTECTION_BOUNDARY_PROVEN", "REVIEWER_INDEPENDENCE_PROVEN", "SAFE_GIT_STATE_PROVEN", "EXTERNAL_BOUNDARY_AUTHORIZED", "DOMAIN_EXTERNAL_PACKAGE_VALID", "EXTERNAL_PAYLOAD_IDENTITIES_BOUND", "USER_EXTERNAL_DECISION_BOUND"]}}
+              "correctionId": {
+                "$ref": "#/$defs/historicalFields/properties/correctionId"
+              },
+              "introducedAgainstFramework": {
+                "$ref": "#/$defs/historicalFields/properties/introducedAgainstFramework"
+              },
+              "requirementReason": {
+                "$ref": "#/$defs/historicalFields/properties/requirementReason"
+              },
+              "effectiveRule": {
+                "$ref": "#/$defs/historicalFields/properties/effectiveRule"
+              },
+              "applicability": {
+                "$ref": "#/$defs/historicalFields/properties/applicability"
+              },
+              "decisionLocator": {
+                "$ref": "#/$defs/historicalFields/properties/decisionLocator"
+              },
+              "selectors": {
+                "$ref": "#/$defs/selectors"
+              },
+              "preparationRequirements": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[A-Z][A-Z0-9_]*$"
+                }
+              },
+              "resultRequirements": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[A-Z][A-Z0-9_]*$"
+                }
+              },
+              "requiredFacts": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[A-Z][A-Z0-9_]*$"
+                }
+              },
+              "mechanicalCheckRefs": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "CURRENT_AUTHORITY_BOUND",
+                    "ACTION_PACKAGE_VALID",
+                    "EXACT_SCOPE_BOUND",
+                    "TASK_SCOPE_CURRENT",
+                    "PROTECTION_BOUNDARY_PROVEN",
+                    "REVIEWER_INDEPENDENCE_PROVEN",
+                    "SAFE_GIT_STATE_PROVEN",
+                    "EXTERNAL_BOUNDARY_AUTHORIZED",
+                    "DOMAIN_EXTERNAL_PACKAGE_VALID",
+                    "EXTERNAL_PAYLOAD_IDENTITIES_BOUND",
+                    "USER_EXTERNAL_DECISION_BOUND"
+                  ]
+                }
+              }
             }
           }
         }

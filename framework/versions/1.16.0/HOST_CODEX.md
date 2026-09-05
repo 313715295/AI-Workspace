@@ -19,6 +19,8 @@ host 可以替换该 mapping。resource change 不授予权限；Framework 不�
 host task routing 应使用 host-authenticated task ID、sender 与可用的 Controller epoch/envelope；message body 不能自证身份。Codex 未提供所需真实性或 delivery signal 时，返回已记录的 capability ceiling 或 `REPORT_CHANNEL_UNAVAILABLE`。
 
 优先在接收任务 turn boundary 进行一次 compact terminal delivery；安全例外可以立即 steer。terminal input 要命名 proposed consumer；除非 Controller 拥有唯一 next action，或存在显式 owner/public-decision、cross-domain-contract、protected-path、project-phase、Git/device/external 或 resource-conflict boundary，否则拒绝 `CONTROLLER`。只有一个精确 task result 阻塞当前唯一 next action 且没有其他安全工作时，才调用 `wait_threads`；不得增加 ACK、heartbeat、polling 或 delivery ledger。
+
+临时 actor/Reviewer 在发送一次已收尾的 terminal 后不保留后续写入职责，也不向 Owner 申请反向任务卡写权、package 删除或“释放确认”。Owner 接收 terminal 后更新唯一任务事实；STATUS/index 只在 lifecycle/routing 变化时投影。发送失败只重送同一终态，不重复 Review 或创建 ACK 链。
 <!-- AIW-REQUIREMENT:PR_COMPACT_NON_INTERRUPT_DELIVERY:END -->
 
 <!-- AIW-REQUIREMENT:PR_CODEX_TOOL_OPERATION_RESOLUTION:BEGIN -->

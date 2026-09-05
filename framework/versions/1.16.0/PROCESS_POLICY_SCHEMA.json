@@ -3,41 +3,244 @@
   "title": "AI-Workspace project-specific process policy",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "contractVersion", "projectId", "selectedRulePackBytes", "rules"],
+  "required": [
+    "schemaVersion",
+    "contractVersion",
+    "projectId",
+    "selectedRulePackBytes",
+    "rules"
+  ],
   "properties": {
-    "schemaVersion": {"const": 1},
-    "contractVersion": {"const": "1.16.0"},
-    "projectId": {"type": "string", "minLength": 1},
-    "selectedRulePackBytes": {"type": "integer", "minimum": 1, "maximum": 98304},
+    "schemaVersion": {
+      "const": 1
+    },
+    "contractVersion": {
+      "const": "1.16.0"
+    },
+    "projectId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "selectedRulePackBytes": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 98304
+    },
     "rules": {
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["ruleId", "requirementReason", "effectiveRule", "selectors", "preparationRequirements", "resultRequirements", "decisionLocator"],
+        "required": [
+          "ruleId",
+          "requirementReason",
+          "selectors",
+          "preparationRequirements",
+          "resultRequirements",
+          "decisionLocator"
+        ],
         "properties": {
-          "ruleId": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"},
-          "requirementReason": {"type": "string", "minLength": 1},
-          "effectiveRule": {"type": "string", "minLength": 1},
+          "ruleId": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]*$"
+          },
+          "requirementReason": {
+            "type": "string",
+            "minLength": 1
+          },
+          "effectiveRule": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["rootSourceId", "documents"],
+            "properties": {
+              "rootSourceId": {
+                "type": "string",
+                "pattern": "^[A-Z][A-Z0-9_]*$"
+              },
+              "documents": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 16,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["sourceId", "locator", "identity", "mode", "sectionStart", "sectionEnd", "dependencies"],
+                  "properties": {
+                    "sourceId": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"},
+                    "locator": {"type": "string", "minLength": 1},
+                    "identity": {"type": "string", "pattern": "^\\d+\\|[A-F0-9]{64}$"},
+                    "mode": {"enum": ["FULL_FILE", "MARKED_SECTION"]},
+                    "sectionStart": {"type": "string", "minLength": 1},
+                    "sectionEnd": {"type": "string", "minLength": 1},
+                    "dependencies": {
+                      "type": "array",
+                      "uniqueItems": true,
+                      "items": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"}
+                    }
+                  }
+                }
+              }
+            }
+          },
           "selectors": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["profiles", "roles", "phases", "actionKinds", "resultKinds", "pathPrefixes", "capabilities", "semanticTerms"],
+            "required": [
+              "profiles",
+              "roles",
+              "phases",
+              "actionKinds",
+              "resultKinds",
+              "pathPrefixes",
+              "capabilities",
+              "semanticTerms"
+            ],
             "properties": {
-              "profiles": {"type":"array","items":{"type":"string"}},
-              "roles": {"type":"array","items":{"type":"string"}},
-              "phases": {"type":"array","items":{"type":"string"}},
-              "actionKinds": {"type":"array","items":{"type":"string"}},
-              "resultKinds": {"type":"array","items":{"type":"string"}},
-              "pathPrefixes": {"type":"array","items":{"type":"string"}},
-              "capabilities": {"type":"array","items":{"type":"string"}},
-              "semanticTerms": {"type":"array","items":{"type":"string"}}
+              "profiles": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "roles": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "phases": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "actionKinds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "resultKinds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "pathPrefixes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "capabilities": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "semanticTerms": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "deterministicTriggers": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "actionKinds",
+                  "resultKinds"
+                ],
+                "properties": {
+                  "actionKinds": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                      "enum": [
+                        "CONTROL_WRITE",
+                        "SOURCE_WRITE",
+                        "TEST_WRITE",
+                        "TEST_RUN",
+                        "REVIEW_ROUTE",
+                        "REVIEW_EXECUTE",
+                        "OWNER_ACCEPT",
+                        "GIT_STAGE",
+                        "GIT_COMMIT",
+                        "PUSH",
+                        "BROWSER_RUN",
+                        "DEVICE_RUN",
+                        "EXTERNAL"
+                      ]
+                    }
+                  },
+                  "resultKinds": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                      "enum": [
+                        "PLAN",
+                        "USER_RESPONSE",
+                        "TERMINAL",
+                        "HANDOFF",
+                        "REVIEW_VERDICT",
+                        "OWNER_ACCEPTANCE",
+                        "IMPLEMENTATION_RESULT",
+                        "TEST_RESULT",
+                        "GIT_RESULT",
+                        "EXTERNAL_RESULT"
+                      ]
+                    }
+                  }
+                },
+                "anyOf": [
+                  {
+                    "properties": {
+                      "actionKinds": {
+                        "minItems": 1
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "resultKinds": {
+                        "minItems": 1
+                      }
+                    }
+                  }
+                ]
+              },
+              "semanticMatch": {
+                "const": "TOKEN"
+              }
             }
           },
-          "preparationRequirements": {"type":"array","items":{"type":"string","pattern":"^[A-Z][A-Z0-9_]*$"}},
-          "resultRequirements": {"type":"array","items":{"type":"string","pattern":"^[A-Z][A-Z0-9_]*$"}},
-          "decisionLocator": {"type":"string","minLength":1}
-        }
+          "preparationRequirements": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]*$"
+            }
+          },
+          "resultRequirements": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]*$"
+            }
+          },
+          "decisionLocator": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "oneOf": [
+          {"required": ["effectiveRule"], "not": {"required": ["source"]}},
+          {"required": ["source"], "not": {"required": ["effectiveRule"]}}
+        ]
       }
     }
   }

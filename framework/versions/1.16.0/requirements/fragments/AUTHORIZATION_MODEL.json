@@ -179,7 +179,29 @@
           "writer",
           "resource",
           "controller"
-        ]
+        ],
+      "deterministicTriggers": {
+        "actionKinds": [
+          "CONTROL_WRITE",
+          "SOURCE_WRITE",
+          "TEST_WRITE",
+          "TEST_RUN",
+          "REVIEW_ROUTE",
+          "REVIEW_EXECUTE",
+          "OWNER_ACCEPT",
+          "GIT_STAGE",
+          "GIT_COMMIT",
+          "PUSH",
+          "BROWSER_RUN",
+          "DEVICE_RUN",
+          "EXTERNAL"
+        ],
+          "resultKinds": [
+            "HANDOFF",
+            "REVIEW_VERDICT",
+            "OWNER_ACCEPTANCE"
+          ]
+        }
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_DYNAMIC_ROLE_DIRECT_ISSUANCE",
       "preparationRequirements": [

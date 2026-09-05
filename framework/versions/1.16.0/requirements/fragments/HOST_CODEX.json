@@ -87,7 +87,16 @@
           "wait",
           "handoff",
           "terminal"
-        ]
+        ],
+        "deterministicTriggers": {
+          "actionKinds": [],
+          "resultKinds": [
+            "TERMINAL",
+            "HANDOFF",
+            "REVIEW_VERDICT",
+            "OWNER_ACCEPTANCE"
+          ]
+        }
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_COMPACT_NON_INTERRUPT_DELIVERY",
       "preparationRequirements": [
@@ -182,7 +191,20 @@
           "handoff",
           "resume",
           "continue"
-        ]
+        ],
+        "deterministicTriggers": {
+          "actionKinds": [
+            "REVIEW_ROUTE",
+            "REVIEW_EXECUTE",
+            "OWNER_ACCEPT"
+          ],
+          "resultKinds": [
+            "TERMINAL",
+            "HANDOFF",
+            "REVIEW_VERDICT",
+            "OWNER_ACCEPTANCE"
+          ]
+        }
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_CODEX_ROUTER_REACTIVATION",
       "preparationRequirements": [

@@ -31,13 +31,15 @@ root `scripts/upgrade-project.ps1` 要求 caller 提供 `RepositoryPath`、`Cont
 
 升级到 `1.16.0` 时，还投影 target starter 的项目级 backend、`selectedRulePackBytes` 与 runtime ignore rule，并在 recovery 或 project mutation 前要求 PowerShell 7 与 declared platform。backend 由所有任务继承，不复制进 authorization package；既有 `projectConfigIdentity` binding 会在该字段变化时使 package 失效。
 
-对支持的 direct source，升级不得先让 current-pin resolver 决定成败。工具在 system temp 中创建隔离 Git projection，先写入 target project、Bootstrap、corrections、process policy、已迁移的 task `actor + role + phase` route 与项目预算，再调用 target `PROCESS_REQUIREMENTS_RESOLVE/DISCOVER`。只有完整 target selected pack 在项目选择预算内 PASS 时，才可准备实际 transaction。这样 1.11/1.12 两字段任务卡或旧 pin 的较低预算不会形成 target-before-pin deadlock。projection 只产生机械证据，不授予 write，也不替代 actor-bound package、exact object check、protected path、user decision、transaction recovery 或 task-last stop。
+对支持的 direct source，升级不得先让 current-pin resolver 决定成败。工具在 system temp 中创建隔离 Git projection，先写入 target project、Bootstrap、corrections、process policy、已迁移的 task `actor + role + phase` route 与项目预算，再调用 target `PROCESS_REQUIREMENTS_RESOLVE/DISCOVER`。只有完整 target selected pack 在项目选择预算内 PASS 时，才可准备实际 transaction。这样 1.11/1.12 两字段任务卡或旧 pin 的较低预算不会形成 target-before-pin deadlock。projection 只产生机械证据，不授予 write，也不替代 actor-bound package、exact object check、protected path、user decision、transaction recovery 或 task-last live-object stop。
 
 只有声明的 managed objects 会改变。工具不搜索 consumers，不修改 source/product file，不 stage/commit/push，也不更新其他项目。
 
 `1.16.0` starter 以 current task 的 actor/role/phase Work route 作为 loader input，并用唯一 process-policy carrier 保存 permanent project-specific process rules。它不把 task state 移入 Framework root，不创建 consumer record，也不把 task index 变成第二 authority。
 
-local candidate pilot 在任何 project preflight 前重算 candidate payload，并要求 manifest 声明、完整套件证据及独立 Source Review evidence 全部绑定同一 canonical。实际 project mutation 的 schema3 authorization 必须额外绑定当次 `canonical + manifestIdentity`；candidate 或 manifest 任一字节变化都会拒绝旧 package。
+local candidate pilot 在任何 project preflight 前重算 candidate payload，并要求 manifest 声明、完整套件证据及独立 Source Review evidence 全部绑定同一 canonical。本地候选/schema4 的安装完成由既有 recovery state 的 `transactionComplete=true` 证明：先保存 false，全部 live postimages（task 最后）匹配后，只登记此完成标记并结束原 exact 事务，不追加其他项目工作。未登记成功由原恢复路线续完；不得通过历史升级任务仍在 active、任务缺失或聊天结论猜测完成。日常任务恢复不依赖旧升级任务的位置或全文。
+
+实际 project mutation 的 schema3 authorization 必须额外绑定当次 `canonical + manifestIdentity`；candidate 或 manifest 任一字节变化都会拒绝旧 package。
 
 已经 pin 到当前版本的项目若因 `.ai-workspace/process-policy.json.selectedRulePackBytes` 过小而在 `DISCOVER` 自锁，可使用 root upgrader 的 `-RepairSelectedRulePackBudget`。preview 只报告 configured/required/proposed 并在隔离投影中证明新 policy 可通过；apply 只接受当前 Controller task、精确单一路径 `CONTROL_WRITE` package、实际超限原因和 `<=98304` 的项目选择值，且只替换该字段。正常 resolver 可工作、对象漂移或投影不通过时不得进入该窄通道。
 <!-- AIW-REQUIREMENT:PR_PROJECT_UPGRADE_ACTOR_BOUND:END -->
@@ -50,6 +52,10 @@ local candidate pilot 在任何 project preflight 前重算 candidate payload，
 新项目使用 `.ai-workspace/process-policy.json`，其中 `selectedRulePackBytes` 由项目在 `1..98304` 内选择。runtime 只按该项目值判断 selected pack，Framework absolute cap 只是上界；不再保留 ordinary/absolute/legacy 三档运行时豁免。
 
 存在真实 PROJECT-CUSTOM rules 的 legacy project，在一个经过独立 Review 的 atomic migration 同时写入 structured carrier 并退役已迁移 normative bytes 前，继续把该 region 作为 bound project-rule source。empty-source claim 与 dual-carrier rule 必须 fail closed。不增加 role、service、registry、poller、ledger 或 executable project DSL。
+
+structured project rule 可直接内联，也可绑定项目现有标准文档的全文或唯一 marked section，并声明有界依赖。来源正文仍由项目拥有；policy 只保存选择器、locator、whole-file identity、section mode、依赖与 decision evidence。composer 在选择前验证来源，未命中的正文不进入模型；来源漂移时旧 selector/section 失效并保守加载当前全文，等待项目按普通规则维护流程重新绑定。不得为此复制第二份规范正文或扫描整个项目。
+
+三源 selectors 使用 `TOOL_CONTRACT.md` 的同一匹配合同：明确声明的确定性触发不再被关键词否决，原结构边界仍逐项匹配；旧字段解释不变，不自动转换项目记录。新增字段改变当前 source identity，旧 receipt 与旧精确吸收映射不得沿用。
 <!-- AIW-REQUIREMENT:PR_PROCESS_REQUIREMENTS_THREE_SOURCE_COMPOSITION:END -->
 
 <!-- AIW-REQUIREMENT:PR_TOOL_CONTRACT_BACKEND:BEGIN -->

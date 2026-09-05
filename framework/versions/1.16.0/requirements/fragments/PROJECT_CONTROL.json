@@ -71,7 +71,9 @@
           "IMPLEMENTATION_RESULT",
           "*"
         ],
-        "pathPrefixes": [],
+        "pathPrefixes": [
+          ".ai-workspace/"
+        ],
         "capabilities": [],
         "semanticTerms": [
           "upgrade",
@@ -302,7 +304,19 @@
           "executor",
           "route",
           "controller"
-        ]
+        ],
+        "deterministicTriggers": {
+          "actionKinds": [
+            "REVIEW_ROUTE",
+            "REVIEW_EXECUTE",
+            "OWNER_ACCEPT"
+          ],
+          "resultKinds": [
+            "HANDOFF",
+            "REVIEW_VERDICT",
+            "OWNER_ACCEPTANCE"
+          ]
+        }
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_OWNER_FIRST_DIRECT_DOMAIN_ROUTE",
       "preparationRequirements": [

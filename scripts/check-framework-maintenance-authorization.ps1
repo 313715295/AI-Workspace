@@ -33,8 +33,6 @@ try{
     if($packageSelection.schemaVersion-is [int64]-or$packageSelection.schemaVersion-is [int32]){
         if([int64]$packageSelection.schemaVersion-eq3){
             if(-not($packageSelection.frameworkVersion-is[string])-or[string]$packageSelection.frameworkVersion-cnotmatch'^\d+\.\d+\.\d+$'){throw 'UPGRADE_TARGET_VERSION_INVALID'}
-            Import-Module (Join-Path $PSScriptRoot 'MaintenanceOverlay.psm1') -Force
-            $overlay=Get-AiwMaintenanceOverlay -FrameworkWorkspace (Split-Path -Parent $PSScriptRoot)
             $sameVersionStatePath='.ai-workspace/upgrade-recovery/'+[string]$packageSelection.frameworkVersion+'/state.json'
             $sameVersionStateRebind=[string]$resolved.frameworkVersion-ceq[string]$packageSelection.frameworkVersion-and[string]$packageSelection.bundle-ceq'ACTOR_BOUND_PROJECT_UPGRADE'-and$packageSelection.actions-is[Array]-and[string]::Join('|',@($packageSelection.actions)) -ceq 'CONTROL_WRITE'-and$packageSelection.exactPaths-is[Array]-and[string]::Join('|',@($packageSelection.exactPaths)) -ceq $sameVersionStatePath
             if([string]$resolved.frameworkVersion-ceq[string]$packageSelection.frameworkVersion-and[string]$packageSelection.bundle-ceq'ACTOR_BOUND_PROJECT_UPGRADE'-and$packageSelection.actions-is[Array]-and[string]::Join('|',@($packageSelection.actions)) -ceq 'CONTROL_WRITE'-and$packageSelection.exactPaths-is[Array]-and$packageSelection.postObjectIdentities-is[Array]){
@@ -42,7 +40,7 @@ try{
                 $postPaths=@($packageSelection.postObjectIdentities|ForEach-Object{[string]$_.path});$postSorted=@($postPaths);$pathSorted=@($paths);[Array]::Sort($postSorted,[StringComparer]::Ordinal);[Array]::Sort($pathSorted,[StringComparer]::Ordinal)
                 $sameVersionProjectionRefresh=$paths.Count-ge2-and$paths.Count-le6-and$paths.Count-eq$unique.Count-and[string]$paths[-1]-ceq$sameVersionStatePath-and@($live|Where-Object{$_-cnotin$allowed}).Count-eq0-and$postPaths.Count-eq$paths.Count-and[string]::Join("`n",$postSorted)-ceq[string]::Join("`n",$pathSorted)
             }
-            if([string]$resolved.frameworkVersion-cnotin@($overlay.LegacySourceVersions)-and-not$sameVersionStateRebind-and-not$sameVersionProjectionRefresh){throw 'MAINTENANCE_SOURCE_VERSION_NOT_ALLOWED'}
+            if(-not$sameVersionStateRebind-and-not$sameVersionProjectionRefresh){throw 'MAINTENANCE_SCHEMA3_DIRECT_AUTHORIZATION_DENIED'}
             $checkerVersion=[string]$packageSelection.frameworkVersion
         }
     }

@@ -9,6 +9,5 @@
     "agents": "AGENTS.md",
     "projectConfigSchema": "PROJECT_CONFIG_SCHEMA.json",
     "processPolicy": "process-policy.json"
-  },
-  "legacySourceVersions": ["1.15.0", "1.15.1"]
+  }
 }

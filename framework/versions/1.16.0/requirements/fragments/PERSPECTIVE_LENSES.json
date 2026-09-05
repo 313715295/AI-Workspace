@@ -39,11 +39,26 @@
         "capabilities": [],
         "semanticTerms": [
           "review",
+          "reviews",
+          "reviewing",
+          "reviewer",
           "risk",
+          "risks",
           "architecture",
+          "architectural",
           "test",
-          "release"
-        ]
+          "tests",
+          "testing",
+          "release",
+          "releases"
+        ],
+        "semanticMatch": "TOKEN",
+        "deterministicTriggers": {
+          "actionKinds": [
+            "REVIEW_EXECUTE"
+          ],
+          "resultKinds": []
+        }
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_PERSPECTIVE_LENS_SELECTION",
       "preparationRequirements": [

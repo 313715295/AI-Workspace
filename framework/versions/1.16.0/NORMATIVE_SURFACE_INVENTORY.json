@@ -60,6 +60,7 @@
     "tests/PROCESS_REQUIREMENTS_FIXTURES.json",
     "tests/canonical-identity-reference.mjs",
     "tests/measure-process-requirements.ps1",
+    "tests/process-runtime-v2-tests.ps1",
     "tests/run-framework-tests.ps1"
   ],
   "explanationAndHistory": [

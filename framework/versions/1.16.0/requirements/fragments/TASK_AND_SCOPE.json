@@ -91,7 +91,16 @@
           "message",
           "handoff",
           "terminal"
-        ]
+        ],
+        "deterministicTriggers": {
+          "actionKinds": [],
+          "resultKinds": [
+            "TERMINAL",
+            "HANDOFF",
+            "REVIEW_VERDICT",
+            "OWNER_ACCEPTANCE"
+          ]
+        }
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_WORKFLOW_TRANSITION_MECHANICAL_BOUNDARY",
       "preparationRequirements": [

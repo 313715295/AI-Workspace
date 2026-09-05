@@ -3,7 +3,10 @@
   "frameworkVersion": "1.16.0",
   "registrationEligible": true,
   "localCandidatePilotEligible": true,
-  "directSourceVersions": ["1.14.1", "1.15.0", "1.15.1"],
+  "sourceCompatibility": {
+    "projectFormats": [],
+    "requiredCapabilities": []
+  },
   "projectControl": {
     "schemaVersion": 4,
     "processCarrierContractVersion": "1.16.0",

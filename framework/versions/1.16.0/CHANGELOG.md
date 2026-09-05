@@ -1,4 +1,16 @@
-# Framework 1.16.0 change log
+# Framework 1.16.0 变更记录
+
+- 项目标准渐进接入：`process-policy.json` 可在不复制正文的前提下绑定项目自有文档全文或唯一标记区块，并声明有界依赖；只把命中的当前正文送入模型。来源漂移改为保守加载当前全文，相关来源不可读或区块无效时只阻止依赖它的动作，无关来源不阻断当前工作。
+
+- 运行边界精简：新增 schema3 `DISCOVER` 与 schema2 compact receipt/boundary input。正式 task 保持完整 Owner/actor/authority 绑定；没有任务卡的项目只读讨论使用 `PROJECT_READ_ONLY`，不伪造 task 或授权。后续 ADMIT/FINALIZE 只补实际 evidence，不重复 objective、scope 与 authorization facts。
+
+- 临时角色统一：Owner 可在原任务直接执行，也可把单次 source、test、Review、Git、browser/device 或 external action 授予 temporary actor；task Owner 与 Work route 不因此变化。正常 Review 只需一次完整分派和一次可用终态，Reviewer 不反向申请控制写、不维护三份状态、不删除 package 或等待释放 ACK。
+
+- 根级采用能力：注册、跨 pin 升级、同 pin repair 与明确选择的永久规则迁移复用状态读取、内存投影和可恢复 transaction 模块；结果绑定 `Framework Pin + Project Format + Root Tool Revision`。捕获失败恢复旧 pin、旧受管对象与旧有效三源行为，入口保持幂等且不合并成新的 God Script。
+
+- 用户分发：root builder 只打包一个目标版本、必要接入工具/依赖、canonical Router 与中文入口；构建前重算 release payload 并绑定完整套件和 Source Review 证据，不包含 Git、runtime、项目状态或历史版本集合。
+
+- 规则选择修正：复用现有 IntentEnvelope 和唯一 composer，为混合用途 selector 增加可选 deterministicTriggers；正式 Review、直接角色交接和终态义务不再被关键词二次否决。原生内容条件采用可选 TOKEN 字面词边界，避免 preview/review 子串误选。三源权威独立，旧 selector 保持原解释；不自动迁移项目记录，不把 UNKNOWN 变成执行许可。
 
 - Owner 接受准入修复：授权检查器与流程解析器统一支持已有 `OWNER_ACCEPT` 动作，并校验接受者为当前任务 Owner；接受证据规则由动作直接触发，不依赖阶段标签。`OWNER_ACCEPTANCE` 不得通过 `NONE` 或写入动作绕过接受门。复用现有 package 与回执，不新增脚本、状态或权限。
 
@@ -32,10 +44,17 @@ Pocket 试点 finding rework：payload resolver 现在同时接受 official root
 
 ## Preserved
 
-- immutable Framework `1.14.1`、`1.15.0`、`1.15.1` payload；
+- Framework `1.14.1`、`1.15.0`、`1.15.1` 的 immutable 历史 identity 与恢复材料仅保留在任务隔离区和 Git 历史中，不随当前交付树发布；
 - 一个 composer、canonical Markdown blocks、actor-bound authorization、task-last recovery、project-owned corrections/policy、independent Review、独立 `OWNER_ACCEPT`、Git/external gate 与 protected-path boundary；
 - Windows PowerShell 7 是本 release 唯一 official/evidenced backend。
 
 ## Not added
 
 不增加第二 schema/resolver、service、registry、ledger、cache、poller、automatic consumer discovery/adoption、automatic host Skill installation、新 backend 或更宽 platform claim。
+
+## 本地试点规则演进修正
+
+- 分离历史安装投影与当前项目规则，允许已准入试点在合法任务内迁移 PROJECT-CUSTOM、更新 process-policy/corrections。
+- 保留候选快照、框架管理区、当前全文授权与收据失效检查；后续候选刷新保留项目规则，不回写历史版本。
+- 补充 schema2/3 兼容、schema4 规则演进/拒绝场景及再次刷新回归；Router 自测断言改为已采用的协议声明，不依赖发行号文案。
+- 独立审查回修：把安装完成证明保存在既有恢复记录，任务归档不阻断新任务；未完成/完成标记写入中断仍走原授权恢复；同步桥前置预算检查。

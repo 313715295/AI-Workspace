@@ -17,13 +17,15 @@ Recovery 只证明 authority 与 current facts；它不授予 write、test、Rev
 
 project pin 是唯一 Framework-version authority。root HEAD、tag、network state 或其他项目 pin 都不是 fallback。`controller.json` 是当前 Controller ID/epoch 的唯一字面真相；历史 literal ID 只用于 audit。
 
-普通 pin 不是 sealed stable release 时返回最窄 blocker。唯一例外是已经通过 root `-LocalCandidatePilot` 完成的一次性准入：后续 recovery 只复核 `LOCAL_PILOT` 绑定与候选快照未漂移，不重跑完整测试、Source Review 或旧 schema3 授权，也不要求 current task 保持升级时的 postimage。候选快照或试点绑定不一致时仍 fail closed。
+普通 pin 不是 sealed stable release 时返回最窄 blocker。唯一例外是已经通过 root `-LocalCandidatePilot` 完成的一次性准入：后续 recovery 只复核 `LOCAL_PILOT` 绑定与候选快照未漂移，不重跑完整测试、Source Review 或旧 schema3 授权，也不要求 current task 保持升级时的 postimage。候选快照或试点绑定不一致时仍 fail closed。schema4 以既有 recovery state 的 `transactionComplete=true` 作为原升级事务的完成证明；false 表示必须先由 root upgrader 按原授权续完。完成后的 runtime 不读取历史升级任务路径，该任务可正常更新、归档；当前任务仍独立受 DISCOVER/边界身份校验。
 <!-- AIW-REQUIREMENT:PR_RECOVERY_CURRENT_AUTHORITY:END -->
 
 <!-- AIW-REQUIREMENT:PR_PROCESS_REQUIREMENTS_PROGRESSIVE_BOUNDARIES:BEGIN -->
 `DISCOVER` 在加载 normative module text 之前，对完整 sealed metadata catalog 进行选择。composer 校验每个 selected fragment locator 与 owning Markdown module，返回完整 block text 及 fragment 声明的 preparation/result requirements；它不授予权限。
 
-每个独立 governed action boundary 调用 `ADMIT_ACTION`；向用户或 consumer 输出最终结果前立即调用 `FINALIZE_OUTPUT`。两者都消费同一 exact compact `DISCOVER` receipt，不再复制完整 rule blocks。finalization、invalidation 或 abort 后删除 receipt。semantic applicability 为 UNKNOWN 时保守选择受影响 blocks。mapping 缺失或冲突时先加载 affected module 中全部 mapped blocks；只有 module mapping 不完整时才 fallback 到该完整 module，绝不扩展到整个 Framework。
+每个独立 governed action boundary 调用 `ADMIT_ACTION`；向用户或 consumer 输出最终结果前立即调用 `FINALIZE_OUTPUT`。两者都消费同一 exact compact `DISCOVER` receipt，不再复制完整 rule blocks；新 boundary input 只追加实际 evidence，不重述 receipt 已绑定的 objective/action/scope/authorization。finalization、invalidation 或 abort 后删除 receipt。semantic applicability 为 UNKNOWN 时保守选择受影响 blocks。mapping 缺失或冲突时先加载 affected module 中全部 mapped blocks；只有 module mapping 不完整时才 fallback 到该完整 module，绝不扩展到整个 Framework。
+
+没有适用 task card 的解释、现状核对或方案讨论，使用同一 resolver 的 `PROJECT_READ_ONLY` context，绑定真实 project、session/request、actor、role/phase、profile 与保护边界；它只允许 `NONE + PLAN/USER_RESPONSE`。一旦需要写入、测试、正式 Review/接受、Git、browser/device 或 external action，必须建立或恢复合法 task 与相应 package。
 
 初次 recovery、compaction、pause/resume、handoff 或 context uncertainty 必须重建 current source composition 与 decision。task、task actor/action grantee、role、Work phase、profile、capability 或 source-authority change 也重建 composition。objective、exact-scope、action 或 result change 只重建 boundary decision；source identities 与 selected rule bodies 未变化时可以复用。不得按每次 tool call 或 authorization refresh 重载。
 

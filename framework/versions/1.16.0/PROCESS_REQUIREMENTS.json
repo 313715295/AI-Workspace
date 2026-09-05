@@ -182,7 +182,20 @@
           "handoff",
           "resume",
           "continue"
-        ]
+        ],
+        "deterministicTriggers": {
+          "actionKinds": [
+            "REVIEW_ROUTE",
+            "REVIEW_EXECUTE",
+            "OWNER_ACCEPT"
+          ],
+          "resultKinds": [
+            "TERMINAL",
+            "HANDOFF",
+            "REVIEW_VERDICT",
+            "OWNER_ACCEPTANCE"
+          ]
+        }
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_CODEX_ROUTER_REACTIVATION",
       "preparationRequirements": [
@@ -279,7 +292,16 @@
           "wait",
           "handoff",
           "terminal"
-        ]
+        ],
+        "deterministicTriggers": {
+          "actionKinds": [],
+          "resultKinds": [
+            "TERMINAL",
+            "HANDOFF",
+            "REVIEW_VERDICT",
+            "OWNER_ACCEPTANCE"
+          ]
+        }
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_COMPACT_NON_INTERRUPT_DELIVERY",
       "preparationRequirements": [
@@ -496,7 +518,29 @@
           "writer",
           "resource",
           "controller"
-        ]
+        ],
+        "deterministicTriggers": {
+          "actionKinds": [
+            "CONTROL_WRITE",
+            "SOURCE_WRITE",
+            "TEST_WRITE",
+            "TEST_RUN",
+            "REVIEW_ROUTE",
+            "REVIEW_EXECUTE",
+            "OWNER_ACCEPT",
+            "GIT_STAGE",
+            "GIT_COMMIT",
+            "PUSH",
+            "BROWSER_RUN",
+            "DEVICE_RUN",
+            "EXTERNAL"
+          ],
+          "resultKinds": [
+            "HANDOFF",
+            "REVIEW_VERDICT",
+            "OWNER_ACCEPTANCE"
+          ]
+        }
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_DYNAMIC_ROLE_DIRECT_ISSUANCE",
       "preparationRequirements": [
@@ -918,7 +962,19 @@
           "executor",
           "route",
           "controller"
-        ]
+        ],
+        "deterministicTriggers": {
+          "actionKinds": [
+            "REVIEW_ROUTE",
+            "REVIEW_EXECUTE",
+            "OWNER_ACCEPT"
+          ],
+          "resultKinds": [
+            "HANDOFF",
+            "REVIEW_VERDICT",
+            "OWNER_ACCEPTANCE"
+          ]
+        }
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_OWNER_FIRST_DIRECT_DOMAIN_ROUTE",
       "preparationRequirements": [
@@ -965,11 +1021,26 @@
         "capabilities": [],
         "semanticTerms": [
           "review",
+          "reviews",
+          "reviewing",
+          "reviewer",
           "risk",
+          "risks",
           "architecture",
+          "architectural",
           "test",
-          "release"
-        ]
+          "tests",
+          "testing",
+          "release",
+          "releases"
+        ],
+        "semanticMatch": "TOKEN",
+        "deterministicTriggers": {
+          "actionKinds": [
+            "REVIEW_EXECUTE"
+          ],
+          "resultKinds": []
+        }
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_PERSPECTIVE_LENS_SELECTION",
       "preparationRequirements": [
@@ -1137,7 +1208,9 @@
           "IMPLEMENTATION_RESULT",
           "*"
         ],
-        "pathPrefixes": [],
+        "pathPrefixes": [
+          ".ai-workspace/"
+        ],
         "capabilities": [],
         "semanticTerms": [
           "upgrade",
@@ -1557,7 +1630,16 @@
           "message",
           "handoff",
           "terminal"
-        ]
+        ],
+        "deterministicTriggers": {
+          "actionKinds": [],
+          "resultKinds": [
+            "TERMINAL",
+            "HANDOFF",
+            "REVIEW_VERDICT",
+            "OWNER_ACCEPTANCE"
+          ]
+        }
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_WORKFLOW_TRANSITION_MECHANICAL_BOUNDARY",
       "preparationRequirements": [

@@ -45,9 +45,9 @@ authority context 只能来自当前机械观察到的 project、Controller、ta
 
 PROJECT_CONTROLLER 与 DOMAIN_OWNER 是长期责任。Executor、writer、Reviewer、Git、browser、device 与 resource route 都是临时 task/phase 角色。action、grantee、path/object set 或 user decision 改变时需要新 package；旧 package 因此失效，但健康 recovery baseline 不会自动失效，也不因此强制由 PROJECT_CONTROLLER 签发。
 
-任务卡的 Owner 表示责任归属，`Work route` 表示当前生产 actor；一次临时 action 的 grantee 不取得任务归属。对纯 `REVIEW_EXECUTE`，可把独立 Reviewer 写入 package grantee，同时保持任务卡 Owner、Work route、task identity 与候选 bytes 不变。resolver 用该 grantee 形成当前 action context，并保留 `taskActor` 作为任务生产路线证据；Reviewer verdict 直接返回 Owner，不需要 Controller→Reviewer→Controller 的任务改绑。只有真实责任转移才可改写任务路线。
+任务卡的 Owner 表示责任归属，`Work route` 表示当前连续生产 actor；一次临时 action 的 grantee 不取得任务归属。Owner 可为单次写入、测试、Review、Git、browser/device 或 external action 选择临时 actor，resolver 根据唯一 package action 形成相应临时 role/phase，并保留 `taskActor` 作为任务生产路线证据。`REVIEW_ROUTE` 与 `OWNER_ACCEPT` 仍由有责任的 Owner/route actor 执行；只有真实责任转移才可改写任务路线。
 
-在未变化的 domain task 内，DOMAIN_OWNER 是默认直接 issuer 与 phase consumer。Owner 可执行、选择合格 actor、向独立 Reviewer 签发纯 `REVIEW_EXECUTE` package、接收 verdict 并执行 `OWNER_ACCEPT`。接受动作复用现有 scoped package，绑定当前 task 和 exact result；`OWNER_ACCEPT` 的 grantee 必须是经当前任务卡复证的 Owner，并继续满足既有 actor 绑定。它不要求新增授权格式，也不因获准接受而获得任何写入、安装、Git 或 external 权限。合格的跨域 actor 可以写入，任务 Owner 仍保持不变。CRITICAL Review 中，task owner、package issuer、candidate writer 与所有 material contributor 都不能成为最终独立 Reviewer。
+在未变化的 domain task 内，DOMAIN_OWNER 是默认直接 issuer 与 phase consumer。Owner 可自己完成连续工作，也可因并行、上下文隔离、独立性或资源成本选择临时 actor；fresh package 只绑定该 action，不等于新任务、责任转移或 FULL_COLD。Owner 可直接向独立 Reviewer 签发纯 `REVIEW_EXECUTE` package、接收 verdict 并执行 `OWNER_ACCEPT`。接受动作复用现有 scoped package，绑定当前 task 和 exact result；`OWNER_ACCEPT` 的 grantee 必须是经当前任务卡复证的 Owner，并继续满足既有 actor 绑定。它不要求新增授权格式，也不因获准接受而获得任何写入、安装、Git 或 external 权限。合格的跨域 actor 可以写入，任务 Owner 仍保持不变。CRITICAL Review 中，task owner、package issuer、candidate writer 与所有 material contributor 都不能成为最终独立 Reviewer；`candidateWriter` 不得在 `materialContributors` 中重复。
 
 只有 PROJECT_CONTROLLER 拥有唯一 next action，或必须解决 owner/public-decision、cross-domain contract、protected-path、project-phase、Git/device/external 或 resource-conflict 边界时，才路由至 PROJECT_CONTROLLER。resource selection 本身不授予权限。
 

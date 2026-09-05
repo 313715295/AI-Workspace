@@ -66,6 +66,7 @@ function Get-OrdinalSortedStrings([string[]]$Values) {
 
 try {
     $root = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $VersionRoot))
+    $compositionModule=Import-Module (Join-Path $root 'scripts/ProcessRequirementComposition.psm1') -Force -PassThru
     $version = Read-StrictJson (Join-Path $root 'VERSION.json')
     if ([string]$version.version -cne '1.16.0') { throw 'VERSION_MISMATCH' }
     $manifest = Read-StrictJson (Join-Path $root 'LOAD_MANIFEST.json')
@@ -104,7 +105,7 @@ try {
             Assert-StringArray $rule.legacyAliases 'REQUIREMENT_ALIASES'
             Assert-StringArray $rule.preparationRequirements 'REQUIREMENT_PREPARATION'
             Assert-StringArray $rule.resultRequirements 'REQUIREMENT_RESULT'
-            Assert-ExactFields $rule.selectors @('profiles','roles','phases','actionKinds','resultKinds','pathPrefixes','capabilities','semanticTerms') 'REQUIREMENT_SELECTORS'
+            & $compositionModule { param($selectors) Assert-AiwSelectorContract $selectors 'REQUIREMENT_SELECTORS' } $rule.selectors
             $requirements += [ordered]@{
                 requirementId = [string]$rule.requirementId
                 legacyAliases = @($rule.legacyAliases)

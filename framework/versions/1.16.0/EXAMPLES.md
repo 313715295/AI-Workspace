@@ -1,4 +1,4 @@
-# Framework 1.16.0 examples
+# Framework 1.16.0 示例
 
 ## New project
 
@@ -6,7 +6,7 @@
 
 ## Existing project
 
-1.14.1/1.15.x project 预览 `ToVersion=1.16.0`。工具在隔离 projection 中先写 target policy/budget 与 migrated task route，运行 target resolver PASS 后才准备可恢复 transaction。non-task object 先写，task 最后写，之后零写入。
+现有 1.16 项目可以预览同 pin 的幂等修复；完整相同则返回 `NO_CHANGE`。未来跨 pin 采用必须由目标版本按 Project Format/capability 明确声明兼容，不能靠旧发行号白名单放行。工具在隔离 projection 中先验证 target policy/budget 与必要 task route，target resolver PASS 后才准备可恢复 transaction。non-task object 先写，task 最后写，之后零写入。
 
 ## Task actor 与 independent Reviewer
 

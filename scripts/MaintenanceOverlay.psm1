@@ -86,13 +86,12 @@ function Get-AiwMaintenanceOverlay {
     $manifestPath=Join-Path $root 'OVERLAY.json';$raw=Read-AiwStrictText $manifestPath 'MAINTENANCE_OVERLAY'
     Assert-AiwStrictJson $raw
     try{$overlay=$raw|ConvertFrom-Json}catch{throw 'MAINTENANCE_OVERLAY_JSON'}
-    Assert-AiwExactFields $overlay @('schemaVersion','overlayId','baseStarter','controlPlaneLayout','targetControlPlanePolicy','managedTemplates','legacySourceVersions') 'MAINTENANCE_OVERLAY'
+    Assert-AiwExactFields $overlay @('schemaVersion','overlayId','baseStarter','controlPlaneLayout','targetControlPlanePolicy','managedTemplates') 'MAINTENANCE_OVERLAY'
     Assert-AiwExactFields $overlay.managedTemplates @('bootstrap','agents','projectConfigSchema','processPolicy') 'MAINTENANCE_OVERLAY_TEMPLATES'
-    $sources=@($overlay.legacySourceVersions|ForEach-Object{[string]$_})
-    if([int]$overlay.schemaVersion-ne2-or[string]$overlay.overlayId-cne'framework-maintenance-sibling'-or[string]$overlay.baseStarter-cne'project-starter'-or[string]$overlay.controlPlaneLayout-cne'framework-maintenance-sibling'-or[string]$overlay.targetControlPlanePolicy-cne'ABSENT'-or[string]$overlay.managedTemplates.bootstrap-cne'BOOTSTRAP.md'-or[string]$overlay.managedTemplates.agents-cne'AGENTS.md'-or[string]$overlay.managedTemplates.projectConfigSchema-cne'PROJECT_CONFIG_SCHEMA.json'-or[string]$overlay.managedTemplates.processPolicy-cne'process-policy.json'-or[string]::Join('|',$sources)-cne'1.15.0|1.15.1'){throw 'MAINTENANCE_OVERLAY_VALUES'}
+    if([int]$overlay.schemaVersion-ne2-or[string]$overlay.overlayId-cne'framework-maintenance-sibling'-or[string]$overlay.baseStarter-cne'project-starter'-or[string]$overlay.controlPlaneLayout-cne'framework-maintenance-sibling'-or[string]$overlay.targetControlPlanePolicy-cne'ABSENT'-or[string]$overlay.managedTemplates.bootstrap-cne'BOOTSTRAP.md'-or[string]$overlay.managedTemplates.agents-cne'AGENTS.md'-or[string]$overlay.managedTemplates.projectConfigSchema-cne'PROJECT_CONFIG_SCHEMA.json'-or[string]$overlay.managedTemplates.processPolicy-cne'process-policy.json'){throw 'MAINTENANCE_OVERLAY_VALUES'}
     $bootstrap=Join-Path $root ([string]$overlay.managedTemplates.bootstrap);$agents=Join-Path $root ([string]$overlay.managedTemplates.agents);$schema=Join-Path $root ([string]$overlay.managedTemplates.projectConfigSchema);$policy=Join-Path $root ([string]$overlay.managedTemplates.processPolicy)
     $null=Read-AiwStrictText $bootstrap 'MAINTENANCE_OVERLAY_BOOTSTRAP';$null=Read-AiwStrictText $agents 'MAINTENANCE_OVERLAY_AGENTS';$null=Read-AiwStrictText $schema 'MAINTENANCE_OVERLAY_PROJECT_CONFIG_SCHEMA';$null=Read-AiwStrictText $policy 'MAINTENANCE_OVERLAY_PROCESS_POLICY'
-    return [pscustomobject]@{Root=$root;Manifest=$overlay;BootstrapPath=$bootstrap;AgentsPath=$agents;ProjectConfigSchemaPath=$schema;ProcessPolicyPath=$policy;LegacySourceVersions=$sources}
+    return [pscustomobject]@{Root=$root;Manifest=$overlay;BootstrapPath=$bootstrap;AgentsPath=$agents;ProjectConfigSchemaPath=$schema;ProcessPolicyPath=$policy}
 }
 
 function New-AiwMaintenanceProjectConfig {
@@ -142,13 +141,4 @@ function Resolve-AiwMaintenanceTopology {
     return [pscustomobject]@{ControlRoot=$control;TargetRoot=$target;ParentRoot=$parent;TargetRepositoryId=$TargetRepositoryId;TargetSiblingDirectory=$sibling;TargetRoutineExcludedPaths=$paths}
 }
 
-function Get-AiwMaintenanceLegacyTemplateRoot {
-    [CmdletBinding()]param([Parameter(Mandatory=$true)][string]$FrameworkWorkspace,[Parameter(Mandatory=$true)][string]$SourceVersion)
-    $overlay=Get-AiwMaintenanceOverlay $FrameworkWorkspace
-    if($SourceVersion-cnotin@($overlay.LegacySourceVersions)){throw 'MAINTENANCE_SOURCE_VERSION_NOT_ALLOWED'}
-    $path=Join-Path ([IO.Path]::GetFullPath($FrameworkWorkspace)) ('framework\versions\'+$SourceVersion+'\framework-maintenance-starter')
-    Assert-AiwNoReparse $path 'MAINTENANCE_LEGACY_TEMPLATE_ROOT'
-    return $path
-}
-
-Export-ModuleMember -Function Get-AiwMaintenanceOverlay,New-AiwMaintenanceProjectConfig,Resolve-AiwMaintenanceTopology,Get-AiwMaintenanceLegacyTemplateRoot
+Export-ModuleMember -Function Get-AiwMaintenanceOverlay,New-AiwMaintenanceProjectConfig,Resolve-AiwMaintenanceTopology

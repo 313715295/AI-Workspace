@@ -10,23 +10,149 @@
     "measuredRuns": 30,
     "process": "cold pwsh process",
     "filesystem": "warmed",
-    "worstP95Ms": {"DISCOVER": 1047.182, "ADMIT_ACTION": 814.838, "FINALIZE_OUTPUT": 840.725}
+    "worstP95Ms": {
+      "DISCOVER": 1047.182,
+      "ADMIT_ACTION": 814.838,
+      "FINALIZE_OUTPUT": 840.725
+    }
   },
   "candidate": {
-    "catalogIdentity": "39872|C5C4E5019CB148F8394C2E0710A0EE39895C41643622FBD7D107E9E88B57F5D3",
+    "catalogIdentity": "41864|9EFA2D82BF39A494F89B7D9A2AD3F9138B6C8C159DE8E79E59B5B6D1618E724C",
     "fixtureContractIdentity": "4990|B73AEA3E3E1963BCF0ECB1242A3E03A2C1503B38B03CBABB1706F33A39308993",
-    "measurementHarnessIdentity": "16024|6A467694627ACADC5F590C58B2137CBCCA282190E8A7AB40985EE86791494A89",
-    "authorityContextFieldCount": 25,
+    "measurementHarnessIdentity": "15974|DCD1BF29958D81DBD655B3C749D027AFAACE317FCA8B7446C2EB53A95731003A",
+    "legacyAuthorityContextFieldCount": 25,
+    "compactAuthorityBindingFieldCount": 29,
     "intentEnvelopeFieldCount": 10,
-    "receiptSourceBindingFieldCount": 11
+    "receiptSourceBindingFieldCount": 12,
+    "compactBoundaryInputFieldCount": 9
   },
   "fixtures": [
-    {"fixtureId": "no_match", "fixtureIdentity": "0602BDA60CC317A45C8BC3695EABA6A980E8444C32B549E3C336246B855E1DCE", "selectedPackBytes": 12021, "selectedPackEstimatedTokens": 3006, "selectedRequirementCount": 7, "observedRuntimeMs": {"DISCOVER": {"median": 1184.569, "p95": 1193.540}, "ADMIT_ACTION": {"median": 811.744, "p95": 821.372}, "FINALIZE_OUTPUT": {"median": 804.889, "p95": 812.179}}},
-    {"fixtureId": "ordinary_source", "fixtureIdentity": "5D596B512675523599F2A869C712AE580AFEF49C1FED9C67B227719DDC0450B4", "selectedPackBytes": 15619, "selectedPackEstimatedTokens": 3905, "selectedRequirementCount": 8, "observedRuntimeMs": {"DISCOVER": {"median": 1414.018, "p95": 1436.502}, "ADMIT_ACTION": {"median": 1067.449, "p95": 1077.982}, "FINALIZE_OUTPUT": {"median": 831.784, "p95": 835.892}}},
-    {"fixtureId": "critical_review", "fixtureIdentity": "62C1C37232E3F20DAF4165E8A9C65F3CCEC08D2B0AFFE8CC5DE221EAA9C60589", "selectedPackBytes": 22863, "selectedPackEstimatedTokens": 5716, "selectedRequirementCount": 12, "observedRuntimeMs": {"DISCOVER": {"median": 1454.014, "p95": 1459.510}, "ADMIT_ACTION": {"median": 1057.494, "p95": 1079.085}, "FINALIZE_OUTPUT": {"median": 830.663, "p95": 848.728}}},
-    {"fixtureId": "domain_external", "fixtureIdentity": "80ED0F8798C28C693D16DAC020F7D990C8D508CB638868C45695BD493A484827", "selectedPackBytes": 12991, "selectedPackEstimatedTokens": 3248, "selectedRequirementCount": 9, "observedRuntimeMs": {"DISCOVER": {"median": 1524.945, "p95": 1568.438}, "ADMIT_ACTION": {"median": 1151.662, "p95": 1202.586}, "FINALIZE_OUTPUT": {"median": 841.374, "p95": 851.013}}},
-    {"fixtureId": "framework_maintenance_review", "fixtureIdentity": "028F2A36B8F2D37D362118D70A7C573E920FB3670D8BB4CECCE8B7F72C359437", "selectedPackBytes": 22876, "selectedPackEstimatedTokens": 5719, "selectedRequirementCount": 12, "observedRuntimeMs": {"DISCOVER": {"median": 1435.420, "p95": 1449.675}, "ADMIT_ACTION": {"median": 1074.619, "p95": 1111.440}, "FINALIZE_OUTPUT": {"median": 829.537, "p95": 840.932}}},
-    {"fixtureId": "worst_unknown", "fixtureIdentity": "F56055458B276B427F6BCF0D778448046D628D48918798C18388721AF007FC0D", "selectedPackBytes": 31145, "selectedPackEstimatedTokens": 7787, "selectedRequirementCount": 21, "observedRuntimeMs": {"DISCOVER": {"median": 1465.460, "p95": 1480.440}, "ADMIT_ACTION": {"median": 1085.443, "p95": 1090.680}, "FINALIZE_OUTPUT": {"median": 846.411, "p95": 853.631}}}
+    {
+      "fixtureId": "no_match",
+      "fixtureIdentity": "0602BDA60CC317A45C8BC3695EABA6A980E8444C32B549E3C336246B855E1DCE",
+      "selectedPackBytes": 12955,
+      "selectedPackEstimatedTokens": 3239,
+      "selectedRequirementCount": 7,
+      "observedRuntimeMs": {
+        "DISCOVER": {
+          "median": 1270.481,
+          "p95": 1302.412
+        },
+        "ADMIT_ACTION": {
+          "median": 826.761,
+          "p95": 936.926
+        },
+        "FINALIZE_OUTPUT": {
+          "median": 836.551,
+          "p95": 842.959
+        }
+      }
+    },
+    {
+      "fixtureId": "ordinary_source",
+      "fixtureIdentity": "5D596B512675523599F2A869C712AE580AFEF49C1FED9C67B227719DDC0450B4",
+      "selectedPackBytes": 19397,
+      "selectedPackEstimatedTokens": 4850,
+      "selectedRequirementCount": 9,
+      "observedRuntimeMs": {
+        "DISCOVER": {
+          "median": 1493.118,
+          "p95": 1509.268
+        },
+        "ADMIT_ACTION": {
+          "median": 1057.431,
+          "p95": 1060.482
+        },
+        "FINALIZE_OUTPUT": {
+          "median": 843.873,
+          "p95": 850.751
+        }
+      }
+    },
+    {
+      "fixtureId": "critical_review",
+      "fixtureIdentity": "62C1C37232E3F20DAF4165E8A9C65F3CCEC08D2B0AFFE8CC5DE221EAA9C60589",
+      "selectedPackBytes": 30890,
+      "selectedPackEstimatedTokens": 7723,
+      "selectedRequirementCount": 16,
+      "observedRuntimeMs": {
+        "DISCOVER": {
+          "median": 1457.893,
+          "p95": 1564.009
+        },
+        "ADMIT_ACTION": {
+          "median": 1042.472,
+          "p95": 1071.76
+        },
+        "FINALIZE_OUTPUT": {
+          "median": 830.712,
+          "p95": 871.475
+        }
+      }
+    },
+    {
+      "fixtureId": "domain_external",
+      "fixtureIdentity": "80ED0F8798C28C693D16DAC020F7D990C8D508CB638868C45695BD493A484827",
+      "selectedPackBytes": 16642,
+      "selectedPackEstimatedTokens": 4161,
+      "selectedRequirementCount": 10,
+      "observedRuntimeMs": {
+        "DISCOVER": {
+          "median": 1462.209,
+          "p95": 1562.141
+        },
+        "ADMIT_ACTION": {
+          "median": 1074.725,
+          "p95": 1081.167
+        },
+        "FINALIZE_OUTPUT": {
+          "median": 828.344,
+          "p95": 891.521
+        }
+      }
+    },
+    {
+      "fixtureId": "framework_maintenance_review",
+      "fixtureIdentity": "028F2A36B8F2D37D362118D70A7C573E920FB3670D8BB4CECCE8B7F72C359437",
+      "selectedPackBytes": 30903,
+      "selectedPackEstimatedTokens": 7726,
+      "selectedRequirementCount": 16,
+      "observedRuntimeMs": {
+        "DISCOVER": {
+          "median": 1507.216,
+          "p95": 1529.468
+        },
+        "ADMIT_ACTION": {
+          "median": 1102.221,
+          "p95": 1117.084
+        },
+        "FINALIZE_OUTPUT": {
+          "median": 846.075,
+          "p95": 854.272
+        }
+      }
+    },
+    {
+      "fixtureId": "worst_unknown",
+      "fixtureIdentity": "F56055458B276B427F6BCF0D778448046D628D48918798C18388721AF007FC0D",
+      "selectedPackBytes": 33598,
+      "selectedPackEstimatedTokens": 8400,
+      "selectedRequirementCount": 21,
+      "observedRuntimeMs": {
+        "DISCOVER": {
+          "median": 1569.386,
+          "p95": 1585.242
+        },
+        "ADMIT_ACTION": {
+          "median": 1100.146,
+          "p95": 1135.314
+        },
+        "FINALIZE_OUTPUT": {
+          "median": 873.554,
+          "p95": 892.038
+        }
+      }
+    }
   ],
   "endToEndContexts": [
     {
@@ -51,7 +177,10 @@
   "measurementContract": {
     "warmupsPerModeAndFixture": 1,
     "measuredRunsPerModeAndFixture": 5,
-    "statistics": ["median", "nearest-rank-p95"],
+    "statistics": [
+      "median",
+      "nearest-rank-p95"
+    ],
     "toleranceFormula": "ceiling(max(2.0 * baselineP95Ms, baselineP95Ms + 250))"
   },
   "ceilings": {
@@ -67,10 +196,18 @@
     "absoluteSelectedRulePackEstimatedTokens": 24576,
     "frameworkControlledContextBytes": 98304,
     "frameworkControlledContextEstimatedTokens": 24576,
-    "p95Ms": {"DISCOVER": 2095, "ADMIT_ACTION": 1630, "FINALIZE_OUTPUT": 1682},
-    "independentModelCalls": {"structuredTaskIntent": 0, "defaultOrdinaryPrompt": 0, "optionalProviderMaximum": 1},
+    "p95Ms": {
+      "DISCOVER": 2095,
+      "ADMIT_ACTION": 1630,
+      "FINALIZE_OUTPUT": 1682
+    },
+    "independentModelCalls": {
+      "structuredTaskIntent": 0,
+      "defaultOrdinaryPrompt": 0,
+      "optionalProviderMaximum": 1
+    },
     "sourceBuildCount": 1,
     "decisionBuildCount": 1
   },
-  "evidenceCeiling": "Bounded five-run Windows PowerShell 7 measurement and structural conformance for Framework-controlled router, module and selected-pack bytes only; this is not a statistical performance certification, and project/task facts, semantic attention, cross-platform behavior and natural-value proof are excluded."
+  "evidenceCeiling": "Bounded five-run measurement on Windows PowerShell 7.6.5 used one warmup and five cold-process runs for each of six fixtures and each DISCOVER/ADMIT_ACTION/FINALIZE_OUTPUT boundary. The worst_unknown fixture intentionally used the project-selected absolute ceiling because its conservative 33598-byte pack exceeds the 32768 default; ordinary fixtures remain within the default. This is not a statistical performance certification. Project/task facts, model attention, semantic correctness, cross-platform behavior and natural-value proof are excluded."
 }

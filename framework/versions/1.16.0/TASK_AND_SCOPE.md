@@ -17,7 +17,7 @@ Recovery 是 read-only。有效 signed implementation package 若绑定 recovere
 
 用户已显式授权 Framework work 时，same-scope `MUST_NEW` 携带 standing task-creation authority，但不会跨越 `BLOCKED` boundary。
 
-PROJECT_CONTROLLER 与 DOMAIN_OWNER 是长期责任；Executor、writer、Reviewer、Git、browser、device 是 temporary task/phase role。Owner 可以在 current task 直接执行，也可以在需要继续讨论、并行、隔离或 independent context 时安排 bounded executor task；两者都不是强制路线。仅 resource change 通常保留 recovery baseline；合格 same-session action rebind 使用 NONE/WARM recovery 加 fresh authorization package。authorization drift 不自动等于 FULL_COLD。
+PROJECT_CONTROLLER 与 DOMAIN_OWNER 是长期责任；Executor、writer、tester、Reviewer、Git、browser、device 是 temporary task/phase role。Owner 可以在 current task 直接执行，也可以在需要继续讨论、并行或独立上下文时安排 bounded executor task；短时能力/成本选择则可只签发一次临时 action package，不必创建新任务或改 Work route。三种都是可选路线。仅 resource change 通常保留 recovery baseline；合格 same-session action rebind 使用 NONE/WARM recovery 加 fresh authorization package。authorization drift 不自动等于 FULL_COLD。
 
 bounded handoff 可以是 discussion owner→executor、writer↔Reviewer、Reviewer→task owner。Controller 不是强制 domain-semantics relay；只有它拥有 unique next action，或必须处理 cross-domain、public-contract、protection、Git/device/external exception 时才接收结果。
 
@@ -47,7 +47,7 @@ initial recovery 或 context discontinuity 时，调用 loader，再调用 `PROC
 
 独立 governed action 前必须立即调用 `ADMIT_ACTION`；实际 final user/consumer output 前必须调用 `FINALIZE_OUTPUT`。缺少 preparation/result evidence 时，安全则补齐，否则返回 exact blocker。`MISSING` 或 `NOT_DELIVERED` 不算完成。authorization、Review、OWNER_ACCEPT、Git、push、browser、device、external 与 protection gate 保持独立。
 
-adoption 不批量重写 legacy card。1.11/1.12 两字段 card 可带 `LEGACY_ACTOR_CONTEXT_UNBOUND` 只读恢复，但首个 substantive actor action 前必须原子绑定 schema 与 authenticated `actor/role/phase`。official upgrade tool 先在 target projection 中迁移精确 current active task 并完成 target resolver preflight，再把 target pin 和全部 non-task objects 写入可恢复 transaction，最后原子写 task，之后不再写，并在 target pin 下停住等待 fresh FULL_COLD。actor 绝不从 owner、package、prompt 或 host label 推断。
+adoption 不批量重写 legacy card。1.11/1.12 两字段 card 可带 `LEGACY_ACTOR_CONTEXT_UNBOUND` 只读恢复，但首个 substantive actor action 前必须原子绑定 schema 与 authenticated `actor/role/phase`。official upgrade tool 先在 target projection 中迁移精确 current active task 并完成 target resolver preflight，再把 target pin 和全部 non-task objects 写入可恢复 transaction，最后原子写 task；stable/schema2 随即结束，本地候选/schema4 仅按 `PROJECT_CONTROL.md` 登记原事务完成后结束，不追加其他项目工作；然后在 target pin 下停住等待 fresh FULL_COLD。actor 绝不从 owner、package、prompt 或 host label 推断。
 
 routine writer、reviewer 与 authorization change 留在 task 内。只有 stable project phase、long-lived owner、protected set 或 unique next action 变化时更新 STATUS。task index 只在 lifecycle 或 routing change 时更新。
 

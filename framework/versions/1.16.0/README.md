@@ -6,14 +6,17 @@ baseline：immutable stable Framework `1.15.1`。release class：`MINOR`。
 
 `1.16.0` 保持单一 progressive-loading composer，并收紧 adoption/runtime contract：
 
-- `ADOPTION_PROFILE.json` 统一声明 registration eligibility、direct source versions、schema4 project control、exact capability binding、runtime artifact root 与 absolute process-pack cap。
+- `ADOPTION_PROFILE.json` 统一声明 registration eligibility、Project Format/capability 兼容范围、schema4 project control、exact capability binding、runtime artifact root 与 absolute process-pack cap；1.16新基线的跨pin兼容范围为空。
 - version profile只声明通用repo-local project contract。Framework Maintenance的sibling topology、旧版本allowlist与overlay投影由root维护工具拥有；version payload不复制完整Maintenance starter或专属resolver。
 - `.ai-workspace/process-policy.json.selectedRulePackBytes` 由项目选择 runtime ceiling；starter 缺省 `32768`，Framework absolute cap 为 `98304`。
-- `DISCOVER` 在自然 context boundary 一次返回完整 canonical Markdown blocks，并给出不含 `fullText` 的 compact receipt；`ADMIT_ACTION` 与 `FINALIZE_OUTPUT` 复用该 receipt。
-- task Owner、Work route actor 与临时 action grantee 分离。独立 `REVIEW_EXECUTE` Reviewer 不改写任务卡，receipt 同时记录 `taskActor` 与 action `actor`。
+- `DISCOVER` 在自然 context boundary 一次返回完整 canonical Markdown blocks，并给出不含 `fullText` 的 compact receipt；`ADMIT_ACTION` 与 `FINALIZE_OUTPUT` 复用该 receipt，边界输入只补实际 evidence。
+- structured project rule 可绑定项目现有标准文档的全文或唯一 marked section；只加载命中正文及必要依赖，来源漂移保守加载，相关来源不可用时阻止依赖动作。
+- task Owner、Work route actor 与临时 action grantee 分离。source、test、Review、Git、browser/device 与 external actor 都是可选临时角色，不改写 task Owner；正常 Review 无反向改卡、删包或释放 ACK。
+- 没有任务卡的项目只读讨论使用 `PROJECT_READ_ONLY` context，仍选择并加载三源适用规则，但不伪造 task、Owner 或 action authority。
 - upgrade 在 pin write 前构建 target projection，先迁移 legacy two-field task route、project policy 与 budget，再运行 target resolver；root Maintenance adapter在这套通用target contract之外独立验证双Git-top与目标control-plane禁止条件。
 - ephemeral artifact 默认位于 `.ai-workspace/runtime/<task>/<actor>/`；registration/upgrade 幂等维护 root `.gitignore`。system temp `aiw-*.json` 只是 fallback。
 - 唯一 canonical Router Skill 位于 root `skills/ai-workspace-router/SKILL.md`；version 内 host 文件仅保存兼容历史。
+- root 接入工具按 Project Format/capability 生成幂等投影，失败恢复旧有效组合；采用结果绑定实际 Framework pin、Project Format 与 Root Tool Revision。普通用户包只携带一个目标版本和必要接入依赖。
 
 resolver 不授予 authority，也不证明 semantic correctness。`SOURCE_WRITE`、TEST、REVIEW、`OWNER_ACCEPT`、Git、push、browser/device、external 与 protection gate 保持独立。project corrections 与 project-specific process rules 仍是独立 project authority。
 

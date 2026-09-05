@@ -17,7 +17,7 @@ Project ID=`{{PROJECT_ID}}`；repo-local control plane=`.ai-workspace/`；pinned
 ## 2. Recovery 与规则加载
 
 1. 轻读 `STATUS.md` 与 `tasks/README.md` 只为定位 assigned task；随后绑定 current header、Owner、authenticated Work route actor/role/phase、profile、objective/action/result、capabilities、exact scope 与 protection boundary。task card 是 authority，index 只是 projection。
-2. 在加载 normative module 前运行 `PROCESS_REQUIREMENTS_RESOLVE/DISCOVER`，输入完整 sealed catalog、current corrections 与 project policy。一次读取全部 returned exact complete Markdown blocks，后续只保留 compact receipt。
+2. 在加载 normative module 前运行 `PROCESS_REQUIREMENTS_RESOLVE/DISCOVER`，输入完整 sealed catalog、current corrections 与 project policy。存在任务时使用 task context；没有适用任务且仅做解释/方案/用户答复时使用 `PROJECT_READ_ONLY`，不得伪造 task。一次读取全部 returned exact complete Markdown blocks，后续只保留 compact receipt。
 3. 只读取 selected rules 与 current task 要求的 project facts、evidence、schemas、templates 或 action artifacts。
 4. `LOAD_PLAN_RESOLVE` 只用于 1.14 compatibility、non-rule artifact 与 bounded affected-module fallback，不是 catalog filter 或 protected-path bypass。
 5. selected rule/action 要求时，用 `PROTECTED_SAFE_GIT` 和 frozen project config identity 重证 Git top、object identity 与 read/hash/diff/index/write boundary。`UNVERIFIED` 不能触发 broad fallback。
@@ -34,9 +34,9 @@ workflow input 与 process input/receipt 默认写入 `.ai-workspace/runtime/<ta
 
 报告 recovery mode、baseline、owner、taskActor/actionActor、objective、profile、exact/forbidden paths、validation、Git/external、protection、Controller ID/epoch、authorization 与 single next action。
 
-没有 valid package 时保持 read-only。每个 package 绑定 current whole-task identity；除纯 `REVIEW_EXECUTE` 外，grantee 必须匹配 task Work route actor。纯 Review package 可让 independent Reviewer 成为 action grantee，同时保持 task Owner、Work route、identity 与 candidate 不变。DOMAIN_OWNER package 留在 domain 且省略 Controller fields；PROJECT_CONTROLLER package 绑定 current controller object。schema3 只用于 closed actor-bound project-upgrade bundle。
+没有 valid package 时保持 read-only。每个 package 绑定 current whole-task identity；一次纯临时 action 可让 grantee 不同于 task Work route actor，同时保持 task Owner、Work route 与 identity 不变，并按 action 形成临时执行/测试/Review/Git/external context。`REVIEW_ROUTE` 与 `OWNER_ACCEPT` 不走临时 actor。DOMAIN_OWNER package 留在 domain 且省略 Controller fields；PROJECT_CONTROLLER package 绑定 current controller object。schema3 authorization 只用于 closed actor-bound project-upgrade bundle。
 
-每个独立 action 前调用 `ADMIT_ACTION`，并让 independent action checker 单独 PASS。最终输出前以 actual result/delivery receipts 调用 `FINALIZE_OUTPUT`。finalization、invalidation 或 abort 后删除 compact receipt。`MISSING`/`NOT_DELIVERED` 不算完成；structural PASS 不证明 semantic correctness 或 host enforcement。
+每个独立 action 前调用 `ADMIT_ACTION`，并让 independent action checker 单独 PASS。最终输出前以 actual result/delivery receipts 调用 `FINALIZE_OUTPUT`。优先使用 schema3 DISCOVER 的 schema2 compact receipt 与 schema2 boundary input，后者不重复 objective/action/scope/authorization。finalization、invalidation 或 abort 后删除 compact receipt。`MISSING`/`NOT_DELIVERED` 不算完成；structural PASS 不证明 semantic correctness 或 host enforcement。
 
 同一 domain task 中，DOMAIN_OWNER 直接选择 temporary actor/Reviewer、签发 package 并接收 terminal result。Controller 只接 owner/public-decision、cross-domain-contract、protected-path、project-phase、Git/device/external、resource-conflict、routine-exclusion 或 object-drift exception。不得建立 ACK chain。
 
