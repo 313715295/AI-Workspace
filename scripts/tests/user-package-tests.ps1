@@ -8,10 +8,15 @@ $builder = Join-Path $workspace 'scripts/build-user-package.ps1'
 $fixture = Join-Path ([IO.Path]::GetTempPath()) ('aiw-package-test-' + [guid]::NewGuid().ToString('N'))
 $zip = Join-Path $fixture 'AI-Workspace-1.16.0.zip'
 $extract = Join-Path $fixture 'extract'
+$stableZip = Join-Path $fixture 'AI-Workspace-1.16.0-stable.zip'
+$stableExtract = Join-Path $fixture 'stable-extract'
+$candidateConsumer = Join-Path $fixture 'candidate-consumer'
+$stableConsumer = Join-Path $fixture 'stable-consumer'
 $passed = 0
 
 function Write-Utf8Json([string]$Path, $Value) {
-    [IO.File]::WriteAllText($Path, (($Value | ConvertTo-Json -Depth 100) + "`n"), [Text.UTF8Encoding]::new($false))
+    $json = (($Value | ConvertTo-Json -Depth 100).Replace("`r`n", "`n")).TrimEnd([char]10) + "`n"
+    [IO.File]::WriteAllText($Path, $json, [Text.UTF8Encoding]::new($false))
 }
 
 function Get-ReleasePayloadFacts([string]$Root, [string]$ManifestPath) {
@@ -42,10 +47,31 @@ function Assert-Rejected([scriptblock]$Action, [string]$ExpectedReason, [string]
     Assert-True ($actual.Contains($ExpectedReason, [StringComparison]::Ordinal)) $Name
 }
 
+function Get-StatusResult([object[]]$Output, [string]$ExpectedStatus) {
+    @($Output | Where-Object {
+        $_ -is [pscustomobject] -and
+        $null -ne $_.PSObject.Properties['status'] -and
+        [string]$_.status -ceq $ExpectedStatus
+    })
+}
+
+function Remove-TestFixture([string]$Path) {
+    $temp = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath([IO.Path]::GetTempPath()))
+    $full = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($Path))
+    $item = Get-Item -LiteralPath $full -Force -ErrorAction SilentlyContinue
+    if ($null -eq $item) { return }
+    if (-not $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+        -not $full.StartsWith($temp + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase) -or
+        -not [IO.Path]::GetFileName($full).StartsWith('aiw-package-test-', [StringComparison]::Ordinal)) {
+        throw ('TEST_FIXTURE_CLEANUP_BOUNDARY|' + $full)
+    }
+    [IO.Directory]::Delete($full, $true)
+}
+
 try {
     $null = New-Item -ItemType Directory -Path $fixture
     $packageWorkspace = Join-Path $fixture 'workspace'
-    foreach ($relative in @('AGENTS.md','INITIALIZATION.md','LICENSE','README.md','framework/PROJECT_ADOPTION.md','scripts/MaintenanceOverlay.psm1','scripts/ProjectAdoptionProjection.psm1','scripts/ProjectAdoptionState.psm1','scripts/ProjectAdoptionTransaction.psm1','scripts/register-project.ps1','scripts/upgrade-project.ps1','skills/ai-workspace-router/SKILL.md')) {
+    foreach ($relative in @('LICENSE','framework/user-package/README.md','framework/user-package/AGENTS.md','scripts/MaintenanceOverlay.psm1','scripts/ProjectAdoptionProjection.psm1','scripts/ProjectAdoptionState.psm1','scripts/ProjectAdoptionTransaction.psm1','scripts/register-project.ps1','scripts/upgrade-project.ps1','skills/ai-workspace-router/SKILL.md')) {
         $destination = Join-Path $packageWorkspace $relative
         $parent = Split-Path -Parent $destination
         if (-not (Test-Path -LiteralPath $parent)) { $null = New-Item -ItemType Directory -Path $parent -Force }
@@ -152,10 +178,78 @@ try {
         (Test-Path -LiteralPath (Join-Path $extract 'skills/ai-workspace-router/SKILL.md'))
     ) 'package-includes-user-entrypoints'
 
+    $packageReadmePath = Join-Path $extract 'README.md'
+    $packageAgentsPath = Join-Path $extract 'AGENTS.md'
+    $expectedReadme = [IO.File]::ReadAllText((Join-Path $packageWorkspace 'framework/user-package/README.md'), [Text.UTF8Encoding]::new($false, $true)).Replace('{{FRAMEWORK_VERSION}}', '1.16.0')
+    $expectedAgents = [IO.File]::ReadAllText((Join-Path $packageWorkspace 'framework/user-package/AGENTS.md'), [Text.UTF8Encoding]::new($false, $true)).Replace('{{FRAMEWORK_VERSION}}', '1.16.0')
+    Assert-True (
+        [IO.File]::ReadAllText($packageReadmePath, [Text.UTF8Encoding]::new($false, $true)) -ceq $expectedReadme -and
+        [IO.File]::ReadAllText($packageAgentsPath, [Text.UTF8Encoding]::new($false, $true)) -ceq $expectedAgents -and
+        -not $expectedReadme.Contains('{{FRAMEWORK_VERSION}}') -and
+        -not $expectedAgents.Contains('{{FRAMEWORK_VERSION}}')
+    ) 'package-root-entrypoints-render-user-templates'
+    Assert-True (
+        -not (Test-Path -LiteralPath (Join-Path $extract 'INITIALIZATION.md')) -and
+        -not (Test-Path -LiteralPath (Join-Path $extract 'framework/PROJECT_ADOPTION.md')) -and
+        -not (Test-Path -LiteralPath (Join-Path $extract 'framework/user-package'))
+    ) 'package-excludes-development-and-maintenance-entrypoints'
+    $allLinksResolve = $true
+    foreach ($document in @($packageReadmePath, $packageAgentsPath)) {
+        $documentText = [IO.File]::ReadAllText($document, [Text.UTF8Encoding]::new($false, $true))
+        foreach ($match in [regex]::Matches($documentText, '\]\((?<target>[^)#]+)(?:#[^)]*)?\)')) {
+            $target = [string]$match.Groups['target'].Value
+            if ($target -match '^[a-z]+:') { continue }
+            if (-not (Test-Path -LiteralPath (Join-Path $extract $target) -PathType Leaf)) { $allLinksResolve = $false; break }
+        }
+    }
+    Assert-True $allLinksResolve 'package-root-relative-links-resolve'
+    Assert-True (@($manifest.files).Count -eq 86) 'package-fixed-distribution-file-count'
+
+    $null = New-Item -ItemType Directory -Path $candidateConsumer
+    & git -C $candidateConsumer init -q
+    Assert-True ($LASTEXITCODE -eq 0) 'candidate-consumer-git-initialized'
+    Assert-Rejected {
+        & (Join-Path $extract 'scripts/register-project.ps1') -ProjectId 'candidate-package-consumer' -DisplayName 'Candidate Package Consumer' -FrameworkVersion '1.16.0' -RepositoryPath $candidateConsumer -ControllerId 'controller-fixture' -WorkspaceRoot $extract -Apply -Confirm:$false
+    } 'FRAMEWORK_VERSION_NOT_CONSUMABLE|1.16.0' 'actual-candidate-package-remains-non-consumable'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $candidateConsumer '.ai-workspace'))) 'candidate-rejection-writes-no-project-control'
+
+    $stableVersion = $validVersionRaw | ConvertFrom-Json
+    $stableVersion.lifecycle = 'STABLE'
+    $stableVersion.consumable = $true
+    $stableVersion.projectPinEligible = $true
+    Write-Utf8Json $fixtureVersionPath $stableVersion
+    $stable = $validManifestRaw | ConvertFrom-Json
+    $stable.lifecycle = 'STABLE'
+    $stable.releaseIntegration = 'COMPLETE'
+    $stableFacts = Get-ReleasePayloadFacts $fixtureVersionRoot $fixtureManifestPath
+    $stable.fileCount = $stableFacts.FileCount
+    $stable.totalBytes = $stableFacts.TotalBytes
+    $stable.canonical = $stableFacts.Canonical
+    $stable.completeSuite.payloadCanonical = $stableFacts.Canonical
+    $stable.sourceReviewEvidence.reviewedPayloadCanonical = $stableFacts.Canonical
+    Write-Utf8Json $fixtureManifestPath $stable
+    $stableCreated = & $builder -WorkspaceRoot $packageWorkspace -FrameworkVersion '1.16.0' -OutputPath $stableZip -Apply -Confirm:$false
+    Assert-True ($stableCreated.status -ceq 'CREATED') 'stable-fixture-package-created'
+    [IO.Compression.ZipFile]::ExtractToDirectory($stableZip, $stableExtract)
+    Assert-True (
+        -not (Test-Path -LiteralPath (Join-Path $stableExtract '.git')) -and
+        -not (Test-Path -LiteralPath (Join-Path $stableExtract 'AI-Workspace-Maintenance')) -and
+        -not (Test-Path -LiteralPath (Join-Path $stableExtract 'framework/user-package'))
+    ) 'stable-distribution-extract-needs-no-source-repository'
+    $null = New-Item -ItemType Directory -Path $stableConsumer
+    & git -C $stableConsumer init -q
+    Assert-True ($LASTEXITCODE -eq 0) 'stable-consumer-git-initialized'
+    $stablePreview = & (Join-Path $stableExtract 'scripts/register-project.ps1') -ProjectId 'stable-package-consumer' -DisplayName 'Stable Package Consumer' -FrameworkVersion '1.16.0' -RepositoryPath $stableConsumer -ControllerId 'controller-fixture' -WorkspaceRoot $stableExtract
+    Assert-True (@(Get-StatusResult $stablePreview 'WHAT_IF').Count -eq 1 -and -not (Test-Path -LiteralPath (Join-Path $stableConsumer '.ai-workspace'))) 'stable-distribution-registration-preview-zero-write'
+    $stableApply = & (Join-Path $stableExtract 'scripts/register-project.ps1') -ProjectId 'stable-package-consumer' -DisplayName 'Stable Package Consumer' -FrameworkVersion '1.16.0' -RepositoryPath $stableConsumer -ControllerId 'controller-fixture' -WorkspaceRoot $stableExtract -Apply -Confirm:$false
+    Assert-True (@(Get-StatusResult $stableApply 'CREATED').Count -eq 1 -and (Test-Path -LiteralPath (Join-Path $stableConsumer '.ai-workspace/BOOTSTRAP.md'))) 'stable-distribution-registration-apply'
+    $stableRepeat = & (Join-Path $stableExtract 'scripts/register-project.ps1') -ProjectId 'stable-package-consumer' -DisplayName 'Stable Package Consumer' -FrameworkVersion '1.16.0' -RepositoryPath $stableConsumer -ControllerId 'controller-fixture' -WorkspaceRoot $stableExtract
+    Assert-True (@(Get-StatusResult $stableRepeat 'ALREADY_REGISTERED').Count -eq 1) 'stable-distribution-registration-reread'
+    $stableRecovery = @(& (Join-Path $stableExtract 'scripts/upgrade-project.ps1') -ProjectId 'stable-package-consumer' -ToVersion '1.16.0' -RepositoryPath $stableConsumer -ControllerId 'controller-fixture' -WorkspaceRoot $stableExtract | ForEach-Object { [string]$_ })
+    Assert-True (($stableRecovery -join "`n").Contains('WHAT_IF|from=1.16.0|to=1.16.0|objects=0|transaction=none')) 'stable-distribution-same-pin-recovery-preview'
+
     Write-Output ('PASS|user-package-tests|' + $passed + '/' + $passed)
 }
 finally {
-    if (Test-Path -LiteralPath $fixture -PathType Container) {
-        [IO.Directory]::Delete($fixture, $true)
-    }
+    Remove-TestFixture $fixture
 }

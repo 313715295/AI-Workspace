@@ -9,7 +9,7 @@ Recovery 只证明 authority 与 current facts；它不授予 write、test、Rev
 2. 严格读取项目 repo-local `.ai-workspace/project.json`、`controller.json`、`corrections.json` 与 `BOOTSTRAP.md`，包括项目级 `frameworkToolBackend`。
 3. 只解析 `framework/versions/<project.json.frameworkVersion>/`。普通采用必须校验 stable `VERSION.json`、`RELEASE_MANIFEST.json`、`TOOLCHAIN.json` 与生成的 process-requirement catalog；显式本地候选试点则必须由 root upgrader 的既有 `upgrade-recovery/<version>/state.json` 证明 `LOCAL_PILOT`，并让其中的 candidate canonical、manifest identity 与当前候选快照一致。
 4. 绑定 current task、authenticated actor、`role + phase` Work route、profile、exact scope、protection boundary、capabilities 与 current Review profile。只读取证明这些输入所需的项目 facts。
-5. 通过 sealed Tool Contract 解析 `PROCESS_REQUIREMENTS_RESOLVE`，对完整生成 catalog、仍有效 corrections 与当前 permanent project-rule carrier 执行 `DISCOVER`。
+5. 在 `DISCOVER` 前，由当前主会话模型按 sealed `TOOL_CONTRACT.md` 的唯一 IntentEnvelope 构造段，从原始请求与仍有效上下文重建当前 objective/action/result/scope；authority 与授权另行核对。再解析 `PROCESS_REQUIREMENTS_RESOLVE`，对完整生成 catalog、仍有效 corrections 与当前 permanent project-rule carrier 执行 `DISCOVER`。
 6. 一次加载 `DISCOVER` 返回的每个精确完整 Markdown rule block；后续只保存 compact receipt，再取得规则要求的 facts、evidence、schemas、templates 或其他 action artifacts。
 7. `LOAD_PLAN_RESOLVE` 只用于 1.14 compatibility、Framework-wide explanation/maintenance、non-rule supporting artifact，或 affected module block mapping 无法证明时的 bounded fallback。它不筛选 catalog，也不创建第二个规则决策。
 8. selected rule 或 intended action 要求时，用当前 version 的 safe-Git helper 重新证明 protected paths 与真实 Git state。
@@ -21,17 +21,13 @@ project pin 是唯一 Framework-version authority。root HEAD、tag、network st
 <!-- AIW-REQUIREMENT:PR_RECOVERY_CURRENT_AUTHORITY:END -->
 
 <!-- AIW-REQUIREMENT:PR_PROCESS_REQUIREMENTS_PROGRESSIVE_BOUNDARIES:BEGIN -->
-`DISCOVER` 在加载 normative module text 之前，对完整 sealed metadata catalog 进行选择。composer 校验每个 selected fragment locator 与 owning Markdown module，返回完整 block text 及 fragment 声明的 preparation/result requirements；它不授予权限。
+`DISCOVER` 从完整 sealed catalog 选择并校验 fragment/Markdown locator，返回完整 `fullText` 与 obligations，不授予权限。每个独立 action 用 `ADMIT_ACTION`，最终输出前用 `FINALIZE_OUTPUT`；二者复用 compact receipt，UNKNOWN 或 mapping 缺口只保守扩到 affected block/module。无适用 task 的解释/现状/方案使用 `PROJECT_READ_ONLY`，仅允许 `NONE + PLAN/USER_RESPONSE`。
 
-每个独立 governed action boundary 调用 `ADMIT_ACTION`；向用户或 consumer 输出最终结果前立即调用 `FINALIZE_OUTPUT`。两者都消费同一 exact compact `DISCOVER` receipt，不再复制完整 rule blocks；新 boundary input 只追加实际 evidence，不重述 receipt 已绑定的 objective/action/scope/authorization。finalization、invalidation 或 abort 后删除 receipt。semantic applicability 为 UNKNOWN 时保守选择受影响 blocks。mapping 缺失或冲突时先加载 affected module 中全部 mapped blocks；只有 module mapping 不完整时才 fallback 到该完整 module，绝不扩展到整个 Framework。
+Recovery 分开维护：`source composition`=来源身份及 task/task actor/action grantee/role/phase/profile/capability；`boundary decision`=objective/exact scope/action/result/authorization/receipt；`current model fullText availability`=当前模型实际持有的 selected blocks。standard locator/path/whole identity/section/dependency 属于 source binding。事实变化只重建受影响项；actual authority、task route 或 phase drift 不得沿用。健康来源、选择和正文可复用；fresh authorization、tool call、progress、authorized postimage 或 continuation receipt 只失效相关 decision，不自动全文重载、`FULL_COLD` 或复活已解决问题。
 
-没有适用 task card 的解释、现状核对或方案讨论，使用同一 resolver 的 `PROJECT_READ_ONLY` context，绑定真实 project、session/request、actor、role/phase、profile 与保护边界；它只允许 `NONE + PLAN/USER_RESPONSE`。一旦需要写入、测试、正式 Review/接受、Git、browser/device 或 external action，必须建立或恢复合法 task 与相应 package。
+compaction、pause/resume、handoff 或正文不确定时，对齐最新请求、已观察结果与 next action；下一 substantive action 前读取 current `DISCOVER` 的每个 `fullText`。summary、cache、source hash、compact/continuation receipt、旧 receipt 或“机械校验通过”不能证明正文已在当前模型上下文：正文丢失只恢复正文，composition/decision 漂移才重建。
 
-初次 recovery、compaction、pause/resume、handoff 或 context uncertainty 必须重建 current source composition 与 decision。task、task actor/action grantee、role、Work phase、profile、capability 或 source-authority change 也重建 composition。objective、exact-scope、action 或 result change 只重建 boundary decision；source identities 与 selected rule bodies 未变化时可以复用。不得按每次 tool call 或 authorization refresh 重载。
-
-一次性 input/receipt 默认位于 `.ai-workspace/runtime/<task>/<actor>/`，并受项目 `.gitignore` 保护；仅在该目录不可用时使用 system temp `aiw-*.json`，同时暴露 evidence ceiling。
-
-机械 PASS 从不证明 semantic correctness、model attention 或 host invocation。invocation 不可用或未观察时，只报告真实 evidence ceiling，不声称 enforcement。
+input/receipt 默认进被忽略的 `.ai-workspace/runtime/<task>/<actor>/`，不可用才用 system temp 并暴露 ceiling；清理遵循 `TOOL_CONTRACT.md` 的 receipt lifecycle，尤其 continuation 引用的原 compact 必须留到最后消费者完成。机械 PASS 不证明 semantic correctness、模型 attention 或 host invocation。
 <!-- AIW-REQUIREMENT:PR_PROCESS_REQUIREMENTS_PROGRESSIVE_BOUNDARIES:END -->
 
 <!-- AIW-REQUIREMENT:PR_RECOVERY_ROLE_REBIND:BEGIN -->

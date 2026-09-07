@@ -1,6 +1,6 @@
 # 任务模板
 
-任务卡是current状态，不是历史日志。`<...>`必须替换；路径使用workspace相对`/`。授权包嵌在同一热卡，避免第二状态文件。只有当前阶段存在状态变更授权时保留一个`authorization-package`块；writer释放后将其lifecycle改为非ACTIVE或移入history，不能让旧包继续有效。
+任务卡是current状态，不是历史日志。`<...>`必须替换；路径使用workspace相对`/`。新授权包是`.ai-workspace/runtime/<task>/<actor>/`中的外置纯JSON，由action checker及process input绑定locator与whole-file identity；不得把package identity或正文回填任务卡，否则会与package中的整卡`taskIdentity`形成自引用。历史卡可保留零或一个`authorization-package`块作结构兼容，两个以上fail closed；新卡不再创建该inline块。writer释放后外置包必须失效并清理，不能让旧包继续有效。
 
 ## 1. MICRO（可选持久卡）
 
@@ -57,7 +57,9 @@
 
 ## Current authorization
 
-```authorization-package
+将以下纯JSON写入`.ai-workspace/runtime/<TASK-ID>/<grantee-id>/<safe-name>.json`；实际locator与identity只进入checker/process input，不写回本卡：
+
+```json
 {
   "schemaVersion": 1,
   "frameworkVersion": "1.16.0",
@@ -75,15 +77,18 @@
   "delegatedGitCloser": false,
   "taskIdentity": "<current task bytes|UPPER_SHA256>",
   "actions": ["SOURCE_WRITE", "TEST_WRITE", "TEST_RUN"],
+  "continuationPlan": ["SOURCE_WRITE", "TEST_WRITE", "TEST_RUN", "SOURCE_WRITE"],
   "exactPaths": ["<a>", "<b>"],
   "objectIdentities": [
     {"path": "<a>", "identity": "<bytes|UPPER_SHA256>"},
     {"path": "<b>", "identity": "NEW"}
   ],
   "projectConfigIdentity": "<.ai-workspace/project.json bytes|UPPER_SHA256>",
-  "invalidatesOn": ["TASK_CHANGE", "OWNER_CHANGE", "GRANTEE_CHANGE", "ACTION_CHANGE", "PATHSET_CHANGE", "OBJECT_DRIFT", "USER_DECISION_CHANGE", "PROJECT_CONFIG_DRIFT"]
+  "invalidatesOn": ["TASK_CHANGE", "OWNER_CHANGE", "GRANTEE_CHANGE", "ACTION_CHANGE", "PATHSET_CHANGE", "OBJECT_DRIFT", "USER_DECISION_CHANGE", "PROJECT_CONFIG_DRIFT", "CONTINUATION_RESULT_DRIFT"]
 }
 ```
+
+任务卡只记录`writer / reviewer / authorization`的当前状态或下一动作，不复制外置包正文、locator或identity。task正文稳定后再计算`taskIdentity`并生成package；action/grantee/path/object/decision变化时生成fresh外置包。
 
 当且仅当`issuerRole=PROJECT_CONTROLLER`时，在包中增加`issuerControllerId`、整数`issuerControllerEpoch`与`controllerControlIdentity`，并在`invalidatesOn`增加`CONTROLLER_EPOCH_CHANGE`；`DOMAIN_OWNER`示例保持不带这些字段。
 
@@ -97,9 +102,9 @@ Fresh package只表示旧action/grantee/path/object/decision绑定已失效，�
 
 在初次恢复、task/actor/role/phase/profile/capability/objective/exact-scope变化，以及进入独立action/result边界时，调用`PROCESS_REQUIREMENTS_RESOLVE`。`DISCOVER`只返回选中的完整规则和源绑定；`ADMIT_ACTION`检查准备完整性；`FINALIZE_OUTPUT`检查实际结果、交付和声明。它不替代或授予任何action gate。
 
-ephemeral input与receipt默认写入`.ai-workspace/runtime/<task>/<actor>/`，并由root `.gitignore`中的`/.ai-workspace/runtime/`排除；project runtime不可用时才使用system temp `aiw-*.json`。
+ephemeral package、input与receipt默认写入`.ai-workspace/runtime/<task>/<actor>/`，并由root `.gitignore`中的`/.ai-workspace/runtime/`排除；project runtime不可用时才使用system temp `aiw-*.json`。
 
-1.16.0 checker允许一次传入多个`ObservedAction`，并逐action返回结果；这只减少同一未漂移lease的重复预检，不合并action能力。任一绑定对象或decision漂移后，后续阶段必须使用fresh package。任务卡不新增字段级manifest，仓库也不新增授权消费ledger。
+1.16.0 checker允许一次传入多个`ObservedAction`，并逐action返回结果；这只减少同一未漂移lease的重复预检，不合并action能力。可预测的本地写→测→一次修复可在同一包增加可选`continuationPlan`；`actions`仍是唯一授予集合且不重复，plan只排序并可重复已授予action。每一步必须使用同一exact set，由上一`FINALIZE_OUTPUT`返回的真实postimage receipt承接；无下一步时不返回receipt。未使用该机制的对象或decision漂移仍须fresh package。任务卡不新增字段级manifest，仓库也不新增授权消费ledger。
 
 ## History locator
 

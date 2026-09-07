@@ -72,6 +72,7 @@
                   "properties": {
                     "sourceId": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"},
                     "locator": {"type": "string", "minLength": 1},
+                    "locatorKind": {"enum": ["PROJECT_RELATIVE", "ABSOLUTE_FILE"]},
                     "identity": {"type": "string", "pattern": "^\\d+\\|[A-F0-9]{64}$"},
                     "mode": {"enum": ["FULL_FILE", "MARKED_SECTION"]},
                     "sectionStart": {"type": "string", "minLength": 1},

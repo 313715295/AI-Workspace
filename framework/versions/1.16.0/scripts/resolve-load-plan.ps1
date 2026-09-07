@@ -25,6 +25,12 @@ param(
 
     [string]$ObservedActor,
 
+    [string]$ProjectRoot,
+
+    [string]$ExpectedProjectConfigIdentity,
+
+    [string]$ExpectedCandidatePilotStateIdentity,
+
     [switch]$AsJson
 )
 
@@ -144,7 +150,26 @@ $versionRoot = Split-Path -Parent $PSScriptRoot
 $manifestPath = Join-Path $versionRoot 'LOAD_MANIFEST.json'
 $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding utf8 | ConvertFrom-Json
 
-if ($manifest.frameworkVersion -cne '1.16.0' -or $manifest.lifecycle -cne 'STABLE') { throw 'LOAD_MANIFEST_NOT_STABLE_1_16_0' }
+if ($manifest.frameworkVersion -cne '1.16.0') { throw 'LOAD_MANIFEST_VERSION_1_16_0' }
+$candidateArguments = @('ProjectRoot','ExpectedProjectConfigIdentity','ExpectedCandidatePilotStateIdentity')
+$candidateArgumentCount = @($candidateArguments | Where-Object { $PSBoundParameters.ContainsKey($_) }).Count
+$resolvedLifecycle = 'STABLE'
+$candidatePilotStateIdentity = 'MISSING'
+if ([string]$manifest.lifecycle -ceq 'STABLE') {
+    if ($candidateArgumentCount -ne 0) { throw 'LOAD_CANDIDATE_BINDING_NOT_APPLICABLE' }
+}
+elseif ([string]$manifest.lifecycle -ceq 'CANDIDATE') {
+    if ($candidateArgumentCount -ne $candidateArguments.Count) { throw 'LOAD_CANDIDATE_BINDING_REQUIRED' }
+    $composerPath = Join-Path $PSScriptRoot 'ProcessRequirementComposition.psm1'
+    Import-Module $composerPath -Force -ErrorAction Stop
+    $candidateBinding = Get-AiwLocalCandidateSupportBinding -ProjectRoot $ProjectRoot -ExpectedProjectConfigIdentity $ExpectedProjectConfigIdentity -ExpectedCandidatePilotStateIdentity $ExpectedCandidatePilotStateIdentity -VersionDirectory $versionRoot -Version '1.16.0'
+    $resolvedLifecycle = [string]$candidateBinding.lifecycle
+    $candidatePilotStateIdentity = [string]$candidateBinding.candidatePilotStateIdentity
+    $evidenceCeiling = if ($evidenceCeiling -ceq 'NONE') { [string]$candidateBinding.evidenceCeiling } else { $evidenceCeiling + '+' + [string]$candidateBinding.evidenceCeiling }
+}
+else {
+    throw 'LOAD_MANIFEST_NOT_STABLE_OR_ADMITTED_CANDIDATE_1_16_0'
+}
 
 $selected = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::Ordinal)
 foreach ($item in @($manifest.core)) { [void]$selected.Add([string]$item) }
@@ -200,7 +225,8 @@ if ($result.Count -ne $selected.Count) {
 
 $output = [pscustomobject]@{
     frameworkVersion = '1.16.0'
-    lifecycle = 'STABLE'
+    lifecycle = $resolvedLifecycle
+    candidatePilotStateIdentity = $candidatePilotStateIdentity
     routeSource = $routeSource
     evidenceCeiling = $evidenceCeiling
     taskPath = $resolvedTaskPath
@@ -221,5 +247,5 @@ $output = [pscustomobject]@{
 if ($AsJson) {
     $output | ConvertTo-Json -Depth 6
 } else {
-    Write-Output ('PASS|load-plan|routeSource=' + $routeSource + '|actor=' + $resolvedActor + '|role=' + $resolvedRole + '|profile=' + $resolvedProfile + '|workPhase=' + $workPhase + '|phases=' + ($resolvedPhases -join ',') + '|host=' + $HostName + '|topology=' + $Topology + '|capabilities=' + (@($capabilitySet | Sort-Object) -join ',') + '|fallback=' + (@($fallbackSet | Sort-Object) -join ',') + '|modules=' + $result.Count + '|paths=' + (@($result | ForEach-Object { $_.path }) -join '|') + '|bytes=' + $output.totalBytes + '|estimatedTokens=' + $output.estimatedTokens + '|evidenceCeiling=' + $evidenceCeiling)
+    Write-Output ('PASS|load-plan|lifecycle=' + $resolvedLifecycle + '|candidatePilotStateIdentity=' + $candidatePilotStateIdentity + '|routeSource=' + $routeSource + '|actor=' + $resolvedActor + '|role=' + $resolvedRole + '|profile=' + $resolvedProfile + '|workPhase=' + $workPhase + '|phases=' + ($resolvedPhases -join ',') + '|host=' + $HostName + '|topology=' + $Topology + '|capabilities=' + (@($capabilitySet | Sort-Object) -join ',') + '|fallback=' + (@($fallbackSet | Sort-Object) -join ',') + '|modules=' + $result.Count + '|paths=' + (@($result | ForEach-Object { $_.path }) -join '|') + '|bytes=' + $output.totalBytes + '|estimatedTokens=' + $output.estimatedTokens + '|evidenceCeiling=' + $evidenceCeiling)
 }

@@ -5,9 +5,11 @@
   "requirements": [
     {
       "requirementId": "PR_TASK_LAUNCH_AND_ROUTE",
-      "legacyAliases": [],
+      "legacyAliases": [
+        "correction:ai-workspace-maintenance:RESOURCE_TOPOLOGY_NET_BENEFIT_SELECTION"
+      ],
       "title": "Task launch and direct route",
-      "description": "Choose REUSE, MUST_NEW or BLOCKED and keep long-lived ownership separate from temporary task hats.",
+      "description": "Choose one legal, net-beneficial organization carrier while preserving task routing and governance boundaries.",
       "selectors": {
         "profiles": [
           "*"
@@ -16,14 +18,7 @@
           "*"
         ],
         "phases": [
-          "RECOVER",
-          "DISCOVER",
-          "PLAN",
-          "IMPLEMENT",
-          "VERIFY",
-          "REVIEW",
-          "GIT",
-          "EXTERNAL"
+          "*"
         ],
         "actionKinds": [
           "*"
@@ -33,14 +28,7 @@
         ],
         "pathPrefixes": [],
         "capabilities": [],
-        "semanticTerms": [
-          "task",
-          "route",
-          "owner",
-          "actor",
-          "handoff",
-          "executor"
-        ]
+        "semanticTerms": []
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_TASK_LAUNCH_AND_ROUTE",
       "preparationRequirements": [

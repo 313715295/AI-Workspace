@@ -1,6 +1,12 @@
 # Framework 1.16.0 变更记录
 
+- 来源写后承接：已授权 `CONTROL_WRITE` 可在验证 exact source postimage 后，以同一 composer 重组 corrections/process-policy 当前来源并继续核验；旧授权与旧结果义务保持，越界来源、独立 drift、无效 source binding 和新 pack 超预算拒绝。临时 resolver input 的 `-DeleteInputOnExit` 与 continuation receipt 最后消费者边界同步写入工具/宿主合同。
+
+- 有界授权续作：可选 `continuationPlan` 让同一临时 actor 在原 package 预授予的写→测→局部修复顺序中继续；每步由 `FINALIZE_OUTPUT` 绑定真实 postimage，下一 `DISCOVER/ADMIT` 重验原包、source action/step、任务/actor、repository/config/Controller、decision/protection 与 current bytes。普通项目与 Maintenance 根适配器复用同一 checker/resolver；receipt 保持 `INSTRUCTION_BOUND`，不保存 checker 无法复验的 finalize hash，也不新增 ledger、签名或调度服务。
+
 - 项目标准渐进接入：`process-policy.json` 可在不复制正文的前提下绑定项目自有文档全文或唯一标记区块，并声明有界依赖；只把命中的当前正文送入模型。来源漂移改为保守加载当前全文，相关来源不可读或区块无效时只阻止依赖它的动作，无关来源不阻断当前工作。
+
+- 初始化与标准来源补强：默认注册只创建必要控制入口和薄项目/Review 指针，`RELATIONSHIPS.md` 改为按需模板；旧项目资料无需搬迁或精炼即可采用。project policy source 新增可选 `locatorKind`，兼容旧项目相对路径，并可只读绑定本机项目外文件或独立仓库 checkout。多个项目可直接引用同一来源，各自保留本地补充；target preflight 不复制或改写外部标准。README/Prompts 增加用户与 AI 的直接引用、可选精炼和可选文档改造指引。
 
 - 运行边界精简：新增 schema3 `DISCOVER` 与 schema2 compact receipt/boundary input。正式 task 保持完整 Owner/actor/authority 绑定；没有任务卡的项目只读讨论使用 `PROJECT_READ_ONLY`，不伪造 task 或授权。后续 ADMIT/FINALIZE 只补实际 evidence，不重复 objective、scope 与 authorization facts。
 

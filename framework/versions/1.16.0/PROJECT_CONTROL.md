@@ -53,7 +53,11 @@ local candidate pilot 在任何 project preflight 前重算 candidate payload，
 
 存在真实 PROJECT-CUSTOM rules 的 legacy project，在一个经过独立 Review 的 atomic migration 同时写入 structured carrier 并退役已迁移 normative bytes 前，继续把该 region 作为 bound project-rule source。empty-source claim 与 dual-carrier rule 必须 fail closed。不增加 role、service、registry、poller、ledger 或 executable project DSL。
 
-structured project rule 可直接内联，也可绑定项目现有标准文档的全文或唯一 marked section，并声明有界依赖。来源正文仍由项目拥有；policy 只保存选择器、locator、whole-file identity、section mode、依赖与 decision evidence。composer 在选择前验证来源，未命中的正文不进入模型；来源漂移时旧 selector/section 失效并保守加载当前全文，等待项目按普通规则维护流程重新绑定。不得为此复制第二份规范正文或扫描整个项目。
+structured project rule 可直接内联，也可绑定使用者维护的标准文档全文或唯一 marked section，并声明有界依赖。document 的 `locatorKind` 可为 `PROJECT_RELATIVE` 或 `ABSOLUTE_FILE`；旧记录未声明该字段时继续按 `PROJECT_RELATIVE` 解释。前者相对项目 Git 根解析，后者只接受当前受支持宿主上的显式本机绝对文件路径，可指向项目外目录或独立仓库 checkout。Framework 不规定来源目录、仓库或组织方式；多个项目分别绑定同一文件即可共享，不建立全局来源注册表，也不要求复制正文。
+
+来源正文仍由使用者及其原项目拥有；policy 只保存选择器、locator kind、locator、whole-file identity、section mode、依赖与 decision evidence。读取来源不授予修改来源、其他项目或外部仓库的权限。composer 在选择前验证显式来源，不扫描目录、不网络抓取，也不把普通文档链接自动解释为递归依赖；未命中的正文不进入模型。来源路径、kind、whole-file identity、section 或 dependency 变化都会使旧 source/receipt 绑定失效。正文漂移时旧 selector/section 不再用于排除，当前全文保守加载，等待项目按普通规则维护流程重新绑定。
+
+用户无需手写机器 JSON。初始化或项目维护 AI 根据用户指出的现有文档、用途、全文/章节选择和直接依赖生成或更新 policy。直接引用原文是完整可用路径；精炼提取或文档拆分/去重是项目可选工作，不是 Framework 采用前置条件。摘要默认只是导航/参考；若项目明确选择其替换规范正文，必须在现有项目规则修改与验证边界内保持单一有效正文。
 
 三源 selectors 使用 `TOOL_CONTRACT.md` 的同一匹配合同：明确声明的确定性触发不再被关键词否决，原结构边界仍逐项匹配；旧字段解释不变，不自动转换项目记录。新增字段改变当前 source identity，旧 receipt 与旧精确吸收映射不得沿用。
 <!-- AIW-REQUIREMENT:PR_PROCESS_REQUIREMENTS_THREE_SOURCE_COMPOSITION:END -->

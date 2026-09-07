@@ -13,7 +13,9 @@ param(
     [string]$ProjectConfigPath='.ai-workspace/project.json',
     [Parameter(Mandatory)][string]$ExpectedProjectConfigIdentity,
     [string]$TaskPath,
-    [string]$ExpectedTaskIdentity
+    [string]$ExpectedTaskIdentity,
+    [string]$ContinuationReceiptPath,
+    [string]$ExpectedContinuationReceiptIdentity
 )
 
 $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
@@ -49,6 +51,7 @@ try{
     $control=[string]$resolved.controlRoot;Push-Location $control
     try{
         $args=@{PackagePath=$PackagePath;ObservedActor=$ObservedActor;ObservedTaskId=$ObservedTaskId;ObservedOwner=$ObservedOwner;ObservedAction=@($ObservedAction);ObservedPath=@($ObservedPath);ObservedIdentity=@($ObservedIdentity);ControllerControlPath=$ControllerControlPath;ObservedRepositoryId=$ObservedRepositoryId;ProjectConfigPath=$ProjectConfigPath;ExpectedProjectConfigIdentity=$ExpectedProjectConfigIdentity;TaskPath=$effectiveTaskPath;ExpectedTaskIdentity=$effectiveTaskIdentity;RootRepositoryBindingValidated=$true}
+        if(-not[string]::IsNullOrWhiteSpace($ContinuationReceiptPath)-or-not[string]::IsNullOrWhiteSpace($ExpectedContinuationReceiptIdentity)){$args.ContinuationReceiptPath=$ContinuationReceiptPath;$args.ExpectedContinuationReceiptIdentity=$ExpectedContinuationReceiptIdentity}
         if($sameVersionStateRebind-or$sameVersionProjectionRefresh){
             $result=@(& $checker @args 2>&1|ForEach-Object{[string]$_});$code=$LASTEXITCODE
             if($code-eq2-and$result.Count-eq1-and[string]$result[0]-ceq'FAIL|POST_IDENTITY_RECOVERY_PATH'){$exception=if($sameVersionProjectionRefresh){'SAME_VERSION_CANDIDATE_MANAGED_PROJECTION_REFRESH'}else{'SAME_VERSION_CANDIDATE_STATE_REBIND'};Write-Output ('PASS|task='+$ObservedTaskId+'|actor='+$ObservedActor+'|action=CONTROL_WRITE|paths='+@($ObservedPath).Count+'|root-exception='+$exception);exit 0}

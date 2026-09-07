@@ -5,8 +5,32 @@
     {
       "version": "1.16.0",
       "releaseCanonical": "SELF",
-      "incorporatedCorrectionIds": [],
-      "incorporationMappings": [],
+      "incorporatedCorrectionIds": [
+        "RESOURCE_TOPOLOGY_NET_BENEFIT_SELECTION",
+        "HOST_RESOURCE_ROUTE_DELEGATION"
+      ],
+      "incorporationMappings": [
+        {
+          "correctionId": "RESOURCE_TOPOLOGY_NET_BENEFIT_SELECTION",
+          "legacyRequirementId": "correction:ai-workspace-maintenance:RESOURCE_TOPOLOGY_NET_BENEFIT_SELECTION",
+          "nativeRequirementId": "framework:PR_TASK_LAUNCH_AND_ROUTE",
+          "coverageState": "INCORPORATED",
+          "nativeCatalogIdentity": "40645|71F4FA48F92B3F540BE8D9A405851CFAB99B7E083EA52874D0DFC49C511CE917",
+          "sourceSchemaVersion": 2,
+          "legacySourceRecordIdentity": "1848|B8D29484AC7CA65833C48A439899780F7E349938D6BA762E31F3A3813A4D197D",
+          "v2WholeRecordIdentity": "2134|A8E0DC4E43FB3F0F8E04BD295A1F6C8159E3E4242171126DFD06C91122A2CDEA"
+        },
+        {
+          "correctionId": "HOST_RESOURCE_ROUTE_DELEGATION",
+          "legacyRequirementId": "correction:pocket-legion:HOST_RESOURCE_ROUTE_DELEGATION",
+          "nativeRequirementId": "framework:PR_CODEX_RESOURCE_ROUTE",
+          "coverageState": "INCORPORATED",
+          "nativeCatalogIdentity": "40645|71F4FA48F92B3F540BE8D9A405851CFAB99B7E083EA52874D0DFC49C511CE917",
+          "sourceSchemaVersion": 2,
+          "legacySourceRecordIdentity": "4346|B3D90BB95DE096F6BAAC9E262FF9CAFB73D5B72DF6702C62F353B6AF7AB55268",
+          "v2WholeRecordIdentity": "4580|93282AF8AFE79D8DBC23DAC54D00C60774125E7A2D126A87E484778EA840598C"
+        }
+      ],
       "conflictingCorrectionIds": []
     }
   ]

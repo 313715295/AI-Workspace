@@ -33,6 +33,10 @@ param(
 
     [string]$ExpectedTaskIdentity,
 
+    [string]$ContinuationReceiptPath,
+
+    [string]$ExpectedContinuationReceiptIdentity,
+
     [switch]$RootRepositoryBindingValidated
 )
 
@@ -174,6 +178,8 @@ if ([IO.Path]::GetExtension($PackagePath) -ieq '.md') {
     }
     $packageText = $matches[0].Groups['json'].Value
 }
+$taskRouteActor=$null
+$actualTaskIdentity=$null
 try {
     Assert-StrictJsonMembers $packageText
     $package = $packageText | ConvertFrom-Json
@@ -198,6 +204,7 @@ if ($reasons.Count -gt 0) {
 $baseFields = @('schemaVersion','frameworkVersion','taskId','profile','lifecycle','owner','issuer','issuerRole','grantee','bundle','decisionClass','userConfirmation','reviewIndependence','delegatedGitCloser','taskIdentity','actions','exactPaths','objectIdentities','invalidatesOn')
 $controllerFields = @('issuerControllerId','issuerControllerEpoch','controllerControlIdentity')
 $repositoryFields = @('repositoryId')
+$continuationPlanFields = @('continuationPlan')
 $upgradePostimageFields = @('postObjectIdentities')
 $upgradeSnapshotFields = @('targetFrameworkSnapshot')
 $criticalReviewFields = @('candidateWriter','materialContributors')
@@ -207,6 +214,7 @@ $actualFields = @($package.PSObject.Properties.Name)
 $expectedFields = @($baseFields) + @('projectConfigIdentity')
 if ([string]$package.issuerRole -ceq 'PROJECT_CONTROLLER') { $expectedFields += $controllerFields }
 if ((Test-JsonInteger $package.schemaVersion) -and [int]$package.schemaVersion -eq 2) { $expectedFields += $repositoryFields }
+if ($null -ne $package.PSObject.Properties['continuationPlan']) { $expectedFields += $continuationPlanFields }
 if ((Test-JsonInteger $package.schemaVersion) -and [int]$package.schemaVersion -eq 3) {
     $expectedFields += $upgradePostimageFields
     if ($null -ne $package.PSObject.Properties['targetFrameworkSnapshot']) { $expectedFields += $upgradeSnapshotFields }
@@ -226,6 +234,7 @@ if (-not ($package.delegatedGitCloser -is [bool])) { Add-Reason $reasons 'FIELD_
 foreach ($field in @('actions','exactPaths','objectIdentities','invalidatesOn') + $(if ((Test-JsonInteger $package.schemaVersion) -and [int]$package.schemaVersion -eq 3) { @('postObjectIdentities') } else { @() })) {
     if (-not ($package.$field -is [System.Array])) { Add-Reason $reasons "FIELD_TYPE_${field}_ARRAY" }
 }
+if ($null -ne $package.PSObject.Properties['continuationPlan'] -and -not ($package.continuationPlan -is [System.Array])) { Add-Reason $reasons 'FIELD_TYPE_continuationPlan_ARRAY' }
 if ($criticalReviewPackage) {
     if (-not ($package.candidateWriter -is [string]) -or [string]::IsNullOrWhiteSpace([string]$package.candidateWriter)) { Add-Reason $reasons 'FIELD_TYPE_candidateWriter_STRING' }
     if (-not ($package.materialContributors -is [System.Array])) { Add-Reason $reasons 'FIELD_TYPE_materialContributors_ARRAY' }
@@ -241,9 +250,9 @@ if ([string]$package.frameworkVersion -cne '1.16.0') { Add-Reason $reasons 'FRAM
 if ([string]$package.projectConfigIdentity -cnotmatch '^\d+\|[A-F0-9]{64}$') { Add-Reason $reasons 'PROJECT_CONFIG_IDENTITY_FORMAT' }
 if ([string]$package.taskIdentity -cnotmatch '^\d+\|[A-F0-9]{64}$') { Add-Reason $reasons 'TASK_IDENTITY_FORMAT' }
 if ([string]$package.lifecycle -cne 'ACTIVE') { Add-Reason $reasons 'LIFECYCLE_NOT_ACTIVE' }
-if ([string]$package.profile -notin @('MICRO','STANDARD','CRITICAL')) { Add-Reason $reasons 'PROFILE' }
-if ([string]$package.issuerRole -notin @('PROJECT_CONTROLLER','DOMAIN_OWNER')) { Add-Reason $reasons 'ISSUER_ROLE' }
-if ([string]$package.decisionClass -notin @('ROUTINE_LOCAL','PRODUCT_RESULT','MAJOR_ARCHITECTURE','EXTERNAL_ACTION')) { Add-Reason $reasons 'DECISION_CLASS' }
+if ([string]$package.profile -cnotin @('MICRO','STANDARD','CRITICAL')) { Add-Reason $reasons 'PROFILE' }
+if ([string]$package.issuerRole -cnotin @('PROJECT_CONTROLLER','DOMAIN_OWNER')) { Add-Reason $reasons 'ISSUER_ROLE' }
+if ([string]$package.decisionClass -cnotin @('ROUTINE_LOCAL','PRODUCT_RESULT','MAJOR_ARCHITECTURE','EXTERNAL_ACTION')) { Add-Reason $reasons 'DECISION_CLASS' }
 if ([string]$package.grantee -cne $ObservedActor) { Add-Reason $reasons 'GRANTEE_DRIFT' }
 if ([string]$package.taskId -cne $ObservedTaskId) { Add-Reason $reasons 'TASK_DRIFT' }
 if ([string]$package.owner -cne $ObservedOwner) { Add-Reason $reasons 'OWNER_DRIFT' }
@@ -263,9 +272,12 @@ try {
     $taskIdMatches=[regex]::Matches($taskRaw,'(?m)^#\s+(?<id>[A-Za-z0-9][A-Za-z0-9._-]*)\s+(?:\u2014|-)')
     $taskOwnerMatches=[regex]::Matches($taskRaw,'(?m)^- Owner:\s*(?<owner>[^\s]+)\s*$')
     $taskRouteMatches=[regex]::Matches($taskRaw,'(?m)^- Work route:\s*actor=(?<actor>[^;\s]+);\s*role=(?<role>CONTROLLER|DOMAIN_OWNER|EXECUTOR|REVIEWER|FRAMEWORK_MAINTAINER);\s*phase=(?<phase>DISCOVER|PLAN|IMPLEMENT|VERIFY|REVIEW|GIT|EXTERNAL|RECOVER)\s*$')
-    if($taskIdMatches.Count-ne1-or$taskOwnerMatches.Count-ne1-or$taskRouteMatches.Count-ne1){throw 'TASK_BINDING_FIELDS'}
+    $taskProfileMatches=[regex]::Matches($taskRaw,'(?m)^- Range summary:\s*profile=(?<profile>MICRO|STANDARD|CRITICAL);')
+    if($taskIdMatches.Count-ne1-or$taskOwnerMatches.Count-ne1-or$taskRouteMatches.Count-ne1-or$taskProfileMatches.Count-ne1){throw 'TASK_BINDING_FIELDS'}
+    if([string]$taskProfileMatches[0].Groups['profile'].Value-cne[string]$package.profile){throw 'TASK_PROFILE_DRIFT'}
+    $taskRouteActor=[string]$taskRouteMatches[0].Groups['actor'].Value
     $temporaryActionKinds=@('CONTROL_WRITE','SOURCE_WRITE','TEST_WRITE','TEST_RUN','REVIEW_EXECUTE','GIT_STAGE','GIT_COMMIT','PUSH','BROWSER_RUN','DEVICE_RUN','EXTERNAL')
-    $temporaryActionGrantee=@($package.actions).Count-eq1-and[string]$package.actions[0]-cin$temporaryActionKinds
+    $temporaryActionGrantee=@($package.actions).Count-gt0-and@($package.actions|Where-Object{[string]$_-cnotin$temporaryActionKinds}).Count-eq0
     if([string]$taskIdMatches[0].Groups['id'].Value-cne$ObservedTaskId-or[string]$taskOwnerMatches[0].Groups['owner'].Value-cne$ObservedOwner-or(-not$temporaryActionGrantee-and[string]$taskRouteMatches[0].Groups['actor'].Value-cne$ObservedActor)){throw 'TASK_BINDING_DRIFT'}
     if([string]$package.actions[0]-ceq'REVIEW_EXECUTE'-and[string]$taskRouteMatches[0].Groups['actor'].Value-ceq$ObservedActor){throw 'REVIEW_GRANTEE_NOT_TEMPORARY'}
 } catch { Add-Reason $reasons ([string]$_.Exception.Message) }
@@ -354,6 +366,8 @@ if ([int]$package.schemaVersion -eq 2) {
 
 $allowedActions = @('CONTROL_WRITE','SOURCE_WRITE','TEST_WRITE','TEST_RUN','BROWSER_RUN','DEVICE_RUN','REVIEW_ROUTE','REVIEW_EXECUTE','OWNER_ACCEPT','GIT_STAGE','GIT_COMMIT','PUSH','EXTERNAL')
 $actions = @($package.actions)
+$hasContinuationPlan=$null-ne$package.PSObject.Properties['continuationPlan']
+$continuationPlan=@()
 if ('OWNER_ACCEPT' -cin $actions -and [string]$package.grantee -cne [string]$package.owner) {
     Add-Reason $reasons 'OWNER_ACCEPT_REQUIRES_CURRENT_TASK_OWNER'
 }
@@ -370,6 +384,16 @@ foreach ($action in $observedActions) {
 }
 if ($observedActions.Count -ne @($observedActions | Select-Object -Unique).Count) { Add-Reason $reasons 'OBSERVED_ACTION_DUPLICATE' }
 if ($actions.Count -ne @($actions | Select-Object -Unique).Count) { Add-Reason $reasons 'ACTION_DUPLICATE' }
+if($hasContinuationPlan){
+    $continuationPlan=@($package.continuationPlan)
+    $continuableActions=@('CONTROL_WRITE','SOURCE_WRITE','TEST_WRITE','TEST_RUN')
+    if([int]$package.schemaVersion-eq3-or$continuationPlan.Count-lt2-or$continuationPlan.Count-gt16){Add-Reason $reasons 'CONTINUATION_PLAN_SHAPE'}
+    foreach($action in $continuationPlan){
+        if(-not($action-is[string])-or[string]$action-cnotin$continuableActions-or[string]$action-cnotin$actions){Add-Reason $reasons 'CONTINUATION_PLAN_ACTION'}
+    }
+    $planActions=@($continuationPlan|Select-Object -Unique)
+    if($planActions.Count-ne$actions.Count-or@($actions|Where-Object{$_-cnotin$planActions}).Count-ne0){Add-Reason $reasons 'CONTINUATION_PLAN_ACTION_SET'}
+}
 if ([int]$package.schemaVersion -eq 3) {
     if ([string]$package.bundle -cne 'ACTOR_BOUND_PROJECT_UPGRADE' -or $actions.Count -ne 1 -or [string]$actions[0] -cne 'CONTROL_WRITE') { Add-Reason $reasons 'SCHEMA3_UPGRADE_BUNDLE_ACTION' }
     if ([string]$package.issuerRole -cne 'PROJECT_CONTROLLER' -or [string]$package.profile -cne 'CRITICAL' -or [string]$package.decisionClass -cne 'MAJOR_ARCHITECTURE') { Add-Reason $reasons 'SCHEMA3_UPGRADE_AUTHORITY_PROFILE' }
@@ -529,6 +553,7 @@ $requiredInvalidators = @('TASK_CHANGE','OWNER_CHANGE','GRANTEE_CHANGE','ACTION_
 if ([string]$package.issuerRole -ceq 'PROJECT_CONTROLLER') { $requiredInvalidators += 'CONTROLLER_EPOCH_CHANGE' }
 if ([int]$package.schemaVersion -eq 2) { $requiredInvalidators += 'REPOSITORY_CHANGE' }
 if ([int]$package.schemaVersion -eq 3) { $requiredInvalidators += 'POST_OBJECT_DRIFT' }
+if ($hasContinuationPlan) { $requiredInvalidators += 'CONTINUATION_RESULT_DRIFT' }
 if ($criticalReviewPackage) { $requiredInvalidators += 'CONTRIBUTOR_SET_CHANGE' }
 $invalidators = @($package.invalidatesOn)
 foreach ($item in $invalidators) {
@@ -544,6 +569,7 @@ foreach ($path in @($package.exactPaths)) {
     try { $normalized = Normalize-RelativePath ([string]$path) } catch { Add-Reason $reasons 'EXACT_PATH_INVALID'; continue }
     if (-not $exact.Add($normalized)) { Add-Reason $reasons 'EXACT_PATH_DUPLICATE' }
 }
+if($hasContinuationPlan-and$exact.Count-eq0){Add-Reason $reasons 'CONTINUATION_EXACT_SCOPE_REQUIRED'}
 
 $identityMap = New-Object 'System.Collections.Generic.Dictionary[string,string]' ([System.StringComparer]::OrdinalIgnoreCase)
 foreach ($entry in @($package.objectIdentities)) {
@@ -566,6 +592,61 @@ foreach ($path in $exact) {
 }
 foreach ($path in $identityMap.Keys) {
     if (-not $exact.Contains($path)) { Add-Reason $reasons 'IDENTITY_OUTSIDE_EXACT' }
+}
+
+$continuationExpectedIdentityMap = New-Object 'System.Collections.Generic.Dictionary[string,string]' ([System.StringComparer]::OrdinalIgnoreCase)
+foreach($path in $identityMap.Keys){$continuationExpectedIdentityMap[$path]=[string]$identityMap[$path]}
+$hasContinuationPath=-not[string]::IsNullOrWhiteSpace($ContinuationReceiptPath)
+$hasContinuationIdentity=-not[string]::IsNullOrWhiteSpace($ExpectedContinuationReceiptIdentity)
+$continuationReceipt=$null
+if($hasContinuationPath-ne$hasContinuationIdentity){Add-Reason $reasons 'CONTINUATION_RECEIPT_BINDING_INCOMPLETE'}
+elseif($hasContinuationPath){
+    try{
+        if(-not$hasContinuationPlan){throw 'CONTINUATION_PLAN_REQUIRED'}
+        if($ExpectedContinuationReceiptIdentity-cnotmatch'^\d+\|[A-F0-9]{64}$'){throw 'CONTINUATION_RECEIPT_IDENTITY_FORMAT'}
+        if(-not(Test-Path -LiteralPath $ContinuationReceiptPath -PathType Leaf)){throw 'CONTINUATION_RECEIPT_MISSING'}
+        if(((Get-Item -LiteralPath $ContinuationReceiptPath -Force).Attributes-band[IO.FileAttributes]::ReparsePoint)-ne0){throw 'CONTINUATION_RECEIPT_REPARSE'}
+        if((Get-FileIdentity $ContinuationReceiptPath)-cne$ExpectedContinuationReceiptIdentity){throw 'CONTINUATION_RECEIPT_DRIFT'}
+        $continuationText=Read-StrictUtf8 $ContinuationReceiptPath
+        Assert-StrictJsonMembers $continuationText
+        try{$continuationReceipt=$continuationText|ConvertFrom-Json}catch{throw 'CONTINUATION_RECEIPT_JSON'}
+        $continuationFields=@('schemaVersion','receiptType','status','evidenceGrade','authorityGranted','packageIdentity','taskIdentity','taskId','taskOwner','taskActor','actor','repositoryId','projectConfigIdentity','controllerIdentity','userDecision','protectionState','forbiddenScope','protectedScope','sourceDiscoverReceiptPath','sourceDiscoverReceiptIdentity','sourceSelectionIdentity','sourceContextIdentity','completedStepIndex','completedAction','nextStepIndex','nextAction','exactPaths','postObjectIdentities')
+        $continuationNames=@($continuationReceipt.PSObject.Properties.Name)
+        if(-not($continuationReceipt-is[pscustomobject])-or$continuationNames.Count-ne$continuationFields.Count-or@($continuationFields|Where-Object{$_-cnotin$continuationNames}).Count-ne0){throw 'CONTINUATION_RECEIPT_FIELDS'}
+        foreach($name in @('receiptType','status','evidenceGrade','packageIdentity','taskIdentity','taskId','taskOwner','taskActor','actor','repositoryId','projectConfigIdentity','controllerIdentity','userDecision','protectionState','sourceDiscoverReceiptPath','sourceDiscoverReceiptIdentity','sourceSelectionIdentity','sourceContextIdentity','completedAction','nextAction')){if(-not($continuationReceipt.$name-is[string])-or[string]::IsNullOrWhiteSpace([string]$continuationReceipt.$name)){throw ('CONTINUATION_RECEIPT_TYPE|'+$name)}}
+        if(-not(Test-JsonInteger $continuationReceipt.schemaVersion)-or[int]$continuationReceipt.schemaVersion-ne1-or-not($continuationReceipt.authorityGranted-is[bool])-or[bool]$continuationReceipt.authorityGranted-or[string]$continuationReceipt.receiptType-cne'AUTHORIZED_ACTION_CONTINUATION'-or[string]$continuationReceipt.status-cne'PASS'-or[string]$continuationReceipt.evidenceGrade-cne'INSTRUCTION_BOUND'){throw 'CONTINUATION_RECEIPT_TYPE'}
+        if(-not(Test-JsonInteger $continuationReceipt.completedStepIndex)-or-not(Test-JsonInteger $continuationReceipt.nextStepIndex)){throw 'CONTINUATION_RECEIPT_STEP_TYPE'}
+        $completedStep=[int]$continuationReceipt.completedStepIndex;$nextStep=[int]$continuationReceipt.nextStepIndex
+        if($completedStep-lt0-or$nextStep-ne($completedStep+1)-or$nextStep-ge$continuationPlan.Count-or[string]$continuationReceipt.completedAction-cne[string]$continuationPlan[$completedStep]-or[string]$continuationReceipt.nextAction-cne[string]$continuationPlan[$nextStep]){throw 'CONTINUATION_RECEIPT_STEP_DRIFT'}
+        $packageIdentity=Get-FileIdentity $PackagePath
+        $repositoryBinding=if([int]$package.schemaVersion-eq2){[string]$package.repositoryId}else{'REPO_LOCAL'}
+        $currentControllerIdentity=if(-not[string]::IsNullOrWhiteSpace($ControllerControlPath)-and(Test-Path -LiteralPath $ControllerControlPath -PathType Leaf)){Get-FileIdentity $ControllerControlPath}else{'MISSING'}
+        if([string]$continuationReceipt.packageIdentity-cne$packageIdentity-or[string]$continuationReceipt.taskIdentity-cne[string]$package.taskIdentity-or[string]$continuationReceipt.taskIdentity-cne[string]$actualTaskIdentity-or[string]$continuationReceipt.taskId-cne$ObservedTaskId-or[string]$continuationReceipt.taskOwner-cne$ObservedOwner-or[string]$continuationReceipt.taskActor-cne[string]$taskRouteActor-or[string]$continuationReceipt.actor-cne$ObservedActor-or[string]$continuationReceipt.repositoryId-cne$repositoryBinding-or[string]$continuationReceipt.projectConfigIdentity-cne[string]$package.projectConfigIdentity-or[string]$continuationReceipt.controllerIdentity-cne$currentControllerIdentity-or[string]$continuationReceipt.userDecision-cne[string]$package.userConfirmation){throw 'CONTINUATION_RECEIPT_AUTHORITY_DRIFT'}
+        if([string]$continuationReceipt.protectionState-cnotin@('BOUND','NOT_APPLICABLE')){throw 'CONTINUATION_RECEIPT_PROTECTION'}
+        foreach($scopeName in @('forbiddenScope','protectedScope')){if(-not($continuationReceipt.$scopeName-is[Array])){throw ('CONTINUATION_RECEIPT_SCOPE_TYPE|'+$scopeName)};foreach($scopePath in @($continuationReceipt.$scopeName)){if(-not($scopePath-is[string])){throw ('CONTINUATION_RECEIPT_SCOPE_TYPE|'+$scopeName)};$normalizedScope=([string]$scopePath).TrimEnd('/');$null=Normalize-RelativePath $normalizedScope}}
+        foreach($identityName in @('packageIdentity','taskIdentity','projectConfigIdentity','sourceDiscoverReceiptIdentity')){if([string]$continuationReceipt.$identityName-cnotmatch'^\d+\|[A-F0-9]{64}$'){throw ('CONTINUATION_RECEIPT_IDENTITY_FORMAT|'+$identityName)}}
+        foreach($hashName in @('sourceSelectionIdentity','sourceContextIdentity')){if([string]$continuationReceipt.$hashName-cnotmatch'^[A-F0-9]{64}$'){throw ('CONTINUATION_RECEIPT_IDENTITY_FORMAT|'+$hashName)}}
+        $sourceReceiptPath=[string]$continuationReceipt.sourceDiscoverReceiptPath
+        if(-not[IO.Path]::IsPathRooted($sourceReceiptPath)-or-not(Test-Path -LiteralPath $sourceReceiptPath -PathType Leaf)-or((Get-Item -LiteralPath $sourceReceiptPath -Force).Attributes-band[IO.FileAttributes]::ReparsePoint)-ne0-or(Get-FileIdentity $sourceReceiptPath)-cne[string]$continuationReceipt.sourceDiscoverReceiptIdentity){throw 'CONTINUATION_SOURCE_RECEIPT_DRIFT'}
+        $sourceReceiptText=Read-StrictUtf8 $sourceReceiptPath;Assert-StrictJsonMembers $sourceReceiptText;try{$sourceReceipt=$sourceReceiptText|ConvertFrom-Json}catch{throw 'CONTINUATION_SOURCE_RECEIPT_JSON'}
+        if(-not(Test-JsonInteger $sourceReceipt.schemaVersion)-or[int]$sourceReceipt.schemaVersion-notin@(1,2)-or[string]$sourceReceipt.receiptType-cne'PROCESS_REQUIREMENTS_DISCOVER'-or[string]$sourceReceipt.mode-cne'DISCOVER'-or[string]$sourceReceipt.selectionIdentity-cne[string]$continuationReceipt.sourceSelectionIdentity-or[string]$sourceReceipt.contextIdentity-cne[string]$continuationReceipt.sourceContextIdentity){throw 'CONTINUATION_SOURCE_RECEIPT_LINK_DRIFT'}
+        $sourceAuthority=if([int]$sourceReceipt.schemaVersion-eq1){$sourceReceipt.authorityContext}else{$sourceReceipt.binding}
+        $sourceAction=if([int]$sourceReceipt.schemaVersion-eq1){[string]$sourceReceipt.actionKind}else{[string]$sourceReceipt.intentEnvelope.requestedActionKind}
+        if($sourceAction-cne[string]$continuationReceipt.completedAction){throw 'CONTINUATION_SOURCE_ACTION_DRIFT'}
+        if($null-eq$sourceAuthority.PSObject.Properties['continuationStepIndex']-or-not(Test-JsonInteger $sourceAuthority.continuationStepIndex)-or[int]$sourceAuthority.continuationStepIndex-ne$completedStep){throw 'CONTINUATION_SOURCE_STEP_DRIFT'}
+        if([string]$sourceAuthority.authorizationIdentity-cne$packageIdentity-or[string]$sourceAuthority.taskIdentity-cne[string]$continuationReceipt.taskIdentity-or[string]$sourceAuthority.taskActor-cne[string]$continuationReceipt.taskActor-or[string]$sourceAuthority.actor-cne[string]$continuationReceipt.actor-or[string]::Join("`n",@($sourceAuthority.forbiddenScope))-cne[string]::Join("`n",@($continuationReceipt.forbiddenScope))-or[string]::Join("`n",@($sourceAuthority.protectedScope))-cne[string]::Join("`n",@($continuationReceipt.protectedScope))){throw 'CONTINUATION_SOURCE_RECEIPT_AUTHORITY_DRIFT'}
+        if(-not($continuationReceipt.exactPaths-is[Array])-or[string]::Join("`n",@($continuationReceipt.exactPaths))-cne[string]::Join("`n",@($package.exactPaths))){throw 'CONTINUATION_RECEIPT_SCOPE_DRIFT'}
+        if(-not($continuationReceipt.postObjectIdentities-is[Array])){throw 'CONTINUATION_RECEIPT_POSTIMAGES'}
+        $postMap=New-Object 'System.Collections.Generic.Dictionary[string,string]' ([System.StringComparer]::OrdinalIgnoreCase)
+        foreach($entry in @($continuationReceipt.postObjectIdentities)){
+            if(-not($entry-is[pscustomobject])-or@($entry.PSObject.Properties.Name).Count-ne2-or$null-eq$entry.PSObject.Properties['path']-or$null-eq$entry.PSObject.Properties['identity']-or-not($entry.path-is[string])-or-not($entry.identity-is[string])){throw 'CONTINUATION_RECEIPT_POSTIMAGE_FIELDS'}
+            $path=Normalize-RelativePath ([string]$entry.path);$identity=[string]$entry.identity
+            if(-not$exact.Contains($path)-or$postMap.ContainsKey($path)-or($identity-cne'NEW'-and$identity-cnotmatch'^\d+\|[A-F0-9]{64}$')){throw 'CONTINUATION_RECEIPT_POSTIMAGE_VALUES'}
+            $postMap[$path]=$identity
+        }
+        if($postMap.Count-ne$exact.Count){throw 'CONTINUATION_RECEIPT_POSTIMAGE_SET'}
+        foreach($path in $exact){if(-not$postMap.ContainsKey($path)){throw 'CONTINUATION_RECEIPT_POSTIMAGE_SET'};$continuationExpectedIdentityMap[$path]=[string]$postMap[$path]}
+    }catch{Add-Reason $reasons ([string]$_.Exception.Message)}
 }
 
 if ([int]$package.schemaVersion -eq 3) {
@@ -613,13 +694,21 @@ foreach ($pair in $ObservedIdentity) {
     $observedIdentityMap[$path] = $identity
 }
 
+if($hasContinuationPlan){
+    if($hasContinuationPath-and$observedActions.Count-ne1){Add-Reason $reasons 'CONTINUATION_SINGLE_ACTION_REQUIRED'}
+    elseif($observedActions.Count-eq1){
+        $expectedAction=if($hasContinuationPath-and$null-ne$continuationReceipt){[string]$continuationReceipt.nextAction}else{[string]$continuationPlan[0]}
+        if([string]$observedActions[0]-cne$expectedAction){Add-Reason $reasons 'CONTINUATION_ACTION_ORDER_DRIFT'}
+    }
+}
+
 $observedPaths = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
 foreach ($pathValue in $ObservedPath) {
     try { $path = Normalize-RelativePath $pathValue } catch { Add-Reason $reasons 'OBSERVED_PATH_INVALID'; continue }
     if (-not $observedPaths.Add($path)) { Add-Reason $reasons 'OBSERVED_PATH_DUPLICATE'; continue }
     if (-not $exact.Contains($path)) { Add-Reason $reasons 'OBSERVED_PATH_OUTSIDE_EXACT'; continue }
     if (-not $identityMap.ContainsKey($path)) { Add-Reason $reasons 'OBSERVED_PATH_WITHOUT_IDENTITY'; continue }
-    $expectedIdentity = [string]$identityMap[$path]
+    $expectedIdentity = [string]$continuationExpectedIdentityMap[$path]
     if (-not $observedIdentityMap.ContainsKey($path)) { Add-Reason $reasons 'OBSERVED_IDENTITY_MISSING'; continue }
     $observedIdentity = [string]$observedIdentityMap[$path]
     if ($expectedIdentity -ceq 'NEW') {
@@ -628,6 +717,7 @@ foreach ($pathValue in $ObservedPath) {
         Add-Reason $reasons 'OBJECT_DRIFT'
     }
 }
+if($hasContinuationPlan-and$observedPaths.Count-ne$exact.Count){Add-Reason $reasons 'CONTINUATION_EXACT_SCOPE_REQUIRED'}
 
 if ($reasons.Count -gt 0) {
     Write-Output ('FAIL|' + ($reasons -join ','))

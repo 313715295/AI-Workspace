@@ -1,49 +1,28 @@
-# {{DISPLAY_NAME}} — 稳定项目资料
+# {{DISPLAY_NAME}} — 项目资料入口
 
-这里只记录跨阶段稳定的项目身份、边界和权威地图。current进入`STATUS.md`和热任务卡，过程历史进入Git或只读carrier。
+本文件只保存少量稳定项目事实和用户已经指定的权威资料入口，不复制产品、架构、质量或流程标准正文。AI 按当前任务读取必要来源；未确认的事实保持未记录，不用大量占位项要求用户填写。
 
-## 1. 项目身份
+## 基本身份
 
-- 项目ID：`{{PROJECT_ID}}`
-- 项目Git根：`.ai-workspace/project.json.repositoryRoot = ..`
-- 控制面布局：`repo-local`；本目录随项目Git跟踪
-- 固定Framework：`{{FRAMEWORK_VERSION}}`
-- 产品目标：`UNVERIFIED`
-- 目标用户与平台：`UNVERIFIED`
+- Project ID：`{{PROJECT_ID}}`
+- Project Git root：`.ai-workspace/project.json.repositoryRoot = ..`
+- Control plane：`repo-local`
+- Pinned Framework：`{{FRAMEWORK_VERSION}}`
 
-## 2. 稳定产品与架构边界
+## 用户指定的现有资料
 
-- 产品原则与明确非目标：`UNVERIFIED`
-- 主要运行环境、技术栈与分层：`UNVERIFIED`
-- 状态、数据、生命周期与公共接口owner：`UNVERIFIED`
-- 日常默认排除路径：read `.ai-workspace/project.json`；用户独占或任务禁止的额外路径：`UNVERIFIED`
+用户或项目 Owner 可在这里记录已经确认用途的入口，例如产品说明、架构决策、测试指南或发布手册。资料可以位于项目内，也可以位于本机其他目录或独立仓库 checkout；路径和组织方式由使用者决定。
 
-## 3. 项目权威入口
+| 用途 | 来源入口 | 适用范围或备注 |
+|---|---|---|
 
-- 产品/设计权威：`UNVERIFIED`
-- 架构、规则、接口与数据权威：`UNVERIFIED`
-- 测试、构建、运行与发布权威：`UNVERIFIED`
+普通资料入口只用于定位事实，不自动成为规范规则，也不从其中的普通链接递归加载其他文档。需要作为永久流程规则的标准，由 AI 按用户选择写入 `.ai-workspace/process-policy.json` 的显式来源绑定；用户不必手写机器 JSON。
 
-机制细节服从对应current权威和已验证实现；聊天、模板、报告和历史摘要只作定位。无法消解的公共或跨域冲突交项目主控。
+## 控制与动态状态
 
-## 4. 验证入口
+- Controller、Framework pin、routine exclusions 与 optional capabilities：读取 `.ai-workspace/project.json` 和 `.ai-workspace/controller.json`。
+- 永久项目规则：读取 `.ai-workspace/process-policy.json`；项目纠正：读取 `.ai-workspace/corrections.json`。
+- Current 状态与任务：读取 `STATUS.md`、`tasks/README.md` 和 current task card。
+- 项目特有 Review 加严：读取 `REVIEW_PROFILE.md`；不存在的 `RELATIONSHIPS.md` 不构成缺项。
 
-- 静态与文档检查：`UNVERIFIED`
-- 单元/集成/场景测试：`UNVERIFIED`
-- 构建、运行、视觉、性能或设备门：`UNVERIFIED`
-
-## 5. Git、external与资源
-
-- 本地Git、commit与push权限：`UNVERIFIED`
-- 下载、安装、登录、上传、发布等external权限：`UNVERIFIED`
-- 长期领域、owner与实际资源映射：`UNVERIFIED`
-- 质量资源映射：owner/重大判断、聚焦高质量分析/Review、常规实现、纯机械工作的项目对应：`UNVERIFIED`
-- `MICRO / STANDARD / CRITICAL`项目特有加严：`UNVERIFIED`；不加严时采用固定Framework
-
-未确认权限不得从建议、工具可用性或前一步动作推定。资源下调必须以自然样本证明质量和返工不恶化。
-
-## 6. Project corrections
-
-- 独立项目权威对象：`.ai-workspace/corrections.json`。
-- 任务可以发现或更新correction，但任务生命周期和聊天历史不控制其保留。
-- 运行时只在released coverage把correction ID、native requirement ID、sealed native catalog identity与canonical source-record identity全部精确绑定时抑制对应correction；未知、歧义或源记录漂移一律保留，不在本文件复制第二份状态。
+聊天、模板、导航摘要和历史报告只作 locator。写入、测试、Review、`OWNER_ACCEPT`、Git 与外部操作仍分别授权。

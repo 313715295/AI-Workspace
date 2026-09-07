@@ -202,7 +202,7 @@ function Assert-TargetFrameworkCapabilities($Capabilities,[string]$Raw,$Contract
 function New-TemplateMap([string]$Version) {
     $map=[ordered]@{
         '.gitattributes'='.gitattributes'; 'project.json'='project.json'; 'BOOTSTRAP.md'='BOOTSTRAP.md';
-        'PROJECT.md'='PROJECT.md'; 'REVIEW_PROFILE.md'='REVIEW_PROFILE.md'; 'RELATIONSHIPS.md'='RELATIONSHIPS.md';
+        'PROJECT.md'='PROJECT.md'; 'REVIEW_PROFILE.md'='REVIEW_PROFILE.md';
         'STATUS.md'='STATUS.md'; 'tasks/README.md'='tasks/README.md'
     }
     if(-not(Test-AdoptionProfileVersion $Version)){throw 'ADOPTION_PROFILE_VERSION_UNBOUND'}
@@ -331,6 +331,42 @@ function Remove-AiwRolledBackRegistrationState {
             }
         }
     }
+}
+
+function Test-AiwRolledBackRegistrationStateOnly {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepositoryRoot,
+        [Parameter(Mandatory = $true)][string]$TransactionRelativePath
+    )
+
+    $controlRoot = Get-AiwContainedPath $RepositoryRoot '.ai-workspace'
+    if (-not (Test-Path -LiteralPath $controlRoot -PathType Container)) {
+        return $false
+    }
+    Assert-NoReparsePoint $controlRoot
+    $expectedFile = $TransactionRelativePath.Substring('.ai-workspace/'.Length)
+    $expectedDirectories = @(
+        'runtime',
+        'runtime/project-adoption',
+        'runtime/project-adoption/register'
+    )
+    $actualFiles = [Collections.Generic.List[string]]::new()
+    $actualDirectories = [Collections.Generic.List[string]]::new()
+    foreach ($item in @(Get-ChildItem -LiteralPath $controlRoot -Recurse -Force)) {
+        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw ('REGISTRATION_ROLLBACK_STATE_REPARSE|' + $item.FullName)
+        }
+        $relative = $item.FullName.Substring($controlRoot.Length + 1).Replace('\', '/')
+        if ($item.PSIsContainer) {
+            $actualDirectories.Add($relative)
+        }
+        else {
+            $actualFiles.Add($relative)
+        }
+    }
+    $fileDifference = @(Compare-Object -ReferenceObject @($expectedFile) -DifferenceObject @($actualFiles) -CaseSensitive)
+    $directoryDifference = @(Compare-Object -ReferenceObject $expectedDirectories -DifferenceObject @($actualDirectories) -CaseSensitive)
+    return $fileDifference.Count -eq 0 -and $directoryDifference.Count -eq 0
 }
 
 function Test-AiwRegistrationProjection {
@@ -692,26 +728,23 @@ function Assert-RepoLocalProject {
     $expectedProcessCarrierVersion = Get-ProcessCarrierContractVersion $ExpectedFrameworkVersion
     $profileTarget=Test-AdoptionProfileVersion $ExpectedFrameworkVersion
 
-    Assert-NoReparseTree $ControlRoot
-    $actualFiles = @(Get-ChildItem -LiteralPath $ControlRoot -Recurse -File -Force | ForEach-Object {
-        $_.FullName.Substring($ControlRoot.Length + 1).Replace('\', '/')
-    })
-    $actualDirectories = @(Get-ChildItem -LiteralPath $ControlRoot -Recurse -Directory -Force | ForEach-Object {
-        $_.FullName.Substring($ControlRoot.Length + 1).Replace('\', '/')
-    })
-    if ($profileTarget) {
-        # Runtime receipts and resumable transaction state are project-local but
-        # deliberately outside the durable managed inventory.
-        $actualFiles = @($actualFiles | Where-Object { [string]$_ -cnotlike 'runtime/*' })
-        $actualDirectories = @($actualDirectories | Where-Object { [string]$_ -cne 'runtime' -and [string]$_ -cnotlike 'runtime/*' })
-    }
-    $fileDifference = @(Compare-Object -ReferenceObject @($RequiredFiles) -DifferenceObject $actualFiles -CaseSensitive)
-    $directoryDifference = @(Compare-Object -ReferenceObject @($RequiredDirectories) -DifferenceObject $actualDirectories -CaseSensitive)
-    if ($fileDifference.Count -ne 0 -or $directoryDifference.Count -ne 0) {
-        throw "Existing .ai-workspace inventory conflicts with a complete registration; refusing to merge, overwrite, or treat unknown live bytes as registered: $ControlRoot"
+    Assert-NoReparsePoint $ControlRoot
+    foreach ($relativeDirectory in $RequiredDirectories) {
+        $directoryPath = Join-ChildPath $ControlRoot $relativeDirectory
+        $directoryItem = Get-Item -LiteralPath $directoryPath -Force -ErrorAction SilentlyContinue
+        if ($null -eq $directoryItem -or -not $directoryItem.PSIsContainer) {
+            throw "Existing .ai-workspace is missing a required managed directory or has a type conflict: $directoryPath"
+        }
+        Assert-NoReparsePoint $directoryPath
     }
     foreach ($relativeFile in $RequiredFiles) {
-        $null = Read-StrictUtf8Template (Join-ChildPath $ControlRoot $relativeFile)
+        $filePath = Join-ChildPath $ControlRoot $relativeFile
+        $fileItem = Get-Item -LiteralPath $filePath -Force -ErrorAction SilentlyContinue
+        if ($null -eq $fileItem -or $fileItem.PSIsContainer) {
+            throw "Existing .ai-workspace is missing a required managed file or has a type conflict: $filePath"
+        }
+        Assert-NoReparsePoint $filePath
+        $null = Read-StrictUtf8Template $filePath
     }
     $projectFile = Join-Path $ControlRoot 'project.json'
     $bootstrapFile = Join-Path $ControlRoot 'BOOTSTRAP.md'
@@ -849,13 +882,16 @@ $requiredProjectDirectories = @('tasks', 'tasks/active', 'tasks/archive')
 $projectRoot = Join-Path $repo '.ai-workspace'
 $projectAdoptionTransactionRelative='.ai-workspace/runtime/project-adoption/register/state.json'
 $projectAdoptionTransactionPath=Get-AiwContainedPath $repo $projectAdoptionTransactionRelative
+$completedRollbackStatePendingCleanup=$false
+$completedRollbackStateOnly=$false
 if((Test-AdoptionProfileVersion $FrameworkVersion)-and(Test-Path -LiteralPath $projectAdoptionTransactionPath -PathType Leaf)){
     $transactionRecord=Read-AiwProjectJson $projectAdoptionTransactionPath 'REGISTRATION_TRANSACTION_STATE'
     $transactionState=$transactionRecord.Value
     if($transactionState.schemaVersion-ne1-or$transactionState.transactionComplete-isnot[bool]){throw 'REGISTRATION_TRANSACTION_STATE_SCHEMA'}
     if([bool]$transactionState.transactionComplete){
         if([string]$transactionState.state-ceq'ROLLED_BACK'){
-            Remove-AiwRolledBackRegistrationState $repo $projectAdoptionTransactionRelative
+            $completedRollbackStatePendingCleanup=$true
+            $completedRollbackStateOnly=Test-AiwRolledBackRegistrationStateOnly $repo $projectAdoptionTransactionRelative
         }elseif([string]$transactionState.state-cne'COMPLETE'-or-not(Test-Path -LiteralPath (Join-Path $projectRoot 'project.json') -PathType Leaf)){
             throw 'REGISTRATION_TRANSACTION_COMPLETE_STATE_INVALID'
         }
@@ -867,11 +903,11 @@ if((Test-AdoptionProfileVersion $FrameworkVersion)-and(Test-Path -LiteralPath $p
         Remove-AiwRolledBackRegistrationState $repo $projectAdoptionTransactionRelative
     }
 }
-if (Test-Path -LiteralPath $projectRoot) {
+if ((Test-Path -LiteralPath $projectRoot) -and -not $completedRollbackStateOnly) {
     if (-not (Test-Path -LiteralPath $projectRoot -PathType Container)) {
         throw "Project control-plane target exists but is not a directory: $projectRoot"
     }
-    Assert-NoReparseTree $projectRoot
+    Assert-NoReparsePoint $projectRoot
     $existingProjectFile = Join-Path $projectRoot 'project.json'
     if (-not (Test-Path -LiteralPath $existingProjectFile -PathType Leaf)) {
         throw "Existing .ai-workspace is partial; refusing to merge or overwrite: $projectRoot"
@@ -897,7 +933,9 @@ if (Test-Path -LiteralPath $projectRoot) {
     $existingTemplateRoot=if($ControlPlaneLayout-ceq'framework-maintenance-sibling'){[string]$maintenanceOverlay.Root}else{$existingStarter.TemplateRoot}
     $existingBootstrapTemplate=Read-StrictUtf8Template (Join-ChildPath $existingTemplateRoot 'BOOTSTRAP.md')
     Assert-RepoLocalProject $projectRoot $ProjectId $DisplayName $FrameworkVersion $requiredProjectFiles $requiredProjectDirectories $existingBootstrapTemplate $workspace $ControllerId $ControlPlaneLayout $FrameworkTargetRepositoryId $FrameworkTargetSiblingDirectory $FrameworkTargetRoutineExcludedPath
-    $null=Get-FrameworkAgentsProjection $repo $existingTemplateRoot $FrameworkVersion
+    $existingAgentsProjection=Get-FrameworkAgentsProjection $repo $existingTemplateRoot $FrameworkVersion
+    if([string]$existingAgentsProjection.OldAgentsIdentity-ceq'MISSING'-or(Read-StrictUtf8Template ([string]$existingAgentsProjection.AgentsPath))-cne[string]$existingAgentsProjection.TargetAgents){throw 'EXISTING_REGISTRATION_PROJECTION_DRIFT|AGENTS.md'}
+    if($null-eq$existingAgentsProjection.GitIgnore-or[bool]$existingAgentsProjection.GitIgnore.Changed){throw 'EXISTING_REGISTRATION_PROJECTION_DRIFT|.gitignore'}
     [pscustomobject]@{
         status = 'ALREADY_REGISTERED'
         projectRoot = $projectRoot
@@ -941,6 +979,7 @@ if (Test-AdoptionProfileVersion $FrameworkVersion) {
         [string[]]$changedPaths=@($diff|Where-Object{[string]$_.change-cne'UNCHANGED'}|ForEach-Object{[string]$_.path})
         [Array]::Sort($changedPaths,[StringComparer]::Ordinal)
         Write-Output ('PROJECT_ADOPTION_PREVIEW|operation=REGISTER|frameworkPin='+$FrameworkVersion+'|projectFormat=repo-local/project-config-'+[string]$script:ActiveAdoptionProfile.projectControl.schemaVersion+'|rootToolRevision='+[string]$toolRevision.revision+'|transaction='+$projectAdoptionTransactionRelative+'|changes='+$changedPaths.Count)
+        if($completedRollbackStatePendingCleanup){Write-Output ('PROJECT_ADOPTION_RECOVERY_PREVIEW|state=ROLLED_BACK|transaction='+$projectAdoptionTransactionRelative+'|cleanup=APPLY_ONLY|writes=ZERO')}
         Write-Output ('PROJECT_ADOPTION_WRITESET|'+[string]::Join('|',$changedPaths))
         [pscustomobject]@{
             status = 'WHAT_IF'
@@ -955,6 +994,8 @@ if (Test-AdoptionProfileVersion $FrameworkVersion) {
         }
         return
     }
+
+    if($completedRollbackStatePendingCleanup){Remove-AiwRolledBackRegistrationState $repo $projectAdoptionTransactionRelative}
 
     $preflight = {
         param($root, $candidate)

@@ -1,27 +1,15 @@
 # Task 与 scope contract
 
 <!-- AIW-REQUIREMENT:PR_TASK_LAUNCH_AND_ROUTE:BEGIN -->
-## Launch closure
+Recovery只读。signed implementation package绑定task/Owner/actor、Controller epoch、action、path/object、user decision、repository/config即闭合launch；无第二次START；否则RECOVERY_READY/writer=NONE。
 
-Recovery 是 read-only。有效 signed implementation package 若绑定 recovered task、owner、actor、Controller epoch、action、exact path/object set、user decision 与 repository/config identity，可以完成同一 launch closure，不需要第二次人工 `START`。
+按current authority/governance facts一次三态：REUSE=边界未变且actor合格（profile/resource rebind不授权）；MUST_NEW=边界未变但需新visible outcome|独立context/lifecycle|writer isolation|不可用same-session resource；BLOCKED=project|未授权Owner rebind|actor/authority/protection/external route|public decision变化。Framework standing create authority仅及same-scope MUST_NEW。
 
-没有该 package 时，recovery 结束于 `RECOVERY_READY`，writer 保持 `NONE`。
+每个bounded action先按quality/risk/evidence/independence/isolation/duration筛合法topology，再比较Owner、temporary context、handoff、recovery、validation、integration、rework的全成本；无清晰净收益=>DIRECT_SELF，机械重复=>既有script/tool。持续实现、独立lifecycle或正式Review=>visible APPLICATION_TASK；同turn短检查=>INTERNAL_SUBAGENT且不替requested visibility；成本不取消required independent Review。
 
-## Route decision
+抽象route：OWNER_FRONTIER=ownership/architecture/full CRITICAL Review；FOCUSED_HIGH=困难限域实现/focused Review；ROUTINE_BALANCED=常规实现/分析；MECHANICAL_LOW=script-first、直接可验的PROBATIONARY机械投影。合法topology内先选足够model，再选其支持的足够effort。Profile/route/model/effort正交，不一一绑定、无配额/固定流水线/最低档失败升级阶梯；CRITICAL不自动升档。
 
-机械评估 project identity、cwd/Git top、task-owner continuity、current actor eligibility、task lineage、resource availability、protected boundary、Git/device/external route、public decision 与 requested outcome/context：
-
-- `REUSE`：project、task outcome、current task owner、lineage 与 boundaries 相同，且 actor 合格；支持的 resource/profile rebind 不改变 authority。
-- `MUST_NEW`：project 与 governance boundary 相同，但 distinct user-visible outcome、independent context/lifecycle、writer isolation 或 unavailable same-session resource route 需要新 task/session。
-- `BLOCKED`：project、未授权 rebind 的 task owner、actor eligibility、authority、protection、Git/device/external route 或 public decision 发生变化。
-
-用户已显式授权 Framework work 时，same-scope `MUST_NEW` 携带 standing task-creation authority，但不会跨越 `BLOCKED` boundary。
-
-PROJECT_CONTROLLER 与 DOMAIN_OWNER 是长期责任；Executor、writer、tester、Reviewer、Git、browser、device 是 temporary task/phase role。Owner 可以在 current task 直接执行，也可以在需要继续讨论、并行或独立上下文时安排 bounded executor task；短时能力/成本选择则可只签发一次临时 action package，不必创建新任务或改 Work route。三种都是可选路线。仅 resource change 通常保留 recovery baseline；合格 same-session action rebind 使用 NONE/WARM recovery 加 fresh authorization package。authorization drift 不自动等于 FULL_COLD。
-
-bounded handoff 可以是 discussion owner→executor、writer↔Reviewer、Reviewer→task owner。Controller 不是强制 domain-semantics relay；只有它拥有 unique next action，或必须处理 cross-domain、public-contract、protection、Git/device/external exception 时才接收结果。
-
-fresh authorization 是 object-drift rule，不是 Controller-routing rule。在未变化 domain task 内，DOMAIN_OWNER 直接选择合格 temporary actor、签发 scoped package、把 frozen candidate 路由到 independent Reviewer 并消费 verdict。cross-domain writer 不替换 task owner。`OWNER_ACCEPT` 始终是 Owner 的 product/domain acceptance，不得伪装成 independent `REVIEW_EXECUTE`。
+标题=简短「职责｜主题」：role仅显示；长期=project/domain，临时=object；model/effort仅当主题，version/round仅消歧，默认无date/epoch/ID/status。创建即命名；职责/主题实变才host-update；接任去candidate；完成/阻塞用lifecycle/archive，非逐turn改名。存量仅正常边界按已知职责整理，不猜无关chat；普通chat留用户名。标题不授权；失败仅显示差异；无title checker/ledger/sync/approval。
 <!-- AIW-REQUIREMENT:PR_TASK_LAUNCH_AND_ROUTE:END -->
 
 <!-- AIW-REQUIREMENT:PR_WORKFLOW_TRANSITION_MECHANICAL_BOUNDARY:BEGIN -->
@@ -43,33 +31,23 @@ active card 只包含 current contract、owner/actor roles、exact boundary、st
 
 task Owner 表示责任归属，Work route actor 表示当前生产路线，action package grantee 表示一次临时 action 的执行者。纯 `REVIEW_EXECUTE` 可以让独立 Reviewer 成为 grantee，同时保持 Owner、Work route、task identity 与 candidate 不变；authority context 必须同时报告 `taskActor` 与 action `actor`。
 
-initial recovery 或 context discontinuity 时，调用 loader，再调用 `PROCESS_REQUIREMENTS_RESOLVE/DISCOVER`。task/taskActor/actionActor/role/phase/profile/capability 或 rule-source drift 重建 source composition。objective、action/result kind、exact scope、authorization 或 receipt drift 只重建 boundary decision。source facts 与 context 全部未变时复用 loaded rules；fresh package 本身既不是 full reload，也不是 FULL_COLD。
+Recovery 复用/失效只指向 `RECOVERY_CORE.md`。同一 goal/scope/quality/resource boundary 的可预测步骤组成一个可验收的 bounded batch；Executor 自主选择实现方法、工具和执行顺序，闭合 routine issue，不把 diagnosis、文件或局部修复拆成新决定。跨写/测仅由原 package 的 `continuationPlan`、上一 `FINALIZE_OUTPUT` 真实 postimage 和 current receipt 承接，不改 Owner/Work route；tool call、progress、authorized postimage、fresh package 或 compaction 不单独创建 task/handoff/`FULL_COLD`。independent Review、`OWNER_ACCEPT`、Git/publication/adoption 与 protection gate保持独立。
 
 独立 governed action 前必须立即调用 `ADMIT_ACTION`；实际 final user/consumer output 前必须调用 `FINALIZE_OUTPUT`。缺少 preparation/result evidence 时，安全则补齐，否则返回 exact blocker。`MISSING` 或 `NOT_DELIVERED` 不算完成。authorization、Review、OWNER_ACCEPT、Git、push、browser、device、external 与 protection gate 保持独立。
 
 adoption 不批量重写 legacy card。1.11/1.12 两字段 card 可带 `LEGACY_ACTOR_CONTEXT_UNBOUND` 只读恢复，但首个 substantive actor action 前必须原子绑定 schema 与 authenticated `actor/role/phase`。official upgrade tool 先在 target projection 中迁移精确 current active task 并完成 target resolver preflight，再把 target pin 和全部 non-task objects 写入可恢复 transaction，最后原子写 task；stable/schema2 随即结束，本地候选/schema4 仅按 `PROJECT_CONTROL.md` 登记原事务完成后结束，不追加其他项目工作；然后在 target pin 下停住等待 fresh FULL_COLD。actor 绝不从 owner、package、prompt 或 host label 推断。
 
-routine writer、reviewer 与 authorization change 留在 task 内。只有 stable project phase、long-lived owner、protected set 或 unique next action 变化时更新 STATUS。task index 只在 lifecycle 或 routing change 时更新。
+routine writer、reviewer 与 authorization change 留在 task 内。一个正常 bounded batch 完成且没有 in-flight lease 时，更新既有 current result/evidence locator/unique next action，不增设平行状态表。只有 stable project phase、long-lived owner、protected set 或 unique next action 变化时更新 STATUS；task index只在lifecycle或routing change时更新。
 
 mutable card 不建立 semantic-field manifest。protected 或 immutable object 继续使用 whole-object identity 严格停止；current task concurrency 由 writer lease 与 package invalidators 控制。
 <!-- AIW-REQUIREMENT:PR_TASK_SCOPE_AND_FORBIDDEN:END -->
 
 <!-- AIW-REQUIREMENT:PR_FINAL_OUTPUT_CURRENT_RESULT:BEGIN -->
-## Terminal delivery
+终态仅发一次 compact terminal：`READY`=下一 authorized phase 可开始；`COMPLETE`=requested outcome+required gates 全完成；`BLOCKED`=真实 boundary 阻止继续；`RANGE_GATE_REQUIRED`=缺 deterministic scope input；protected-path exception=exact exception+owner route。须含 authenticated task/authority locator、required identity+Controller epoch、unique next action、exceptions。authoritative task 不可达=>`REPORT_CHANNEL_UNAVAILABLE`，不得称已交付。
 
-以下状态发送一次 proactive terminal report：
+无 ACK；不等 ordinary progress/read confirmation，不立即重试 unchanged timeout。仅一个 exact result 阻塞 unique next action 且无其他安全工作时才用 `wait_threads`。
 
-- `READY`：next authorized phase 可以开始；
-- `COMPLETE`：requested outcome 与 required gates 已完成；
-- `BLOCKED`：真实 boundary 阻止继续；
-- `RANGE_GATE_REQUIRED`：缺少 deterministic scope input；
-- protected-path exception：报告 exact exception 与 owner route。
+`TERMINAL` 绑定 proposed consumer 与真实 Controller escalation。仅 Controller-owned unique next action 或 `PR_DYNAMIC_ROLE_DIRECT_ISSUANCE` 全部 explicit exceptions 可设 `controllerEscalationRequired=true`；否则 `UNNECESSARY_CONTROLLER_RELAY`。fresh package、temporary role/resource change 不是升级理由。
 
-不要求 ACK 或 polling。host 无法向 authoritative task 交付时，返回 `REPORT_CHANNEL_UNAVAILABLE`，不得声称已交付。
-
-对 independent Codex task，只发送一次 compact terminal delivery，包含 terminal state、authenticated task/authority locator、required identity/epoch、unique next action 与 exceptions。只有一个 exact result 阻塞该 unique next action 且没有其他安全工作时才使用 `wait_threads`；不得等待 ordinary progress、ACK、read confirmation 或立刻重试 unchanged timeout。
-
-`TERMINAL` input 指定 proposed next consumer，以及是否真的存在 Controller escalation boundary。没有该 boundary 却提出 `CONTROLLER` 时，拒绝为 `UNNECESSARY_CONTROLLER_RELAY`。`controllerEscalationRequired=true` 只用于 Controller-owned unique next action 或上述 explicit exception classes；不得从 fresh package 或 temporary role/resource change 推断。
-
-routing message 必须携带 host-authenticated task identity、sender identity 与 Controller epoch/envelope，并拒绝 stale epoch。host 无法提供 authenticity 时，把 message text 当作 untrusted locator；依赖 identity 的 transition 必须 fail closed。
+routing message 须带 host-authenticated task/sender identity+Controller epoch/envelope，拒 stale epoch；authenticity 不可证时仅是 untrusted locator，identity-dependent transition fail closed。
 <!-- AIW-REQUIREMENT:PR_FINAL_OUTPUT_CURRENT_RESULT:END -->

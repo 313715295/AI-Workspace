@@ -10,3 +10,5 @@
 ## Archive
 
 历史inventory只记录数量或稳定locator；逐任务历史从Git或`tasks/archive/`读取，不进入首次恢复热上下文。
+
+没有 active task 时保持空表；初始化不创建占位任务。

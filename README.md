@@ -39,6 +39,37 @@ Framework 不是产品运行时、业务代码框架或中心化项目管理平�
 
 规则正文仍由原始 Markdown 或项目真实来源持有。选择器只负责找到当前需要的规则，不复制第二份正文。自然任务、上下文或 authority 边界发生变化时重新选择；连续工作复用既有完整规则；动作和交付边界只前置紧凑义务；绑定不确定或来源漂移时重新读取。
 
+## 接入已有项目资料和标准
+
+初始化不会要求用户重写一套项目文档，也不会把所有说明都变成流程规则。`PROJECT.md` 和 `REVIEW_PROFILE.md` 只保存必要事实与已有资料入口；`RELATIONSHIPS.md` 仅在项目确有稳定关系图时按需建立。产品说明、架构文档、质量手册和历史资料继续由使用者在自己选择的位置维护。
+
+标准来源有两种定位方式：
+
+- 项目内文件：相对项目 Git 根绑定，旧 `locator` 记录继续按这种方式解释；
+- 项目外文件：使用 `locatorKind=ABSOLUTE_FILE` 绑定当前受支持宿主上的显式本机绝对路径，例如另一个标准仓库的 checkout。
+
+Framework 不规定标准目录或仓库结构。多个项目分别引用同一来源文件，就自然共享同一标准；不需要把正文迁入 Framework、复制到每个项目、建立全局注册表或运行同步服务。每个项目仍可用自己的依赖文档补充项目特例。
+
+用户不需要编辑机器 JSON。告诉初始化 AI 文档路径、用途、读取全文还是标记章节，以及直接依赖即可。例如：
+
+```text
+请把 C:\standards\team-quality.md 中
+<!-- QUALITY:BEGIN --> 到 <!-- QUALITY:END -->
+作为本项目质量规则，并把项目内 docs/exceptions.md 作为直接依赖。
+先只读核对路径、章节和文件 identity，再按当前项目授权更新现有
+.ai-workspace/process-policy.json；不要复制或修改来源文件。
+```
+
+AI 应先区分普通资料与规范性要求：普通资料只登记为导航入口，普通 Markdown 链接不会自动递归加载；规范性要求才进入 process-policy 的显式 source binding。来源读取权限不包含来源写权限，来源的路径、whole-file identity、章节或依赖变化会让旧 receipt 失效。
+
+项目可以独立选择三种处理方式：
+
+1. 直接引用原文：默认且完整可用，不要求先整理资料。
+2. 可选精炼：提取规则、条件、例外和来源，但摘要默认只作导航或参考。
+3. 可选文档改造：按项目需要拆分章节、分离规范与说明或消除重复，再重新绑定。
+
+后两项不是采用 Framework 的前置条件。只有项目明确决定让精炼稿替换规范正文时，才按现有项目规则修改与验证边界切换，并保持单一有效正文；Framework 不提供自动提炼器、全量文档改写、自动搬迁或额外强制审核链。
+
 ## 角色和交接
 
 - `PROJECT_CONTROLLER`：维护项目级控制面，处理跨域、保护边界、项目阶段、Git、设备和外部操作等上升事项。
@@ -66,6 +97,8 @@ Framework 不存在全局默认版本，也不存在全局 `CURRENT`：
 
 版本只有在 `VERSION.json` 和 `RELEASE_MANIFEST.json` 同时证明 `STABLE`、可采用、完整测试和独立 Source Review 后，才能用于普通注册或升级。
 
+仓库说明的是流程能力，不替代当前 checkout 的发行事实。每次使用前都以目标版本的 `VERSION.json`、`LOAD_MANIFEST.json`、`RELEASE_MANIFEST.json` 与 `ADOPTION_PROFILE.json` 为准；若它们仍声明 `CANDIDATE`，下面的“稳定 1.16.0”提示词只是发布后的使用示例，不能据此把当前字节当作已发布版本。`sourceCompatibility` 未声明当前项目的 Project Format/capability 时，不支持跨 pin direct upgrade；不得仅因版本目录存在或示例写了版本号就推断兼容。
+
 ## 用 AI 会话开始使用
 
 不需要用户手动运行脚本。把下面提示词交给目标项目中的 AI 会话，并替换实际路径和项目名称即可。
@@ -88,10 +121,10 @@ Framework 仓库：C:\path\to\AI-Workspace
 确认按刚才的预览接入。只执行预览中已经声明的受管对象写入；完成后从新建的 .ai-workspace/BOOTSTRAP.md 做一次完整冷恢复，并报告实际 pin、Controller、任务入口和未完成事项。不要修改产品源码，不要执行 Git、推送或外部操作。
 ```
 
-### 现有项目升级
+### 现有项目兼容升级
 
 ```text
-请从当前项目的 .ai-workspace/BOOTSTRAP.md 完整恢复，然后只读评估升级到稳定 Framework 1.16.0。
+请从当前项目的 .ai-workspace/BOOTSTRAP.md 完整恢复，然后只读评估是否能兼容升级到已发布的稳定 Framework 1.16.0。若目标 ADOPTION_PROFILE 未明确声明当前 Project Format/capability，请停止并报告不支持跨 pin direct upgrade。
 
 Framework 仓库：C:\path\to\AI-Workspace
 
@@ -138,7 +171,7 @@ AGENTS.md
   project.json
   controller.json
   PROJECT.md
-  RELATIONSHIPS.md
+  RELATIONSHIPS.md     # 可选：仅在项目确有稳定关系图时创建
   REVIEW_PROFILE.md
   STATUS.md
   corrections.json

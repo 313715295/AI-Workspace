@@ -292,12 +292,12 @@ if ($lifecycle -ceq 'ACTIVE_WRITE') {
 }
 
 $authMatches = [regex]::Matches($text, '(?ms)^```authorization-package[ \t]*\n(?<json>.*?)\n```[ \t]*$')
-if ($lifecycle -ceq 'ACTIVE_WRITE') {
-    if ($authMatches.Count -ne 1) {
-        Add-Reason $reasons 'ACTIVE_WRITE_AUTHORIZATION_COUNT'
-    } else {
-        try { $auth = $authMatches[0].Groups['json'].Value | ConvertFrom-Json } catch { $auth = $null; Add-Reason $reasons 'AUTHORIZATION_JSON' }
-        if ($null -ne $auth) {
+if ($authMatches.Count -gt 1) {
+    Add-Reason $reasons 'AUTHORIZATION_BLOCK_COUNT'
+} elseif ($authMatches.Count -eq 1) {
+    try { $auth = $authMatches[0].Groups['json'].Value | ConvertFrom-Json } catch { $auth = $null; Add-Reason $reasons 'AUTHORIZATION_JSON' }
+    if ($null -ne $auth) {
+        if ($lifecycle -ceq 'ACTIVE_WRITE') {
             $requiredAuthFields = @('schemaVersion','frameworkVersion','taskId','profile','lifecycle','owner','issuer','grantee','actions','exactPaths','objectIdentities','invalidatesOn')
             $authFieldsComplete = $true
             foreach ($field in $requiredAuthFields) {
@@ -318,12 +318,7 @@ if ($lifecycle -ceq 'ACTIVE_WRITE') {
                 }
                 if (-not (Set-Equals $expected $authPaths)) { Add-Reason $reasons 'AUTHORIZATION_EXPECTED_MISMATCH' }
             }
-        }
-    }
-} elseif ($authMatches.Count -gt 0) {
-    foreach ($match in $authMatches) {
-        try { $auth = $match.Groups['json'].Value | ConvertFrom-Json } catch { Add-Reason $reasons 'AUTHORIZATION_JSON'; continue }
-        if ($null -eq $auth -or $null -eq $auth.PSObject.Properties['lifecycle']) {
+        } elseif ($null -eq $auth.PSObject.Properties['lifecycle']) {
             Add-Reason $reasons 'AUTHORIZATION_FIELD_MISSING_lifecycle'
         } elseif ([string]$auth.lifecycle -ceq 'ACTIVE') {
             Add-Reason $reasons 'NON_WRITE_ACTIVE_AUTHORIZATION'

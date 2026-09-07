@@ -12,7 +12,10 @@ $utf8=[Text.UTF8Encoding]::new($false)
 $versionRoot=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..')))
 $fixturePath=Join-Path $PSScriptRoot 'PROCESS_REQUIREMENTS_FIXTURES.json'
 $fixtureContract=Get-Content -Raw -Encoding utf8 -LiteralPath $fixturePath|ConvertFrom-Json
-$temp=Join-Path ([IO.Path]::GetTempPath()) ('aiw-1.14-process-measure-'+[guid]::NewGuid().ToString('N'))
+$tempRoot=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath([IO.Path]::GetTempPath()))
+$tempName='aiw-1.14-process-measure-'+[guid]::NewGuid().ToString('N')
+$temp=[IO.Path]::GetFullPath((Join-Path $tempRoot $tempName))
+if([IO.Path]::GetDirectoryName($temp)-cne$tempRoot-or[IO.Path]::GetFileName($temp)-cne$tempName-or$tempName-cnotmatch'^aiw-1\.14-process-measure-[a-f0-9]{32}$'){throw 'MEASUREMENT_TEMP_SCOPE'}
 
 function Write-Utf8([string]$Path,[string]$Text){
   $parent=Split-Path -Parent $Path;if($parent-and-not(Test-Path -LiteralPath $parent)){New-Item -ItemType Directory -Path $parent -Force|Out-Null}
@@ -101,5 +104,5 @@ try{
   $output=[ordered]@{schemaVersion=1;frameworkVersion='1.16.0';host=([Environment]::OSVersion.VersionString+' / PowerShell '+$PSVersionTable.PSVersion+' / '+[Runtime.InteropServices.RuntimeInformation]::OSArchitecture+' / '+[Environment]::ProcessorCount+' logical processors');process='cold pwsh process';filesystem='warmed after fixture setup';warmups=$Warmups;measuredRuns=$MeasuredRuns;fixtures=$results}
   if($AsJson){$output|ConvertTo-Json -Depth 40}else{$output|ConvertTo-Json -Depth 40}
 }finally{
-  if(Test-Path -LiteralPath $temp){Get-ChildItem -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue|ForEach-Object{try{$_.Attributes=[IO.FileAttributes]::Normal}catch{}};Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue}
+  if(Test-Path -LiteralPath $temp){$tempItem=Get-Item -LiteralPath $temp -Force;$resolvedTemp=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($tempItem.FullName));if(-not$tempItem.PSIsContainer-or($tempItem.Attributes-band[IO.FileAttributes]::ReparsePoint)-ne0-or$resolvedTemp-cne$temp-or[IO.Path]::GetDirectoryName($resolvedTemp)-cne$tempRoot-or[IO.Path]::GetFileName($resolvedTemp)-cne$tempName-or$tempName-cnotmatch'^aiw-1\.14-process-measure-[a-f0-9]{32}$'){throw 'MEASUREMENT_TEMP_CLEANUP_SCOPE'};Get-ChildItem -LiteralPath $resolvedTemp -Recurse -Force -ErrorAction SilentlyContinue|ForEach-Object{try{$_.Attributes=[IO.FileAttributes]::Normal}catch{}};Remove-Item -LiteralPath $resolvedTemp -Recurse -Force -ErrorAction SilentlyContinue}
 }

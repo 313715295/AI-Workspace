@@ -140,6 +140,13 @@ function Resolve-LiteralFile([string]$Root,[string]$Locator) {
     return $full
 }
 
+function Test-RoutineExcludedLocator([string]$Locator,$RoutineExclusions) {
+    foreach($excluded in $RoutineExclusions){
+        if($Locator.Equals([string]$excluded,[StringComparison]::OrdinalIgnoreCase)-or$Locator.StartsWith(([string]$excluded)+'/',[StringComparison]::OrdinalIgnoreCase)){return $true}
+    }
+    return $false
+}
+
 function Read-StrictJson([string]$Path,[string]$Label) {
     $bytes=[IO.File]::ReadAllBytes($Path)
     if($bytes.Length-ge3-and$bytes[0]-eq0xEF-and$bytes[1]-eq0xBB-and$bytes[2]-eq0xBF){throw ($Label+'_BOM')}
@@ -181,6 +188,12 @@ try {
     $expectedSchemaFieldCount=if($configSchemaVersion-eq4){2}else{1};if([regex]::Matches($configRaw,'"schemaVersion"\s*:').Count-ne$expectedSchemaFieldCount){Write-KnowledgeUnavailable 'PROJECT_CONFIG_DUPLICATE_FIELD|schemaVersion'}
     if(-not($config.id-is[string])-or[string]::IsNullOrWhiteSpace([string]$config.id)-or-not($config.displayName-is[string])-or[string]::IsNullOrWhiteSpace([string]$config.displayName)-or-not($config.controlPlaneLayout-is[string])-or[string]$config.controlPlaneLayout-cne'repo-local'-or-not($config.repositoryRoot-is[string])-or[string]$config.repositoryRoot-cne'..'-or-not($config.frameworkVersion-is[string])-or[string]$config.frameworkVersion-cne'1.16.0'-or-not($config.frameworkToolBackend-is[string])-or[string]$config.frameworkToolBackend-cne'powershell7'-or-not($config.routineExcludedPaths-is[System.Array])-or-not($config.frameworkCapabilities-is[pscustomobject])){Write-KnowledgeUnavailable 'PROJECT_CONFIG_VALUES'}
     if($configSchemaVersion-eq4){$policy=$config.processPolicy;$policyFields=@($policy.PSObject.Properties|ForEach-Object{$_.Name});if(-not($policy-is[pscustomobject])-or$policyFields.Count-ne2-or$policyFields-cnotcontains'schemaVersion'-or$policyFields-cnotcontains'locator'-or-not(Test-JsonInteger $policy.schemaVersion)-or[int]$policy.schemaVersion-ne1-or-not($policy.locator-is[string])-or[string]$policy.locator-cne'.ai-workspace/process-policy.json'-or[regex]::Matches($configRaw,'"locator"\s*:').Count-ne1){Write-KnowledgeUnavailable 'PROJECT_CONFIG_PROCESS_POLICY'}}
+    $routineExclusions=New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    foreach($exclusion in @($config.routineExcludedPaths)){
+        if(-not($exclusion-is[string])){Write-KnowledgeUnavailable 'ROUTINE_EXCLUSION_TYPE'}
+        try{$normalizedExclusion=ConvertTo-LiteralLocator ([string]$exclusion)}catch{Write-KnowledgeUnavailable ([string]$_.Exception.Message)}
+        if(-not$routineExclusions.Add($normalizedExclusion)){Write-KnowledgeUnavailable 'ROUTINE_EXCLUSION_DUPLICATE'}
+    }
     $capabilityNames=@($config.frameworkCapabilities.PSObject.Properties|ForEach-Object{$_.Name})
     if($capabilityNames.Count-eq0){Write-KnowledgeUnavailable 'CAPABILITY_DISABLED'}
     if($capabilityNames.Count-ne1-or$capabilityNames[0]-cne'KNOWLEDGE_REFERENCE'-or[regex]::Matches($configRaw,'"KNOWLEDGE_REFERENCE"\s*:').Count-ne1){Write-KnowledgeUnavailable 'CAPABILITY_UNKNOWN_OR_DUPLICATE'}
@@ -262,9 +275,11 @@ try {
     foreach($entry in $selected){
         if($entry.state-cne'CURRENT'){$queryResults+=@([pscustomobject][ordered]@{id=$entry.id;title=$entry.title;status='UNAVAILABLE';reason='ENTRY_NOT_CURRENT'});continue}
         $reason=$null
-        try{$referencePath=Resolve-LiteralFile $root $entry.locator;if((Get-Identity $referencePath)-cne$entry.identity){$reason='ENTRY_IDENTITY_DRIFT'}}catch{$reason=[string]$_.Exception.Message}
+        if(Test-RoutineExcludedLocator $entry.locator $routineExclusions){$reason='ROUTINE_EXCLUDED_PATH|'+$entry.locator}
+        else{try{$referencePath=Resolve-LiteralFile $root $entry.locator;if((Get-Identity $referencePath)-cne$entry.identity){$reason='ENTRY_IDENTITY_DRIFT'}}catch{$reason=[string]$_.Exception.Message}}
         if($null-eq$reason){
             foreach($dependency in @($entry.authorityDependencies)){
+                if(Test-RoutineExcludedLocator $dependency.locator $routineExclusions){$reason='ROUTINE_EXCLUDED_PATH|'+$dependency.locator;break}
                 try{$authorityPath=Resolve-LiteralFile $root $dependency.locator;if((Get-Identity $authorityPath)-cne$dependency.identity){$reason='AUTHORITY_CONFLICT|'+$dependency.locator;break}}
                 catch{$reason=[string]$_.Exception.Message;break}
             }

@@ -144,25 +144,16 @@
       "requirementId": "PR_DYNAMIC_ROLE_DIRECT_ISSUANCE",
       "legacyAliases": [],
       "title": "Dynamic role and direct issuance",
-      "description": "Keep long-lived responsibility distinct from temporary hats and permit Domain Owner direct scoped issuance.",
+      "description": "Fix admitted long-term responsibility resources while keeping temporary roles and direct scoped issuance separate.",
       "selectors": {
         "profiles": [
           "*"
         ],
         "roles": [
-          "CONTROLLER",
-          "DOMAIN_OWNER",
-          "EXECUTOR",
-          "REVIEWER",
-          "FRAMEWORK_MAINTAINER"
+          "*"
         ],
         "phases": [
-          "PLAN",
-          "IMPLEMENT",
-          "VERIFY",
-          "REVIEW",
-          "GIT",
-          "EXTERNAL"
+          "*"
         ],
         "actionKinds": [
           "*"
@@ -172,36 +163,7 @@
         ],
         "pathPrefixes": [],
         "capabilities": [],
-        "semanticTerms": [
-          "owner",
-          "actor",
-          "reviewer",
-          "writer",
-          "resource",
-          "controller"
-        ],
-      "deterministicTriggers": {
-        "actionKinds": [
-          "CONTROL_WRITE",
-          "SOURCE_WRITE",
-          "TEST_WRITE",
-          "TEST_RUN",
-          "REVIEW_ROUTE",
-          "REVIEW_EXECUTE",
-          "OWNER_ACCEPT",
-          "GIT_STAGE",
-          "GIT_COMMIT",
-          "PUSH",
-          "BROWSER_RUN",
-          "DEVICE_RUN",
-          "EXTERNAL"
-        ],
-          "resultKinds": [
-            "HANDOFF",
-            "REVIEW_VERDICT",
-            "OWNER_ACCEPTANCE"
-          ]
-        }
+        "semanticTerms": []
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_DYNAMIC_ROLE_DIRECT_ISSUANCE",
       "preparationRequirements": [

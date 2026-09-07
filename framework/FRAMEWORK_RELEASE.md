@@ -25,13 +25,13 @@ local candidate 按四个阶段推进：
 1. `CANDIDATE_IMPLEMENTATION`：只实现冻结范围并运行 affected tests。
 2. `PRE_PILOT_VERIFICATION`：冻结一份 pilot snapshot，运行一次 complete current-version suite，并取得一次 independent CRITICAL Source Review。
 3. `LOCAL_PILOT`：显式选择的 project 按顺序使用同一份已测试、已 Review 的 snapshot。先由 Maintenance，再由选定 consumer；finding 先报告，不自动修复。
-4. `RELEASE_CLOSURE`：snapshot 未变化时复用 identity-bound full-suite 与 Review evidence；发生修正时只按实际 delta 运行 affected validation 与 proportionate rereview。然后才分别进入 `OWNER_ACCEPT`、seal、Git/push、publication 与 adoption。
+4. `RELEASE_CLOSURE`：snapshot 未变化时复用 identity-bound full-suite 与 Review evidence；发生修正时只按实际 delta 运行 affected validation 与 proportionate rereview。实现包可用受限 `continuationPlan` 承接写后真实 postimage 到已预授予测试/局部修复，但不承接 independent Review、`OWNER_ACCEPT`、seal、Git/push、publication 或 adoption；这些仍分别进入自己的 gate。
 
 显式选择的 existing project 可在 `LOCAL_PILOT` 运行 root upgrader `-LocalCandidatePilot`。这是 project-owned pilot decision，不是 stable adoption。upgrader 必须在 project boundary 前重算 payload 并与 manifest 的 file count、bytes、canonical、完整套件及 Source Review evidence 一致；实际写入使用的 schema3 project authorization 还必须携带 `targetFrameworkSnapshot={canonical,manifestIdentity}`，逐次绑定最终 manifest。preview 只读，不以自身授予项目写入。工具复用普通 actor-bound transaction，不注册新项目、不发布、不创建第二 candidate tree，也不把 finding 自动转成 project correction。
 
 同一 project 已 pin 该 candidate version、但 pilot snapshot 后续发生变化时，仍使用 `-LocalCandidatePilot`。工具先根据旧 pilot state 证明 live 托管对象确实来自上一候选投影，再生成当前 snapshot 的 Bootstrap/AGENTS 管理区、process policy、Maintenance overlay 与 runtime ignore；完全一致时只重绑 `upgrade-recovery/<version>/state.json`，存在可证明的旧候选托管差异时则输出一次 fresh schema3 exact pre/postimage 写集并按“托管对象在前、state 在后”刷新。刷新后的 state 明确分离原始跨版本 `objects` 恢复材料与当前 `projectionObjects`，不会把未同步的 old/new material 冒充当前候选恢复材料；普通异常会反向回滚，进程被强制终止造成的未知 live/state 组合则停止并要求精确恢复，不宣称跨进程原子性。项目自定义区、corrections 内容、任务正文和未知字节不被改写；任一来源无法证明仍 fail closed。该路线不复跑发布门，也不允许 stable 同版本重绑。
 
-candidate 自身 Bootstrap/resolver/checks 必须支持 declared lifecycle；target projection preflight 在任何 pin write 前 PASS。candidate bytes 变化使旧 source context 失效，需要 fresh project recovery；不自动重写已选 pin。finding 在正常 Framework source authority 下修复同一 candidate。
+candidate 自身 Bootstrap/resolver/checks 必须支持 declared lifecycle；target projection preflight 在任何 pin write 前 PASS。候选项目调用 `LOAD_PLAN_RESOLVE` 的 supporting/fallback 路线时，必须提供当前 project config identity 与 local-pilot recovery state identity，由 loader 复用 composer 的候选绑定读取；它返回 CANDIDATE evidence，不把候选伪装成 STABLE，也不把完整规则组合或授权变成 support 前置。candidate bytes 变化使旧 source context 失效，需要 fresh project recovery；不自动重写已选 pin。finding 在正常 Framework source authority 下修复同一 candidate。
 
 pilot 不接受 raw、未完整测试或未 Review 的 candidate，不让 candidate generally consumable，也不授予 Git/push。project 仍独立决定是否采用 sealed release。
 
@@ -39,7 +39,9 @@ pilot 不接受 raw、未完整测试或未 Review 的 candidate，不让 candid
 
 payload 是 version 内除 `RELEASE_MANIFEST.json` 外的全部文件，按 ordinal relative path 排序。每行 `path|byteLength|UPPER_SHA256`，以 UTF-8 LF 连接且无 trailing LF；payload identity 是这些行的 SHA256。
 
-实现期只跑 affected tests。final candidate freeze 只跑一次 complete current-version suite。始终证明 immutable baseline payload identity。只有 shared root tools、upgrade compatibility、Tool Contract 或 baseline execution boundary 受影响时，才重跑 baseline executable suite。
+实现期先跑 dependency-closed affected entrypoint：canonical identity/PowerShell 5.1 compatibility 变化运行 `tests/canonical-identity-tests.ps1`，recovery、batching、root release wording、catalog/budget/coverage binding 或其薄入口变化运行 `tests/governance-contract-tests.ps1`；selector、Tool Contract、process runtime 与 authorization 继续使用既有 focused entrypoint。`tests/run-framework-tests.ps1` 调用这些相同实现并传播失败，affected PASS 不替代候选冻结、一次 complete current-version suite、independent Source Review 或 `OWNER_ACCEPT`。
+
+实现期 `-SkipManifest` 只接受 `CANDIDATE + PENDING/PENDING/PENDING`，允许最终 manifest 尚未冻结。final candidate freeze 运行一次 complete current-version suite。默认完整校验直接接受两种真实状态：已封存 STABLE，或 payload/manifest/完整 suite/独立 Source Review 全部严格绑定且 `releaseIntegration=PENDING` 的已审 CANDIDATE；混合状态拒绝，候选结果仍报告 `lifecycle=CANDIDATE`，且前后 manifest bytes 必须不变。若 Review 后确需复证同一已审快照，可按必要性重跑默认完整校验，不新增 replay mode、不重置 Review metadata，也不预设连续重复完整套件。始终证明 immutable baseline payload identity。baseline executable regression 只适用于仍声明支持且确被 shared root tools、upgrade compatibility、Tool Contract 或 execution boundary 变更影响的基线；已退出版本只保留历史 identity 与 recovery evidence，不恢复退役套件。
 
 Source Review 前冻结 README/ROADMAP 等 current-facing wording。deterministic sealing 期间不得修改 free-form 或 executable bytes。
 
@@ -59,6 +61,8 @@ Source Review 前冻结 README/ROADMAP 等 current-facing wording。deterministi
 
 Review approval、`OWNER_ACCEPT`、seal、Git publication 与 consumer adoption 是不同 outcome。stable release 不设置 global default，也不改 project pin。
 
+涉及宿主 Router 的交付按[宿主接入收尾](PROJECT_ADOPTION.md#宿主接入收尾)核对实际安装副本；正文只由接入流程维护。
+
 ## 项目纠正与平台证据
 
 coverage metadata 本身不能证明 correction incorporated。suppression 需要 original reason/boundary 已由 applicable native requirements 实现、behavior tests 覆盖，并在 Source Review 中以 exact mapping evidence 接受。
@@ -66,6 +70,18 @@ coverage metadata 本身不能证明 correction incorporated。suppression 需�
 platform support 由 evidence 限定。release 只声称 sealed Tool Contract 声明且实际 conformance 已证明的平台。
 
 本流程不增加 release service、registry、queue、ledger、persistent receipt、第二 authority 或 automatic consumer operation。
+
+## Maintenance 根来源自更新
+
+当 Maintenance 已采用的候选需要把同一已审 Framework 根来源写回 configured target 时，先在旧的健康 pin 下安装本节所需的 root-only integration tool；首次安装仍使用普通 schema2 DISCOVER、ADMIT、exact SOURCE_WRITE 与 FINALIZE，不以待安装工具追认自身。版本 payload 与 manifest 均不因 root-only 修复而变化。
+
+后续根来源整合是一个有界恢复事务。`scripts/integrate-framework-source.ps1` 的 PREVIEW/APPLY 绑定原 DISCOVER、ADMIT input/result、SOURCE_WRITE package、CONTROL/TARGET、config/controller/task、target Git parent及已接受候选冻结；APPLY 写前真实复跑原 ADMIT（含既有 checker），保存双方恢复字节。候选自身必须匹配完整 freeze；TARGET 只按授权路径映射到该候选，另绑定受影响脚本/版本依赖。TARGET 的 Git 元数据、独立 tools 与范围外项目文件既不要求等同候选，也不进入写集。
+
+写后由 REFRESH_PREVIEW 调用既有 same-pin local-candidate upgrader 的真实 preview；Owner 依其计划签发独立 schema3。REFRESH 在原事务内调用真实 upgrader apply、消费完整授权和实际后像，记录执行结果；VERIFY_REFRESH 只复核这个已完成结果，不接受外部 PASS 或人工 pilot state。FINALIZE_CHECK 使用同一版本 composer 重组当前完整规则，验证只发生本次授权来源/采用状态转换，合并原义务与当前适用义务并检查提交证据。root adapter 的原 SOURCE_WRITE FINALIZE 委托 COMPLETE 重做上述检查后登记结果，不另造收据或接受 caller 自报 decision hash；fresh receipt 不能追认旧写入。结果明示原 DISCOVER/ADMIT、当前 composition 与完成事务身份，保留 INSTRUCTION_BOUND 上限，不声称签名认证或 single consumption。
+
+写入异常自动恢复；进程中断用同一事务 RECOVER。恢复前一次检查双方全部受管对象和依赖，拒绝第三方字节；再复用 adoption projection 的恢复能力，先还原 Maintenance 受管对象和原 recovery state，后还原 TARGET，最后复跑旧健康源下原准入。未证明组合恢复则不能完成事务或进入 Git。其他 consumer（包括 Pocket）始终独立，不由此自动写入，也不承诺跨项目原子性。
+
+本次整个根级 self-update 部署路线（包括首次安装、原 TARGET SOURCE_WRITE 的 DISCOVER/ADMIT、来源替换及原 FINALIZE）只支持已验证的 schema2 DISCOVER / schema1 compact receipt，source actor 与刷新 grantee 为同一 Controller。schema3 DISCOVER / schema2 compact 的 TARGET 路线不受支持：根入口在 DISCOVER 或消费已有 TARGET compact 时明确返回 `MAINTENANCE_TARGET_RECEIPT_SCHEMA_UNSUPPORTED`，不改写 receipt 的 authority root，不转入版本 resolver 或误清理输入。此限制针对 TARGET 来源动作的 process 收据组合，不是授权包 schema 限制；独立 schema3 CONTROL 升级授权包、schema3 CONTROL DISCOVER 及其正常边界仍按既有合同运行。
 
 ## 试点项目规则与安装快照
 

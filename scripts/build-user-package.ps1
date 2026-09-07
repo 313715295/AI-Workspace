@@ -126,43 +126,48 @@ if (-not $commonEvidenceValid -or -not $modeEvidenceValid) {
     throw $gateError
 }
 
-$rootFiles = @(
-    'AGENTS.md',
-    'INITIALIZATION.md',
-    'LICENSE',
-    'README.md',
-    'framework/PROJECT_ADOPTION.md',
-    'scripts/MaintenanceOverlay.psm1',
-    'scripts/ProjectAdoptionProjection.psm1',
-    'scripts/ProjectAdoptionState.psm1',
-    'scripts/ProjectAdoptionTransaction.psm1',
-    'scripts/register-project.ps1',
-    'scripts/upgrade-project.ps1',
-    'skills/ai-workspace-router/SKILL.md'
+$fixedMappings = @(
+    [pscustomobject]@{ source = 'framework/user-package/README.md'; target = 'README.md'; template = $true },
+    [pscustomobject]@{ source = 'framework/user-package/AGENTS.md'; target = 'AGENTS.md'; template = $true },
+    [pscustomobject]@{ source = 'LICENSE'; target = 'LICENSE'; template = $false },
+    [pscustomobject]@{ source = 'scripts/MaintenanceOverlay.psm1'; target = 'scripts/MaintenanceOverlay.psm1'; template = $false },
+    [pscustomobject]@{ source = 'scripts/ProjectAdoptionProjection.psm1'; target = 'scripts/ProjectAdoptionProjection.psm1'; template = $false },
+    [pscustomobject]@{ source = 'scripts/ProjectAdoptionState.psm1'; target = 'scripts/ProjectAdoptionState.psm1'; template = $false },
+    [pscustomobject]@{ source = 'scripts/ProjectAdoptionTransaction.psm1'; target = 'scripts/ProjectAdoptionTransaction.psm1'; template = $false },
+    [pscustomobject]@{ source = 'scripts/register-project.ps1'; target = 'scripts/register-project.ps1'; template = $false },
+    [pscustomobject]@{ source = 'scripts/upgrade-project.ps1'; target = 'scripts/upgrade-project.ps1'; template = $false },
+    [pscustomobject]@{ source = 'skills/ai-workspace-router/SKILL.md'; target = 'skills/ai-workspace-router/SKILL.md'; template = $false }
 )
-$relativeFiles = [Collections.Generic.List[string]]::new()
-foreach ($relative in $rootFiles) {
-    $path = Join-Path $workspace $relative
-    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
-        throw ('PACKAGE_DEPENDENCY_MISSING|' + $relative)
-    }
-    $relativeFiles.Add($relative)
-}
+$mappings = [Collections.Generic.List[object]]::new()
+foreach ($mapping in $fixedMappings) { $mappings.Add($mapping) }
 foreach ($file in @(Get-ChildItem -LiteralPath $versionRoot -Recurse -File -Force)) {
     $relative = [IO.Path]::GetRelativePath($workspace, $file.FullName).Replace('\', '/')
-    $relativeFiles.Add($relative)
+    $mappings.Add([pscustomobject]@{ source = $relative; target = $relative; template = $false })
 }
-$files = @($relativeFiles | Sort-Object -Unique)
+$orderedMappings = @($mappings | Sort-Object -Property target)
+$targets = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
 $records = [Collections.Generic.List[object]]::new()
-foreach ($relative in $files) {
-    if ($relative.StartsWith('.git/', [StringComparison]::OrdinalIgnoreCase) -or
-        $relative.Contains('/runtime/', [StringComparison]::OrdinalIgnoreCase)) {
-        throw ('PACKAGE_PATH_FORBIDDEN|' + $relative)
+foreach ($mapping in $orderedMappings) {
+    $sourceRelative = [string]$mapping.source
+    $targetRelative = [string]$mapping.target
+    if (-not $targets.Add($targetRelative)) { throw ('PACKAGE_TARGET_DUPLICATE|' + $targetRelative) }
+    if ($targetRelative.StartsWith('.git/', [StringComparison]::OrdinalIgnoreCase) -or
+        $targetRelative.Contains('/runtime/', [StringComparison]::OrdinalIgnoreCase)) {
+        throw ('PACKAGE_PATH_FORBIDDEN|' + $targetRelative)
     }
-    $path = Join-Path $workspace $relative
-    $bytes = [IO.File]::ReadAllBytes($path)
+    $sourcePath = Join-Path $workspace $sourceRelative
+    if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
+        throw ('PACKAGE_DEPENDENCY_MISSING|' + $sourceRelative)
+    }
+    $bytes = if ([bool]$mapping.template) {
+        $text = [IO.File]::ReadAllText($sourcePath, [Text.UTF8Encoding]::new($false, $true)).Replace('{{FRAMEWORK_VERSION}}', $FrameworkVersion)
+        if ($text.Contains('{{FRAMEWORK_VERSION}}', [StringComparison]::Ordinal)) { throw ('PACKAGE_TEMPLATE_UNRESOLVED|' + $sourceRelative) }
+        [Text.UTF8Encoding]::new($false).GetBytes($text)
+    }
+    else { [IO.File]::ReadAllBytes($sourcePath) }
     $identity = $bytes.Length.ToString() + '|' + [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes))
-    $records.Add([ordered]@{ path = $relative; identity = $identity })
+    $records.Add([ordered]@{ path = $targetRelative; identity = $identity })
+    $mapping | Add-Member -NotePropertyName bytes -NotePropertyValue $bytes
 }
 $canonicalText = (@($records | ForEach-Object { [string]$_.path + '=' + [string]$_.identity }) -join [char]10) + [char]10
 $canonical = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($canonicalText)))
@@ -182,7 +187,7 @@ $result = [pscustomobject]@{
     frameworkVersion = $FrameworkVersion
     provisional = [bool]$Provisional
     canonical = $canonical
-    fileCount = $files.Count
+    fileCount = $orderedMappings.Count
     outputPath = $outputFull
 }
 if (-not $Apply -or -not $PSCmdlet.ShouldProcess($outputFull, 'Build ordinary-user Framework package')) {
@@ -198,13 +203,13 @@ if (-not (Test-Path -LiteralPath $outputParent -PathType Container)) {
 $stage = Join-Path ([IO.Path]::GetTempPath()) ('aiw-user-package-' + [guid]::NewGuid().ToString('N'))
 try {
     $null = New-Item -ItemType Directory -Path $stage
-    foreach ($relative in $files) {
-        $destination = Join-Path $stage $relative
+    foreach ($mapping in $orderedMappings) {
+        $destination = Join-Path $stage ([string]$mapping.target)
         $parent = Split-Path -Parent $destination
         if (-not (Test-Path -LiteralPath $parent -PathType Container)) {
             $null = New-Item -ItemType Directory -Path $parent -Force
         }
-        [IO.File]::Copy((Join-Path $workspace $relative), $destination, $false)
+        [IO.File]::WriteAllBytes($destination, [byte[]]$mapping.bytes)
     }
     [IO.File]::WriteAllText(
         (Join-Path $stage 'PACKAGE_MANIFEST.json'),

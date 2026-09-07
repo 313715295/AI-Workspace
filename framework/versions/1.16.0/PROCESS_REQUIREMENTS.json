@@ -98,25 +98,21 @@
     },
     {
       "requirementId": "PR_CODEX_RESOURCE_ROUTE",
-      "legacyAliases": [],
+      "legacyAliases": [
+        "correction:pocket-legion:HOST_RESOURCE_ROUTE_DELEGATION"
+      ],
       "title": "Codex resource route",
-      "description": "Use advisory model/resource routes without turning them into authority or permanent roles.",
+      "description": "Bind explicit temporary Codex resources after organization selection without reopening topology or granting authority.",
       "ownerModule": "HOST_CODEX.md",
       "selectors": {
         "profiles": [
-          "STANDARD",
-          "CRITICAL"
+          "*"
         ],
         "roles": [
-          "CONTROLLER",
-          "DOMAIN_OWNER",
-          "FRAMEWORK_MAINTAINER"
+          "*"
         ],
         "phases": [
-          "PLAN",
-          "IMPLEMENT",
-          "VERIFY",
-          "REVIEW"
+          "*"
         ],
         "actionKinds": [
           "*"
@@ -126,12 +122,7 @@
         ],
         "pathPrefixes": [],
         "capabilities": [],
-        "semanticTerms": [
-          "model",
-          "resource",
-          "subagent",
-          "parallel"
-        ]
+        "semanticTerms": []
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_CODEX_RESOURCE_ROUTE",
       "preparationRequirements": [
@@ -482,26 +473,17 @@
       "requirementId": "PR_DYNAMIC_ROLE_DIRECT_ISSUANCE",
       "legacyAliases": [],
       "title": "Dynamic role and direct issuance",
-      "description": "Keep long-lived responsibility distinct from temporary hats and permit Domain Owner direct scoped issuance.",
+      "description": "Fix admitted long-term responsibility resources while keeping temporary roles and direct scoped issuance separate.",
       "ownerModule": "AUTHORIZATION_MODEL.md",
       "selectors": {
         "profiles": [
           "*"
         ],
         "roles": [
-          "CONTROLLER",
-          "DOMAIN_OWNER",
-          "EXECUTOR",
-          "REVIEWER",
-          "FRAMEWORK_MAINTAINER"
+          "*"
         ],
         "phases": [
-          "PLAN",
-          "IMPLEMENT",
-          "VERIFY",
-          "REVIEW",
-          "GIT",
-          "EXTERNAL"
+          "*"
         ],
         "actionKinds": [
           "*"
@@ -511,36 +493,7 @@
         ],
         "pathPrefixes": [],
         "capabilities": [],
-        "semanticTerms": [
-          "owner",
-          "actor",
-          "reviewer",
-          "writer",
-          "resource",
-          "controller"
-        ],
-        "deterministicTriggers": {
-          "actionKinds": [
-            "CONTROL_WRITE",
-            "SOURCE_WRITE",
-            "TEST_WRITE",
-            "TEST_RUN",
-            "REVIEW_ROUTE",
-            "REVIEW_EXECUTE",
-            "OWNER_ACCEPT",
-            "GIT_STAGE",
-            "GIT_COMMIT",
-            "PUSH",
-            "BROWSER_RUN",
-            "DEVICE_RUN",
-            "EXTERNAL"
-          ],
-          "resultKinds": [
-            "HANDOFF",
-            "REVIEW_VERDICT",
-            "OWNER_ACCEPTANCE"
-          ]
-        }
+        "semanticTerms": []
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_DYNAMIC_ROLE_DIRECT_ISSUANCE",
       "preparationRequirements": [
@@ -1414,9 +1367,11 @@
     },
     {
       "requirementId": "PR_TASK_LAUNCH_AND_ROUTE",
-      "legacyAliases": [],
+      "legacyAliases": [
+        "correction:ai-workspace-maintenance:RESOURCE_TOPOLOGY_NET_BENEFIT_SELECTION"
+      ],
       "title": "Task launch and direct route",
-      "description": "Choose REUSE, MUST_NEW or BLOCKED and keep long-lived ownership separate from temporary task hats.",
+      "description": "Choose one legal, net-beneficial organization carrier while preserving task routing and governance boundaries.",
       "ownerModule": "TASK_AND_SCOPE.md",
       "selectors": {
         "profiles": [
@@ -1426,14 +1381,7 @@
           "*"
         ],
         "phases": [
-          "RECOVER",
-          "DISCOVER",
-          "PLAN",
-          "IMPLEMENT",
-          "VERIFY",
-          "REVIEW",
-          "GIT",
-          "EXTERNAL"
+          "*"
         ],
         "actionKinds": [
           "*"
@@ -1443,14 +1391,7 @@
         ],
         "pathPrefixes": [],
         "capabilities": [],
-        "semanticTerms": [
-          "task",
-          "route",
-          "owner",
-          "actor",
-          "handoff",
-          "executor"
-        ]
+        "semanticTerms": []
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_TASK_LAUNCH_AND_ROUTE",
       "preparationRequirements": [

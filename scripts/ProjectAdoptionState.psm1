@@ -4,7 +4,7 @@ $ErrorActionPreference = 'Stop'
 $script:Utf8Strict = [Text.UTF8Encoding]::new($false, $true)
 
 function Get-AiwByteIdentity {
-    param([Parameter(Mandatory)][byte[]]$Bytes)
+    param([Parameter(Mandatory)][AllowEmptyCollection()][byte[]]$Bytes)
 
     $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($Bytes))
     return $Bytes.Length.ToString() + '|' + $hash

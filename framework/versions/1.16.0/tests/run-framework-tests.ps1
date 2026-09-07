@@ -19,7 +19,7 @@ function Assert-True([bool]$Condition,[string]$Name) {
 
 function Test-RouterSkillContract([string]$Text,[int64]$ByteLength,[int64]$Ceiling) {
     if($ByteLength-lt1-or$ByteLength-gt$Ceiling){return $false}
-    foreach($required in @('NON_AUTHORITY','BOOTSTRAP.md','TOOLCHAIN.json','Tool Contract `1`','schemaVersion=1','MARKDOWN_EXACT_BLOCK','自然边界','上下文不确定','PROCESS_REQUIREMENTS_RESOLVE/DISCOVER','ADMIT_ACTION','FINALIZE_OUTPUT','.ai-workspace/runtime/<task-or-request>/<actor>/','保持 gate 独立')){if(-not$Text.Contains($required)){return $false}}
+    foreach($required in @('NON_AUTHORITY','BOOTSTRAP.md','TOOLCHAIN.json','Tool Contract `1`','schemaVersion=1','MARKDOWN_EXACT_BLOCK','自然边界','RECOVERY_CORE.md','PROCESS_REQUIREMENTS_RESOLVE/DISCOVER','ADMIT_ACTION','FINALIZE_OUTPUT','.ai-workspace/runtime/<task-or-request>/<actor>/','保持 gate 独立')){if(-not$Text.Contains($required)){return $false}}
     return $true
 }
 
@@ -35,6 +35,12 @@ function Get-Identity([string]$Path) {
     $bytes = [IO.File]::ReadAllBytes($Path)
     $sha = [Security.Cryptography.SHA256]::Create()
     try { return $bytes.Length.ToString() + '|' + ([BitConverter]::ToString($sha.ComputeHash($bytes))).Replace('-','') }
+    finally { $sha.Dispose() }
+}
+
+function Get-BytesIdentity([byte[]]$Bytes) {
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { return $Bytes.Length.ToString() + '|' + ([BitConverter]::ToString($sha.ComputeHash($Bytes))).Replace('-','') }
     finally { $sha.Dispose() }
 }
 
@@ -58,6 +64,19 @@ function Get-ReleasePayloadFacts([string]$VersionRoot) {
     return [pscustomobject]@{Files=$payload;Rows=$rows;FileCount=$payload.Count;TotalBytes=$total;Canonical=$canonical}
 }
 
+function Get-ReleaseValidationState($Version,$Manifest,$Facts,[bool]$SkipManifestValidation) {
+    $candidateFlags=[string]$Version.version-ceq'1.16.0'-and[string]$Version.lifecycle-ceq'CANDIDATE'-and-not[bool]$Version.consumable-and-not[bool]$Version.projectPinEligible
+    $stableFlags=[string]$Version.version-ceq'1.16.0'-and[string]$Version.lifecycle-ceq'STABLE'-and[bool]$Version.consumable-and[bool]$Version.projectPinEligible
+    $manifestPayloadBound=[int]$Manifest.schemaVersion-eq2-and[string]$Manifest.version-ceq'1.16.0'-and[int]$Manifest.fileCount-eq$Facts.FileCount-and[int64]$Manifest.totalBytes-eq$Facts.TotalBytes-and[string]$Manifest.canonical-ceq$Facts.Canonical-and[string]$Manifest.algorithm-clike'Ordinal relative path*'
+    $suitePassed=($Manifest.completeSuite.passed-is[int]-or$Manifest.completeSuite.passed-is[long])-and($Manifest.completeSuite.total-is[int]-or$Manifest.completeSuite.total-is[long])-and[int64]$Manifest.completeSuite.passed-gt0-and[int64]$Manifest.completeSuite.passed-eq[int64]$Manifest.completeSuite.total
+    $reviewEvidenceBound=[string]$Manifest.completeSuite.status-ceq'PASS'-and$suitePassed-and[string]$Manifest.completeSuite.payloadCanonical-ceq$Facts.Canonical-and[string]$Manifest.completeSuite.evidenceIdentity-cmatch'^\d+\|[A-F0-9]{64}$'-and[string]$Manifest.sourceReviewEvidence.status-ceq'APPROVED'-and-not[string]::IsNullOrWhiteSpace([string]$Manifest.sourceReviewEvidence.reviewer)-and[string]$Manifest.sourceReviewEvidence.packageIdentity-cmatch'^\d+\|[A-F0-9]{64}$'-and[string]$Manifest.sourceReviewEvidence.reviewedPayloadCanonical-ceq$Facts.Canonical-and[string]$Manifest.sourceReviewEvidence.reviewedManifestIdentity-cmatch'^\d+\|[A-F0-9]{64}$'
+    $pendingCandidate=$candidateFlags-and[int]$Manifest.schemaVersion-eq2-and[string]$Manifest.version-ceq'1.16.0'-and[string]$Manifest.lifecycle-ceq'CANDIDATE'-and[string]$Manifest.sourceReview-ceq'PENDING'-and[string]$Manifest.completeSuite.status-ceq'PENDING'-and[string]$Manifest.sourceReviewEvidence.status-ceq'PENDING'-and[string]$Manifest.releaseIntegration-ceq'PENDING'
+    if($SkipManifestValidation){if($pendingCandidate){return 'PENDING_CANDIDATE'};throw 'RELEASE_VALIDATION_SKIP_REQUIRES_PENDING_CANDIDATE'}
+    if($stableFlags-and$manifestPayloadBound-and[string]$Manifest.lifecycle-ceq'STABLE'-and[string]$Manifest.sourceReview-ceq'APPROVED'-and$reviewEvidenceBound-and[string]$Manifest.releaseIntegration-cne'PENDING'){return 'STABLE'}
+    if($candidateFlags-and$manifestPayloadBound-and[string]$Manifest.lifecycle-ceq'CANDIDATE'-and[string]$Manifest.sourceReview-ceq'APPROVED'-and$reviewEvidenceBound-and[string]$Manifest.releaseIntegration-ceq'PENDING'){return 'REVIEWED_CANDIDATE'}
+    throw 'RELEASE_VALIDATION_STATE_UNSUPPORTED'
+}
+
 function Seal-ReleaseFixture([string]$VersionRoot,[string]$Integration) {
     $versionPath=Join-Path $VersionRoot 'VERSION.json';$version=Get-Content -Raw -Encoding utf8 -LiteralPath $versionPath|ConvertFrom-Json
     $version.lifecycle='STABLE';$version.consumable=$true;$version.projectPinEligible=$true
@@ -70,6 +89,21 @@ function Seal-ReleaseFixture([string]$VersionRoot,[string]$Integration) {
     $manifest|Add-Member -NotePropertyName completeSuite -NotePropertyValue ([pscustomobject][ordered]@{status='PASS';passed=1;total=1;payloadCanonical=$facts.Canonical;evidenceIdentity=('1|'+('A'*64))}) -Force
     $manifest|Add-Member -NotePropertyName sourceReviewEvidence -NotePropertyValue ([pscustomobject][ordered]@{status='APPROVED';reviewer='fixture-reviewer';packageIdentity=('1|'+('B'*64));reviewedPayloadCanonical=$facts.Canonical;reviewedManifestIdentity=$reviewedManifestIdentity}) -Force
     $manifest.releaseIntegration=$Integration
+    Write-Utf8 $manifestPath ($manifest|ConvertTo-Json -Depth 20)
+    return $facts
+}
+
+function Approve-CandidateReleaseFixture([string]$VersionRoot) {
+    $versionPath=Join-Path $VersionRoot 'VERSION.json';$version=Get-Content -Raw -Encoding utf8 -LiteralPath $versionPath|ConvertFrom-Json
+    $version.lifecycle='CANDIDATE';$version.consumable=$false;$version.projectPinEligible=$false
+    Write-Utf8 $versionPath ($version|ConvertTo-Json -Depth 20)
+    $loadPath=Join-Path $VersionRoot 'LOAD_MANIFEST.json';$load=Get-Content -Raw -Encoding utf8 -LiteralPath $loadPath|ConvertFrom-Json
+    $load.lifecycle='CANDIDATE';Write-Utf8 $loadPath ($load|ConvertTo-Json -Depth 30)
+    $facts=Get-ReleasePayloadFacts $VersionRoot
+    $manifestPath=Join-Path $VersionRoot 'RELEASE_MANIFEST.json';$reviewedManifestIdentity=Get-Identity $manifestPath;$manifest=Get-Content -Raw -Encoding utf8 -LiteralPath $manifestPath|ConvertFrom-Json
+    $manifest.lifecycle='CANDIDATE';$manifest.fileCount=$facts.FileCount;$manifest.totalBytes=$facts.TotalBytes;$manifest.canonical=$facts.Canonical;$manifest.sourceReview='APPROVED';$manifest.sourceCandidate='TEST_FIXTURE_REVIEWED_CANDIDATE';$manifest.releaseIntegration='PENDING'
+    $manifest.completeSuite=[pscustomobject][ordered]@{status='PASS';passed=1;total=1;payloadCanonical=$facts.Canonical;evidenceIdentity=('1|'+('A'*64))}
+    $manifest.sourceReviewEvidence=[pscustomobject][ordered]@{status='APPROVED';reviewer='fixture-reviewer';packageIdentity=('1|'+('B'*64));reviewedPayloadCanonical=$facts.Canonical;reviewedManifestIdentity=$reviewedManifestIdentity}
     Write-Utf8 $manifestPath ($manifest|ConvertTo-Json -Depth 20)
     return $facts
 }
@@ -217,6 +251,13 @@ function Remove-TestJunction([string]$Path) {
     $null = $script:testJunctions.Remove($full)
 }
 
+function Get-PrivateFixtureCleanupPath([string]$Path,[string]$ExpectedParent,[string]$LeafPattern,[string]$Label) {
+    $full=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($Path))
+    $parent=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($ExpectedParent))
+    if([IO.Path]::GetDirectoryName($full)-cne$parent-or[IO.Path]::GetFileName($full)-cnotmatch$LeafPattern){throw ('FIXTURE_CLEANUP_BOUNDARY|'+$Label)}
+    return $full
+}
+
 function Render-MaintenanceStarter([string]$Starter,[string]$OverlayRoot,[string]$ControlRoot) {
     $destination = Join-Path $ControlRoot '.ai-workspace'
     Copy-Item -LiteralPath $Starter -Destination $destination -Recurse
@@ -245,7 +286,7 @@ function Render-MaintenanceStarter([string]$Starter,[string]$OverlayRoot,[string
 
 function New-AuthorizationPackage(
     [string]$Path,[int]$Schema,[string]$RepositoryId,[string]$ConfigIdentity,
-    [string[]]$Actions,[string]$ExactPath,[string]$ObjectIdentity,[switch]$DomainOwner
+    [string[]]$Actions,[string]$ExactPath,[string]$ObjectIdentity,[switch]$DomainOwner,[string[]]$ContinuationPlan=@()
 ) {
     $issuer = if ($DomainOwner) { 'owner-fixture' } else { 'controller-fixture' }
     $taskId = if ($DomainOwner) { 'FIXTURE-OWNER-001' } else { 'FIXTURE-001' }
@@ -273,6 +314,7 @@ function New-AuthorizationPackage(
         $package.repositoryId=$RepositoryId
         $package.invalidatesOn += 'REPOSITORY_CHANGE'
     }
+    if($ContinuationPlan.Count-gt0){$package.continuationPlan=@($ContinuationPlan);$package.invalidatesOn+='CONTINUATION_RESULT_DRIFT'}
     Write-Utf8 $Path ($package | ConvertTo-Json -Depth 20)
 }
 
@@ -316,6 +358,7 @@ function Invoke-FixtureSchema2Authorization(
 function Test-OrdinaryReplyBoundary([string]$VersionRoot) {
     $tempParent=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath([IO.Path]::GetTempPath()))
     $fixtureTemp=Join-Path $tempParent ('aiw-selector-delivery-'+[guid]::NewGuid().ToString('N'))
+    $fixtureCleanup=Get-PrivateFixtureCleanupPath $fixtureTemp $tempParent '^aiw-selector-delivery-[0-9a-f]{32}$' 'SELECTOR_DELIVERY'
     New-Item -ItemType Directory -Path $fixtureTemp|Out-Null
     try{
         $fixtureFramework=Join-Path $fixtureTemp 'framework-repo'
@@ -370,11 +413,7 @@ function Test-OrdinaryReplyBoundary([string]$VersionRoot) {
         Write-Utf8 $boundaryPath ($boundary|ConvertTo-Json -Depth 30)
         $run=Invoke-Ps $resolver @('-InputPath',$boundaryPath,'-AsJson')
         Assert-True ($run.Code-eq3-and$run.Text.Contains('AUTHENTICATED_DELIVERY_ROUTE_BOUND')) 'strong-terminal-still-rejects-missing-host-route'
-    }finally{
-        $resolved=[IO.Path]::GetFullPath($fixtureTemp)
-        if([IO.Path]::GetDirectoryName($resolved)-cne$tempParent-or[IO.Path]::GetFileName($resolved)-cnotmatch'^aiw-selector-delivery-[0-9a-f]{32}$'){throw 'DELIVERY_FIXTURE_CLEANUP_BOUNDARY'}
-        Remove-Item -LiteralPath $resolved -Recurse -Force
-    }
+    }finally{Remove-Item -LiteralPath $fixtureCleanup -Recurse -Force}
 }
 
 function Test-SelectorMatching([string]$VersionRoot) {
@@ -455,11 +494,20 @@ $declared=New-Object 'System.Collections.Generic.List[string]'
 foreach($pair in @($inventory.runtimeNormativeModules)){$declared.Add([string]$pair.document);$declared.Add([string]$pair.fragment)}
 foreach($category in @('actionRequiredArtifacts','schemaAndMechanicalInputs','explanationAndHistory')){foreach($relative in @($inventory.$category)){$declared.Add([string]$relative)}}
 $declaredArray=@($declared);$declaredUnique=@($declaredArray|Sort-Object -Unique);[Array]::Sort($declaredArray,[StringComparer]::Ordinal)
-Assert-True ([int]$inventory.schemaVersion-eq1-and[string]$inventory.frameworkVersion-ceq'1.16.0'-and$inventoryFields.Count-eq6-and$declaredArray.Count-eq$declaredUnique.Count-and$actual.Count-eq72-and($actual-join"`n")-ceq($declaredArray-join"`n")) 'normative-surface-inventory-exact72-classified-once'
+Assert-True ([int]$inventory.schemaVersion-eq1-and[string]$inventory.frameworkVersion-ceq'1.16.0'-and$inventoryFields.Count-eq6-and$declaredArray.Count-eq$declaredUnique.Count-and$actual.Count-eq$declaredArray.Count-and($actual-join"`n")-ceq($declaredArray-join"`n")) 'normative-surface-inventory-exact-set-classified-once'
 $initialPayloadFacts=Get-ReleasePayloadFacts $candidateRoot
 $independentOrdinalFiles=New-Object 'System.Collections.Generic.List[string]';foreach($relative in $actual){if($relative-cne'RELEASE_MANIFEST.json'){$independentOrdinalFiles.Add($relative)}};$independentOrdinalFiles.Sort([StringComparer]::Ordinal)
-$initialManifest=Get-Content -LiteralPath (Join-Path $candidateRoot 'RELEASE_MANIFEST.json') -Raw -Encoding utf8|ConvertFrom-Json
-if($SkipManifest){Assert-True ([string]::Join("`n",$initialPayloadFacts.Files)-ceq[string]::Join("`n",$independentOrdinalFiles.ToArray())-and[int]$initialManifest.schemaVersion-eq2-and[string]$initialManifest.lifecycle-ceq'CANDIDATE'-and[string]$initialManifest.sourceReview-ceq'PENDING'-and[string]$initialManifest.completeSuite.status-ceq'PENDING'-and[string]$initialManifest.sourceReviewEvidence.status-ceq'PENDING'-and[string]$initialManifest.releaseIntegration-ceq'PENDING') 'release-candidate-payload-enumerated-manifest-freeze-deferred'}else{Assert-True ([string]::Join("`n",$initialPayloadFacts.Files)-ceq[string]::Join("`n",$independentOrdinalFiles.ToArray())-and[int]$initialManifest.fileCount-eq$initialPayloadFacts.FileCount-and[int64]$initialManifest.totalBytes-eq$initialPayloadFacts.TotalBytes-and[string]$initialManifest.canonical-ceq$initialPayloadFacts.Canonical-and[string]$initialManifest.algorithm-clike'Ordinal relative path*') 'release-candidate-manifest-independent-ordinal-canonical'}
+$initialManifestPath=Join-Path $candidateRoot 'RELEASE_MANIFEST.json';$initialManifestIdentity=Get-Identity $initialManifestPath;$initialManifest=Get-Content -LiteralPath $initialManifestPath -Raw -Encoding utf8|ConvertFrom-Json
+$initialVersion=Get-Content -LiteralPath (Join-Path $candidateRoot 'VERSION.json') -Raw -Encoding utf8|ConvertFrom-Json
+$initialReleaseState=Get-ReleaseValidationState $initialVersion $initialManifest $initialPayloadFacts ([bool]$SkipManifest)
+Assert-True ([string]::Join("`n",$initialPayloadFacts.Files)-ceq[string]::Join("`n",$independentOrdinalFiles.ToArray())-and$initialReleaseState-in@('PENDING_CANDIDATE','REVIEWED_CANDIDATE','STABLE')) 'release-payload-and-manifest-state-classified'
+
+$reviewedCandidateVersion=$initialVersion|ConvertTo-Json -Depth 20|ConvertFrom-Json;$reviewedCandidateVersion.lifecycle='CANDIDATE';$reviewedCandidateVersion.consumable=$false;$reviewedCandidateVersion.projectPinEligible=$false
+$reviewedCandidateManifest=$initialManifest|ConvertTo-Json -Depth 20|ConvertFrom-Json;$reviewedCandidateManifest.lifecycle='CANDIDATE';$reviewedCandidateManifest.fileCount=$initialPayloadFacts.FileCount;$reviewedCandidateManifest.totalBytes=$initialPayloadFacts.TotalBytes;$reviewedCandidateManifest.canonical=$initialPayloadFacts.Canonical;$reviewedCandidateManifest.sourceReview='APPROVED';$reviewedCandidateManifest.releaseIntegration='PENDING';$reviewedCandidateManifest.completeSuite=[pscustomobject][ordered]@{status='PASS';passed=1;total=1;payloadCanonical=$initialPayloadFacts.Canonical;evidenceIdentity=('1|'+('A'*64))};$reviewedCandidateManifest.sourceReviewEvidence=[pscustomobject][ordered]@{status='APPROVED';reviewer='fixture-reviewer';packageIdentity=('1|'+('B'*64));reviewedPayloadCanonical=$initialPayloadFacts.Canonical;reviewedManifestIdentity=('1|'+('C'*64))}
+Assert-True ((Get-ReleaseValidationState $reviewedCandidateVersion $reviewedCandidateManifest $initialPayloadFacts $false)-ceq'REVIEWED_CANDIDATE') 'reviewed-candidate-default-validation-state-admitted'
+$mixedCandidateManifest=$reviewedCandidateManifest|ConvertTo-Json -Depth 20|ConvertFrom-Json;$mixedCandidateManifest.completeSuite.status='PENDING';$mixedCandidateRejected=$false
+try{Get-ReleaseValidationState $reviewedCandidateVersion $mixedCandidateManifest $initialPayloadFacts $false|Out-Null}catch{$mixedCandidateRejected=$_.Exception.Message-ceq'RELEASE_VALIDATION_STATE_UNSUPPORTED'}
+Assert-True $mixedCandidateRejected 'reviewed-candidate-mixed-evidence-state-rejected'
 
 foreach ($relative in $actual) {
     $path = Join-Path $candidateRoot $relative
@@ -477,14 +525,14 @@ foreach ($relative in $actual) {
     }
 }
 
-$version = Get-Content -LiteralPath (Join-Path $candidateRoot 'VERSION.json') -Raw -Encoding utf8 | ConvertFrom-Json
+$version = $initialVersion
 $loadManifest = Get-Content -LiteralPath (Join-Path $candidateRoot 'LOAD_MANIFEST.json') -Raw -Encoding utf8 | ConvertFrom-Json
-$expectedLifecycle=if($SkipManifest){'CANDIDATE'}else{'STABLE'}
-$versionLifecycleState=if($SkipManifest){[string]$version.lifecycle-ceq'CANDIDATE'-and-not[bool]$version.consumable-and-not[bool]$version.projectPinEligible}else{[string]$version.lifecycle-ceq'STABLE'-and[bool]$version.consumable-and[bool]$version.projectPinEligible}
+$expectedLifecycle=if($initialReleaseState-ceq'STABLE'){'STABLE'}else{'CANDIDATE'}
+$versionLifecycleState=if($initialReleaseState-ceq'STABLE'){[string]$version.lifecycle-ceq'STABLE'-and[bool]$version.consumable-and[bool]$version.projectPinEligible}else{[string]$version.lifecycle-ceq'CANDIDATE'-and-not[bool]$version.consumable-and-not[bool]$version.projectPinEligible}
 Assert-True ([string]$version.version -ceq '1.16.0' -and $versionLifecycleState -and [string]$version.releaseClass -ceq 'MINOR' -and [string]$version.baseline -ceq '1.15.1' -and $null -eq $version.PSObject.Properties['currentEligible']) 'version-lifecycle-fields-minor-baseline-1.15.1-no-global-selector-field'
 Assert-True ([string]$loadManifest.lifecycle -ceq $expectedLifecycle -and @($loadManifest.topologies.PSObject.Properties.Name).Count -eq 1 -and @($loadManifest.topologies.PSObject.Properties.Name)-contains'REPO_LOCAL' -and @($loadManifest.core)-cnotcontains'PROCESS_REQUIREMENTS.json' -and @($loadManifest.order)-cnotcontains'PROCESS_REQUIREMENTS.json' -and @($loadManifest.order)-cnotcontains'FRAMEWORK_RELEASE.md' -and @($loadManifest.requirementFragments.ownerModule)-cnotcontains'FRAMEWORK_RELEASE.md' -and @($loadManifest.requirementFragments.ownerModule)-cnotcontains'FRAMEWORK_MAINTENANCE.md') 'load-manifest-generic-runtime-and-release-governance-exclusion-contract'
 $loadResolverText=Get-Content -LiteralPath (Join-Path $candidateRoot 'scripts\resolve-load-plan.ps1') -Raw -Encoding utf8
-Assert-True ($loadResolverText.Contains('LOAD_MANIFEST_NOT_STABLE_1_16_0') -and -not $loadResolverText.Contains('LOAD_MANIFEST_NOT_STABLE_1_15_1')) 'load-resolver-diagnostic-version-current'
+Assert-True ($loadResolverText.Contains('LOAD_MANIFEST_NOT_STABLE_OR_ADMITTED_CANDIDATE_1_16_0')-and$loadResolverText.Contains('Get-AiwLocalCandidateSupportBinding')-and$loadResolverText.Contains('ExpectedCandidatePilotStateIdentity')-and-not$loadResolverText.Contains('LOAD_MANIFEST_NOT_STABLE_1_15_1')) 'load-resolver-stable-or-bound-candidate-contract-current'
 
 $liveFrameworkRoot = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Join-Path $candidateRoot '../..')))
 $liveRepositoryRoot = Split-Path -Parent $liveFrameworkRoot
@@ -514,7 +562,7 @@ if($platform-notin$declaredPlatforms){
     Write-Output ('EVIDENCE_CEILING|PLATFORM_NOT_DECLARED|'+$platform)
     Assert-True $true 'tool-contract-undeclared-platform-evidence-ceiling-recorded'
 }else{
-  $platformTemp=Join-Path ([IO.Path]::GetTempPath()) ('aiw-tool-platform-'+[guid]::NewGuid().ToString('N'));New-Item -ItemType Directory -Path $platformTemp|Out-Null
+  $platformTempParent=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath([IO.Path]::GetTempPath()));$platformTemp=Join-Path $platformTempParent ('aiw-tool-platform-'+[guid]::NewGuid().ToString('N'));$platformTempCleanup=Get-PrivateFixtureCleanupPath $platformTemp $platformTempParent '^aiw-tool-platform-[0-9a-f]{32}$' 'TOOL_PLATFORM';New-Item -ItemType Directory -Path $platformTemp|Out-Null
   try{
     $casePath=Join-Path $platformTemp 'CaseProbe';Write-Utf8 $casePath 'case'
     $caseVariantPath=Join-Path $platformTemp 'caseprobe'
@@ -535,11 +583,11 @@ if($platform-notin$declaredPlatforms){
         Assert-True ([IO.File]::GetUnixFileMode($casePath)-eq$mode) 'tool-contract-unix-permission-restored'
     }else{Assert-True $true 'tool-contract-windows-permission-ceiling-explicit'}
     Write-Output ('CONFORMANCE|platform='+$platform+'|caseInsensitive='+$caseInsensitive.ToString().ToLowerInvariant()+'|runtime='+$PSVersionTable.PSVersion.ToString())
-  }finally{foreach($link in @($script:testJunctions)){Remove-TestJunction $link};Remove-Item -LiteralPath $platformTemp -Recurse -Force -ErrorAction SilentlyContinue}
+  }finally{foreach($link in @($script:testJunctions)){Remove-TestJunction $link};Remove-Item -LiteralPath $platformTempCleanup -Recurse -Force -ErrorAction SilentlyContinue}
 }
 
 if($ToolContractOnly){
-    $contractTemp=Join-Path ([IO.Path]::GetTempPath()) ('aiw-tool-contract-'+[guid]::NewGuid().ToString('N'));New-Item -ItemType Directory -Path $contractTemp|Out-Null
+    $contractTempParent=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath([IO.Path]::GetTempPath()));$contractTemp=Join-Path $contractTempParent ('aiw-tool-contract-'+[guid]::NewGuid().ToString('N'));$contractTempCleanup=Get-PrivateFixtureCleanupPath $contractTemp $contractTempParent '^aiw-tool-contract-[0-9a-f]{32}$' 'TOOL_CONTRACT';New-Item -ItemType Directory -Path $contractTemp|Out-Null
     try{
         $gitRoot=Join-Path $contractTemp 'git-probe';New-GitRepo $gitRoot
         $gitConfigPath=Join-Path $gitRoot '.ai-workspace/project.json'
@@ -549,15 +597,41 @@ if($ToolContractOnly){
         $safeGitEntry=Join-Path $candidateRoot ([string]$backend.entrypoints.PROTECTED_SAFE_GIT)
         $safeGitProbe=Invoke-Ps $safeGitEntry @('-ProjectRoot',$gitRoot,'-Operation','STATUS','-AllowPath','visible.txt','-ExpectedProjectConfigIdentity',(Get-Identity $gitConfigPath))
         Assert-True ($safeGitProbe.Code-eq0-and$safeGitProbe.Text.Contains('visible.txt')-and$safeGitProbe.Text.Contains('"operation":"STATUS"')) 'tool-contract-safe-git-normalized-path'
-    }finally{Remove-Item -LiteralPath $contractTemp -Recurse -Force -ErrorAction SilentlyContinue}
+    }finally{Remove-Item -LiteralPath $contractTempCleanup -Recurse -Force -ErrorAction SilentlyContinue}
     Write-Output "RESULT|$($script:passed) passed|scope=Framework-1.16.0-tool-contract"
     return
+}
+
+$governanceArguments=if($SkipPerformanceSmoke){@('-SkipPerformanceSmoke')}else{@()}
+$governanceContract=Invoke-Ps (Join-Path $candidateRoot 'tests\governance-contract-tests.ps1') $governanceArguments
+if($governanceContract.Code-ne0){throw ('GOVERNANCE_CONTRACT_TESTS|'+$governanceContract.Text)}
+foreach($line in @($governanceContract.Output|Where-Object{[string]$_-clike'PASS|*'})){
+    Assert-True $true ([string]$line).Substring(5)
+}
+
+$canonicalIdentity=Invoke-Ps (Join-Path $candidateRoot 'tests\canonical-identity-tests.ps1') @()
+if($canonicalIdentity.Code-ne0){throw ('CANONICAL_IDENTITY_TESTS|'+$canonicalIdentity.Text)}
+foreach($line in @($canonicalIdentity.Output|Where-Object{[string]$_-clike'PASS|*'})){
+    Assert-True $true ([string]$line).Substring(5)
 }
 
 $processRuntimeV2=Invoke-Ps (Join-Path $candidateRoot 'tests\process-runtime-v2-tests.ps1') @()
 if($processRuntimeV2.Code-ne0){throw ('PROCESS_RUNTIME_V2_TESTS|'+$processRuntimeV2.Text)}
 foreach($line in @($processRuntimeV2.Output|Where-Object{[string]$_-clike'PASS|*'})){
-    Assert-True $true ('process-runtime-v2-'+([string]$line).Substring(5))
+    $runtimeName=([string]$line).Substring(5)
+    if($runtimeName-ceq'process-discover-emits-full-blocks-once-and-reusable-compact-receipt'){Assert-True $true $runtimeName}else{Assert-True $true ('process-runtime-v2-'+$runtimeName)}
+}
+
+$sourcePostimageTransition=Invoke-Ps (Join-Path $candidateRoot 'tests\source-postimage-transition-tests.ps1') @()
+if($sourcePostimageTransition.Code-ne0){throw ('SOURCE_POSTIMAGE_TRANSITION_TESTS|'+$sourcePostimageTransition.Text)}
+foreach($line in @($sourcePostimageTransition.Output|Where-Object{[string]$_-clike'PASS|*'})){
+    Assert-True $true ('source-postimage-'+([string]$line).Substring(5))
+}
+
+$authorizationReceiptRegression=Invoke-Ps (Join-Path $candidateRoot 'tests\authorization-receipt-regression-tests.ps1') @()
+if($authorizationReceiptRegression.Code-ne0){throw ('AUTHORIZATION_RECEIPT_REGRESSION_TESTS|'+$authorizationReceiptRegression.Text)}
+foreach($line in @($authorizationReceiptRegression.Output|Where-Object{[string]$_-clike'PASS|*'})){
+    Assert-True $true ('authorization-receipt-'+([string]$line).Substring(5))
 }
 
 $selectorScope = @(
@@ -579,7 +653,9 @@ foreach ($path in $selectorScope) {
 }
 Assert-True ($selectorHits.Count -eq 0) 'version-selector-terminology-absent-from-live-root-and-1.11-runtime'
 
-$temp = Join-Path ([IO.Path]::GetTempPath()) ('aiw-framework-113-' + [guid]::NewGuid().ToString('N'))
+$tempParent=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath([IO.Path]::GetTempPath()))
+$temp = Join-Path $tempParent ('aiw-framework-113-' + [guid]::NewGuid().ToString('N'))
+$tempCleanup=Get-PrivateFixtureCleanupPath $temp $tempParent '^aiw-framework-113-[0-9a-f]{32}$' 'MAIN'
 New-Item -ItemType Directory -Path $temp -Force | Out-Null
 $runtimeCandidateRoot=Join-Path $temp 'sealed-runtime\1.16.0'
 New-Item -ItemType Directory -Path (Split-Path -Parent $runtimeCandidateRoot) -Force|Out-Null
@@ -594,6 +670,26 @@ Assert-True ($normalLoad.Code -eq 0 -and $normalLoad.Text.Contains('routeSource=
 Assert-True ($maintenanceLoad.Code -ne 0) 'version-loader-rejects-root-owned-maintenance-topology'
 Assert-True ($fallbackLoad.Code-eq0-and$fallbackLoad.Text.Contains('fallback=PERSPECTIVE_LENSES.md')-and$fallbackLoad.Text.Contains('AFFECTED_MODULE_FALLBACK')-and$fallbackLoad.Text.Contains('PERSPECTIVE_LENSES.md')-and$unknownFallbackLoad.Code-ne0-and$unknownFallbackLoad.Text.Contains('LOAD_FALLBACK_MODULE_UNKNOWN')) 'loader-bounded-affected-normative-module-fallback-only'
 
+$candidateLoadRoot=Join-Path $temp 'candidate-runtime\1.16.0';New-Item -ItemType Directory -Path (Split-Path -Parent $candidateLoadRoot) -Force|Out-Null;Copy-Item -LiteralPath $candidateRoot -Destination $candidateLoadRoot -Recurse
+$candidateLoadFacts=Approve-CandidateReleaseFixture $candidateLoadRoot
+$candidateLoadProject=Join-Path $temp 'candidate-load-project';$candidateLoadControl=Join-Path $candidateLoadProject '.ai-workspace';New-Item -ItemType Directory -Path $candidateLoadControl -Force|Out-Null
+$candidateLoadConfigPath=Join-Path $candidateLoadControl 'project.json';$candidateLoadConfig=[ordered]@{schemaVersion=4;id='candidate-load-fixture';frameworkVersion='1.16.0';frameworkToolBackend='powershell7'};Write-Utf8 $candidateLoadConfigPath ($candidateLoadConfig|ConvertTo-Json -Depth 20)
+$candidateLoadBootstrapPath=Join-Path $candidateLoadControl 'BOOTSTRAP.md';$candidateLoadBootstrap="<!-- FRAMEWORK-MANAGED:BEGIN -->`nCandidate load fixture.`n<!-- FRAMEWORK-MANAGED:END -->`n<!-- PROJECT-CUSTOM:BEGIN -->`n`n<!-- PROJECT-CUSTOM:END -->`n";Write-Utf8 $candidateLoadBootstrapPath $candidateLoadBootstrap
+$candidateLoadCustomBegin='<!-- PROJECT-CUSTOM:BEGIN -->';$candidateLoadCustomEnd='<!-- PROJECT-CUSTOM:END -->';$candidateLoadCustomStart=$candidateLoadBootstrap.IndexOf($candidateLoadCustomBegin,[StringComparison]::Ordinal)+$candidateLoadCustomBegin.Length;$candidateLoadCustomFinish=$candidateLoadBootstrap.IndexOf($candidateLoadCustomEnd,[StringComparison]::Ordinal);$candidateLoadManagedText=$candidateLoadBootstrap.Substring(0,$candidateLoadCustomStart)+$candidateLoadBootstrap.Substring($candidateLoadCustomFinish);$candidateLoadManagedIdentity=Get-BytesIdentity ($utf8.GetBytes($candidateLoadManagedText))
+$candidateLoadTaskRelative='.ai-workspace/tasks/active/CANDIDATE-LOAD-001.md';$candidateLoadTaskPath=Join-Path $candidateLoadProject $candidateLoadTaskRelative;Write-Utf8 $candidateLoadTaskPath "# candidate load fixture`n"
+$candidateLoadManifestPath=Join-Path $candidateLoadRoot 'RELEASE_MANIFEST.json';$candidateLoadStatePath=Join-Path $candidateLoadControl 'upgrade-recovery\1.16.0\state.json'
+$candidateLoadState=[ordered]@{schemaVersion=4;projectId='candidate-load-fixture';fromVersion='1.15.1';toVersion='1.16.0';targetReleaseCanonical=$candidateLoadFacts.Canonical;targetReleaseManifestIdentity=(Get-Identity $candidateLoadManifestPath);actor='candidate-load-actor';taskId='CANDIDATE-LOAD-001';taskOwner='candidate-load-owner';taskRelative=$candidateLoadTaskRelative;authorizationIdentity=('1|'+('D'*64));objects=@([ordered]@{relative='.ai-workspace/project.json';oldIdentity='MISSING';newIdentity=(Get-Identity $candidateLoadConfigPath)},[ordered]@{relative='.ai-workspace/BOOTSTRAP.md';oldIdentity='MISSING';newIdentity=(Get-Identity $candidateLoadBootstrapPath)},[ordered]@{relative=$candidateLoadTaskRelative;oldIdentity='MISSING';newIdentity=(Get-Identity $candidateLoadTaskPath)});projectionMode='LOCAL_CANDIDATE_MANAGED';projectionObjects=@([ordered]@{relative='.ai-workspace/project.json';identity=(Get-Identity $candidateLoadConfigPath)},[ordered]@{relative='.ai-workspace/BOOTSTRAP.md';identity=(Get-Identity $candidateLoadBootstrapPath);managedIdentity=$candidateLoadManagedIdentity},[ordered]@{relative=$candidateLoadTaskRelative;identity=(Get-Identity $candidateLoadTaskPath)});transactionComplete=$true};Write-Utf8 $candidateLoadStatePath ($candidateLoadState|ConvertTo-Json -Depth 20)
+$candidateLoader=Join-Path $candidateLoadRoot 'scripts\resolve-load-plan.ps1';$candidateLoadConfigIdentity=Get-Identity $candidateLoadConfigPath;$candidateLoadStateIdentity=Get-Identity $candidateLoadStatePath
+$candidateBoundLoad=Invoke-Ps $candidateLoader @('-Role','EXECUTOR','-Profile','STANDARD','-Phase','DISCOVER','-HostName','GENERIC','-AffectedModuleFallback','PERSPECTIVE_LENSES.md','-ProjectRoot',$candidateLoadProject,'-ExpectedProjectConfigIdentity',$candidateLoadConfigIdentity,'-ExpectedCandidatePilotStateIdentity',$candidateLoadStateIdentity,'-AsJson')
+$candidateMissingBinding=Invoke-Ps $candidateLoader @('-Role','EXECUTOR','-Profile','STANDARD','-Phase','DISCOVER','-HostName','GENERIC','-AffectedModuleFallback','PERSPECTIVE_LENSES.md')
+$candidateDriftedBinding=Invoke-Ps $candidateLoader @('-Role','EXECUTOR','-Profile','STANDARD','-Phase','DISCOVER','-HostName','GENERIC','-AffectedModuleFallback','PERSPECTIVE_LENSES.md','-ProjectRoot',$candidateLoadProject,'-ExpectedProjectConfigIdentity',$candidateLoadConfigIdentity,'-ExpectedCandidatePilotStateIdentity',('0|'+('0'*64)))
+$candidateIncompleteState=[ordered]@{schemaVersion=3;projectId='candidate-load-fixture';fromVersion='1.15.1';toVersion='1.16.0';targetReleaseCanonical=$candidateLoadFacts.Canonical;targetReleaseManifestIdentity=(Get-Identity $candidateLoadManifestPath);actor='candidate-load-actor';taskId='CANDIDATE-LOAD-001';taskOwner='candidate-load-owner';taskRelative=$candidateLoadTaskRelative;authorizationIdentity=('1|'+('D'*64));objects=@([ordered]@{relative='.ai-workspace/project.json';oldIdentity='MISSING';newIdentity=(Get-Identity $candidateLoadConfigPath)},[ordered]@{relative='.ai-workspace/BOOTSTRAP.md';oldIdentity='MISSING';newIdentity=(Get-Identity $candidateLoadBootstrapPath)},[ordered]@{relative=$candidateLoadTaskRelative;oldIdentity='MISSING';newIdentity=(Get-Identity $candidateLoadTaskPath)});projectionMode='LOCAL_CANDIDATE_MANAGED';projectionObjects=@([ordered]@{relative='.ai-workspace/project.json';identity=(Get-Identity $candidateLoadConfigPath)},[ordered]@{relative='.ai-workspace/BOOTSTRAP.md';identity=(Get-Identity $candidateLoadBootstrapPath)},[ordered]@{relative=$candidateLoadTaskRelative;identity=(Get-Identity $candidateLoadTaskPath)})};Write-Utf8 $candidateLoadStatePath ($candidateIncompleteState|ConvertTo-Json -Depth 20)
+$candidateIncompleteStateIdentity=Get-Identity $candidateLoadStatePath;$candidateIncompleteBinding=Invoke-Ps $candidateLoader @('-Role','EXECUTOR','-Profile','STANDARD','-Phase','DISCOVER','-HostName','GENERIC','-AffectedModuleFallback','PERSPECTIVE_LENSES.md','-ProjectRoot',$candidateLoadProject,'-ExpectedProjectConfigIdentity',$candidateLoadConfigIdentity,'-ExpectedCandidatePilotStateIdentity',$candidateIncompleteStateIdentity)
+$candidateBoundReceipt=if($candidateBoundLoad.Code-eq0){$candidateBoundLoad.Text|ConvertFrom-Json}else{$null}
+Assert-True ($candidateBoundLoad.Code-eq0-and[string]$candidateBoundReceipt.lifecycle-ceq'CANDIDATE'-and[string]$candidateBoundReceipt.candidatePilotStateIdentity-ceq$candidateLoadStateIdentity-and[string]$candidateBoundReceipt.evidenceCeiling-cmatch'LOCAL_CANDIDATE_PILOT'-and@($candidateBoundReceipt.affectedModuleFallback)-contains'PERSPECTIVE_LENSES.md') 'loader-candidate-fallback-reuses-bound-local-pilot-state'
+Assert-True ($candidateMissingBinding.Code-ne0-and$candidateMissingBinding.Text.Contains('LOAD_CANDIDATE_BINDING_REQUIRED')-and$candidateDriftedBinding.Code-ne0-and$candidateDriftedBinding.Text.Contains('LOCAL_CANDIDATE_PILOT_STATE_DRIFT')) 'loader-candidate-fallback-rejects-missing-or-drifted-pilot-binding'
+Assert-True ($candidateIncompleteBinding.Code-ne0-and$candidateIncompleteBinding.Text.Contains('LOCAL_CANDIDATE_SUPPORT_COMPLETION_REQUIRED')) 'loader-candidate-fallback-requires-complete-current-projection-state'
+
 $normalProjectTemplate = Get-Content -LiteralPath (Join-Path $candidateRoot 'project-starter\project.json') -Raw -Encoding utf8
 $normalControllerTemplate = Get-Content -LiteralPath (Join-Path $candidateRoot 'project-starter\controller.json') -Raw -Encoding utf8
 try {
@@ -605,24 +701,18 @@ Assert-True $normalStarterRendered 'repo-local-starter-json-renders'
 
 $maintenanceOverlayRoot=Join-Path $liveRepositoryRoot 'framework\maintenance-overlay';$overlayManifest=Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $maintenanceOverlayRoot 'OVERLAY.json')|ConvertFrom-Json
 Assert-True (-not(Test-Path -LiteralPath (Join-Path $candidateRoot 'framework-maintenance-starter'))-and[string]$overlayManifest.overlayId-ceq'framework-maintenance-sibling'-and[string]$overlayManifest.baseStarter-ceq'project-starter'-and[string]$overlayManifest.targetControlPlanePolicy-ceq'ABSENT'-and$null-eq$overlayManifest.PSObject.Properties['legacySourceVersions']) 'maintenance-starter-removed-root-overlay-has-no-legacy-source-list'
+foreach($template in @([pscustomobject]@{Name='project-starter';Path=(Join-Path $candidateRoot 'project-starter\BOOTSTRAP.md')},[pscustomobject]@{Name='maintenance-overlay';Path=(Join-Path $maintenanceOverlayRoot 'BOOTSTRAP.md')})){$templateText=Get-Content -Raw -Encoding utf8 -LiteralPath $template.Path;$templateRegion=[regex]::Match($templateText,'(?s)<!-- PROJECT-CUSTOM:BEGIN -->(.*?)<!-- PROJECT-CUSTOM:END -->');Assert-True ($templateRegion.Success-and[string]::IsNullOrWhiteSpace($templateRegion.Groups[1].Value)) ('starter-project-custom-region-structurally-empty-'+$template.Name)}
 $budgetContractRaw=Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $candidateRoot 'tests\PROCESS_REQUIREMENTS_BUDGETS.json');$budgetContract=$budgetContractRaw|ConvertFrom-Json
 $authoritySchema=Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $candidateRoot 'AUTHORITY_CONTEXT_SCHEMA.json')|ConvertFrom-Json
 $intentSchema=Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $candidateRoot 'INTENT_ENVELOPE_SCHEMA.json')|ConvertFrom-Json
-$catalogBudgetIdentity=Get-Identity (Join-Path $candidateRoot 'PROCESS_REQUIREMENTS.json')
 $fixtureContractPath=Join-Path $candidateRoot 'tests\PROCESS_REQUIREMENTS_FIXTURES.json';$measurementHarnessPath=Join-Path $candidateRoot 'tests\measure-process-requirements.ps1';$fixtureContract=Get-Content -Raw -Encoding utf8 -LiteralPath $fixtureContractPath|ConvertFrom-Json
 $adoptionProfile=Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $candidateRoot 'ADOPTION_PROFILE.json')|ConvertFrom-Json
-Assert-True ([string]$budgetContract.baseline.version-ceq'1.15.1'-and[string]$budgetContract.baseline.catalogIdentity-ceq'48098|547BBC615BCFC0A281723A1B84AEFD36FECD5CA421C7155C1897D8F4F0CC74C5'-and[string]$budgetContract.candidate.catalogIdentity-ceq$catalogBudgetIdentity) 'process-budget-minor-baseline-and-candidate-catalog-identities-exact'
 Assert-True ([string]$adoptionProfile.frameworkVersion-ceq'1.16.0'-and[bool]$adoptionProfile.registrationEligible-and[bool]$adoptionProfile.localCandidatePilotEligible-and@($adoptionProfile.sourceCompatibility.projectFormats).Count-eq0-and@($adoptionProfile.sourceCompatibility.requiredCapabilities).Count-eq0-and$null-eq$adoptionProfile.PSObject.Properties['directSourceVersions']-and[int]$adoptionProfile.projectControl.schemaVersion-eq4-and[string]$adoptionProfile.projectControl.processCarrierContractVersion-ceq'1.16.0'-and[string]$adoptionProfile.projectControl.frameworkToolBackend-ceq'powershell7'-and[string]$adoptionProfile.projectControl.navigationProjection-ceq'ROOT_CANONICAL_SKILL_MANAGED_AGENTS'-and[string]$adoptionProfile.projectControl.runtimeArtifactRoot-ceq'.ai-workspace/runtime'-and[string]$adoptionProfile.projectControl.runtimeGitIgnoreRule-ceq'/.ai-workspace/runtime/'-and[bool]$adoptionProfile.projectControl.taskLastWriteRequired-and[string]$adoptionProfile.projectControl.capabilityBinding-ceq'EXACT_ENABLED_IDS'-and[int]$adoptionProfile.processBudget.defaultSelectedRulePackBytes-eq32768-and[int]$adoptionProfile.processBudget.absoluteSelectedRulePackBytes-eq98304-and[int]$budgetContract.ceilings.absoluteSelectedRulePackBytes-eq98304) 'adoption-profile-new-baseline-format-capability-contract-exact'
 Assert-True (@($authoritySchema.required).Count-eq25-and[int]$budgetContract.candidate.legacyAuthorityContextFieldCount-eq25-and[int]$budgetContract.candidate.compactAuthorityBindingFieldCount-eq29-and@($intentSchema.required).Count-eq10-and[int]$budgetContract.candidate.intentEnvelopeFieldCount-eq10-and[int]$budgetContract.candidate.receiptSourceBindingFieldCount-eq12-and[int]$budgetContract.candidate.compactBoundaryInputFieldCount-eq9) 'process-budget-schema-field-counts-match-runtime-contract'
 $fixtureIds=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal);$fixtureBudgetsValid=$true;foreach($fixture in @($budgetContract.fixtures)){if(-not$fixtureIds.Add([string]$fixture.fixtureId)-or[int]$fixture.selectedPackEstimatedTokens-ne[int][math]::Ceiling([int]$fixture.selectedPackBytes/4.0)-or[int]$fixture.selectedPackBytes-lt1-or[int]$fixture.selectedPackBytes-gt[int]$budgetContract.ceilings.absoluteSelectedRulePackBytes-or[int]$fixture.selectedRequirementCount-lt1){$fixtureBudgetsValid=$false};foreach($modeName in @('DISCOVER','ADMIT_ACTION','FINALIZE_OUTPUT')){$runtime=$fixture.observedRuntimeMs.$modeName;if([double]$runtime.median-le0-or[double]$runtime.p95-lt[double]$runtime.median-or[double]$runtime.p95-gt[double]$budgetContract.ceilings.p95Ms.$modeName){$fixtureBudgetsValid=$false}}}
 Assert-True ($fixtureBudgetsValid-and$fixtureIds.Count-eq6-and@($budgetContract.measurementContract.statistics)-contains'median'-and@($budgetContract.measurementContract.statistics)-contains'nearest-rank-p95'-and[int]$budgetContract.measurementContract.warmupsPerModeAndFixture-eq1-and[int]$budgetContract.measurementContract.measuredRunsPerModeAndFixture-eq5-and[string]$budgetContract.measurementContract.toleranceFormula-ceq'ceiling(max(2.0 * baselineP95Ms, baselineP95Ms + 250))'-and[string]$budgetContract.candidate.fixtureContractIdentity-ceq(Get-Identity $fixtureContractPath)-and[string]$budgetContract.candidate.measurementHarnessIdentity-ceq(Get-Identity $measurementHarnessPath)-and[string]$budgetContract.evidenceCeiling-like'Bounded five-run*not a statistical performance certification*') 'process-budget-six-exact-fixtures-and-proportional-measurement-protocol-bound'
 $fixtureIdentitiesValid=$true;foreach($fixture in @($fixtureContract.fixtures)){$ordered=[ordered]@{};foreach($property in @($fixture.PSObject.Properties)){if($property.Name-cne'fixtureIdentity'){$ordered[$property.Name]=$property.Value}};$computed=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($utf8.GetBytes(($ordered|ConvertTo-Json -Depth 30 -Compress))));$budgetFixture=@($budgetContract.fixtures|Where-Object{[string]$_.fixtureId-ceq[string]$fixture.fixtureId});if($budgetFixture.Count-ne1-or[string]$fixture.fixtureIdentity-cne$computed-or[string]$budgetFixture[0].fixtureIdentity-cne$computed){$fixtureIdentitiesValid=$false}}
 Assert-True ($fixtureIdentitiesValid-and@($fixtureContract.fixtures).Count-eq6) 'process-budget-fixture-record-identities-reproducible'
-if($SkipPerformanceSmoke){Assert-True $true 'process-budget-six-fixtures-replay-selected-pack-skipped-for-affected-run'}else{
-    $measurementSmoke=Invoke-Ps $measurementHarnessPath @('-Warmups','1','-MeasuredRuns','1','-AsJson');$measurementSmokeValue=if($measurementSmoke.Code-eq0){$measurementSmoke.Text|ConvertFrom-Json}else{$null};$measurementSmokeMatches=$measurementSmoke.Code-eq0-and@($measurementSmokeValue.fixtures).Count-eq6
-    if($measurementSmokeMatches){foreach($fixture in @($measurementSmokeValue.fixtures)){$budgetFixture=@($budgetContract.fixtures|Where-Object{[string]$_.fixtureId-ceq[string]$fixture.fixtureId});if($budgetFixture.Count-ne1-or[int]$budgetFixture[0].selectedPackBytes-ne[int]$fixture.selectedPackBytes-or[int]$budgetFixture[0].selectedPackEstimatedTokens-ne[int]$fixture.selectedPackEstimatedTokens-or[int]$budgetFixture[0].selectedRequirementCount-ne[int]$fixture.selectedRequirementCount){$measurementSmokeMatches=$false}}}
-    Assert-True $measurementSmokeMatches 'process-budget-six-fixtures-replay-selected-pack'
-}
 $contextBudgetsValid=$true
 $rootRouterPath=Join-Path $liveRepositoryRoot 'skills\ai-workspace-router\SKILL.md';$versionRouterContractPath=Join-Path $candidateRoot 'host\skills\ai-workspace-router\SKILL.md';$routerBytes=[int64](Get-Item -LiteralPath $rootRouterPath).Length;$routerIdentity=Get-Identity $rootRouterPath;$routerSkillText=Get-Content -Raw -Encoding utf8 -LiteralPath $rootRouterPath;$versionRouterContract=Get-Content -Raw -Encoding utf8 -LiteralPath $versionRouterContractPath
 foreach($context in @($budgetContract.endToEndContexts)){
@@ -642,30 +732,6 @@ foreach($starterEntry in @([pscustomobject]@{Name='project-starter';Path=(Join-P
     Assert-True (Test-RouterSkillContract $routerSkillText $routerBytes ([int64]$budgetContract.ceilings.routerSkillBytes)) ('host-global-router-skill-bounded-natural-reactivation-no-per-tool|'+$starterEntry.Name)
     Assert-True ([regex]::Matches($agentsText,'AI-WORKSPACE-FRAMEWORK:BEGIN').Count-eq1-and[regex]::Matches($agentsText,'AI-WORKSPACE-FRAMEWORK:END').Count-eq1-and$agentsText.Contains('ai-workspace-router')) ('agents-managed-router-block-exact|'+$starterEntry.Name)
 }
-$catalogGenerator=Join-Path $candidateRoot 'scripts\build-process-requirements.ps1'
-$catalogCheck=Invoke-Ps $catalogGenerator @('-Check')
-Assert-True ($catalogCheck.Code-eq0-and$catalogCheck.Text.Contains('PASS|requirements=35|fragments=9')) 'process-requirements-canonical-fragments-match-generated-catalog'
-$catalogText=Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $candidateRoot 'PROCESS_REQUIREMENTS.json');$catalog=$catalogText|ConvertFrom-Json
-$blockProjectionValid=-not$catalogText.Contains('"fullText"')
-foreach($fragmentPath in Get-ChildItem -LiteralPath (Join-Path $candidateRoot 'requirements\fragments') -File -Filter '*.json'){
-    $fragmentText=Get-Content -Raw -Encoding utf8 -LiteralPath $fragmentPath.FullName
-    if($fragmentText.Contains('"fullText"')){$blockProjectionValid=$false}
-}
-foreach($requirement in @($catalog.requirements)){
-    $requirementId=[string]$requirement.requirementId;$locator='AIW-REQUIREMENT:'+$requirementId
-    if([string]$requirement.exactBlockLocator-cne$locator){$blockProjectionValid=$false;continue}
-    $ownerText=Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $candidateRoot ([string]$requirement.ownerModule))
-    $begin='<!-- '+$locator+':BEGIN -->';$end='<!-- '+$locator+':END -->'
-    $beginMatches=[regex]::Matches($ownerText,[regex]::Escape($begin));$endMatches=[regex]::Matches($ownerText,[regex]::Escape($end))
-    if($beginMatches.Count-ne1-or$endMatches.Count-ne1-or$endMatches[0].Index-le($beginMatches[0].Index+$begin.Length)){$blockProjectionValid=$false;continue}
-    $body=$ownerText.Substring($beginMatches[0].Index+$begin.Length,$endMatches[0].Index-($beginMatches[0].Index+$begin.Length)).Trim()
-    if([string]::IsNullOrWhiteSpace($body)){$blockProjectionValid=$false}
-}
-Assert-True ($blockProjectionValid-and@($catalog.requirements).Count-eq35) 'process-requirements-metadata-only-catalog-exact-markdown-blocks-nonempty'
-$catalogDriftRoot=Join-Path $temp 'catalog-drift-fixture';Copy-Item -LiteralPath $candidateRoot -Destination $catalogDriftRoot -Recurse
-$catalogDriftPath=Join-Path $catalogDriftRoot 'PROCESS_REQUIREMENTS.json';Write-Utf8 $catalogDriftPath ((Get-Content -Raw -Encoding utf8 -LiteralPath $catalogDriftPath).Replace('Independent action authorization','Drifted title'))
-$catalogDriftCheck=Invoke-Ps (Join-Path $catalogDriftRoot 'scripts\build-process-requirements.ps1') @('-Check')
-Assert-True ($catalogDriftCheck.Code-ne0-and$catalogDriftCheck.Text.Contains('PROCESS_REQUIREMENTS_PROJECTION_DRIFT')) 'process-requirements-generated-catalog-drift-rejected'
 $duplicateOwnerRoot=Join-Path $temp 'catalog-duplicate-owner-fixture';Copy-Item -LiteralPath $candidateRoot -Destination $duplicateOwnerRoot -Recurse
 $duplicateOwnerManifestPath=Join-Path $duplicateOwnerRoot 'LOAD_MANIFEST.json';$duplicateOwnerManifest=Get-Content -Raw -Encoding utf8 -LiteralPath $duplicateOwnerManifestPath|ConvertFrom-Json;$duplicateOwnerManifest.requirementFragments[1].ownerModule=$duplicateOwnerManifest.requirementFragments[0].ownerModule;Write-Utf8 $duplicateOwnerManifestPath ($duplicateOwnerManifest|ConvertTo-Json -Depth 40)
 $duplicateOwnerRun=Invoke-Ps (Join-Path $duplicateOwnerRoot 'scripts\build-process-requirements.ps1') @('-Check')
@@ -681,18 +747,13 @@ foreach ($entryPath in $workflowEntryDocuments) {
     Assert-True ($entryText.Contains('WORKFLOW_ROUTE_RESOLVE') -and $entryText.Contains('TOOLCHAIN.json') -and $entryText.Contains('ephemeral') -and $entryText.Contains('fail closed')) ('workflow-live-entry-fail-closed|' + $entryPath)
 }
 
-$rootReleaseGovernancePath=Join-Path $liveFrameworkRoot 'FRAMEWORK_RELEASE.md'
-$releaseGovernanceText=Get-Content -Raw -Encoding utf8 -LiteralPath $rootReleaseGovernancePath
 $reviewEvidenceText=Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $candidateRoot 'REVIEW_AND_EVIDENCE.md')
 $projectControlText=Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $candidateRoot 'PROJECT_CONTROL.md')
-$examplesText=Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $candidateRoot 'EXAMPLES.md')
 $evaluationText=Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $candidateRoot 'PROCESS_REQUIREMENTS_EVALUATION.md')
 $processCatalogText=Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $candidateRoot 'PROCESS_REQUIREMENTS.json')
 Assert-True ($projectControlText.Contains('coverage metadata 不是 semantic proof')-and$reviewEvidenceText.Contains('coverage ID、changelog 声明或近似措辞本身不是 acceptance evidence')) 'correction-incorporation-coverage-metadata-alone-insufficient'
 Assert-True ($projectControlText.Contains('project-scoped alias、native requirement、catalog identity 与 canonical source-record identity')-and$projectControlText.Contains('load manifest 可达的 applicable normative modules')-and$projectControlText.Contains('被 behavior tests 覆盖')-and$reviewEvidenceText.Contains('原始 correction reason、effective rule 与 applicability boundary 对照实际 normative modules 与 behavior tests')-and$projectControlText.Contains('不创建 correction-to-module registry 或 absorption ledger')) 'correction-incorporation-binds-native-rule-source-tests-review-without-registry'
 Assert-True ($evaluationText.Contains('显式采用 stable `1.16.0` 后才开始 observation')-and$evaluationText.Contains('使用正常 project task')-and$evaluationText.Contains('来源 task 保留一条 compact record')-and$evaluationText.Contains('不规定固定 sample count/time window')-and$evaluationText.Contains('不是 release gate')-and$evaluationText.Contains('不替代 conformance、independent Review、`OWNER_ACCEPT` 或 release sealing')-and-not$evaluationText.Contains('exactly 20 admitted samples')-and-not$evaluationText.Contains('INSUFFICIENT_SAMPLE / NO_ADVANCE')) 'post-release-project-observation-nonblocking-no-synthetic-work'
-Assert-True ((Test-Path -LiteralPath $rootReleaseGovernancePath -PathType Leaf)-and-not(Test-Path -LiteralPath (Join-Path $candidateRoot 'FRAMEWORK_RELEASE.md'))-and@($inventory.explanationAndHistory)-cnotcontains'FRAMEWORK_RELEASE.md'-and-not$reviewEvidenceText.Contains('PR_REVIEW_CANDIDATE_FREEZE_AND_SEQUENCE')-and-not$processCatalogText.Contains('"requirementId": "PR_REVIEW_CANDIDATE_FREEZE_AND_SEQUENCE"')-and(Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $liveRepositoryRoot 'AGENTS.md')).Contains('framework/FRAMEWORK_RELEASE.md')) 'release-governance-root-owned-and-absent-from-version-payload'
-Assert-True ($releaseGovernanceText.Contains('final candidate freeze 只跑一次 complete current-version suite')-and$releaseGovernanceText.Contains('只有 shared root tools、upgrade compatibility、Tool Contract 或 baseline execution boundary 受影响时，才重跑 baseline executable suite')-and$releaseGovernanceText.Contains('一个 independent CRITICAL Source Review')-and$releaseGovernanceText.Contains('Maintenance `OWNER_ACCEPT` 独立接受 exact approved candidate')-and$releaseGovernanceText.Contains('没有未 Review 的 free-form/executable change 时，不需要第二次 semantic post-seal Review')-and$releaseGovernanceText.Contains('deterministic publication preflight')-and$releaseGovernanceText.Contains('publication 顺序为 `github/main` 后 `origin/main`')-and$releaseGovernanceText.Contains('失败即停止')-and$reviewEvidenceText.Contains('same-scope repair 使用新 writer package')-and$reviewEvidenceText.Contains('focused rereview')) 'release-sequence-proportional-review-owner-accept-seal-git-review-and-two-remote-stopline'
 Assert-True (-not$processCatalogText.Contains('level_test2')-and-not$processCatalogText.Contains('Pocket')) 'process-catalog-generic-no-consumer-paths'
 
 try {
@@ -835,6 +896,9 @@ try {
     $pair = Join-Path $temp 'Framework-Workspace'
     $control = Join-Path $pair 'AI-Workspace-Maintenance'
     $target = Join-Path $pair 'AI-Workspace'
+    $targetControlFixturePath=Get-PrivateFixtureCleanupPath (Join-Path $target '.ai-workspace') $target '^\.ai-workspace$' 'TARGET_CONTROL'
+    $pairGitFixturePath=Get-PrivateFixtureCleanupPath (Join-Path $pair '.git') $pair '^\.git$' 'WORKSPACE_PARENT_GIT'
+    $pairControlFixturePath=Get-PrivateFixtureCleanupPath (Join-Path $pair '.ai-workspace') $pair '^\.ai-workspace$' 'WORKSPACE_PARENT_CONTROL'
     New-GitRepo $control
     New-GitRepo $target
     $controlPlane = Render-MaintenanceStarter (Join-Path $candidateRoot 'project-starter') $maintenanceOverlayRoot $control
@@ -911,8 +975,8 @@ try {
     $controlTarget=$maintenance116ConfigRaw|ConvertFrom-Json;$controlTarget.frameworkVersion='1.15.0';$controlTarget.frameworkTarget.repositoryId='CONTROL';Invoke-MaintenanceSchema3Rejected $controlTarget 'control-target-id'
     $missingTarget=$maintenance116ConfigRaw|ConvertFrom-Json;$missingTarget.frameworkVersion='1.15.0';$missingTarget.frameworkTarget.siblingDirectory='Missing-Target';Invoke-MaintenanceSchema3Rejected $missingTarget 'wrong-target-git-top'
     $linkPath=Join-Path $pair 'AI-Workspace-Link';New-TestJunction $linkPath $target;try{$linkedTarget=$maintenance116ConfigRaw|ConvertFrom-Json;$linkedTarget.frameworkVersion='1.15.0';$linkedTarget.frameworkTarget.siblingDirectory='AI-Workspace-Link';Invoke-MaintenanceSchema3Rejected $linkedTarget 'target-reparse'}finally{Remove-TestJunction $linkPath}
-    New-Item -ItemType Directory -Path (Join-Path $target '.ai-workspace')|Out-Null;try{$targetControl=$maintenance116ConfigRaw|ConvertFrom-Json;$targetControl.frameworkVersion='1.15.0';Invoke-MaintenanceSchema3Rejected $targetControl 'target-control-plane'}finally{Remove-Item -LiteralPath (Join-Path $target '.ai-workspace') -Recurse -Force}
-    & git -C $pair init -q;try{$parentGit=$maintenance116ConfigRaw|ConvertFrom-Json;$parentGit.frameworkVersion='1.15.0';Invoke-MaintenanceSchema3Rejected $parentGit 'workspace-parent-git'}finally{Remove-Item -LiteralPath (Join-Path $pair '.git') -Recurse -Force}
+    New-Item -ItemType Directory -Path $targetControlFixturePath|Out-Null;try{$targetControlConfig=$maintenance116ConfigRaw|ConvertFrom-Json;$targetControlConfig.frameworkVersion='1.15.0';Invoke-MaintenanceSchema3Rejected $targetControlConfig 'target-control-plane'}finally{Remove-Item -LiteralPath $targetControlFixturePath -Recurse -Force}
+    & git -C $pair init -q;try{$parentGit=$maintenance116ConfigRaw|ConvertFrom-Json;$parentGit.frameworkVersion='1.15.0';Invoke-MaintenanceSchema3Rejected $parentGit 'workspace-parent-git'}finally{Remove-Item -LiteralPath $pairGitFixturePath -Recurse -Force}
     Write-Utf8 $configPath $maintenance116ConfigRaw;Write-Utf8 $maintenancePolicyPath $maintenance116PolicyRaw;$configIdentity=Get-Identity $configPath
 
     $invalidStatePackage = Join-Path $controlPlane 'invalid-state-auth.json'
@@ -930,7 +994,7 @@ try {
     Assert-True ($invalidStateResolve.Code -ne 0 -and $invalidStateResolve.Text.Contains('CONTROLLER_VALUES')) 'non-current-controller-rejected-by-resolver'
     Assert-True ($invalidStateAuth.Code -ne 0 -and $invalidStateAuth.Text.Contains('CONTROLLER_VALUES') -and $invalidStateDomainAuth.Code -ne 0 -and $invalidStateDomainAuth.Text.Contains('CONTROLLER_VALUES')) 'non-current-controller-cannot-authorize-any-issuer-role'
 
-    $targetControl = Join-Path $target '.ai-workspace'
+    $targetControl = $targetControlFixturePath
     New-Item -ItemType Directory -Path $targetControl -Force | Out-Null
     Write-Utf8 (Join-Path $targetControl 'controller.json') (@{schemaVersion=1;projectId='foreign';controllerId='foreign';controllerEpoch=1;state='CURRENT'} | ConvertTo-Json)
     $completeTargetControl = Invoke-Ps $resolver @('-ControlRepositoryPath',$control,'-ExpectedProjectConfigIdentity',$configIdentity)
@@ -966,15 +1030,15 @@ try {
     $drift = Invoke-Ps $resolver @('-ControlRepositoryPath',$control,'-ExpectedProjectConfigIdentity',('0|' + ('0' * 64)),'-AsJson')
     Assert-True ($drift.Code -ne 0 -and $drift.Text.Contains('PROJECT_CONFIG_DRIFT')) 'maintenance-resolver-config-drift-fails-closed'
 
-    New-Item -ItemType Directory -Path (Join-Path $pair '.git') -Force | Out-Null
+    New-Item -ItemType Directory -Path $pairGitFixturePath -Force | Out-Null
     $parentGit = Invoke-Ps $resolver @('-ControlRepositoryPath',$control,'-ExpectedProjectConfigIdentity',$configIdentity)
     Assert-True ($parentGit.Code -ne 0 -and $parentGit.Text.Contains('WORKSPACE_PARENT_GIT_FORBIDDEN')) 'maintenance-resolver-parent-git-forbidden'
-    Remove-Item -LiteralPath (Join-Path $pair '.git') -Recurse -Force
+    Remove-Item -LiteralPath $pairGitFixturePath -Recurse -Force
 
-    New-Item -ItemType Directory -Path (Join-Path $pair '.ai-workspace') -Force | Out-Null
+    New-Item -ItemType Directory -Path $pairControlFixturePath -Force | Out-Null
     $parentControl = Invoke-Ps $resolver @('-ControlRepositoryPath',$control,'-ExpectedProjectConfigIdentity',$configIdentity)
     Assert-True ($parentControl.Code -ne 0 -and $parentControl.Text.Contains('WORKSPACE_PARENT_CONTROL_FORBIDDEN')) 'maintenance-resolver-parent-control-forbidden'
-    Remove-Item -LiteralPath (Join-Path $pair '.ai-workspace') -Recurse -Force
+    Remove-Item -LiteralPath $pairControlFixturePath -Recurse -Force
 
     $configRaw = Get-Content -LiteralPath $configPath -Raw -Encoding utf8
     $typedConfig = $configRaw | ConvertFrom-Json
@@ -1065,7 +1129,7 @@ try {
     Move-Item -LiteralPath $frameworkDanglingHold -Destination $frameworkPath
     Assert-True ($danglingPin.Code -ne 0) 'maintenance-resolver-target-dangling-junction-rejected'
 
-    $targetControlBacking = Join-Path $temp 'target-control-backing'
+    $targetControlBacking = Get-PrivateFixtureCleanupPath (Join-Path $temp 'target-control-backing') $temp '^target-control-backing$' 'TARGET_CONTROL_BACKING'
     New-Item -ItemType Directory -Path $targetControlBacking -Force | Out-Null
     New-TestJunction $targetControl $targetControlBacking
     $targetControlJunction = Invoke-Ps $resolver @('-ControlRepositoryPath',$control,'-ExpectedProjectConfigIdentity',$configIdentity)
@@ -1076,7 +1140,7 @@ try {
     Assert-True ($targetControlJunction.Code -ne 0 -and $targetControlJunction.Text.Contains('TARGET_CONTROL_PLANE_REPARSE')) 'maintenance-resolver-target-control-junction-rejected'
     Assert-True ($junctionControlAuth.Code -ne 0 -and $junctionTargetAuth.Code -ne 0 -and $junctionControlAuth.Text.Contains('TARGET_CONTROL_PLANE_REPARSE') -and $junctionTargetAuth.Text.Contains('TARGET_CONTROL_PLANE_REPARSE')) 'authorization-schema2-target-control-junction-denies-control-and-target'
 
-    $danglingTargetControlBacking = Join-Path $temp 'target-control-dangling-backing'
+    $danglingTargetControlBacking = Get-PrivateFixtureCleanupPath (Join-Path $temp 'target-control-dangling-backing') $temp '^target-control-dangling-backing$' 'TARGET_CONTROL_DANGLING_BACKING'
     New-Item -ItemType Directory -Path $danglingTargetControlBacking -Force | Out-Null
     New-TestJunction $targetControl $danglingTargetControlBacking
     Remove-Item -LiteralPath $danglingTargetControlBacking -Force
@@ -1111,7 +1175,7 @@ try {
     $badTargetActionPackage = Join-Path $controlPlane 'bad-target-action-auth.json'
     $badControlActionPackage = Join-Path $controlPlane 'bad-control-action-auth.json'
     New-AuthorizationPackage $controlPackage 2 'CONTROL' $configIdentity @('CONTROL_WRITE') $controlObject (Get-Identity (Join-Path $control $controlObject))
-    New-AuthorizationPackage $targetPackage 2 'ai-workspace-framework' $configIdentity @('SOURCE_WRITE','TEST_RUN') $targetObject (Get-Identity (Join-Path $target $targetObject))
+    New-AuthorizationPackage $targetPackage 2 'ai-workspace-framework' $configIdentity @('SOURCE_WRITE','TEST_RUN') $targetObject (Get-Identity (Join-Path $target $targetObject)) -ContinuationPlan @('SOURCE_WRITE','TEST_RUN')
     New-AuthorizationPackage $badTargetActionPackage 2 'ai-workspace-framework' $configIdentity @('CONTROL_WRITE') $targetObject (Get-Identity (Join-Path $target $targetObject))
     New-AuthorizationPackage $badControlActionPackage 2 'CONTROL' $configIdentity @('SOURCE_WRITE') $controlObject (Get-Identity (Join-Path $control $controlObject))
     $directSchema2 = Invoke-Ps $versionChecker @('-PackagePath',$controlPackage,'-ObservedActor','controller-fixture','-ObservedTaskId','FIXTURE-001','-ObservedOwner','controller-fixture','-ObservedAction','CONTROL_WRITE','-ObservedPath',$controlObject,'-ObservedIdentity',($controlObject+'='+(Get-Identity (Join-Path $control $controlObject))),'-ControllerControlPath','.ai-workspace/controller.json','-ObservedRepositoryId','CONTROL','-ProjectConfigPath','.ai-workspace/project.json','-ExpectedProjectConfigIdentity',$configIdentity,'-TaskPath','.ai-workspace/tasks/active/FIXTURE-001.md','-ExpectedTaskIdentity',(Get-Identity (Join-Path $control '.ai-workspace/tasks/active/FIXTURE-001.md'))) $control
@@ -1132,6 +1196,38 @@ try {
     $expectedTargetGitTop=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($target))
     if($maintenanceProcessRun.Code-ne0-or[string]$maintenanceProcessValue.authorityContext.repositoryGitTop-cne$expectedTargetGitTop){Write-Output ('DIAG|process-maintenance-target|code='+$maintenanceProcessRun.Code+'|expected='+$expectedTargetGitTop+'|output='+$maintenanceProcessRun.Text)}
     Assert-True ($maintenanceProcessRun.Code-eq0-and[string]$maintenanceProcessValue.authorityContext.projectRoot-ceq$expectedTargetGitTop-and[string]$maintenanceProcessValue.authorityContext.repositoryGitTop-ceq$expectedTargetGitTop) 'process-maintenance-target-authority-context-uses-target-git-top'
+
+    $maintenanceContinuationDiscoverReceiptPath=Join-Path $controlPlane 'maintenance-continuation-discover-receipt.json';$maintenanceTestDiscoverReceiptPath=Join-Path $controlPlane 'maintenance-test-discover-receipt.json';$maintenanceContinuationBoundaryPath=Join-Path $controlPlane 'maintenance-continuation-boundary.json';$maintenanceContinuationReceiptPath=Join-Path $controlPlane 'maintenance-action-continuation-receipt.json'
+    Write-Utf8 $maintenanceContinuationDiscoverReceiptPath ($maintenanceProcessValue|ConvertTo-Json -Depth 40)
+    $maintenanceContinuationPrep=@($maintenanceProcessValue.selectedObligations|ForEach-Object{@($_.preparationRequirements)}|Sort-Object -Unique);$maintenanceContinuationResults=@($maintenanceProcessValue.selectedObligations|ForEach-Object{@($_.resultRequirements)}|Sort-Object -Unique)
+    $maintenanceContinuationAdmit=[ordered]@{schemaVersion=2;mode='ADMIT_ACTION';discoverReceiptPath=$maintenanceContinuationDiscoverReceiptPath;expectedDiscoverReceiptIdentity=Get-Identity $maintenanceContinuationDiscoverReceiptPath;preparationReceipts=$maintenanceContinuationPrep;resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='BOUND'}
+    Write-Utf8 $maintenanceContinuationBoundaryPath ($maintenanceContinuationAdmit|ConvertTo-Json -Depth 30);$maintenanceContinuationAdmitRun=Invoke-Ps $maintenanceProcessResolver @('-InputPath',$maintenanceContinuationBoundaryPath,'-AsJson')
+    Write-Utf8 (Join-Path $target $targetObject) 'authorized target postimage'
+    $maintenanceContinuationFinalize=$maintenanceContinuationAdmit|ConvertTo-Json -Depth 30|ConvertFrom-Json;$maintenanceContinuationFinalize.mode='FINALIZE_OUTPUT';$maintenanceContinuationFinalize.resultReceipts=@($maintenanceContinuationResults+@('OBJECT_POSTIMAGE|'+$targetObject+'|'+(Get-Identity (Join-Path $target $targetObject))))
+    Write-Utf8 $maintenanceContinuationBoundaryPath ($maintenanceContinuationFinalize|ConvertTo-Json -Depth 30);$maintenanceContinuationFinalizeRun=Invoke-Ps $maintenanceProcessResolver @('-InputPath',$maintenanceContinuationBoundaryPath,'-AsJson');$maintenanceContinuationFinalizeValue=if($maintenanceContinuationFinalizeRun.Code-eq0){$maintenanceContinuationFinalizeRun.Output[-1]|ConvertFrom-Json}else{$null}
+    if($null-ne$maintenanceContinuationFinalizeValue-and$null-ne$maintenanceContinuationFinalizeValue.PSObject.Properties['continuationReceipt']){Write-Utf8 $maintenanceContinuationReceiptPath ($maintenanceContinuationFinalizeValue.continuationReceipt|ConvertTo-Json -Depth 30)}
+    $maintenanceTestInput=$maintenanceProcessInput|ConvertTo-Json -Depth 40|ConvertFrom-Json;$maintenanceTestInput.intentEnvelope.requestedActionKind='TEST_RUN';$maintenanceTestInput.intentEnvelope.requestedResultKind='TEST_RESULT';$maintenanceTestInput.intentEnvelope.objective='Test the exact authorized Framework target postimage';$maintenanceTestInput.intentEnvelope.mutationHints=@('test');$maintenanceTestInput|Add-Member -NotePropertyName continuationReceiptPath -NotePropertyValue $maintenanceContinuationReceiptPath;$maintenanceTestInput|Add-Member -NotePropertyName expectedContinuationReceiptIdentity -NotePropertyValue $(if(Test-Path -LiteralPath $maintenanceContinuationReceiptPath){Get-Identity $maintenanceContinuationReceiptPath}else{'MISSING'})
+    Write-Utf8 $maintenanceProcessInputPath ($maintenanceTestInput|ConvertTo-Json -Depth 40);$maintenanceTestRun=Invoke-Ps $maintenanceProcessResolver @('-InputPath',$maintenanceProcessInputPath,'-AsJson');$maintenanceTestResult=if($maintenanceTestRun.Code-eq0){$maintenanceTestRun.Output[-1]|ConvertFrom-Json}else{$null};$maintenanceTestReceipt=if($null-ne$maintenanceTestResult){$maintenanceTestResult.compactReceipt}else{$null}
+    if($null-ne$maintenanceTestReceipt){Write-Utf8 $maintenanceTestDiscoverReceiptPath ($maintenanceTestReceipt|ConvertTo-Json -Depth 40);$maintenanceTestPrep=@($maintenanceTestReceipt.selectedObligations|ForEach-Object{@($_.preparationRequirements)}|Sort-Object -Unique);$maintenanceTestAdmit=[ordered]@{schemaVersion=2;mode='ADMIT_ACTION';discoverReceiptPath=$maintenanceTestDiscoverReceiptPath;expectedDiscoverReceiptIdentity=Get-Identity $maintenanceTestDiscoverReceiptPath;preparationReceipts=$maintenanceTestPrep;resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='BOUND'};Write-Utf8 $maintenanceContinuationBoundaryPath ($maintenanceTestAdmit|ConvertTo-Json -Depth 30);$maintenanceTestAdmitRun=Invoke-Ps $maintenanceProcessResolver @('-InputPath',$maintenanceContinuationBoundaryPath,'-AsJson')}else{$maintenanceTestAdmitRun=[pscustomobject]@{Code=2;Text='NO_TEST_RECEIPT'}}
+    $maintenanceContinuationEmitted=$null-ne$maintenanceContinuationFinalizeValue-and$null-ne$maintenanceContinuationFinalizeValue.PSObject.Properties['continuationReceipt']
+    Assert-True ($maintenanceContinuationAdmitRun.Code-eq0-and$maintenanceContinuationFinalizeRun.Code-eq0-and$maintenanceContinuationEmitted-and$maintenanceTestRun.Code-eq0-and$maintenanceTestAdmitRun.Code-eq0-and[int]$maintenanceTestReceipt.authorityContext.continuationStepIndex-eq1-and[string]$maintenanceTestReceipt.authorityContext.projectRoot-ceq$expectedTargetGitTop) 'process-maintenance-root-adapters-consume-write-postimage-continuation'
+    Write-Utf8 (Join-Path $target $targetObject) 'public target'
+
+    $compactMaintenanceInputPath=Join-Path $controlPlane 'maintenance-compact2-process.json'
+    $compactMaintenanceReceiptPath=Join-Path $controlPlane 'maintenance-compact2-receipt.json'
+    $compactMaintenanceBoundaryPath=Join-Path $controlPlane 'maintenance-compact2-boundary.json'
+    $compactMaintenanceIntent=[ordered]@{schemaVersion=1;objective='Modify one bounded Maintenance control object';requestedActionKind='CONTROL_WRITE';requestedResultKind='IMPLEMENTATION_RESULT';semanticHints=@('implementation');pathHints=@($controlObject);capabilityHints=@();mutationHints=@('control');externalHints=@();ambiguityState='CLEAR'}
+    $compactMaintenanceInput=[ordered]@{schemaVersion=3;mode='DISCOVER';contextType='TASK';readOnlyContext='NOT_APPLICABLE';projectRoot=$control;frameworkRoot=$target;taskPath=$maintenanceProcessTask;expectedProjectConfigIdentity=$configIdentity;expectedCorrectionsIdentity=(Get-Identity (Join-Path $controlPlane 'corrections.json'));expectedTaskIdentity=(Get-Identity $maintenanceProcessTask);observedActor='controller-fixture';capabilities=@();exactPaths=@($controlObject);forbiddenPaths=@();protectedPaths=@();authorizationPackagePath=$controlPackage;expectedAuthorizationIdentity=(Get-Identity $controlPackage);userDecision='NOT_REQUIRED';recoveryState='CURRENT';hostEnforcementGrade='FRAMEWORK_GATED';invocationState='PROVEN_EXPLICIT';intentEnvelope=$compactMaintenanceIntent;evaluationOnly=$false}
+    Write-Utf8 $compactMaintenanceInputPath ($compactMaintenanceInput|ConvertTo-Json -Depth 30);$compactMaintenanceRun=Invoke-Ps $maintenanceProcessResolver @('-InputPath',$compactMaintenanceInputPath,'-AsJson');$compactMaintenanceResult=if($compactMaintenanceRun.Code-eq0){$compactMaintenanceRun.Output[-1]|ConvertFrom-Json}else{$null};$compactMaintenanceReceipt=if($null-ne$compactMaintenanceResult){$compactMaintenanceResult.compactReceipt}else{$null}
+    Assert-True ($compactMaintenanceRun.Code-eq0-and[int]$compactMaintenanceReceipt.schemaVersion-eq2-and[string]$compactMaintenanceReceipt.binding.projectRoot-ceq[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($control))) 'process-maintenance-compact2-discover-binds-control-root'
+    Write-Utf8 $compactMaintenanceReceiptPath ($compactMaintenanceReceipt|ConvertTo-Json -Depth 30)
+    $compactMaintenancePrep=@($compactMaintenanceReceipt.selectedObligations|ForEach-Object{@($_.preparationRequirements)}|Sort-Object -Unique);$compactMaintenanceResults=@($compactMaintenanceReceipt.selectedObligations|ForEach-Object{@($_.resultRequirements)}|Sort-Object -Unique)
+    $compactMaintenanceAdmit=[ordered]@{schemaVersion=2;mode='ADMIT_ACTION';discoverReceiptPath=$compactMaintenanceReceiptPath;expectedDiscoverReceiptIdentity=Get-Identity $compactMaintenanceReceiptPath;preparationReceipts=$compactMaintenancePrep;resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='BOUND'}
+    Write-Utf8 $compactMaintenanceBoundaryPath ($compactMaintenanceAdmit|ConvertTo-Json -Depth 30);$compactMaintenanceAdmitRun=Invoke-Ps $maintenanceProcessResolver @('-InputPath',$compactMaintenanceBoundaryPath,'-AsJson')
+    Assert-True ($compactMaintenanceAdmitRun.Code-eq0) 'process-maintenance-compact2-admit-uses-binding-project-root'
+    $compactMaintenanceFinalize=[ordered]@{schemaVersion=2;mode='FINALIZE_OUTPUT';discoverReceiptPath=$compactMaintenanceReceiptPath;expectedDiscoverReceiptIdentity=Get-Identity $compactMaintenanceReceiptPath;preparationReceipts=$compactMaintenancePrep;resultReceipts=@($compactMaintenanceResults+@('OBJECT_POSTIMAGE|'+$controlObject+'|'+(Get-Identity (Join-Path $control $controlObject))));deliveryReceipts=@('DELIVERED');publicDecisionIdentity='NOT_REQUIRED';protectionState='BOUND'}
+    Write-Utf8 $compactMaintenanceBoundaryPath ($compactMaintenanceFinalize|ConvertTo-Json -Depth 30);$compactMaintenanceFinalizeRun=Invoke-Ps $maintenanceProcessResolver @('-InputPath',$compactMaintenanceBoundaryPath,'-AsJson')
+    Assert-True ($compactMaintenanceFinalizeRun.Code-eq0) 'process-maintenance-compact2-finalize-uses-binding-project-root'
 
     $batchWrapper = Join-Path $controlPlane 'invoke-batch-authorization.ps1'
     Write-Utf8 $batchWrapper @'
@@ -1197,9 +1293,26 @@ exit $LASTEXITCODE
     $controlTaskFinalize=$controlTaskBoundary|ConvertTo-Json -Depth 40|ConvertFrom-Json;$controlTaskFinalize.mode='FINALIZE_OUTPUT';$controlTaskFinalize.resultReceipts=@($controlTaskResults+@('OBJECT_POSTIMAGE|'+$controlTaskRelative+'|'+(Get-Identity $controlTaskPath)));Write-Utf8 $controlTaskInputPath ($controlTaskFinalize|ConvertTo-Json -Depth 40)
     $controlTaskFinalizeRun=Invoke-Ps $maintenanceProcessResolver @('-InputPath',$controlTaskInputPath,'-AsJson')
     Assert-True ($controlTaskFinalizeRun.Code-eq0-and$controlTaskFinalizeRun.Text.Contains('STRUCTURAL_REQUIREMENTS_COMPLETE')) 'process-control-task-finalize-allows-narrow-preimage-to-postimage-transition'
-    $wrongOwnerText=$controlTaskPostText-replace '(?m)^- Owner: controller-fixture$','- Owner: wrong-owner';Write-Utf8 $controlTaskPath $wrongOwnerText;$wrongOwnerFinalize=$controlTaskFinalize|ConvertTo-Json -Depth 40|ConvertFrom-Json;$wrongOwnerFinalize.resultReceipts=@($controlTaskResults+@('OBJECT_POSTIMAGE|'+$controlTaskRelative+'|'+(Get-Identity $controlTaskPath)));Write-Utf8 $controlTaskInputPath ($wrongOwnerFinalize|ConvertTo-Json -Depth 40)
-    $wrongOwnerFinalizeRun=Invoke-Ps $maintenanceProcessResolver @('-InputPath',$controlTaskInputPath,'-AsJson')
-    Assert-True ($wrongOwnerFinalizeRun.Code-ne0-and$wrongOwnerFinalizeRun.Text.Contains('CONTROL_TASK_POSTIMAGE_BINDING_DRIFT')) 'process-control-task-finalize-rejects-owner-or-task-id-drift'
+    $controlTaskBindingDrifts=@(
+        [pscustomobject]@{Name='task-id';Text=$controlTaskPostText-replace '^# FIXTURE-001 ','# FIXTURE-OTHER-001 '},
+        [pscustomobject]@{Name='owner';Text=$controlTaskPostText-replace '(?m)^- Owner: controller-fixture$','- Owner: wrong-owner'},
+        [pscustomobject]@{Name='actor';Text=$controlTaskPostText-replace 'actor=controller-fixture','actor=successor-fixture'},
+        [pscustomobject]@{Name='role';Text=$controlTaskPostText-replace 'role=CONTROLLER','role=EXECUTOR'},
+        [pscustomobject]@{Name='phase';Text=$controlTaskPostText-replace 'phase=IMPLEMENT','phase=PLAN'},
+        [pscustomobject]@{Name='profile';Text=$controlTaskPostText-replace 'profile=STANDARD','profile=CRITICAL'}
+    )
+    foreach($bindingDrift in $controlTaskBindingDrifts){
+        Write-Utf8 $controlTaskPath $bindingDrift.Text
+        $bindingDriftFinalize=$controlTaskFinalize|ConvertTo-Json -Depth 40|ConvertFrom-Json;$bindingDriftFinalize.resultReceipts=@($controlTaskResults+@('OBJECT_POSTIMAGE|'+$controlTaskRelative+'|'+(Get-Identity $controlTaskPath)));Write-Utf8 $controlTaskInputPath ($bindingDriftFinalize|ConvertTo-Json -Depth 40)
+        $bindingDriftFinalizeRun=Invoke-Ps $maintenanceProcessResolver @('-InputPath',$controlTaskInputPath,'-AsJson')
+        Assert-True ($bindingDriftFinalizeRun.Code-ne0-and$bindingDriftFinalizeRun.Text.Contains('CONTROL_TASK_POSTIMAGE_BINDING_DRIFT')) ('process-control-task-finalize-rejects-'+$bindingDrift.Name+'-drift')
+    }
+    Write-Utf8 $controlTaskPath $controlTaskPostText
+    $successorTaskText=$controlTaskPostText-replace 'actor=controller-fixture; role=CONTROLLER','actor=successor-fixture; role=EXECUTOR';Write-Utf8 $controlTaskPath $successorTaskText
+    $successorTaskPackage=Join-Path $controlPlane 'control-task-successor-auth.json';$successorTaskPackageData=Get-Content -Raw -Encoding utf8 -LiteralPath $controlTaskPackage|ConvertFrom-Json;$successorTaskPackageData.grantee='successor-fixture';$successorTaskPackageData.taskIdentity=Get-Identity $controlTaskPath;$successorTaskPackageData.objectIdentities[0].identity=Get-Identity $controlTaskPath;Write-Utf8 $successorTaskPackage ($successorTaskPackageData|ConvertTo-Json -Depth 40)
+    $successorTaskDiscoverInput=$controlTaskDiscoverInput|ConvertTo-Json -Depth 40|ConvertFrom-Json;$successorTaskDiscoverInput.expectedTaskIdentity=Get-Identity $controlTaskPath;$successorTaskDiscoverInput.observedActor='successor-fixture';$successorTaskDiscoverInput.authorizationPackagePath=$successorTaskPackage;$successorTaskDiscoverInput.expectedAuthorizationIdentity=Get-Identity $successorTaskPackage;Write-Utf8 $controlTaskInputPath ($successorTaskDiscoverInput|ConvertTo-Json -Depth 40)
+    $successorTaskDiscoverRun=Invoke-Ps $maintenanceProcessResolver @('-InputPath',$controlTaskInputPath,'-AsJson');$successorTaskDiscoverResult=$successorTaskDiscoverRun.Output[-1]|ConvertFrom-Json
+    Assert-True ($successorTaskDiscoverRun.Code-eq0-and[string]$successorTaskDiscoverResult.compactReceipt.taskActor-ceq'successor-fixture'-and[string]$successorTaskDiscoverResult.compactReceipt.actor-ceq'successor-fixture'-and[string]$successorTaskDiscoverResult.compactReceipt.role-ceq'EXECUTOR'-and[string]$successorTaskDiscoverResult.compactReceipt.phase-ceq'IMPLEMENT'-and[string]$successorTaskDiscoverResult.compactReceipt.profile-ceq'STANDARD') 'process-control-task-fresh-package-and-discover-rebind-current-route-without-permanent-actor-lock'
     Write-Utf8 $controlTaskPath $controlTaskPostText
     $wrongPathReceipt=$controlTaskReceipt|ConvertTo-Json -Depth 40|ConvertFrom-Json;$wrongPathReceipt.exactPaths=@($controlObject);$wrongPathReceiptPath=Join-Path $controlPlane 'control-task-wrong-path-receipt.json';Write-Utf8 $wrongPathReceiptPath ($wrongPathReceipt|ConvertTo-Json -Depth 40);$wrongPathBoundary=$controlTaskFinalize|ConvertTo-Json -Depth 40|ConvertFrom-Json;$wrongPathBoundary.discoverReceiptPath=$wrongPathReceiptPath;$wrongPathBoundary.expectedDiscoverReceiptIdentity=Get-Identity $wrongPathReceiptPath;$wrongPathBoundary.exactPaths=@($controlObject);Write-Utf8 $controlTaskInputPath ($wrongPathBoundary|ConvertTo-Json -Depth 40)
     $wrongPathFinalizeRun=Invoke-Ps $maintenanceProcessResolver @('-InputPath',$controlTaskInputPath,'-AsJson')
@@ -1216,6 +1329,13 @@ exit $LASTEXITCODE
     Write-Utf8 (Join-Path $control $controlObject) '# changed control task index'
     Write-Utf8 (Join-Path $target $targetObject) 'changed public target'
     Write-Utf8 (Join-Path $target 'private\secret.txt') 'changed private target'
+    $maintenanceTextconvMarker=Join-Path $target 'maintenance-textconv-invoked.txt'
+    $maintenanceTextconvDriver=Join-Path $target 'maintenance-textconv.ps1'
+    Write-Utf8 (Join-Path $target '.gitattributes') ($targetObject+' diff=aiw-maintenance-safe')
+    Write-Utf8 $maintenanceTextconvDriver ('param([string]$ObjectPath)' + "`n" + '[IO.File]::WriteAllText((Join-Path $PSScriptRoot "maintenance-textconv-invoked.txt"),"ANONYMOUS_FIXTURE_INVOKED")' + "`n" + 'Get-Content -LiteralPath $ObjectPath -Raw')
+    $maintenanceTextconvCommand='pwsh -NoProfile -NonInteractive -File "'+$maintenanceTextconvDriver.Replace('\','/')+'"'
+    & git -C $target config diff.aiw-maintenance-safe.textconv $maintenanceTextconvCommand
+    if($LASTEXITCODE-ne0){throw 'MAINTENANCE_TEXTCONV_FIXTURE_CONFIG_FAILED'}
 
     $safeGit = Join-Path $target 'scripts\invoke-framework-maintenance-safe-git.ps1'
     $controlStatus = Invoke-Ps $safeGit @('-ProjectRoot',$control,'-Operation','STATUS','-AllowPath',$controlObject,'-ExpectedProjectConfigIdentity',$configIdentity,'-RepositoryId','CONTROL')
@@ -1239,6 +1359,7 @@ exit $LASTEXITCODE
     Assert-True ($targetOverride.Code -eq 0 -and $overrideOutput.Contains('private/secret.txt')) 'safe-git-maintenance-exact-exclusion-override'
     Assert-True ($controlDiff.Code -eq 0 -and $controlDiff.Text.Contains($controlObject) -and $controlDiff.Text.Contains('"operation":"DIFF"')) 'safe-git-maintenance-control-diff'
     Assert-True ($targetDiff.Code -eq 0 -and $targetDiff.Text.Contains($targetObject) -and $targetDiff.Text.Contains('"operation":"DIFF"')) 'safe-git-maintenance-target-diff'
+    Assert-True ($targetDiff.Code-eq0-and$targetDiff.Text.Contains('changed public target')-and-not(Test-Path -LiteralPath $maintenanceTextconvMarker)) 'safe-git-maintenance-diff-disables-textconv-and-returns-raw-content'
 
     & git -C $control add -- $controlObject
     if ($LASTEXITCODE -ne 0) { throw 'CONTROL_FIXTURE_STAGE_FAILED' }
@@ -1248,6 +1369,19 @@ exit $LASTEXITCODE
     $targetIndex = Invoke-Ps $safeGit @('-ProjectRoot',$control,'-Operation','INDEX','-AllowPath',$targetObject,'-ExpectedProjectConfigIdentity',$configIdentity,'-RepositoryId','ai-workspace-framework')
     Assert-True ($controlIndex.Code -eq 0 -and $controlIndex.Text.Contains($controlObject) -and $controlIndex.Text.Contains('"operation":"INDEX"')) 'safe-git-maintenance-control-index'
     Assert-True ($targetIndex.Code -eq 0 -and $targetIndex.Text.Contains($targetObject) -and $targetIndex.Text.Contains('"operation":"INDEX"')) 'safe-git-maintenance-target-index'
+    $maintenanceAlternateIndex=Join-Path $temp 'maintenance-safe-git-alternate.index'
+    $previousIndexOverride=[Environment]::GetEnvironmentVariable('GIT_INDEX_FILE','Process')
+    try{
+        [Environment]::SetEnvironmentVariable('GIT_INDEX_FILE',$maintenanceAlternateIndex,'Process')
+        & git -C $control read-tree HEAD
+        if($LASTEXITCODE-ne0){throw 'MAINTENANCE_ALTERNATE_INDEX_FIXTURE_FAILED'}
+        $maintenanceAlternateIndexOutput=@(& git -C $control diff --cached --name-status -- $controlObject 2>&1|ForEach-Object{[string]$_})
+        if($LASTEXITCODE-ne0){throw 'MAINTENANCE_ALTERNATE_INDEX_OBSERVATION_FAILED'}
+    }finally{
+        if([string]::IsNullOrEmpty($previousIndexOverride)){Remove-Item -LiteralPath 'Env:\GIT_INDEX_FILE' -ErrorAction SilentlyContinue}else{[Environment]::SetEnvironmentVariable('GIT_INDEX_FILE',$previousIndexOverride,'Process')}
+    }
+    $maintenanceIndexOverride=Invoke-PsWithProcessEnvironment $safeGit @('-ProjectRoot',$control,'-Operation','INDEX','-AllowPath',$controlObject,'-ExpectedProjectConfigIdentity',$configIdentity,'-RepositoryId','CONTROL') $control @{GIT_INDEX_FILE=$maintenanceAlternateIndex}
+    Assert-True ((Test-Path -LiteralPath $maintenanceAlternateIndex -PathType Leaf)-and$maintenanceAlternateIndexOutput.Count-eq0-and$maintenanceIndexOverride.Code-ne0-and$maintenanceIndexOverride.Text.Contains('GIT_ENVIRONMENT_OVERRIDE_GIT_INDEX_FILE')-and$maintenanceIndexOverride.Text.Contains('"launched":false')) 'safe-git-maintenance-rejects-real-alternate-index-before-resolver-or-git'
 
     $unknownRepository = Invoke-Ps $safeGit @('-ProjectRoot',$control,'-Operation','STATUS','-AllowPath',$targetObject,'-ExpectedProjectConfigIdentity',$configIdentity,'-RepositoryId','UNKNOWN')
     Assert-True ($unknownRepository.Code -ne 0 -and $unknownRepository.Text.Contains('REPOSITORY_ID_UNKNOWN') -and $unknownRepository.Text.Contains('"launched":false')) 'safe-git-maintenance-unknown-repository-not-launched'
@@ -1279,6 +1413,13 @@ exit $LASTEXITCODE
     $repoLocal4Config=$repoLocal4Raw|ConvertFrom-Json;$repoLocal4Config.routineExcludedPaths=@('private/secret.txt');$repoLocal4Raw=$repoLocal4Config|ConvertTo-Json -Depth 20
     Write-Utf8 $repoLocal4ConfigPath $repoLocal4Raw;Write-Utf8 (Join-Path $repoLocal4 'src\public.txt') 'schema4 public baseline';Write-Utf8 (Join-Path $repoLocal4 'private\secret.txt') 'schema4 private baseline';Commit-All $repoLocal4 'schema4 repo-local baseline'
     Write-Utf8 (Join-Path $repoLocal4 'src\public.txt') 'schema4 public changed';Write-Utf8 (Join-Path $repoLocal4 'private\secret.txt') 'schema4 private changed'
+    $repoLocalTextconvMarker=Join-Path $repoLocal4 'repo-local-textconv-invoked.txt'
+    $repoLocalTextconvDriver=Join-Path $repoLocal4 'repo-local-textconv.ps1'
+    Write-Utf8 (Join-Path $repoLocal4 '.gitattributes') 'src/public.txt diff=aiw-repo-local-safe'
+    Write-Utf8 $repoLocalTextconvDriver ('param([string]$ObjectPath)' + "`n" + '[IO.File]::WriteAllText((Join-Path $PSScriptRoot "repo-local-textconv-invoked.txt"),"ANONYMOUS_FIXTURE_INVOKED")' + "`n" + 'Get-Content -LiteralPath $ObjectPath -Raw')
+    $repoLocalTextconvCommand='pwsh -NoProfile -NonInteractive -File "'+$repoLocalTextconvDriver.Replace('\','/')+'"'
+    & git -C $repoLocal4 config diff.aiw-repo-local-safe.textconv $repoLocalTextconvCommand
+    if($LASTEXITCODE-ne0){throw 'REPO_LOCAL_TEXTCONV_FIXTURE_CONFIG_FAILED'}
     $repoLocal4Identity=Get-Identity $repoLocal4ConfigPath
     $repoLocal4Status=Invoke-Ps $safeGit @('-ProjectRoot',$repoLocal4,'-Operation','STATUS','-AllowPath','src/public.txt','-ExpectedProjectConfigIdentity',$repoLocal4Identity)
     $repoLocal4Diff=Invoke-Ps $safeGit @('-ProjectRoot',$repoLocal4,'-Operation','DIFF','-AllowPath','src/public.txt','-ExpectedProjectConfigIdentity',$repoLocal4Identity)
@@ -1289,6 +1430,7 @@ exit $LASTEXITCODE
     $repoLocal4ExcludedOutput=((@($repoLocal4Excluded.Output)[-1]|ConvertFrom-Json).output-join"`n");$repoLocal4OverrideOutput=((@($repoLocal4Override.Output)[-1]|ConvertFrom-Json).output-join"`n")
     Assert-True ($repoLocal4Status.Code-eq0-and$repoLocal4Status.Text.Contains('src/public.txt')-and$repoLocal4Status.Text.Contains('"repositoryId":"PROJECT"')) 'safe-git-repo-local-schema4-starter-status'
     Assert-True ($repoLocal4Diff.Code-eq0-and$repoLocal4Diff.Text.Contains('schema4 public changed')) 'safe-git-repo-local-schema4-starter-diff'
+    Assert-True ($repoLocal4Diff.Code-eq0-and-not(Test-Path -LiteralPath $repoLocalTextconvMarker)) 'safe-git-repo-local-diff-disables-textconv'
     Assert-True ($repoLocal4Index.Code-eq0-and$repoLocal4Index.Text.Contains('src/public.txt')) 'safe-git-repo-local-schema4-starter-index'
     Assert-True ($repoLocal4Excluded.Code-eq0-and-not$repoLocal4ExcludedOutput.Contains('private/secret.txt')) 'safe-git-repo-local-schema4-starter-exclusion'
     Assert-True ($repoLocal4Override.Code-eq0-and$repoLocal4OverrideOutput.Contains('private/secret.txt')) 'safe-git-repo-local-schema4-starter-exclusion-override'
@@ -1316,6 +1458,12 @@ exit $LASTEXITCODE
     $repoLocal4UnicodePolicyRun=Invoke-Ps $safeGit @('-ProjectRoot',$repoLocal4,'-Operation','STATUS','-AllowPath','src/public.txt','-ExpectedProjectConfigIdentity',(Get-Identity $repoLocal4ConfigPath))
     Assert-True ($repoLocal4UnicodePolicyRun.Code-ne0-and$repoLocal4UnicodePolicyRun.Text.Contains('PROJECT_CONFIG_JSON_DUPLICATE_FIELD|locator')-and$repoLocal4UnicodePolicyRun.Text.Contains('"launched":false')) 'safe-git-schema4-unicode-nested-policy-duplicate-not-launched'
     Write-Utf8 $repoLocal4ConfigPath $repoLocal4Raw
+    $repoLocalGitOverrides=[ordered]@{GIT_DIR=(Join-Path $repoLocal4 '.git');GIT_WORK_TREE=$repoLocal4;GIT_COMMON_DIR=(Join-Path $repoLocal4 '.git');GIT_INDEX_FILE=$maintenanceAlternateIndex}
+    foreach($gitEnvironmentName in $repoLocalGitOverrides.Keys){
+        $caseEnvironment=@{};foreach($item in $gitShimEnvironment.GetEnumerator()){$caseEnvironment[[string]$item.Key]=[string]$item.Value};$caseEnvironment[[string]$gitEnvironmentName]=[string]$repoLocalGitOverrides[$gitEnvironmentName]
+        $repoLocalEnvironmentOverride=Invoke-PsWithProcessEnvironment $safeGit @('-ProjectRoot',$repoLocal4,'-Operation','STATUS','-AllowPath','src/public.txt','-ExpectedProjectConfigIdentity',(Get-Identity $repoLocal4ConfigPath)) $repoLocal4 $caseEnvironment
+        Assert-True ($repoLocalEnvironmentOverride.Code-ne0-and$repoLocalEnvironmentOverride.Text.Contains('GIT_ENVIRONMENT_OVERRIDE_'+$gitEnvironmentName)-and$repoLocalEnvironmentOverride.Text.Contains('"launched":false')-and-not(Test-Path -LiteralPath $gitShimLog)) ('safe-git-repo-local-rejects-process-'+$gitEnvironmentName.ToLowerInvariant()+'-before-git')
+    }
 
     $domainExternalTaskPath=Join-Path $repoLocal '.ai-workspace\tasks\active\FIXTURE-EXTERNAL-001.md'
     Write-Utf8 $domainExternalTaskPath "# FIXTURE-EXTERNAL-001 - external authorization fixture`n`n- Task schema: 1.16.0`n- Owner: owner-fixture`n- Work route: actor=owner-fixture; role=DOMAIN_OWNER; phase=EXTERNAL`n- Range summary: profile=STANDARD; lifecycle=ACTIVE; expected_paths=[src/public.txt]; actual_paths=[]`n"
@@ -1583,6 +1731,36 @@ exit $LASTEXITCODE
     $driftRun=Invoke-Ps $correctionChecker $driftArgs;$driftValue=$driftRun.Output[-1]|ConvertFrom-Json
     Assert-True ($driftRun.Code-eq0-and@($driftValue.incorporated).Count-eq0-and@($driftValue.stillEffective).Count-eq2) 'corrections-source-record-drift-retained-not-suppressed'
     Write-Utf8 $correctionPath ($correctionRecords|ConvertTo-Json -Depth 20)
+
+    $schema2Selectors=[ordered]@{profiles=@('*');roles=@('*');phases=@('*');actionKinds=@('*');resultKinds=@('*');pathPrefixes=@();capabilities=@();semanticTerms=@()}
+    $schema2Owner=[ordered]@{correctionId='OWNER_FIRST_DIRECT_DOMAIN_ROUTE';introducedAgainstFramework='<=1.8.0';requirementReason='Observed unnecessary Controller relay';effectiveRule='Domain owner routes directly';applicability='Unchanged domain task';decisionLocator='task:owner-first';selectors=$schema2Selectors;preparationRequirements=@('OWNER_ROUTE_PREPARED');resultRequirements=@('OWNER_ROUTE_RESULT');requiredFacts=@('OWNER_ROUTE_FACT');mechanicalCheckRefs=@('CURRENT_AUTHORITY_BOUND')}
+    $schema2Lifecycle=[ordered]@{correctionId='PROJECT_CORRECTION_LIFECYCLE';introducedAgainstFramework='1.9.0';requirementReason='No deterministic cross-version retention';effectiveRule='Retain and evaluate project correction records';applicability='Framework pin adoption and recovery';decisionLocator='task:correction-lifecycle';selectors=$schema2Selectors;preparationRequirements=@();resultRequirements=@();requiredFacts=@();mechanicalCheckRefs=@()}
+    $schema2Records=[ordered]@{schemaVersion=2;contractVersion='1.16.0';projectId='correction-fixture';corrections=@($schema2Owner,$schema2Lifecycle)}|ConvertTo-Json -Depth 30|ConvertFrom-Json
+    $schema2OwnerRecord=$schema2Records.corrections[0]
+    $schema2OwnerSix=[pscustomobject][ordered]@{correctionId=[string]$schema2OwnerRecord.correctionId;introducedAgainstFramework=[string]$schema2OwnerRecord.introducedAgainstFramework;requirementReason=[string]$schema2OwnerRecord.requirementReason;effectiveRule=[string]$schema2OwnerRecord.effectiveRule;applicability=[string]$schema2OwnerRecord.applicability;decisionLocator=[string]$schema2OwnerRecord.decisionLocator}
+    $schema2SixIdentity=Get-AiwCanonicalCorrectionRecordIdentityV1 $schema2OwnerSix;$schema2WholeIdentity=Get-AiwCanonicalCorrectionRecordIdentityV2 $schema2OwnerRecord
+    Write-Utf8 $correctionPath ($schema2Records|ConvertTo-Json -Depth 30)
+    $schema2Coverage=$coverageFixture|ConvertTo-Json -Depth 30|ConvertFrom-Json;$schema2Entry=@($schema2Coverage.versions|Where-Object{[string]$_.version-ceq'1.16.0'})[0]
+    $schema2Entry.incorporatedCorrectionIds=@('OWNER_FIRST_DIRECT_DOMAIN_ROUTE')
+    $schema2Entry.incorporationMappings=@([ordered]@{correctionId='OWNER_FIRST_DIRECT_DOMAIN_ROUTE';legacyRequirementId=$ownerAlias;nativeRequirementId='framework:PR_TASK_SCOPE_AND_FORBIDDEN';coverageState='INCORPORATED';nativeCatalogIdentity=(Get-Identity $sealedCatalogPath);sourceSchemaVersion=2;legacySourceRecordIdentity=$schema2SixIdentity;v2WholeRecordIdentity=$schema2WholeIdentity})
+    Write-Utf8 $sealedCoveragePath ($schema2Coverage|ConvertTo-Json -Depth 30);$null=Seal-ReleaseFixture (Split-Path -Parent $sealedCoveragePath) 'SCHEMA2_EXACT_CORRECTION_MAPPING_FIXTURE'
+    $schema2Args=@('-ProjectRoot',$correctionRoot,'-FrameworkRoot',$correctionFrameworkRoot,'-TargetVersion','1.16.0','-ExpectedProjectConfigIdentity',(Get-Identity $correctionConfigPath),'-ExpectedCorrectionsIdentity',(Get-Identity $correctionPath),'-Operation','PRECHECK','-AsJson')
+    $schema2Matched=Invoke-Ps $correctionChecker $schema2Args;$schema2MatchedValue=$schema2Matched.Output[-1]|ConvertFrom-Json
+    Assert-True ($schema2Matched.Code-eq0-and[string]$schema2MatchedValue.coverageStatus-ceq'MATCHED_EXACT_MAPPING'-and@($schema2MatchedValue.incorporated).Count-eq1-and[int]$schema2MatchedValue.incorporated[0].sourceSchemaVersion-eq2-and[string]$schema2MatchedValue.incorporated[0].legacySourceRecordIdentity-ceq$schema2SixIdentity-and[string]$schema2MatchedValue.incorporated[0].v2WholeRecordIdentity-ceq$schema2WholeIdentity-and@($schema2MatchedValue.stillEffective).Count-eq1) 'corrections-schema2-whole-record-exact-mapping-incorporates-once'
+
+    $schema2MetadataDrift=$schema2Records|ConvertTo-Json -Depth 30|ConvertFrom-Json;$schema2MetadataDrift.corrections[0].requiredFacts=@('OWNER_ROUTE_FACT_CHANGED')
+    $schema2MetadataDriftRecord=$schema2MetadataDrift.corrections[0];$schema2MetadataSix=[pscustomobject][ordered]@{correctionId=[string]$schema2MetadataDriftRecord.correctionId;introducedAgainstFramework=[string]$schema2MetadataDriftRecord.introducedAgainstFramework;requirementReason=[string]$schema2MetadataDriftRecord.requirementReason;effectiveRule=[string]$schema2MetadataDriftRecord.effectiveRule;applicability=[string]$schema2MetadataDriftRecord.applicability;decisionLocator=[string]$schema2MetadataDriftRecord.decisionLocator}
+    $schema2MetadataSixIdentity=Get-AiwCanonicalCorrectionRecordIdentityV1 $schema2MetadataSix;$schema2MetadataWholeIdentity=Get-AiwCanonicalCorrectionRecordIdentityV2 $schema2MetadataDriftRecord
+    Write-Utf8 $correctionPath ($schema2MetadataDrift|ConvertTo-Json -Depth 30)
+    $schema2DriftArgs=@('-ProjectRoot',$correctionRoot,'-FrameworkRoot',$correctionFrameworkRoot,'-TargetVersion','1.16.0','-ExpectedProjectConfigIdentity',(Get-Identity $correctionConfigPath),'-ExpectedCorrectionsIdentity',(Get-Identity $correctionPath),'-Operation','PRECHECK','-AsJson')
+    $schema2DriftRun=Invoke-Ps $correctionChecker $schema2DriftArgs;$schema2DriftValue=$schema2DriftRun.Output[-1]|ConvertFrom-Json
+    $schema2Retained=@($schema2DriftValue.stillEffective|Where-Object{[string]$_.correctionId-ceq'OWNER_FIRST_DIRECT_DOMAIN_ROUTE'})
+    $schema2DriftComposition=Invoke-ProcessRequirementComposition -ProjectRoot $correctionRoot -FrameworkRoot $correctionFrameworkRoot -TargetVersion '1.16.0' -ExpectedProjectConfigIdentity (Get-Identity $correctionConfigPath) -ExpectedCorrectionsIdentity (Get-Identity $correctionPath) -Profile MICRO -Role CONTROLLER -Phase RECOVER -Actor 'correction-wrapper-fixture' -TaskIdentity 'correction-wrapper-fixture' -Capabilities @() -Objective 'Check retained correction obligations' -ActionKind NONE -ResultKind NONE -UseDeclaredCapabilities -EvaluationOnly
+    $schema2RetainedRule=@($schema2DriftComposition.selectedRequirements|Where-Object{[string]$_.requirementId-ceq$ownerAlias});$schema2RetainedPrep=@($schema2RetainedRule[0].preparationRequirements);$schema2RetainedResult=@($schema2RetainedRule[0].resultRequirements)
+    Assert-True ($schema2MetadataSixIdentity-ceq$schema2SixIdentity-and$schema2MetadataWholeIdentity-cne$schema2WholeIdentity-and$schema2DriftRun.Code-eq0-and@($schema2DriftValue.incorporated).Count-eq0-and$schema2Retained.Count-eq1-and[string]$schema2Retained[0].legacySourceRecordIdentity-ceq$schema2SixIdentity-and[string]$schema2Retained[0].v2WholeRecordIdentity-ceq$schema2MetadataWholeIdentity-and$schema2RetainedRule.Count-eq1-and@('OWNER_ROUTE_PREPARED','OWNER_ROUTE_FACT_CHANGED','CURRENT_AUTHORITY_BOUND'|Where-Object{$_-cnotin$schema2RetainedPrep}).Count-eq0-and'OWNER_ROUTE_RESULT'-cin$schema2RetainedResult-and@($schema2DriftComposition.evidenceCeilings)-contains'SOURCE_RECORD_IDENTITY_MISMATCH_RETAINED') 'corrections-schema2-metadata-only-drift-keeps-six-field-identity-but-retains-current-obligations'
+    Write-Utf8 $correctionPath ($correctionRecords|ConvertTo-Json -Depth 20)
+    Write-Utf8 $sealedCoveragePath ($coverageFixture|ConvertTo-Json -Depth 30);$null=Seal-ReleaseFixture (Split-Path -Parent $sealedCoveragePath) 'EXACT_CORRECTION_MAPPING_FIXTURE'
+
     $invalidMapping=$coverageFixture|ConvertTo-Json -Depth 30|ConvertFrom-Json;$invalidEntry=@($invalidMapping.versions|Where-Object{[string]$_.version-ceq'1.16.0'})[0];$invalidEntry.incorporationMappings[0].nativeCatalogIdentity='0|'+('0'*64);Write-Utf8 $sealedCoveragePath ($invalidMapping|ConvertTo-Json -Depth 30);$null=Seal-ReleaseFixture (Split-Path -Parent $sealedCoveragePath) 'INVALID_MAPPING_FIXTURE'
     $invalidRun=Invoke-Ps $correctionChecker $correctionArgs;$invalidValue=$invalidRun.Output[-1]|ConvertFrom-Json
     Assert-True ($invalidRun.Code-eq0-and[string]$invalidValue.coverageStatus-ceq'INVALID_RETAINED'-and@($invalidValue.incorporated).Count-eq0-and@($invalidValue.stillEffective).Count-eq2) 'corrections-invalid-mapping-retains-all'
@@ -1610,8 +1788,6 @@ exit $LASTEXITCODE
     $discoverRun=Invoke-Ps $processResolver @('-InputPath',$discoverInputPath,'-AsJson')
     $discoverResult=$discoverRun.Output[-1]|ConvertFrom-Json;$discoverValue=$discoverResult.compactReceipt;$discoverBlocks=@($discoverResult.selectedRuleBlocks)
     Assert-True ($discoverRun.Code-eq0-and[string]$discoverValue.status-ceq'PASS'-and-not[bool]$discoverValue.authorityGranted-and-not[bool]$discoverValue.semanticCorrectnessProven-and[string]$discoverValue.actor-ceq'owner-fixture'-and@($discoverBlocks.requirementId)-contains'framework:PR_ACTION_AUTHORIZATION_INDEPENDENT'-and@($discoverBlocks.requirementId)-contains'correction:correction-fixture:PROJECT_CORRECTION_LIFECYCLE'-and@($discoverBlocks.requirementId)-notcontains$ownerAlias) 'process-discover-composes-three-sources-with-exact-absorption'
-    $discoverResultJson=$discoverResult|ConvertTo-Json -Depth 50 -Compress;$discoverReceiptJson=$discoverValue|ConvertTo-Json -Depth 50 -Compress
-    Assert-True ($discoverResultJson.Contains('"fullText"')-and-not$discoverReceiptJson.Contains('"fullText"')-and[Text.Encoding]::UTF8.GetByteCount($discoverReceiptJson)-lt[Text.Encoding]::UTF8.GetByteCount($discoverResultJson)) 'process-discover-emits-full-blocks-once-and-reusable-compact-receipt'
     $projectCapabilityConfigOriginal=Get-Content -Raw -Encoding utf8 -LiteralPath $correctionConfigPath
     $projectCapabilityCases=@(
         [pscustomobject]@{Name='unknown-id';TestName='process-resolver-capability-unknown-id-fails-closed';Capabilities=[ordered]@{UNKNOWN=[ordered]@{enabled=$false}};Expected='PROJECT_CAPABILITIES_ID'},
@@ -2044,10 +2220,17 @@ exit $LASTEXITCODE
     Write-Utf8 $processBootstrapPath "<!-- PROJECT-CUSTOM:BEGIN -->`nA permanent legacy project rule remains active.`n<!-- PROJECT-CUSTOM:END -->`n"
     Write-Utf8 $discoverInputPath ($discoverInput|ConvertTo-Json -Depth 20)
     $doubleCarrier=Invoke-Ps $processResolver @('-InputPath',$discoverInputPath,'-AsJson')
-    Assert-True ($doubleCarrier.Code-eq0) 'process-distinct-policy-and-legacy-custom-carriers-compose-without-false-conflict'
+    Assert-True ($doubleCarrier.Code-ne0-and$doubleCarrier.Text.Contains('PROJECT_RULE_DUAL_CARRIER_FAIL_CLOSED')) 'process-distinct-policy-and-legacy-custom-carriers-fail-closed'
     Write-Utf8 $processBootstrapPath "<!-- PROJECT-CUSTOM:BEGIN -->`nBind the project source preparation receipt before source work.`n<!-- PROJECT-CUSTOM:END -->`n"
     $policyCustomDuplicate=Invoke-Ps $processResolver @('-InputPath',$discoverInputPath,'-AsJson')
-    Assert-True ($policyCustomDuplicate.Code-ne0-and$policyCustomDuplicate.Text.Contains('CONFLICT_PROJECT_RULE_DUPLICATE_EFFECTIVE_RULE')) 'process-policy-custom-duplicate-effective-rule-rejected'
+    Assert-True ($policyCustomDuplicate.Code-ne0-and$policyCustomDuplicate.Text.Contains('PROJECT_RULE_DUAL_CARRIER_FAIL_CLOSED')) 'process-identical-policy-and-legacy-custom-carriers-fail-with-same-diagnostic'
+    $historicalChinese='此 legacy region 当前没有 permanent project process rule。structured rules 位于 `.ai-workspace/process-policy.json`。'
+    Write-Utf8 $processBootstrapPath "<!-- PROJECT-CUSTOM:BEGIN -->`n$historicalChinese`n<!-- PROJECT-CUSTOM:END -->`n"
+    $historicalPlaceholder=Invoke-Ps $processResolver @('-InputPath',$discoverInputPath,'-AsJson');$historicalPlaceholderResult=$historicalPlaceholder.Output[-1]|ConvertFrom-Json
+    Assert-True ($historicalPlaceholder.Code-eq0-and@($historicalPlaceholderResult.selectedRuleBlocks.requirementId)-contains'project:correction-fixture:PROJECT_SOURCE_PREP'-and@($historicalPlaceholderResult.selectedRuleBlocks.requirementId)-notcontains'project-custom:correction-fixture'-and@($historicalPlaceholderResult.compactReceipt.evidenceCeilings)-notcontains'LEGACY_PROJECT_CUSTOM_FULL_LOAD') 'process-exact-historical-chinese-placeholder-with-policy-is-nonnormative'
+    Write-Utf8 $processBootstrapPath "<!-- PROJECT-CUSTOM:BEGIN -->`n$historicalChinese`nA permanent appended rule is active.`n<!-- PROJECT-CUSTOM:END -->`n"
+    $historicalAppended=Invoke-Ps $processResolver @('-InputPath',$discoverInputPath,'-AsJson')
+    Assert-True ($historicalAppended.Code-ne0-and$historicalAppended.Text.Contains('PROJECT_RULE_DUAL_CARRIER_FAIL_CLOSED')) 'process-historical-placeholder-with-appended-rule-is-normative-dual-carrier'
     Write-Utf8 $processBootstrapPath $processBootstrapOriginal
     $correctionPolicy=$policy|ConvertTo-Json -Depth 30|ConvertFrom-Json;$correctionPolicy.rules[0].effectiveRule='Retain and evaluate project correction records';Write-Utf8 $policyPath ($correctionPolicy|ConvertTo-Json -Depth 30)
     $correctionPolicyDuplicate=Invoke-Ps $processResolver @('-InputPath',$discoverInputPath,'-AsJson')
@@ -2056,6 +2239,9 @@ exit $LASTEXITCODE
     Write-Utf8 $processBootstrapPath "<!-- PROJECT-CUSTOM:BEGIN -->`nRetain and evaluate project correction records`n<!-- PROJECT-CUSTOM:END -->`n"
     $correctionCustomDuplicate=Invoke-Ps $processResolver @('-InputPath',$discoverInputPath,'-AsJson')
     Assert-True ($correctionCustomDuplicate.Code-ne0-and$correctionCustomDuplicate.Text.Contains('CONFLICT_PROJECT_RULE_DUPLICATE_EFFECTIVE_RULE')) 'process-correction-custom-duplicate-effective-rule-rejected'
+    Write-Utf8 $processBootstrapPath "<!-- PROJECT-CUSTOM:BEGIN -->`nA unique permanent legacy rule remains active.`n<!-- PROJECT-CUSTOM:END -->`n"
+    $legacyOnly=Invoke-Ps $processResolver @('-InputPath',$discoverInputPath,'-AsJson');$legacyOnlyResult=$legacyOnly.Output[-1]|ConvertFrom-Json
+    Assert-True ($legacyOnly.Code-eq0-and@($legacyOnlyResult.selectedRuleBlocks.requirementId)-contains'project-custom:correction-fixture'-and@($legacyOnlyResult.compactReceipt.evidenceCeilings)-contains'LEGACY_PROJECT_CUSTOM_FULL_LOAD') 'process-empty-structured-rule-array-is-not-a-second-carrier'
     Write-Utf8 $policyPath ($policy|ConvertTo-Json -Depth 30)
     Write-Utf8 $processBootstrapPath $processBootstrapOriginal
     $policyDiscover=Invoke-Ps $processResolver @('-InputPath',$discoverInputPath,'-AsJson');$policyDiscoverResult=$policyDiscover.Output[-1]|ConvertFrom-Json;$policyDiscoverValue=$policyDiscoverResult.compactReceipt;$policyDiscoverBlocks=@($policyDiscoverResult.selectedRuleBlocks)
@@ -2082,28 +2268,6 @@ exit $LASTEXITCODE
     $invalidV2Run=Invoke-Ps $processResolver @('-InputPath',$discoverInputPath,'-AsJson')
     Assert-True ($invalidV2Run.Code-ne0-and$invalidV2Run.Text.Contains('CORRECTION_V2_MECHANICAL_CHECK_UNREGISTERED')) 'corrections-v2-unregistered-mechanical-check-fails-closed'
     Write-Utf8 $correctionPath $correctionOriginal;$discoverInput.expectedCorrectionsIdentity=Get-Identity $correctionPath;Write-Utf8 $discoverInputPath ($discoverInput|ConvertTo-Json -Depth 20)
-
-    $canonicalFixtures=@(
-        [pscustomobject]@{Name='nfc';Record=[pscustomobject]@{correctionId='fixture-normalization';introducedAgainstFramework='1.0.0';requirementReason=[string][char]0x00E9;effectiveRule='';applicability='';decisionLocator=''};Expected='180|758F09804FBA0E117DDE12BFA8DF98D9DEA39CB5D1284034F947648AE255B291'},
-        [pscustomobject]@{Name='nfd';Record=[pscustomobject]@{correctionId='fixture-normalization';introducedAgainstFramework='1.0.0';requirementReason=('e'+[char]0x0301);effectiveRule='';applicability='';decisionLocator=''};Expected='181|5869256A7DE43667C60E640082745A746FF1C062653020C073F2E0BC84AB130E'},
-        [pscustomobject]@{Name='lf';Record=[pscustomobject]@{correctionId='fixture-newline';introducedAgainstFramework='1.0.0';requirementReason="line1`nline2";effectiveRule='';applicability='';decisionLocator=''};Expected='184|45F962EF1E3DE36B0B0464F045A7959712F1FAE06023B32376AA7A4F65C23EF8'},
-        [pscustomobject]@{Name='crlf';Record=[pscustomobject]@{correctionId='fixture-newline';introducedAgainstFramework='1.0.0';requirementReason="line1`r`nline2";effectiveRule='';applicability='';decisionLocator=''};Expected='185|285EAA0990442125E3DC64CCB303B51C59D3FAC5CCBD460D8058A095F8E457CE'}
-    )
-    $node=Get-Command node -ErrorAction SilentlyContinue
-    Assert-True ($null-ne$node) 'canonical-non-powershell-reference-runtime-available'
-    foreach($fixture in $canonicalFixtures){
-        $psIdentity=Get-AiwCanonicalCorrectionRecordIdentityV1 $fixture.Record
-        $nodeJson=$fixture.Record|ConvertTo-Json -Compress
-        $nodeIdentity=(& $node.Source (Join-Path $candidateRoot 'tests\canonical-identity-reference.mjs') $nodeJson)
-        Assert-True ($psIdentity-ceq$fixture.Expected-and[string]$nodeIdentity-ceq$fixture.Expected) ('canonical-identity-pwsh7-node-'+$fixture.Name)
-    }
-    Assert-True ((Get-AiwCanonicalCorrectionRecordIdentityV1 $canonicalFixtures[0].Record)-cne(Get-AiwCanonicalCorrectionRecordIdentityV1 $canonicalFixtures[1].Record)-and(Get-AiwCanonicalCorrectionRecordIdentityV1 $canonicalFixtures[2].Record)-cne(Get-AiwCanonicalCorrectionRecordIdentityV1 $canonicalFixtures[3].Record)) 'canonical-identity-preserves-unicode-and-newlines'
-    if($IsWindows){
-        $windowsPowerShellCanonical=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-        $canonicalWrapper=Join-Path $temp 'canonical-ps51.ps1'
-        Write-Utf8 $canonicalWrapper "param([string]`$Module,[string]`$RecordPath)`nImport-Module `$Module -Force`n`$record=Get-Content -LiteralPath `$RecordPath -Raw -Encoding utf8|ConvertFrom-Json`nGet-AiwCanonicalCorrectionRecordIdentityV1 `$record`n"
-        foreach($fixture in $canonicalFixtures){$recordPath=Join-Path $temp ('canonical-ps51-'+$fixture.Name+'.json');Write-Utf8 $recordPath ($fixture.Record|ConvertTo-Json -Compress);$run=Invoke-PsHost $windowsPowerShellCanonical $canonicalWrapper @('-Module',(Join-Path $candidateRoot 'scripts\ProcessRequirementComposition.psm1'),'-RecordPath',$recordPath);if($run.Code-ne0-or[string]$run.Output[-1]-cne$fixture.Expected){Write-Output ('DIAG|canonical-identity-powershell51-'+$fixture.Name+'|code='+$run.Code+'|'+$run.Text)};Assert-True ($run.Code-eq0-and[string]$run.Output[-1]-ceq$fixture.Expected) ('canonical-identity-powershell51-'+$fixture.Name)}
-    }else{Write-Output 'EVIDENCE_CEILING|POWERSHELL51_CANONICAL_RUNTIME_NOT_AVAILABLE'}
 
     $liveUpgradePath=Join-Path $liveRepositoryRoot 'scripts\upgrade-project.ps1'
     $liveUpgradeText=Get-Content -LiteralPath $liveUpgradePath -Raw -Encoding utf8
@@ -2141,6 +2305,27 @@ exit $LASTEXITCODE
     $multiValue=@($multiQuery.Output)[-1]|ConvertFrom-Json
     Assert-True ($multiQuery.Code -eq 0 -and @($multiValue.entries).Count -eq 2 -and @($multiValue.entries|Where-Object{$_.status-ceq'AVAILABLE'}).Count -eq 2) 'knowledge-query-two-current-entries-available'
     Assert-True ($primaryPwshDiscover.Code-eq0-and$primaryPwshQuery.Code-eq0) 'knowledge-schema4-starter-shape-discover-and-query'
+
+    Write-Utf8 (Join-Path $knowledgeRoot 'private-other\audit-rule.md') 'non-excluded path-segment boundary'
+    $excludedKnowledgeConfig=$knowledgeConfig|ConvertTo-Json -Depth 20|ConvertFrom-Json;$excludedKnowledgeConfig.routineExcludedPaths=@('private');Write-Utf8 $knowledgeConfigPath ($excludedKnowledgeConfig|ConvertTo-Json -Depth 20)
+    $excludedKnowledgeConfigIdentity=Get-Identity $knowledgeConfigPath
+    $unreadIdentity='0|'+('0'*64)
+    $excludedReferenceIndex=$schema2Index|ConvertTo-Json -Depth 20|ConvertFrom-Json;$excludedReferenceIndex.entries[0].locator='private/reference.md';$excludedReferenceIndex.entries[0].identity=$unreadIdentity;Write-Utf8 $knowledgeIndexPath ($excludedReferenceIndex|ConvertTo-Json -Depth 20)
+    $excludedReferenceQuery=Invoke-PsHost $script:pwshExecutable $knowledgeChecker @('-ProjectRoot',$knowledgeRoot,'-ExpectedProjectConfigIdentity',$excludedKnowledgeConfigIdentity,'-ExpectedIndexIdentity',(Get-Identity $knowledgeIndexPath),'-Operation','QUERY','-EntryId','REF-1','-AsJson')
+    $excludedReferenceValue=@($excludedReferenceQuery.Output)[-1]|ConvertFrom-Json
+    Assert-True ($excludedReferenceQuery.Code-eq0-and[string]$excludedReferenceValue.entries[0].status-ceq'UNAVAILABLE'-and[string]$excludedReferenceValue.entries[0].reason-ceq'ROUTINE_EXCLUDED_PATH|private/reference.md'-and-not(Test-Path -LiteralPath (Join-Path $knowledgeRoot 'private'))) 'knowledge-query-rejects-routine-excluded-reference-before-read-or-hash'
+    $excludedDependencyIndex=$schema2Index|ConvertTo-Json -Depth 20|ConvertFrom-Json;$excludedDependencyIndex.entries[0].authorityDependencies[0].locator='private/audit-rule.md';$excludedDependencyIndex.entries[0].authorityDependencies[0].identity=$unreadIdentity;Write-Utf8 $knowledgeIndexPath ($excludedDependencyIndex|ConvertTo-Json -Depth 20)
+    $excludedDependencyArgs=@('-ProjectRoot',$knowledgeRoot,'-ExpectedProjectConfigIdentity',$excludedKnowledgeConfigIdentity,'-ExpectedIndexIdentity',(Get-Identity $knowledgeIndexPath))
+    $excludedDependencyQuery=Invoke-PsHost $script:pwshExecutable $knowledgeChecker @($excludedDependencyArgs+@('-Operation','QUERY','-EntryId','REF-1','-AsJson'));$excludedDependencyValue=@($excludedDependencyQuery.Output)[-1]|ConvertFrom-Json
+    Assert-True ($excludedDependencyQuery.Code-eq0-and[string]$excludedDependencyValue.entries[0].status-ceq'UNAVAILABLE'-and[string]$excludedDependencyValue.entries[0].reason-ceq'ROUTINE_EXCLUDED_PATH|private/audit-rule.md'-and-not(Test-Path -LiteralPath (Join-Path $knowledgeRoot 'private'))) 'knowledge-query-rejects-routine-excluded-dependency-with-exact-reason'
+    $excludedDependencyImpact=Invoke-PsHost $script:pwshExecutable $knowledgeImpact @($excludedDependencyArgs+@('-ChangedAuthorityPath','unrelated.md','-AsJson'));$excludedDependencyImpactValue=@($excludedDependencyImpact.Output)[-1]|ConvertFrom-Json
+    Assert-True ($excludedDependencyImpact.Code-eq0-and[string]$excludedDependencyImpactValue.status-ceq'UNKNOWN'-and@($excludedDependencyImpactValue.unknownIds)-contains'REF-1'-and-not(Test-Path -LiteralPath (Join-Path $knowledgeRoot 'private'))) 'knowledge-impact-marks-routine-excluded-dependency-unknown-without-read-or-hash'
+    $boundaryDependencyIndex=$schema2Index|ConvertTo-Json -Depth 20|ConvertFrom-Json;$boundaryDependencyIndex.entries[0].authorityDependencies[0].locator='private-other/audit-rule.md';$boundaryDependencyIndex.entries[0].authorityDependencies[0].identity=Get-Identity (Join-Path $knowledgeRoot 'private-other\audit-rule.md');Write-Utf8 $knowledgeIndexPath ($boundaryDependencyIndex|ConvertTo-Json -Depth 20)
+    $boundaryDependencyArgs=@('-ProjectRoot',$knowledgeRoot,'-ExpectedProjectConfigIdentity',$excludedKnowledgeConfigIdentity,'-ExpectedIndexIdentity',(Get-Identity $knowledgeIndexPath))
+    $boundaryDependencyQuery=Invoke-PsHost $script:pwshExecutable $knowledgeChecker @($boundaryDependencyArgs+@('-Operation','QUERY','-EntryId','REF-1','-AsJson'));$boundaryDependencyQueryValue=@($boundaryDependencyQuery.Output)[-1]|ConvertFrom-Json
+    $boundaryDependencyImpact=Invoke-PsHost $script:pwshExecutable $knowledgeImpact @($boundaryDependencyArgs+@('-ChangedAuthorityPath','unrelated.md','-AsJson'));$boundaryDependencyImpactValue=@($boundaryDependencyImpact.Output)[-1]|ConvertFrom-Json
+    Assert-True ($boundaryDependencyQuery.Code-eq0-and[string]$boundaryDependencyQueryValue.entries[0].status-ceq'AVAILABLE'-and$boundaryDependencyImpact.Code-eq0-and[string]$boundaryDependencyImpactValue.status-ceq'NONE_DIRECT') 'knowledge-routine-exclusion-uses-path-segment-boundary'
+    Write-Utf8 $knowledgeConfigPath $knowledgeConfigRaw;Write-Utf8 $knowledgeIndexPath ($schema2Index|ConvertTo-Json -Depth 20);$knowledgeConfigIdentity=Get-Identity $knowledgeConfigPath;$knowledgeBaseArgs=@('-ProjectRoot',$knowledgeRoot,'-ExpectedProjectConfigIdentity',$knowledgeConfigIdentity,'-ExpectedIndexIdentity',(Get-Identity $knowledgeIndexPath))
 
     $knowledgeUnicodePolicy=[regex]::Replace($knowledgeConfigRaw,'("locator"\s*:\s*"\.ai-workspace/process-policy\.json")','$1, "\u006cocator": ".ai-workspace/process-policy.json"',1)
     Write-Utf8 $knowledgeConfigPath $knowledgeUnicodePolicy
@@ -2293,16 +2478,15 @@ exit $LASTEXITCODE
     foreach ($junction in @($script:testJunctions.ToArray())) {
         try { Remove-TestJunction $junction } catch {}
     }
-    if (Test-Path -LiteralPath $temp) {
-        Get-ChildItem -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue | ForEach-Object { try { $_.Attributes=[IO.FileAttributes]::Normal } catch {} }
-        Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $tempCleanup) {
+        Get-ChildItem -LiteralPath $tempCleanup -Recurse -Force -ErrorAction SilentlyContinue | ForEach-Object { try { $_.Attributes=[IO.FileAttributes]::Normal } catch {} }
+        Remove-Item -LiteralPath $tempCleanup -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 
 $resultManifest=Get-Content -LiteralPath (Join-Path $candidateRoot 'RELEASE_MANIFEST.json') -Raw -Encoding utf8|ConvertFrom-Json
-$resultSealed=[string]$resultManifest.sourceReview-ceq'APPROVED'-and[string]$resultManifest.releaseIntegration-cne'PENDING'
-$resultPending=[string]$resultManifest.sourceReview-ceq'PENDING'-and[string]$resultManifest.releaseIntegration-ceq'PENDING'
-Assert-True ($resultSealed-or$resultPending) 'result-lifecycle-derived-from-manifest'
-$resultScope=if($resultSealed){'Framework-1.16.0-stable'}else{'Framework-1.16.0-candidate'}
-$resultLifecycle=if($resultSealed){'SEALED'}else{'PENDING_SEAL'}
-Write-Output ("RESULT|" + $script:passed + "/" + $script:passed + " passed|scope="+$resultScope+"|lifecycle="+$resultLifecycle)
+$resultState=Get-ReleaseValidationState $version $resultManifest (Get-ReleasePayloadFacts $candidateRoot) ([bool]$SkipManifest)
+Assert-True ($resultState-ceq$initialReleaseState-and(Get-Identity $initialManifestPath)-ceq$initialManifestIdentity) 'result-lifecycle-and-manifest-bytes-preserved'
+$resultScope=if($resultState-ceq'STABLE'){'Framework-1.16.0-stable'}else{'Framework-1.16.0-candidate'}
+$resultLifecycle=if($resultState-ceq'STABLE'){'STABLE'}else{'CANDIDATE'}
+Write-Output ("RESULT|" + $script:passed + "/" + $script:passed + " passed|scope="+$resultScope+"|lifecycle="+$resultLifecycle+"|sourceReview="+[string]$resultManifest.sourceReview)

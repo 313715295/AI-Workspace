@@ -3,31 +3,21 @@
 <!-- AIW-REQUIREMENT:PR_ACTION_AUTHORIZATION_INDEPENDENT:BEGIN -->
 授权必须显式、限域，并且只对当前 phase 有效。不得从 recovery、Review、任务分配或聊天意图中推断授权。
 
-## Actions
-
 `CONTROL_WRITE`、`SOURCE_WRITE`、`TEST_WRITE`、`TEST_RUN`、`BROWSER_RUN`、`DEVICE_RUN`、`REVIEW_ROUTE`、`REVIEW_EXECUTE`、`OWNER_ACCEPT`、`GIT_STAGE`、`GIT_COMMIT`、`PUSH`、`EXTERNAL`。
 
-范围内的安全读取不需要 implementation package。以上每个会修改状态或产生副作用的 action 都保持独立。
+范围内安全读取不需要 implementation package；各副作用 action 保持独立。package 绑定 version、current whole-task identity/profile/lifecycle、Owner/issuer/grantee、action/exact path/whole-object、decision 与 `projectConfigIdentity`；Controller/repository 字段按 topology/issuer role 要求。严格 JSON、重复字段及 task/actor/action/path/object/decision/config/repository/Controller drift 均 fail closed。repository-bound package 必须先过 topology root adapter；backend 仍只由 project config 选择。
 
-## Package binding
+`ObservedAction` array 只预检同一未变化 lease 中已授予的多个 action，不承接写后 drift。需要写入→测试→局部修复时，package 可选 `continuationPlan`：步骤只取已授予 `actions`，可重复，复用整组 exact scope，并要求 `CONTINUATION_RESULT_DRIFT`；计划外 action、不同 scope、第三方 actor、缺 receipt 或跳步拒绝。
 
-package 绑定 framework version、task ID 与当前整张任务卡 identity、profile、lifecycle、owner、issuer、grantee、action set、exact paths、whole-object identities、decision class、user confirmation 与 project-config identity。checker 同时比较 package grantee、任务卡中的当前 actor 与 host 实际 actor；Controller 和 repository 字段是否必需，由 topology 与 issuer role 决定。
+`FINALIZE_OUTPUT` 逐 path 核对 `OBJECT_POSTIMAGE` 后才生成 caller-managed `AUTHORIZED_ACTION_CONTINUATION`。checker 将该 receipt 精确绑定原 package、source Discover identity及其实际 action/`continuationStepIndex`、task/Owner/taskActor/action actor、repository/config/Controller/decision/protection、下一步骤和当前整组 postimage；旧包、错链、自报错误 hash 或 stale postimage 不能续权。Review、`OWNER_ACCEPT`、Git、browser/device、external、publication 与 adoption 始终另走独立 gate。
 
-package JSON 按严格安全输入解析。转义解码后出现的递归重复 member 也必须拒绝；不得用 last-member-wins 行为解释权限。
-
-必需 invalidator 包括 task、owner、grantee、action set、path set、object、user decision、Controller epoch、repository 与 project-config drift。未知 drift 一律 fail closed。
-
-tool backend 由 project config 选择，因此 repo-local package 与由 root adapter 预先验证的 repository-bound package 都通过 `projectConfigIdentity` 绑定它。package 不重复 `frameworkToolBackend`；backend/config 字节变化会使 package 失效，不创建第二个选择真相。repository-bound package 不能直接调用 version checker，必须先经过拥有 topology authority 的 root adapter；version checker只复用通用 action、task、object 与Controller绑定语义。
-
-Framework `1.16.0` 接受 `ObservedAction` array。同一个未变化 lease 可以一次预检多个已授予 action，checker 对每个 action 返回独立结果。重复、未知或未授予 action 必须失败；原有单 action 调用仍有效。
+`FINALIZE_OUTPUT` 可承接 exact `CONTROL_WRITE` 对 corrections/process-policy 的真实 postimage：先验原 package 与全部 postimage，再用同一 composer 重组并核对当前 source bindings。只允许两者及 policy 派生的 standard identity；旧授权和 result obligations 不变。越界来源、独立 drift、无效绑定或新 pack 超预算均拒绝。
 
 schema3 project-upgrade package 可包含 `targetFrameworkSnapshot={canonical,manifestIdentity}`。stable adoption 保持向后兼容；local candidate pilot 则必须由 root upgrader 要求该字段，并与当次重算 payload 及最终 manifest identity 精确一致。它只是逐次使用的候选绑定，不创建发布 ledger 或第二份 release truth。
 
-批量预检不会合并能力：`SOURCE_WRITE` PASS 不等于 `TEST_RUN`、Review 或 Git 权限。任何绑定 identity、repository 或 decision 漂移后，后续 phase 必须使用新 package。
-
 `PROCESS_REQUIREMENTS_RESOLVE/ADMIT_ACTION` 消费当前 task/source decision 并校验 preparation，但始终返回 `authorityGranted=false`。process decision 与独立 action checker 必须分别 PASS，彼此不能替代。
 
-仓库内不设置 authorization-consumption ledger。有效期由绑定的 invalidators 和显式 phase release 结束；host 无法证明 single consumption 时，不得声称已单次消费。
+continuation receipt 是 `INSTRUCTION_BOUND` 的短生命周期结果载体，不是签名、host enforcement、authority 或消费 ledger；下一边界完成、失效或 abort 后删除。它只证明上述可复验关联，不声称 single consumption 或抗恶意伪造。
 <!-- AIW-REQUIREMENT:PR_ACTION_AUTHORIZATION_INDEPENDENT:END -->
 
 <!-- AIW-REQUIREMENT:PR_PROTECTED_PATH_FAIL_CLOSED:BEGIN -->
@@ -39,19 +29,13 @@ authority context 只能来自当前机械观察到的 project、Controller、ta
 <!-- AIW-REQUIREMENT:PR_AUTHORITY_CONTEXT_INTENT_RECONCILIATION:END -->
 
 <!-- AIW-REQUIREMENT:PR_DYNAMIC_ROLE_DIRECT_ISSUANCE:BEGIN -->
-## Controller、Owner 与临时角色
+controller.json唯一确定Controller ID/epoch；PROJECT_CONTROLLER issuer须匹配，DOMAIN_OWNER不得冒充。Controller/Owner是长期责任，identity/model仅随合法handoff/takeover改变；同actor可兼任，但issuance/acceptance/Review independence分离。effort与identity/model、Owner、role和authority分离；宿主接受、复用及失效处理由HOST_CODEX资源合同负责。调effort本身不转移责任、不授予权限，也不自动要求handoff、新任务或FULL_COLD。
 
-`controller.json` 是当前 Controller ID/epoch 的唯一字面真相。PROJECT_CONTROLLER issuer 必须与其精确一致；DOMAIN_OWNER 不得伪装 Controller 字段。
+package grantee仅是当前有界 action 或显式 `continuationPlan` 批次的 temporary execution role，无Owner authority，也不改 Work route。DOMAIN_OWNER直接执行未变domain工作，或选temporary actor、发scoped package、收return；跨域actor不替Owner。
 
-PROJECT_CONTROLLER 与 DOMAIN_OWNER 是长期责任。Executor、writer、Reviewer、Git、browser、device 与 resource route 都是临时 task/phase 角色。action、grantee、path/object set 或 user decision 改变时需要新 package；旧 package 因此失效，但健康 recovery baseline 不会自动失效，也不因此强制由 PROJECT_CONTROLLER 签发。
+Owner可直接发纯REVIEW_EXECUTE/收verdict；OWNER_ACCEPT须另包绑定current task/exact result且grantee为复证Owner；acceptance不增write/install/Git/external权。CRITICAL最终Reviewer排除Owner/issuer/candidate writer/全部material contributors（candidateWriter不重复列contributors）。
 
-任务卡的 Owner 表示责任归属，`Work route` 表示当前连续生产 actor；一次临时 action 的 grantee 不取得任务归属。Owner 可为单次写入、测试、Review、Git、browser/device 或 external action 选择临时 actor，resolver 根据唯一 package action 形成相应临时 role/phase，并保留 `taskActor` 作为任务生产路线证据。`REVIEW_ROUTE` 与 `OWNER_ACCEPT` 仍由有责任的 Owner/route actor 执行；只有真实责任转移才可改写任务路线。
-
-在未变化的 domain task 内，DOMAIN_OWNER 是默认直接 issuer 与 phase consumer。Owner 可自己完成连续工作，也可因并行、上下文隔离、独立性或资源成本选择临时 actor；fresh package 只绑定该 action，不等于新任务、责任转移或 FULL_COLD。Owner 可直接向独立 Reviewer 签发纯 `REVIEW_EXECUTE` package、接收 verdict 并执行 `OWNER_ACCEPT`。接受动作复用现有 scoped package，绑定当前 task 和 exact result；`OWNER_ACCEPT` 的 grantee 必须是经当前任务卡复证的 Owner，并继续满足既有 actor 绑定。它不要求新增授权格式，也不因获准接受而获得任何写入、安装、Git 或 external 权限。合格的跨域 actor 可以写入，任务 Owner 仍保持不变。CRITICAL Review 中，task owner、package issuer、candidate writer 与所有 material contributor 都不能成为最终独立 Reviewer；`candidateWriter` 不得在 `materialContributors` 中重复。
-
-只有 PROJECT_CONTROLLER 拥有唯一 next action，或必须解决 owner/public-decision、cross-domain contract、protected-path、project-phase、Git/device/external 或 resource-conflict 边界时，才路由至 PROJECT_CONTROLLER。resource selection 本身不授予权限。
-
-Controller handoff 是单向过程，并在 `TAKEOVER_COMPLETE` 结束。predecessor 的只读宽限不是 routing authority，也不是 retirement permission。
+仅Controller unique next action或owner/public-decision|cross-domain contract|protected path|project phase|Git/device/external|resource conflict路由Controller。
 <!-- AIW-REQUIREMENT:PR_DYNAMIC_ROLE_DIRECT_ISSUANCE:END -->
 
 <!-- AIW-REQUIREMENT:PR_USER_DECISION_DRIFT:BEGIN -->

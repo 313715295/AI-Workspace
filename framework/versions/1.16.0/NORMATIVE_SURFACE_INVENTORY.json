@@ -58,9 +58,13 @@
     "scripts/resolve-workflow-route.ps1",
     "tests/PROCESS_REQUIREMENTS_BUDGETS.json",
     "tests/PROCESS_REQUIREMENTS_FIXTURES.json",
+    "tests/authorization-receipt-regression-tests.ps1",
+    "tests/canonical-identity-tests.ps1",
     "tests/canonical-identity-reference.mjs",
+    "tests/governance-contract-tests.ps1",
     "tests/measure-process-requirements.ps1",
     "tests/process-runtime-v2-tests.ps1",
+    "tests/source-postimage-transition-tests.ps1",
     "tests/run-framework-tests.ps1"
   ],
   "explanationAndHistory": [

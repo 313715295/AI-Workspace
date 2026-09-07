@@ -169,6 +169,9 @@ function Write-Unverified([string]$Reason,[bool]$Launched=$false) {
 }
 
 try {
+    foreach ($name in @('GIT_DIR','GIT_WORK_TREE','GIT_COMMON_DIR','GIT_INDEX_FILE')) {
+        if (-not [string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($name,'Process'))) { throw ('GIT_ENVIRONMENT_OVERRIDE_' + $name) }
+    }
     if (-not (Test-Path -LiteralPath $ProjectRoot -PathType Container)) { throw 'PROJECT_ROOT_MISSING' }
     $controlRoot = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Resolve-Path -LiteralPath $ProjectRoot).ProviderPath))
     if ((Get-Item -LiteralPath $controlRoot -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'PROJECT_ROOT_REPARSE' }
@@ -235,7 +238,7 @@ try {
     if (Test-Path -LiteralPath (Join-Path $root $emptyExcludes)) { Write-Unverified 'RESERVED_EXCLUDES_PATH_EXISTS' }
     $arguments = switch ($Operation) {
         'STATUS' { @('-C',$root,'-c',('core.excludesFile='+$emptyExcludes),'-c','status.renames=false','status','--no-renames','--porcelain=v1','--untracked-files=all','--') + $pathspecs }
-        'DIFF' { @('-C',$root,'-c',('core.excludesFile='+$emptyExcludes),'-c','diff.renames=false','diff','--no-renames','--no-ext-diff','--') + $pathspecs }
+        'DIFF' { @('-C',$root,'-c',('core.excludesFile='+$emptyExcludes),'-c','diff.renames=false','diff','--no-renames','--no-ext-diff','--no-textconv','--') + $pathspecs }
         'INDEX' { @('-C',$root,'-c',('core.excludesFile='+$emptyExcludes),'-c','diff.renames=false','diff','--cached','--no-renames','--name-status','--') + $pathspecs }
     }
     $previousErrorAction = $ErrorActionPreference

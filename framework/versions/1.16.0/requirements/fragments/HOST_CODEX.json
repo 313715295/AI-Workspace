@@ -5,24 +5,20 @@
   "requirements": [
     {
       "requirementId": "PR_CODEX_RESOURCE_ROUTE",
-      "legacyAliases": [],
+      "legacyAliases": [
+        "correction:pocket-legion:HOST_RESOURCE_ROUTE_DELEGATION"
+      ],
       "title": "Codex resource route",
-      "description": "Use advisory model/resource routes without turning them into authority or permanent roles.",
+      "description": "Bind explicit temporary Codex resources after organization selection without reopening topology or granting authority.",
       "selectors": {
         "profiles": [
-          "STANDARD",
-          "CRITICAL"
+          "*"
         ],
         "roles": [
-          "CONTROLLER",
-          "DOMAIN_OWNER",
-          "FRAMEWORK_MAINTAINER"
+          "*"
         ],
         "phases": [
-          "PLAN",
-          "IMPLEMENT",
-          "VERIFY",
-          "REVIEW"
+          "*"
         ],
         "actionKinds": [
           "*"
@@ -32,12 +28,7 @@
         ],
         "pathPrefixes": [],
         "capabilities": [],
-        "semanticTerms": [
-          "model",
-          "resource",
-          "subagent",
-          "parallel"
-        ]
+        "semanticTerms": []
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_CODEX_RESOURCE_ROUTE",
       "preparationRequirements": [

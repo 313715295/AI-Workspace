@@ -12,11 +12,11 @@
 - Optional capabilities：`DISABLED`（`frameworkCapabilities={}`）
 - Project corrections：`.ai-workspace/corrections.json / recovery 与 pin adoption 前后评估`
 - Process budget：`.ai-workspace/process-policy.json.selectedRulePackBytes`
-- Initialization result：`NEEDS_INPUT`
+- Initialization result：`CONTROL_PLANE_READY`；未从用户资料确认的项目事实不由模板代填
 
 ## Current work
 
-- Current phase：建立 project facts；不得自动开始 product implementation。
+- Current phase：等待用户任务；按任务需要读取用户已指定的项目资料，不要求先补齐通用模板。
 - Current task：none。
 - Current writer/reviewer：`NONE / NONE`
 - HEAD/index/source state：`UNVERIFIED`
@@ -24,4 +24,4 @@
 
 ## Next action
 
-initializing owner 记录 project facts、owners、routine excluded paths 与 current task route，然后对 pinned Framework 执行一次 FULL_COLD recovery。缺失 product/ownership/authority decision 只向用户集中返回一次；bounded task 已批准后，routine file/test/review step 不要求逐步确认。
+首次实际任务从本 `BOOTSTRAP.md` 执行 FULL_COLD recovery。AI 优先复用用户给出的产品、架构、质量或标准文档；只对当前任务确实缺失且会改变结果的事实集中询问一次。规范性标准需要时由 AI 写入 process-policy 的显式来源绑定；用户不必手写机器 JSON。

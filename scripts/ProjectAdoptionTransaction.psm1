@@ -24,7 +24,7 @@ function Get-AiwCurrentIdentity {
 function Write-AiwAtomicBytes {
     param(
         [Parameter(Mandatory)][string]$Path,
-        [Parameter(Mandatory)][byte[]]$Bytes
+        [Parameter(Mandatory)][AllowEmptyCollection()][byte[]]$Bytes
     )
 
     $parent = Split-Path -Parent $Path

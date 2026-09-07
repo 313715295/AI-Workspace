@@ -227,6 +227,56 @@ try {
     Assert-True ($deleteResult.status -ceq 'COMPLETE' -and -not (Test-Path -LiteralPath $fileA)) 'managed-delete-complete'
 
     Reset-TestProject
+    $existingEmptyPath = Join-Path $fixtureRoot 'existing-empty.txt'
+    $existingNonemptyPath = Join-Path $fixtureRoot 'existing-nonempty.txt'
+    $createdEmptyPath = Join-Path $fixtureRoot 'created-empty.bin'
+    [IO.File]::WriteAllBytes($existingEmptyPath, [byte[]]::new(0))
+    Write-TestText $existingNonemptyPath 'preserve-on-rollback'
+    $emptyIdentity = '0|E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855'
+    $zeroByteProjection = New-AiwProjectProjection $fixtureRoot @(
+        [pscustomobject]@{ path = 'existing-empty.txt'; text = 'filled-after-apply' },
+        [pscustomobject]@{ path = 'existing-nonempty.txt'; text = '' },
+        [pscustomobject]@{ path = 'created-empty.bin'; bytes = [byte[]]::new(0) }
+    )
+    Assert-True (
+        [string]$zeroByteProjection.objects[0].oldIdentity -ceq $emptyIdentity -and
+        [string]$zeroByteProjection.objects[1].newIdentity -ceq $emptyIdentity -and
+        [string]$zeroByteProjection.objects[2].oldIdentity -ceq 'MISSING' -and
+        [string]$zeroByteProjection.objects[2].newIdentity -ceq $emptyIdentity
+    ) 'zero-byte-projection-distinguishes-empty-files-from-missing'
+
+    $zeroByteRollback = $false
+    try {
+        Invoke-AiwProjectProjectionTransaction $fixtureRoot $zeroByteProjection '.ai-workspace/upgrade-recovery/zero-byte/state.json' { $false } { $true } | Out-Null
+    }
+    catch {
+        $zeroByteRollback = $_.Exception.Message -ceq 'TRANSACTION_ROLLED_BACK|POSTCHECK_FAILED'
+    }
+    Assert-True (
+        $zeroByteRollback -and
+        (Test-Path -LiteralPath $existingEmptyPath -PathType Leaf) -and
+        [IO.File]::ReadAllBytes($existingEmptyPath).Length -eq 0 -and
+        (Get-Content -LiteralPath $existingNonemptyPath -Raw) -ceq 'preserve-on-rollback' -and
+        -not (Test-Path -LiteralPath $createdEmptyPath)
+    ) 'zero-byte-postcheck-failure-restores-existing-empty-and-nonempty-and-removes-created-empty'
+
+    $zeroByteResult = Invoke-AiwProjectProjectionTransaction $fixtureRoot $zeroByteProjection '.ai-workspace/upgrade-recovery/zero-byte/state.json' {
+        param($root)
+        (Get-Content -LiteralPath (Join-Path $root 'existing-empty.txt') -Raw) -ceq 'filled-after-apply' -and
+        [IO.File]::ReadAllBytes((Join-Path $root 'existing-nonempty.txt')).Length -eq 0 -and
+        (Test-Path -LiteralPath (Join-Path $root 'created-empty.bin') -PathType Leaf) -and
+        [IO.File]::ReadAllBytes((Join-Path $root 'created-empty.bin')).Length -eq 0
+    } { $true }
+    Assert-True (
+        $zeroByteResult.status -ceq 'COMPLETE' -and
+        (Get-Content -LiteralPath $existingEmptyPath -Raw) -ceq 'filled-after-apply' -and
+        (Test-Path -LiteralPath $existingNonemptyPath -PathType Leaf) -and
+        [IO.File]::ReadAllBytes($existingNonemptyPath).Length -eq 0 -and
+        (Test-Path -LiteralPath $createdEmptyPath -PathType Leaf) -and
+        [IO.File]::ReadAllBytes($createdEmptyPath).Length -eq 0
+    ) 'zero-byte-apply-preserves-empty-target-files-as-existing'
+
+    Reset-TestProject
     $directoryProjection = New-AiwProjectProjection $fixtureRoot @(
         [pscustomobject]@{ path = '.ai-workspace/tasks/active'; kind = 'DIRECTORY' },
         [pscustomobject]@{ path = '.ai-workspace/tasks/archive'; kind = 'DIRECTORY' }
@@ -322,6 +372,12 @@ try {
         $noOpResult.status -ceq 'NO_CHANGE' -and
         -not (Test-Path -LiteralPath $noTransactionPath)
     ) 'no-op-no-transaction'
+
+    $selfUpdateTest = Join-Path $PSScriptRoot 'maintenance-self-update-tests.ps1'
+    $selfUpdateOutput = @(& pwsh -NoProfile -NonInteractive -File $selfUpdateTest 2>&1 | ForEach-Object { [string]$_ })
+    $selfUpdateCode = $LASTEXITCODE
+    if ($selfUpdateCode -ne 0) { throw ('MAINTENANCE_SELF_UPDATE_FAILED|' + ($selfUpdateOutput -join [Environment]::NewLine)) }
+    Assert-True ($selfUpdateCode -eq 0 -and $selfUpdateOutput.Count -eq 1 -and $selfUpdateOutput[0] -cmatch '^PASS\|maintenance-self-update\|\d+/\d+$') 'maintenance-self-update-focused-entrypoint'
 
     Write-Output ('PASS|project-adoption-tests|' + $passed + '/' + $passed)
 }

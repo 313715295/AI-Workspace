@@ -6,4 +6,6 @@
 在相关 user prompt、task/authority context change、compaction/resume/handoff uncertainty、独立 governed action 与最终输出前激活。bound context 未变化时复用，不按每次 tool call 重载。
 
 Skill 只负责 navigation，不能授予 write、test、Review、OWNER_ACCEPT、Git、push、browser、device 或 external authority。项目自己的 instruction 可写在本 managed block 之外。
+
+项目说明与标准不复制到这里。AI 只按当前任务读取用户已指定的资料入口；规范性标准通过 `.ai-workspace/process-policy.json` 的显式来源绑定接入，普通文档链接不会自动递归成为规则依赖。
 <!-- AI-WORKSPACE-FRAMEWORK:END -->

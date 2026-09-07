@@ -14,6 +14,8 @@
 6. 中断后只按已绑定恢复材料继续回退或完成，不覆盖第三方新字节。
 7. 成功结果同时报告 Framework pin、实际 Project Format 和 Root Tool Revision。
 
+初始化只创建必要控制入口、薄项目/Review 指针与 current task 目录；`RELATIONSHIPS.md` 保留为按需模板，不是默认必需对象。注册脚本不判断产品文档权威，也不搬迁、拆分或改写用户资料。初始化 AI 根据用户指定及项目已有入口确认用途后建立引用；已有项目是否精炼历史资料、调整文档结构或迁移永久规则，由项目另行选择，不是采用新版的前置条件。
+
 逻辑提交不是 Git commit，也不承诺多文件瞬时原子。安全保证是：任何未能完成 Postcheck 的尝试都不得开放新的有效行为；能够安全恢复时，旧 pin、旧受管对象和旧有效三源行为全部恢复。
 
 ## Project Format 与 capability
@@ -30,13 +32,27 @@ Project Format 来自实际 project/controller/corrections/process-policy 等载
 - 重试：先识别现有恢复状态；不得叠加第二事务。
 - 升级失败：保留有界恢复材料；恢复完成前禁止普通消费。
 
+已完成采用的 recovery state 保存原安装任务、Owner、actor、授权与材料作为历史证据；后续同 pin 刷新由当前真实任务和新授权独立约束，不改写历史绑定。未完成事务仍只能由原绑定继续恢复。
+
 ## 永久规则迁移
 
 只有用户明确选择的项目过程规则才从 legacy PROJECT-CUSTOM 成对迁入 process-policy。迁移同时移除旧运行正文，但保留项目事实、定位与非过程扩展。准备态不会成为正常规则来源；成功前后都只能有一份有效规则，失败则恢复原组合。
 
+process-policy 可以显式引用项目内文件或当前受支持宿主上的本机绝对文件。target-before-pin 预检只把项目内来源快照复制到临时 projection；项目外来源在原位置只读复核 identity，既不写入 projection，也不进入采用 transaction。预检、失败恢复与采用都不得修改标准来源文件。
+
 ## Root Tool Revision
 
 根工具 revision 由真实入口、导入的公共模块及会影响投影的模板/合同文件按 ordinal 路径和整文件 identity 计算。它与 Framework pin、Project Format 一起进入采用结果和恢复证据，但不新增第二个项目 pin 或永久台账。
+
+Maintenance 把已审根来源写回其 configured target 时，采用[Maintenance 根来源自更新](FRAMEWORK_RELEASE.md#maintenance-根来源自更新)的有界事务；本文件仍只负责项目 preview、same-pin 刷新与恢复，不另定义根来源授权或收尾语义。
+
+## 宿主接入收尾
+
+接入、升级或根级 Skill 变更交付时，由该次 Owner 或已指定的宿主接入执行者核对实际安装的 Router 与本次已接受、兼容所用项目 pin 的仓库 canonical Skill。当前宿主已使用 Router 时，相同则不写；有差异就在已有宿主写授权内同步，并回读字节身份。仓库 Skill 已更新、项目采用成功或 Root Tool Revision 匹配，都不能代替实际安装副本的核对。
+
+同一宿主供多个项目使用时只收尾一次，不逐项目重复安装。未安装或未配置 Router 的宿主继续使用项目 Bootstrap；首次安装由用户选择。注册和升级脚本本身不安装全局 Skill，也不从项目写授权推导宿主写权限。
+
+同步后按宿主支持的发现与加载方式使用，并在既有交付结果中简记安装位置、来源身份及一致／已同步／未使用／待处理状态；磁盘副本一致不等于运行中会话已重载正文。只有宿主接入未完成时保留该项，不重开已完成的项目采用事务，不新增同步服务或台账。
 
 ## 维护与版本关系
 

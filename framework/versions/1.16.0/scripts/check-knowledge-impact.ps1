@@ -136,6 +136,13 @@ function Resolve-LiteralFile([string]$Root,[string]$Locator) {
     return $full
 }
 
+function Test-RoutineExcludedLocator([string]$Locator,$RoutineExclusions) {
+    foreach($excluded in $RoutineExclusions){
+        if($Locator.Equals([string]$excluded,[StringComparison]::OrdinalIgnoreCase)-or$Locator.StartsWith(([string]$excluded)+'/',[StringComparison]::OrdinalIgnoreCase)){return $true}
+    }
+    return $false
+}
+
 function Read-StrictJson([string]$Path,[string]$Label) {
     $bytes=[IO.File]::ReadAllBytes($Path)
     if($bytes.Length-ge3-and$bytes[0]-eq0xEF-and$bytes[1]-eq0xBB-and$bytes[2]-eq0xBF){throw ($Label+'_BOM')}
@@ -181,6 +188,12 @@ try {
        -not($config.repositoryRoot-is[string])-or[string]$config.repositoryRoot-cne'..'-or-not($config.frameworkVersion-is[string])-or[string]$config.frameworkVersion-cne'1.16.0'-or-not($config.frameworkToolBackend-is[string])-or[string]$config.frameworkToolBackend-cne'powershell7'-or
        -not($config.routineExcludedPaths-is[System.Array])-or-not($config.frameworkCapabilities-is[pscustomobject])){throw 'PROJECT_CONFIG_VALUES'}
     if($configSchemaVersion-eq4){Assert-ExactFields $config.processPolicy @('schemaVersion','locator') 'PROJECT_CONFIG_PROCESS_POLICY';if(-not(Test-JsonInteger $config.processPolicy.schemaVersion)-or[int]$config.processPolicy.schemaVersion-ne1-or-not($config.processPolicy.locator-is[string])-or[string]$config.processPolicy.locator-cne'.ai-workspace/process-policy.json'){throw 'PROJECT_CONFIG_PROCESS_POLICY'}}
+    $routineExclusions=New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    foreach($exclusion in @($config.routineExcludedPaths)){
+        if(-not($exclusion-is[string])){throw 'ROUTINE_EXCLUSION_TYPE'}
+        $normalizedExclusion=ConvertTo-LiteralLocator ([string]$exclusion)
+        if(-not$routineExclusions.Add($normalizedExclusion)){throw 'ROUTINE_EXCLUSION_DUPLICATE'}
+    }
     Assert-ExactFields $config.frameworkCapabilities @('KNOWLEDGE_REFERENCE') 'CAPABILITY_FIELDS'
     $knowledge=$config.frameworkCapabilities.KNOWLEDGE_REFERENCE
     Assert-ExactFields $knowledge @('enabled','indexLocator') 'CAPABILITY_FIELDS'
@@ -234,6 +247,7 @@ try {
         $entryDirect=$false;$entryUnknown=$false
         foreach($dependency in @($entry.dependencies)){
             if($changed.Contains([string]$dependency.locator)){$entryDirect=$true}
+            if(Test-RoutineExcludedLocator ([string]$dependency.locator) $routineExclusions){$entryUnknown=$true;continue}
             try{$full=Resolve-LiteralFile $root ([string]$dependency.locator);if((Get-Identity $full)-cne[string]$dependency.identity){$entryUnknown=$true}}catch{if([string]$_.Exception.Message-like'LOCATOR_REPARSE|*'){throw};$entryUnknown=$true}
         }
         $status=if($entryDirect){'DIRECT_AFFECTED'}elseif($entryUnknown){'UNKNOWN'}else{'NONE_DIRECT'}

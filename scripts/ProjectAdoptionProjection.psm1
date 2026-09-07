@@ -18,9 +18,9 @@ function Get-AiwTargetBytes {
         if ($null -eq $Target.bytes) {
             throw ('TARGET_CONTENT_NULL|' + $RelativePath)
         }
-        return [byte[]]$Target.bytes
+        return ,([byte[]]$Target.bytes)
     }
-    return [Text.UTF8Encoding]::new($false).GetBytes([string]$Target.text)
+    return ,([Text.UTF8Encoding]::new($false).GetBytes([string]$Target.text))
 }
 
 function New-AiwProjectProjection {
