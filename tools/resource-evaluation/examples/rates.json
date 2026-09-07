@@ -1,0 +1,7 @@
+{
+  "rateBasis": "Historical user-supplied 2026-09-07 credits per million tokens; estimates, not bills",
+  "rates": {
+    "gpt-6-astra": { "input": 250, "cachedInput": 25, "output": 1250 },
+    "gpt-5.6-sol": { "input": 100, "cachedInput": 10, "output": 500 }
+  }
+}

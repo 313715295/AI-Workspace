@@ -3,7 +3,9 @@
 param(
     [string]$RepositoryRoot=(Resolve-Path (Join-Path $PSScriptRoot '../..')).Path,
     [string]$SeedControlRoot,
-    [string]$SeedFrameworkRoot
+    [string]$SeedFrameworkRoot,
+    [string]$SeedTransactionPath,
+    [string]$ExpectedSeedTransactionIdentity
 )
 $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
 $utf8=[Text.UTF8Encoding]::new($false);$passes=0;$lf=[string][char]10
@@ -55,6 +57,17 @@ function Admission([string]$Name,[string[]]$Paths){
     return [pscustomobject]@{auth=$auth;receipt=$rp;admitInput=$bp;admitResult=$ap;boundary=$boundary;discover=$d}
 }
 function Restore-SourceFile([string]$Path,[byte[]]$Bytes){[IO.File]::WriteAllBytes($Path,$Bytes)}
+function Restore-SeedObject([string]$Root,[string]$Relative,[string]$Expected,[string]$Base64){
+    $full=[IO.Path]::GetFullPath((Join-Path $Root $Relative));$prefix=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($Root))+[IO.Path]::DirectorySeparatorChar
+    if([IO.Path]::IsPathRooted($Relative)-or-not$full.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase)-or$Relative.Replace('\','/').StartsWith('.git/')){throw 'SEED_OBJECT_SCOPE'}
+    if($Expected-ceq'MISSING'){
+        if(Test-Path -LiteralPath $full -PathType Leaf){Remove-Item -LiteralPath $full -Force}
+        return
+    }
+    $bytes=[Convert]::FromBase64String($Base64);$actual=$bytes.Length.ToString()+'|'+[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes))
+    if($actual-cne$Expected){throw ('SEED_OBJECT_BYTES|'+$Relative)}
+    New-Item -ItemType Directory -Path (Split-Path -Parent $full) -Force|Out-Null;[IO.File]::WriteAllBytes($full,$bytes)
+}
 try {
     if(-not$SeedControlRoot){
         $cursor=[IO.Path]::GetFullPath($RepositoryRoot)
@@ -81,6 +94,21 @@ try {
     $recovery='.ai-workspace/upgrade-recovery/1.16.0'
     New-Item -ItemType Directory -Path (Split-Path -Parent (Join-Path $control $recovery)) -Force|Out-Null
     Copy-Item -LiteralPath (Join-Path $SeedControlRoot $recovery) -Destination (Join-Path $control $recovery) -Recurse
+    if($SeedTransactionPath-or$ExpectedSeedTransactionIdentity){
+        if(-not$SeedTransactionPath-or-not$ExpectedSeedTransactionIdentity-or(Id $SeedTransactionPath)-cne$ExpectedSeedTransactionIdentity){throw 'SEED_TRANSACTION_IDENTITY'}
+        $seed=Get-Content -LiteralPath $SeedTransactionPath -Raw|ConvertFrom-Json -Depth 100
+        if($seed.schemaVersion-ne1-or$seed.transactionType-cne'MAINTENANCE_FRAMEWORK_SOURCE_SELF_UPDATE'-or$seed.status-cne'COMPLETE'-or
+            -not[StringComparer]::OrdinalIgnoreCase.Equals([IO.Path]::GetFullPath($seed.controlRoot),[IO.Path]::GetFullPath($SeedControlRoot))-or
+            -not[StringComparer]::OrdinalIgnoreCase.Equals([IO.Path]::GetFullPath($seed.targetRoot),[IO.Path]::GetFullPath($SeedFrameworkRoot))-or
+            (Id (Join-Path $control '.ai-workspace/project.json'))-cne$seed.projectConfigIdentity-or(Id (Join-Path $control '.ai-workspace/controller.json'))-cne$seed.controllerIdentity){throw 'SEED_TRANSACTION_BINDING'}
+        foreach($dependency in $seed.dependencies){if((Id (Join-Path $target $dependency.path))-cne$dependency.identity){throw ('SEED_DEPENDENCY_DRIFT|'+$dependency.path)}}
+        # Restore recorded real preimages only inside this test's already-owned
+        # sibling fixture. Never invoke RECOVER against the original live roots.
+        foreach($object in $seed.projection.objects){Restore-SeedObject $target $object.path $object.oldIdentity $object.oldBase64}
+        $managed=@('.ai-workspace/BOOTSTRAP.md','.ai-workspace/process-policy.json','AGENTS.md','.gitignore','.agents/skills/ai-workspace-router/SKILL.md',($recovery+'/state.json'))
+        foreach($object in $seed.controlPreimages){if($object.path-cnotin$managed){throw 'SEED_CONTROL_SCOPE'};Restore-SeedObject $control $object.path $object.identity $object.base64}
+        Confirm ((Id (Join-Path $control ($recovery+'/state.json')))-ceq(@($seed.controlPreimages|Where-Object {$_.path-ceq($recovery+'/state.json')})[0].identity)) 'historical-completed-seed-restored-from-real-preimages'
+    }
     $controller=Get-Content -LiteralPath (Join-Path $control '.ai-workspace/controller.json') -Raw|ConvertFrom-Json
     $owner=[string]$controller.controllerId;$epoch=[int]$controller.controllerEpoch
     $taskRelative='.ai-workspace/tasks/active/SELF-UPDATE-001.md';$task=Join-Path $control $taskRelative
@@ -144,7 +172,9 @@ try {
     # The independent schema3 upgrade package is exercised by the real refresh below.
     $controlPackage=Package @('AGENTS.md') $control
     $controlPackage.repositoryId='CONTROL';$controlPackage.actions=@('CONTROL_WRITE')
-    $controlAuth=Join-Path $runtime 'r1-control-auth.json';Write-Json $controlAuth $controlPackage
+    foreach($authLocation in @('runtime','control-plane')){
+    $controlAuth=if($authLocation-ceq'runtime'){Join-Path $runtime 'r1-control-auth.json'}else{Join-Path $control '.ai-workspace/control-auth.json'}
+    Write-Json $controlAuth $controlPackage
     $controlInput=($routeInput|ConvertTo-Json -Depth 100)|ConvertFrom-Json -AsHashtable
     $controlInput.authorizationPackagePath=$controlAuth;$controlInput.expectedAuthorizationIdentity=Id $controlAuth;$controlInput.exactPaths=@('AGENTS.md')
     $controlInput.intentEnvelope.objective='Verify the existing CONTROL schema3 process route without changing the managed object.'
@@ -162,7 +192,25 @@ try {
         if($mode-ceq'FINALIZE_OUTPUT'){$controlBoundary.resultReceipts=@($controlDiscover.compactReceipt.selectedObligations|ForEach-Object{@($_.resultRequirements)}|Sort-Object -Unique)+@('OBJECT_POSTIMAGE|AGENTS.md|'+(Id (Join-Path $control 'AGENTS.md')))}
         Write-Json $controlBoundaryPath $controlBoundary
         $controlResult=Json $adapter @{InputPath=$controlBoundaryPath;AsJson=$true;DeleteInputOnExit=$true}
-        Confirm ($controlResult.status-ceq'PASS'-and-not(Test-Path -LiteralPath $controlBoundaryPath)) ('r1-control-schema3-'+$mode+'-and-normal-cleanup')
+        Confirm ($controlResult.status-ceq'PASS'-and-not(Test-Path -LiteralPath $controlBoundaryPath)) ('control-schema3-'+$authLocation+'-'+$mode+'-and-normal-cleanup')
+    }
+    }
+    $controlBoundary.mode='ADMIT_ACTION';$controlBoundary.resultReceipts=@()
+    $controlReceiptBytes=[IO.File]::ReadAllBytes($controlReceiptPath)
+    $controlAuthBytes=[IO.File]::ReadAllBytes($controlAuth)
+    foreach($fault in @('receipt-identity','authorization-identity','wrong-bound-root','wrong-framework-root')){
+        $probeBoundary=($controlBoundary|ConvertTo-Json -Depth 100)|ConvertFrom-Json -AsHashtable
+        if($fault-ceq'receipt-identity'){$probeBoundary.expectedDiscoverReceiptIdentity='0|'+('0'*64)}
+        elseif($fault-ceq'authorization-identity'){Write-Text $controlAuth ($lf+[IO.File]::ReadAllText($controlAuth))}
+        else {
+            $badReceipt=Get-Content -LiteralPath $controlReceiptPath -Raw|ConvertFrom-Json
+            if($fault-ceq'wrong-bound-root'){$badReceipt.binding.projectRoot=$fixtureRoot}else{$badReceipt.sourceLocators.frameworkRoot=$control}
+            Write-Json $controlReceiptPath $badReceipt;$probeBoundary.expectedDiscoverReceiptIdentity=Id $controlReceiptPath
+        }
+        Write-Json $controlBoundaryPath $probeBoundary
+        $rejected=Run $adapter @{InputPath=$controlBoundaryPath;AsJson=$true} -Reject
+        Confirm ($rejected.code-ne0-and(Test-Path -LiteralPath $controlBoundaryPath)) ('control-compact-rejects-'+$fault)
+        Restore-SourceFile $controlReceiptPath $controlReceiptBytes;Restore-SourceFile $controlAuth $controlAuthBytes
     }
     $badAdmission=[IO.File]::ReadAllBytes($source.admitResult);$fake=Get-Content -LiteralPath $source.admitResult -Raw|ConvertFrom-Json;$fake.decisionIdentity='F'*64;Write-Json $source.admitResult $fake
     $probe=$common.Clone();$probe.Operation='PREVIEW';$probe.TransactionPath=Join-Path $runtime 'rejected-admission.json';$probe.ExpectedAdmitResultIdentity=Id $source.admitResult
@@ -171,7 +219,10 @@ try {
     Restore-SourceFile $source.admitResult $badAdmission
     $sentinel=Id (Join-Path $target 'tools/resource-evaluation/independent.txt');$protected=Id (Join-Path $target 'private/protected.txt')
     $oldState=Id (Join-Path $control ($recovery+'/state.json'))
-    foreach($scenario in @('interrupt-target','failure-target','reject-refresh-schema','interrupt-refresh','normal')){
+    # Current completed seed exercises genuine no-write recovery; the optional
+    # byte-bound historical seed keeps the real schema3 write/rollback regression.
+    $scenarios=if($SeedTransactionPath){@('interrupt-target','failure-target','reject-refresh-schema','interrupt-refresh','normal')}else{@('interrupt-target','failure-target','noop-drift','interrupt-refresh','normal')}
+    foreach($scenario in $scenarios){
         $transaction=Join-Path $runtime ($scenario+'-transaction.json');$args=$common.Clone();$args.TransactionPath=$transaction;$args.Operation='PREVIEW'
         Confirm ((Json $integrator $args).status-ceq'PREVIEW') ($scenario+'-real-preview')
         $args.Operation='APPLY'
@@ -206,7 +257,61 @@ try {
             elseif($line-match'^UPGRADE_WRITESET\|(?<paths>.+)$'){$writeSet=@($Matches.paths-split'\|')}
             elseif($line-match'^UPGRADE_TARGET_RELEASE\|canonical=(?<hash>[A-F0-9]{64})\|manifest=(?<id>\d+\|[A-F0-9]{64})$'){$canonical=$Matches.hash;$manifest=$Matches.id}
         }
+        $noWrite=-not[bool]$SeedTransactionPath
+        if($noWrite){
+            Confirm ($applied.writes-gt0-and$writeSet.Count-eq0-and$preview.output.Count-eq2-and$preview.output[0]-ceq'UPGRADE_RECOVERY_WRITESET|'-and$preview.output[1]-ceq'RECOVERY_COMPLETE|to=1.16.0|writes=ZERO|state=LOCAL_CANDIDATE_MANAGED_PROJECTION') ($scenario+'-real-source-write-and-synchronized-upgrader-preview')
+            $beforeRefresh=Get-Content -LiteralPath $transaction -Raw|ConvertFrom-Json -Depth 100
+            $transactionBefore=Id $transaction
+            $refreshArgs.Operation='REFRESH'
+            if($scenario-ceq'noop-drift'){
+                $driftPaths=@($task,(Join-Path $control '.ai-workspace/project.json'),(Join-Path $control '.ai-workspace/controller.json'),(Join-Path $control 'AGENTS.md'),(Join-Path $control ($recovery+'/state.json')),(Join-Path $target $paths[0]),(Join-Path $target 'scripts/ProjectAdoptionState.psm1'))
+                # Corrupt a real recovery material dependency, not just state.json.
+                $material=Get-ChildItem -LiteralPath (Join-Path $control ($recovery+'/new')) -File -Recurse|Select-Object -First 1
+                $driftPaths+=$material.FullName
+                foreach($driftPath in $driftPaths){
+                    $saved=[IO.File]::ReadAllBytes($driftPath);Write-Text $driftPath ([Text.Encoding]::UTF8.GetString($saved)+$lf+'# third-party drift')
+                    $rejected=Run $integrator $refreshArgs -Reject
+                    Confirm ($rejected.code-ne0-and(Id $transaction)-ceq$transactionBefore-and[IO.File]::ReadAllText($driftPath).Contains('third-party drift')) ('no-write-refresh-refuses-live-drift-'+[IO.Path]::GetRelativePath($fixtureRoot,$driftPath))
+                    Restore-SourceFile $driftPath $saved
+                }
+                $stale=$refreshArgs.Clone();$stale.ExpectedTransactionIdentity='1|'+('A'*64)
+                $rejected=Run $integrator $stale -Reject
+                Confirm ($rejected.code-ne0-and$rejected.text.Contains('TRANSACTION_DRIFT')) 'no-write-refuses-stale-transaction'
+            }
+            if($scenario-ceq'interrupt-refresh'){$refreshArgs.InterruptAfterRefresh=$true}
+            $ready=Json $integrator $refreshArgs
+            $noWriteState=Get-Content -LiteralPath $transaction -Raw|ConvertFrom-Json -Depth 100
+            Confirm ($noWriteState.refresh.kind-ceq'VERIFIED_NO_WRITE'-and$noWriteState.refresh.packagePath-ceq'NOT_REQUIRED'-and$noWriteState.refresh.postimages.Count-eq$beforeRefresh.controlPreimages.Count-and@($beforeRefresh.controlPreimages|Where-Object{(Id (Join-Path $control $_.path))-cne$_.identity}).Count-eq0) ($scenario+'-no-write-preserves-all-managed-bytes-without-schema3-package')
+            if($scenario-ceq'noop-drift'){
+                $transactionBytes=[IO.File]::ReadAllBytes($transaction)
+                foreach($fault in @('unknown-output','false-output','postimages','actor','kind','package')){
+                    $fake=[Text.Encoding]::UTF8.GetString($transactionBytes)|ConvertFrom-Json -Depth 100
+                    switch($fault){
+                        'unknown-output' {$fake.refresh.output+=@('UNKNOWN|success')}
+                        'false-output' {$fake.refresh.output=@('UPGRADE_RECOVERY_WRITESET|','RECOVERY_COMPLETE|to=1.16.0|writes=ZERO')}
+                        'postimages' {$fake.refresh.postimages=@($fake.refresh.postimages|Select-Object -Skip 1)}
+                        'actor' {$fake.actor='unrelated-actor'}
+                        'kind' {$fake.refresh.kind='CALLER_SUCCESS'}
+                        'package' {$fake.refresh.packageIdentity='1|'+('F'*64)}
+                    }
+                    Write-Json $transaction $fake
+                    $rejected=Run $integrator @{Operation='VERIFY_REFRESH';ControlRepositoryPath=$control;TransactionPath=$transaction;ExpectedTransactionIdentity=Id $transaction;AsJson=$true} -Reject
+                    Confirm ($rejected.code-ne0) ('no-write-finalize-refuses-'+$fault)
+                    Restore-SourceFile $transaction $transactionBytes
+                }
+                $materialBytes=[IO.File]::ReadAllBytes($material.FullName);Write-Text $material.FullName 'late recovery material drift'
+                $rejected=Run $integrator @{Operation='VERIFY_REFRESH';ControlRepositoryPath=$control;TransactionPath=$transaction;ExpectedTransactionIdentity=Id $transaction;AsJson=$true} -Reject
+                Confirm ($rejected.code-ne0-and$rejected.text.Contains('RECOVERY_MATERIAL')) 'no-write-finalize-rechecks-real-upgrader-material'
+                Restore-SourceFile $material.FullName $materialBytes
+                $restored=Json $integrator @{Operation='RECOVER';ControlRepositoryPath=$control;TransactionPath=$transaction;ExpectedTransactionIdentity=Id $transaction;AsJson=$true}
+                Confirm ($restored.status-ceq'ROLLED_BACK'-and$restored.healthyOriginalAdmission) 'no-write-ready-can-rollback-source-and-keep-healthy-control'
+                continue
+            }
+        }else{
         Confirm ($writeSet.Count-gt0-and$post.Count-eq$writeSet.Count) ($scenario+'-real-upgrader-preview')
+        $withoutPackage=$refreshArgs.Clone();$withoutPackage.Operation='REFRESH'
+        $missingPackage=Run $integrator $withoutPackage -Reject
+        Confirm ($missingPackage.code-ne0-and$missingPackage.text.Contains('NOT_VERIFIED_NO_WRITE')-and(Id $transaction)-ceq$refreshArgs.ExpectedTransactionIdentity) 'write-required-refresh-cannot-take-no-write-path'
         $pkg=Package $writeSet $control 3;$pkg.Remove('repositoryId');$pkg.bundle='ACTOR_BOUND_PROJECT_UPGRADE';$pkg.actions=@('CONTROL_WRITE');$pkg.decisionClass='MAJOR_ARCHITECTURE';$pkg.userConfirmation='USER_FIXTURE_APPROVED_SELF_UPDATE_REFRESH';$pkg.invalidatesOn+=@('POST_OBJECT_DRIFT')
         if($scenario-ceq'reject-refresh-schema'){$pkg['repositoryId']='CONTROL'}
         $pkg['postObjectIdentities']=@($writeSet|ForEach-Object{[ordered]@{path=$_;identity=$post[$_]}})
@@ -221,8 +326,10 @@ try {
             continue
         }
         $ready=Json $integrator $refreshArgs
+        }
         if($scenario-ceq'interrupt-refresh'){
-            Confirm ($ready.status-ceq'INTERRUPTED'-and(Id (Join-Path $control ($recovery+'/state.json')))-cne$oldState) 'real-refresh-completed-before-interruption'
+            $stateChanged=(Id (Join-Path $control ($recovery+'/state.json')))-cne$oldState
+            Confirm ($ready.status-ceq'INTERRUPTED'-and$stateChanged-eq(-not$noWrite)) 'real-refresh-completed-before-interruption-with-expected-write-boundary'
             $controlPath=Join-Path $control 'AGENTS.md';$saved=[IO.File]::ReadAllBytes($controlPath);Write-Text $controlPath 'third-party control'
             $rej=Run $integrator @{Operation='RECOVER';ControlRepositoryPath=$control;TransactionPath=$transaction;ExpectedTransactionIdentity=Id $transaction;AsJson=$true} -Reject
             Confirm ($rej.code-ne0-and$rej.text.Contains('THIRD_PARTY_CONTROL')) 'third-party-control-prevents-combination-rollback'

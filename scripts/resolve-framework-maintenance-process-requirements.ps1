@@ -34,22 +34,16 @@ function Assert-StringArray($Value, [string]$Label) {
 function Get-ControlRootFromReceipt($Receipt) {
     if ([int64]$Receipt.schemaVersion -eq 1) { return [string]$Receipt.sourceLocators.projectRoot }
     if ($null -eq $Receipt.binding) { throw 'DISCOVER_RECEIPT_SELECTION_UNAVAILABLE' }
-    $authorizationPath = [string]$Receipt.sourceLocators.authorizationPackagePath
-    if ($authorizationPath -ceq 'NOT_REQUIRED') { return [string]$Receipt.binding.projectRoot }
-    if (-not [IO.Path]::IsPathRooted($authorizationPath)) { throw 'MAINTENANCE_AUTHORIZATION_PATH' }
-    $authorizationFull = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $authorizationPath))
-    $cursor = Split-Path -Parent $authorizationFull
-    $workspaceRoot = $null
-    while (-not [string]::IsNullOrWhiteSpace($cursor)) {
-        if ([IO.Path]::GetFileName($cursor) -ceq '.ai-workspace') { $workspaceRoot = $cursor; break }
-        $parent = Split-Path -Parent $cursor
-        if ($parent -ceq $cursor) { break }
-        $cursor = $parent
+    # CONTROL is already bound by the compact receipt. Package storage is not a
+    # control-root locator; topology and the version consumer still verify it.
+    $boundPath = [string]$Receipt.binding.projectRoot
+    if (-not [IO.Path]::IsPathRooted($boundPath)) { throw 'MAINTENANCE_RECEIPT_PROJECT_ROOT_DRIFT' }
+    $boundRoot = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Resolve-Path -LiteralPath $boundPath)))
+    $frameworkRoot = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Resolve-Path -LiteralPath ([string]$Receipt.sourceLocators.frameworkRoot))))
+    if ([StringComparer]::OrdinalIgnoreCase.Equals($boundRoot, $frameworkRoot)) {
+        throw 'MAINTENANCE_TARGET_RECEIPT_SCHEMA_UNSUPPORTED|USE_SCHEMA2_DISCOVER_SCHEMA1_COMPACT'
     }
-    if ([string]::IsNullOrWhiteSpace($workspaceRoot)) { throw 'MAINTENANCE_AUTHORIZATION_CONTROL_ROOT' }
-    $runtimeRoot = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Join-Path $workspaceRoot 'runtime')))
-    if (-not $authorizationFull.StartsWith($runtimeRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'MAINTENANCE_AUTHORIZATION_RUNTIME_PATH' }
-    return Split-Path -Parent $workspaceRoot
+    return $boundRoot
 }
 
 function Get-TransitionReceipt([string[]]$ResultReceipts) {

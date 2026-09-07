@@ -1,0 +1,8 @@
+{
+  "name": "resource-evaluation-tool",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Offline resource-study evidence and cost replay, without model execution",
+  "engines": { "node": ">=20" },
+  "scripts": { "test": "node --test test/tool.test.cjs", "demo": "node cli.cjs summarize --study examples/r4/study.json --events examples/r4/events.json --out work/demo" }
+}

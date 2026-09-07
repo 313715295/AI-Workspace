@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "kind": "submission",
+  "label": "original-F2-C2",
+  "files": [
+    {
+      "path": "REPORT.md",
+      "bytes": 1913,
+      "sha256": "a1f27b5f5e198eff81194af639f92905e8e2e3a1c7aabc45e4d3d193ea9098a0"
+    },
+    {
+      "path": "decision.json",
+      "bytes": 4866,
+      "sha256": "7a0d035e5e68910b1ad0424ac52f6e1122087fb08984aef2197247f4d8d15d72"
+    }
+  ]
+}

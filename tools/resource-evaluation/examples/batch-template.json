@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "round": "new-round",
+  "cutoff": "SET_ME_WITH_TIMEZONE",
+  "rates": {},
+  "rateBasis": "Supply explicit rates and date",
+  "tailExcluded": true,
+  "stop": { "maxJobs": 1, "afterAll": true, "deadline": "SET_ME_WITH_TIMEZONE" },
+  "cases": [{ "id": "C1", "materials": "public-materials", "initial": "TASK.md", "followUps": [], "rubric": "private/rubric.json", "checker": "private/check.cjs", "checkerArgs": ["{submission}"], "requiresSemantic": true }],
+  "participants": [{ "id": "P1", "model": "SET_EXACT_MODEL", "effort": "SET_EXACT_EFFORT", "cases": ["C1"] }],
+  "submissions": {},
+  "turns": [],
+  "observations": [],
+  "limitations": []
+}

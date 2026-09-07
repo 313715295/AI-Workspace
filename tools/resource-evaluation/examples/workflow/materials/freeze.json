@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "kind": "materials",
+  "label": "original-C2",
+  "files": [
+    {
+      "path": "TASK.md",
+      "bytes": 2192,
+      "sha256": "267506ca63a712b9a9fe3b1bdb65ea934cb390382133a84352c5cf79bac5a048"
+    }
+  ]
+}

@@ -1,0 +1,634 @@
+{
+  "schemaVersion": 1,
+  "round": "R4-replay",
+  "cutoff": "2026-09-07T03:39:53.002Z",
+  "rates": {
+    "gpt-6-astra": {
+      "input": 250,
+      "cachedInput": 25,
+      "output": 1250
+    },
+    "gpt-5.6-sol": {
+      "input": 100,
+      "cachedInput": 10,
+      "output": 500
+    }
+  },
+  "rateBasis": "Historical user-supplied 2026-09-07 credits per million tokens; estimates, not bills",
+  "tailExcluded": true,
+  "trajectoryKind": "real_host_followup_not_context_compression",
+  "turns": [
+    {
+      "id": "turn-001",
+      "threadId": "thread-01",
+      "role": "subject",
+      "case": "C1",
+      "stage": "C1",
+      "participant": "D8",
+      "requested": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "sentAt": "2026-09-07T03:06:38.107Z"
+    },
+    {
+      "id": "turn-002",
+      "threadId": "thread-01",
+      "role": "subject",
+      "case": "C2",
+      "stage": "C2",
+      "participant": "D8",
+      "requested": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "sentAt": "2026-09-07T03:09:23.213Z"
+    },
+    {
+      "id": "turn-003",
+      "threadId": "thread-01",
+      "role": "subject",
+      "case": "C3",
+      "stage": "C30",
+      "participant": "D8",
+      "requested": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "sentAt": "2026-09-07T03:11:17.225Z"
+    },
+    {
+      "id": "turn-004",
+      "threadId": "thread-01",
+      "role": "subject",
+      "case": "C3",
+      "stage": "C31",
+      "participant": "D8",
+      "requested": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "sentAt": "2026-09-07T03:12:39.459Z"
+    },
+    {
+      "id": "turn-005",
+      "threadId": "thread-01",
+      "role": "subject",
+      "case": "C3",
+      "stage": "C32",
+      "participant": "D8",
+      "requested": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "sentAt": "2026-09-07T03:14:05.816Z"
+    },
+    {
+      "id": "turn-006",
+      "threadId": "thread-01",
+      "role": "subject",
+      "case": "C3",
+      "stage": "C33",
+      "participant": "D8",
+      "requested": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "sentAt": "2026-09-07T03:15:51.797Z"
+    },
+    {
+      "id": "turn-007",
+      "threadId": "thread-02",
+      "role": "subject",
+      "case": "C1",
+      "stage": "C1",
+      "participant": "F2",
+      "requested": {
+        "model": "gpt-6-astra",
+        "effort": "xhigh"
+      },
+      "sentAt": "2026-09-07T03:06:40.062Z"
+    },
+    {
+      "id": "turn-008",
+      "threadId": "thread-02",
+      "role": "subject",
+      "case": "C2",
+      "stage": "C2",
+      "participant": "F2",
+      "requested": {
+        "model": "gpt-6-astra",
+        "effort": "xhigh"
+      },
+      "sentAt": "2026-09-07T03:09:36.048Z"
+    },
+    {
+      "id": "turn-009",
+      "threadId": "thread-02",
+      "role": "subject",
+      "case": "C3",
+      "stage": "C30",
+      "participant": "F2",
+      "requested": {
+        "model": "gpt-6-astra",
+        "effort": "xhigh"
+      },
+      "sentAt": "2026-09-07T03:11:58.143Z"
+    },
+    {
+      "id": "turn-010",
+      "threadId": "thread-02",
+      "role": "subject",
+      "case": "C3",
+      "stage": "C31",
+      "participant": "F2",
+      "requested": {
+        "model": "gpt-6-astra",
+        "effort": "xhigh"
+      },
+      "sentAt": "2026-09-07T03:13:24.423Z"
+    },
+    {
+      "id": "turn-011",
+      "threadId": "thread-02",
+      "role": "subject",
+      "case": "C3",
+      "stage": "C32",
+      "participant": "F2",
+      "requested": {
+        "model": "gpt-6-astra",
+        "effort": "xhigh"
+      },
+      "sentAt": "2026-09-07T03:15:54.658Z"
+    },
+    {
+      "id": "turn-012",
+      "threadId": "thread-02",
+      "role": "subject",
+      "case": "C3",
+      "stage": "C33",
+      "participant": "F2",
+      "requested": {
+        "model": "gpt-6-astra",
+        "effort": "xhigh"
+      },
+      "sentAt": "2026-09-07T03:18:13.239Z"
+    },
+    {
+      "id": "turn-013",
+      "threadId": "thread-03",
+      "role": "subject",
+      "case": "C1",
+      "stage": "C1",
+      "participant": "L5",
+      "requested": {
+        "model": "gpt-6-astra",
+        "effort": "medium"
+      },
+      "sentAt": "2026-09-07T03:06:41.743Z"
+    },
+    {
+      "id": "turn-014",
+      "threadId": "thread-03",
+      "role": "subject",
+      "case": "C2",
+      "stage": "C2",
+      "participant": "L5",
+      "requested": {
+        "model": "gpt-6-astra",
+        "effort": "medium"
+      },
+      "sentAt": "2026-09-07T03:09:45.414Z"
+    },
+    {
+      "id": "turn-015",
+      "threadId": "thread-03",
+      "role": "subject",
+      "case": "C3",
+      "stage": "C30",
+      "participant": "L5",
+      "requested": {
+        "model": "gpt-6-astra",
+        "effort": "medium"
+      },
+      "sentAt": "2026-09-07T03:10:55.121Z"
+    },
+    {
+      "id": "turn-016",
+      "threadId": "thread-03",
+      "role": "subject",
+      "case": "C3",
+      "stage": "C31",
+      "participant": "L5",
+      "requested": {
+        "model": "gpt-6-astra",
+        "effort": "medium"
+      },
+      "sentAt": "2026-09-07T03:12:00.944Z"
+    },
+    {
+      "id": "turn-017",
+      "threadId": "thread-03",
+      "role": "subject",
+      "case": "C3",
+      "stage": "C32",
+      "participant": "L5",
+      "requested": {
+        "model": "gpt-6-astra",
+        "effort": "medium"
+      },
+      "sentAt": "2026-09-07T03:13:27.068Z"
+    },
+    {
+      "id": "turn-018",
+      "threadId": "thread-03",
+      "role": "subject",
+      "case": "C3",
+      "stage": "C33",
+      "participant": "L5",
+      "requested": {
+        "model": "gpt-6-astra",
+        "effort": "medium"
+      },
+      "sentAt": "2026-09-07T03:15:57.694Z"
+    },
+    {
+      "id": "turn-019",
+      "threadId": "thread-04",
+      "role": "subject",
+      "case": "T1",
+      "stage": "T1",
+      "participant": "N4",
+      "requested": {
+        "model": "gpt-5.6-sol",
+        "effort": "high"
+      },
+      "sentAt": "2026-09-07T03:16:58.594Z"
+    },
+    {
+      "id": "turn-020",
+      "threadId": "thread-04",
+      "role": "subject",
+      "case": "T2",
+      "stage": "T2",
+      "participant": "N4",
+      "requested": {
+        "model": "gpt-5.6-sol",
+        "effort": "high"
+      },
+      "sentAt": "2026-09-07T03:24:04.753Z"
+    },
+    {
+      "id": "turn-021",
+      "threadId": "thread-05",
+      "role": "subject",
+      "case": "T1",
+      "stage": "T1",
+      "participant": "Q7",
+      "requested": {
+        "model": "gpt-6-astra",
+        "effort": "medium"
+      },
+      "sentAt": "2026-09-07T03:17:00.662Z"
+    },
+    {
+      "id": "turn-022",
+      "threadId": "thread-05",
+      "role": "subject",
+      "case": "T2",
+      "stage": "T2",
+      "participant": "Q7",
+      "requested": {
+        "model": "gpt-6-astra",
+        "effort": "medium"
+      },
+      "sentAt": "2026-09-07T03:20:27.288Z"
+    },
+    {
+      "id": "turn-023",
+      "threadId": "thread-06",
+      "role": "subject",
+      "case": "T1",
+      "stage": "T1",
+      "participant": "S3",
+      "requested": {
+        "model": "gpt-5.6-sol",
+        "effort": "medium"
+      },
+      "sentAt": "2026-09-07T03:19:22.863Z"
+    },
+    {
+      "id": "turn-024",
+      "threadId": "thread-06",
+      "role": "subject",
+      "case": "T2",
+      "stage": "T2",
+      "participant": "S3",
+      "requested": {
+        "model": "gpt-5.6-sol",
+        "effort": "medium"
+      },
+      "sentAt": "2026-09-07T03:22:21.551Z"
+    },
+    {
+      "id": "turn-025",
+      "threadId": "thread-07",
+      "role": "subject",
+      "case": "T1",
+      "stage": "T1",
+      "participant": "U6",
+      "requested": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "sentAt": "2026-09-07T03:24:10.249Z"
+    },
+    {
+      "id": "turn-026",
+      "threadId": "thread-07",
+      "role": "subject",
+      "case": "T2",
+      "stage": "T2",
+      "participant": "U6",
+      "requested": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "sentAt": "2026-09-07T03:28:56.559Z"
+    },
+    {
+      "id": "turn-027",
+      "threadId": "thread-08",
+      "role": "subject",
+      "case": "OLD",
+      "stage": "OLD",
+      "participant": "Y9",
+      "requested": {
+        "model": "gpt-6-astra",
+        "effort": "xhigh"
+      },
+      "sentAt": "2026-09-07T03:25:06.714Z"
+    },
+    {
+      "id": "turn-028",
+      "threadId": "thread-09",
+      "role": "coordinator",
+      "case": null,
+      "stage": null,
+      "participant": null,
+      "requested": {
+        "model": "gpt-6-astra",
+        "effort": "high"
+      },
+      "sentAt": null
+    }
+  ],
+  "observations": [
+    {
+      "kind": "preregistered",
+      "case": "C1",
+      "participant": "D8",
+      "rawPass": true,
+      "score": 100,
+      "sourceRef": "r4-results"
+    },
+    {
+      "kind": "preregistered",
+      "case": "C2",
+      "participant": "D8",
+      "rawPass": false,
+      "score": 100,
+      "sourceRef": "r4-results"
+    },
+    {
+      "kind": "checker_false_negative",
+      "case": "C2",
+      "participant": "D8",
+      "rawPass": false,
+      "resolvedPass": true,
+      "label": "Published action values unrestricted; literal-only checker false negative",
+      "sourceRef": "r4-results"
+    },
+    {
+      "kind": "preregistered",
+      "case": "C3",
+      "participant": "D8",
+      "rawPass": true,
+      "score": 100,
+      "sourceRef": "r4-results"
+    },
+    {
+      "kind": "preregistered",
+      "case": "C1",
+      "participant": "F2",
+      "rawPass": true,
+      "score": 100,
+      "sourceRef": "r4-results"
+    },
+    {
+      "kind": "preregistered",
+      "case": "C2",
+      "participant": "F2",
+      "rawPass": true,
+      "score": 100,
+      "sourceRef": "r4-results"
+    },
+    {
+      "kind": "preregistered",
+      "case": "C3",
+      "participant": "F2",
+      "rawPass": true,
+      "score": 100,
+      "sourceRef": "r4-results"
+    },
+    {
+      "kind": "preregistered",
+      "case": "C1",
+      "participant": "L5",
+      "rawPass": true,
+      "score": 100,
+      "sourceRef": "r4-results"
+    },
+    {
+      "kind": "preregistered",
+      "case": "C2",
+      "participant": "L5",
+      "rawPass": false,
+      "score": 100,
+      "sourceRef": "r4-results"
+    },
+    {
+      "kind": "checker_false_negative",
+      "case": "C2",
+      "participant": "L5",
+      "rawPass": false,
+      "resolvedPass": true,
+      "label": "Published action values unrestricted; literal-only checker false negative",
+      "sourceRef": "r4-results"
+    },
+    {
+      "kind": "preregistered",
+      "case": "C3",
+      "participant": "L5",
+      "rawPass": true,
+      "score": 100,
+      "sourceRef": "r4-results"
+    },
+    {
+      "kind": "preregistered",
+      "case": "T1",
+      "participant": "N4",
+      "rawPass": true,
+      "score": 95,
+      "sourceRef": "r4-results"
+    },
+    {
+      "kind": "preregistered",
+      "case": "T2",
+      "participant": "N4",
+      "rawPass": true,
+      "score": 100,
+      "sourceRef": "r4-results"
+    },
+    {
+      "kind": "preregistered",
+      "case": "T1",
+      "participant": "Q7",
+      "rawPass": true,
+      "score": 100,
+      "sourceRef": "r4-results"
+    },
+    {
+      "kind": "preregistered",
+      "case": "T2",
+      "participant": "Q7",
+      "rawPass": true,
+      "score": 100,
+      "sourceRef": "r4-results"
+    },
+    {
+      "kind": "preregistered",
+      "case": "T1",
+      "participant": "S3",
+      "rawPass": true,
+      "score": 95,
+      "sourceRef": "r4-results"
+    },
+    {
+      "kind": "preregistered",
+      "case": "T2",
+      "participant": "S3",
+      "rawPass": true,
+      "score": 100,
+      "sourceRef": "r4-results"
+    },
+    {
+      "kind": "preregistered",
+      "case": "T1",
+      "participant": "U6",
+      "rawPass": true,
+      "score": 95,
+      "sourceRef": "r4-results"
+    },
+    {
+      "kind": "preregistered",
+      "case": "T2",
+      "participant": "U6",
+      "rawPass": true,
+      "score": 100,
+      "sourceRef": "r4-results"
+    },
+    {
+      "kind": "preregistered",
+      "case": "OLD",
+      "participant": "Y9",
+      "rawPass": true,
+      "score": 95,
+      "sourceRef": "r4-results"
+    },
+    {
+      "kind": "preregistered",
+      "case": "OLD",
+      "participant": "Y9",
+      "label": "Separately preregistered supplementary key checks",
+      "rawPass": true,
+      "count": 8,
+      "sourceRef": "r4-results"
+    },
+    {
+      "kind": "post_hoc_unscored",
+      "case": "T1",
+      "participant": "N4",
+      "expected": "INVALID",
+      "actual": "ID_REUSE",
+      "rawPass": false,
+      "noWrites": true,
+      "label": "Committed id with nonexistent source account; no historical rescoring",
+      "sourceRef": "r4-results"
+    },
+    {
+      "kind": "post_hoc_unscored",
+      "case": "T1",
+      "participant": "Q7",
+      "expected": "INVALID",
+      "actual": "INVALID",
+      "rawPass": true,
+      "noWrites": true,
+      "label": "Committed id with nonexistent source account; no historical rescoring",
+      "sourceRef": "r4-results"
+    },
+    {
+      "kind": "post_hoc_unscored",
+      "case": "T1",
+      "participant": "S3",
+      "expected": "INVALID",
+      "actual": "ID_REUSE",
+      "rawPass": false,
+      "noWrites": true,
+      "label": "Committed id with nonexistent source account; no historical rescoring",
+      "sourceRef": "r4-results"
+    },
+    {
+      "kind": "post_hoc_unscored",
+      "case": "T1",
+      "participant": "U6",
+      "expected": "INVALID",
+      "actual": "INVALID",
+      "rawPass": true,
+      "noWrites": true,
+      "label": "Committed id with nonexistent source account; no historical rescoring",
+      "sourceRef": "r4-results"
+    },
+    {
+      "kind": "post_hoc_unscored",
+      "case": "T1",
+      "participant": "REFERENCE",
+      "expected": "INVALID",
+      "actual": "INVALID",
+      "rawPass": true,
+      "noWrites": true,
+      "label": "Committed id with nonexistent source account; no historical rescoring",
+      "sourceRef": "r4-results"
+    }
+  ],
+  "sourceProvenance": [
+    {
+      "label": "r4-results",
+      "sha256": "613cef6479df99767324ba73054e9d98a15b30192304d8eb0405e674149fdb7f"
+    },
+    {
+      "label": "r4-measurement",
+      "sha256": "dd586dca821aecd1e3f310d812915885a747ee8a8538c55072fbc753e37b1434"
+    },
+    {
+      "label": "r4-protocol",
+      "sha256": "b716fce95bf0e85fc3ffd3105d189b167962354135e195d7898979e359b32a21"
+    }
+  ],
+  "limitations": [
+    "Historical R4 cutoff preserved; original report/send/final-response tail not counted.",
+    "Related cases share subject contexts; not independent population samples.",
+    "Original grades retained, including checker corrections and post-hoc unscored observations.",
+    "Host durations come from frozen R4 results; raw response usage comes from the metadata export."
+  ]
+}

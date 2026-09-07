@@ -356,11 +356,29 @@ function Invoke-Upgrade($State,[bool]$ApplyChange) {
     if($LASTEXITCODE-ne0){throw ('SELF_UPDATE_UPGRADE_FAILED|'+($output-join';'))}
     return @($output)
 }
+function Assert-NoWriteRefresh($State,[string[]]$Output) {
+    # Only the real completed managed-projection recovery branch is supported.
+    # No Apply, caller result, or write package substitutes for its live checks.
+    $expectedOutput=@('UPGRADE_RECOVERY_WRITESET|',('RECOVERY_COMPLETE|to='+$State.frameworkVersion+'|writes=ZERO|state=LOCAL_CANDIDATE_MANAGED_PROJECTION'))
+    Assert-SamePaths $expectedOutput @($Output) 'SELF_UPDATE_REFRESH_NOT_VERIFIED_NO_WRITE'
+    Assert-SourceState $State 'NEW';Assert-RecoveryPreflight $State
+    foreach($entry in $State.controlPreimages){
+        if((Get-CurrentIdentity $State.controlRoot $entry.path)-cne$entry.identity){throw ('SELF_UPDATE_NO_WRITE_CONTROL_DRIFT|'+$entry.path)}
+    }
+}
 function Invoke-Refresh([string]$Path,[string]$Expected,[bool]$ApplyChange) {
     $s=Read-State $Path $Expected
     if($s.status-cne'TARGET_APPLIED_PENDING_MAINTENANCE_REFRESH'){throw 'SELF_UPDATE_REFRESH_STATE'}
     Assert-SourceState $s 'NEW';Assert-RecoveryPreflight $s
     if(-not$ApplyChange){return [pscustomobject]@{status='PREVIEW';output=@(Invoke-Upgrade $s $false)}}
+    if(-not$MaintenanceRefreshPackagePath-and-not$ExpectedMaintenanceRefreshPackageIdentity){
+        $output=@(Invoke-Upgrade $s $false)
+        Assert-NoWriteRefresh $s $output
+        $s.refresh=[pscustomobject]@{kind='VERIFIED_NO_WRITE';packagePath='NOT_REQUIRED';packageIdentity='NOT_REQUIRED';postimages=@($s.controlPreimages|ForEach-Object{[pscustomobject]@{path=$_.path;identity=$_.identity}});output=$output;completed=$true}
+        $s.status='READY_FOR_FINALIZE';Write-State $Path $s
+        if($InterruptAfterRefresh){return [pscustomobject]@{status='INTERRUPTED';stage='AFTER_REFRESH';transactionIdentity=Get-Identity $Path}}
+        return Invoke-FinalizeCheck $Path (Get-Identity $Path) $false
+    }
     Assert-Identity $MaintenanceRefreshPackagePath $ExpectedMaintenanceRefreshPackageIdentity 'SELF_UPDATE_REFRESH_PACKAGE'
     $p=Read-StrictJson $MaintenanceRefreshPackagePath 'SELF_UPDATE_REFRESH_PACKAGE'
     # Schema3 has no repositoryId field. The existing upgrader supplies CONTROL
@@ -391,7 +409,16 @@ function Invoke-FinalizeCheck([string]$Path,[string]$Expected,[bool]$CheckEviden
     $s=Read-State $Path $Expected
     if($s.status-cne'READY_FOR_FINALIZE'-or$null-eq$s.refresh-or-not$s.refresh.completed){throw 'SELF_UPDATE_FINALIZE_STATE'}
     Assert-SourceState $s 'NEW';Assert-RecoveryPreflight $s
-    Assert-Identity $s.refresh.packagePath $s.refresh.packageIdentity 'SELF_UPDATE_REFRESH_PACKAGE'
+    $noWrite=$null-ne$s.refresh.PSObject.Properties['kind']-and$s.refresh.kind-ceq'VERIFIED_NO_WRITE'
+    if($noWrite){
+        if($s.refresh.packagePath-cne'NOT_REQUIRED'-or$s.refresh.packageIdentity-cne'NOT_REQUIRED'){throw 'SELF_UPDATE_NO_WRITE_PACKAGE'}
+        Assert-SamePaths @($s.controlPreimages|ForEach-Object{$_.path+'|'+$_.identity}) @($s.refresh.postimages|ForEach-Object{$_.path+'|'+$_.identity}) 'SELF_UPDATE_NO_WRITE_POSTIMAGES'
+        Assert-NoWriteRefresh $s @($s.refresh.output)
+        Assert-NoWriteRefresh $s @(Invoke-Upgrade $s $false)
+    }else{
+        if($null-ne$s.refresh.PSObject.Properties['kind']){throw 'SELF_UPDATE_REFRESH_KIND'}
+        Assert-Identity $s.refresh.packagePath $s.refresh.packageIdentity 'SELF_UPDATE_REFRESH_PACKAGE'
+    }
     foreach($entry in $s.refresh.postimages){$post=if($entry.identity-ceq'ABSENT'){'MISSING'}else{$entry.identity};if((Get-CurrentIdentity $s.controlRoot $entry.path)-cne$post){throw 'SELF_UPDATE_REFRESH_POSTIMAGE'}}
     $receipt=Read-StrictJson $s.discoverReceiptPath 'SELF_UPDATE_DISCOVER';$view=Get-ReceiptView $receipt
     $authority=if([int]$receipt.schemaVersion-eq1){$receipt.authorityContext}else{$receipt.binding}
@@ -400,7 +427,7 @@ function Invoke-FinalizeCheck([string]$Path,[string]$Expected,[bool]$CheckEviden
     Import-Module $module -Force
     $current=Get-AiwProcessBindingSnapshot -ProjectRoot $s.controlRoot -FrameworkRoot $s.targetRoot -TargetVersion $s.frameworkVersion -TaskRelativePath $s.taskRelativePath -ForbiddenPaths @($authority.forbiddenScope)
     $allowed=@('frameworkVersionIdentity','releaseManifestIdentity','nativeCatalogIdentity','correctionCoverageIdentity','candidatePilotStateIdentity')
-    if('.ai-workspace/process-policy.json'-cin@($s.refresh.postimages.path)){$allowed+=@('policyIdentity','projectStandardsIdentity')}
+    if(-not$noWrite-and'.ai-workspace/process-policy.json'-cin@($s.refresh.postimages.path)){$allowed+=@('policyIdentity','projectStandardsIdentity')}
     foreach($property in $receipt.sourceBindings.PSObject.Properties){
         if($current.($property.Name)-cne$property.Value-and$property.Name-cnotin$allowed){throw ('SELF_UPDATE_UNAUTHORIZED_SOURCE_DRIFT|'+$property.Name)}
     }

@@ -16,6 +16,23 @@ unknown impact、新 authority boundary 或 migration requirement 不能归为 P
 
 payload 只含 version-owned runtime rules、schemas、compatibility/adoption facts、tests 与 explanation；不复制本文，也不复制完整 Framework Maintenance starter。root `framework/maintenance-overlay/` 与 `scripts/MaintenanceOverlay.psm1` 是可变 integration input，由 root tools 在 registration/upgrade 时叠加到通用 `project-starter`；它们不进入 version manifest，也不是 live project authority。version-specific identity/evidence 位于 `VERSION.json`、`RELEASE_MANIFEST.json`、`CHANGELOG.md` 与 Maintenance task。
 
+## 分发命名与用户包
+
+对外分发标识使用 `<version>-snapshot.N` 或 `<version>-release`，例如 `1.16.0-snapshot.1` 和 `1.16.0-release`。它只标识一次用户包分发；内部 Framework version、项目 pin、版本目录、payload canonical 算法和 CANDIDATE/STABLE 资格保持原合同。序号 N 是无前导零的正整数，由发行 Owner 从已有包/交付记录选定；不自动发现、递增或建立注册表，不把同号不同内容当同一快照。既有输出文件拒绝覆盖，交付绑定实际包 identity。
+
+根级 [build-user-package.ps1](../scripts/build-user-package.ps1) 增加可选 `-Distribution`：
+
+```powershell
+# 已审 CANDIDATE；先预览，-Apply 才写 ZIP
+pwsh -File scripts/build-user-package.ps1 -FrameworkVersion 1.16.0 -Provisional -Distribution snapshot.1 -OutputPath AI-Workspace-1.16.0-snapshot.1.zip
+# 已封存且满足现有完整证据门的 STABLE
+pwsh -File scripts/build-user-package.ps1 -FrameworkVersion 1.16.0 -Distribution release -OutputPath AI-Workspace-1.16.0-release.zip
+```
+
+显式分发模式要求文件名精确为 `AI-Workspace-<分发标识>.zip`，并在包内 README 及 PACKAGE_MANIFEST 的 `distributionId` 中展示同一标识。命名包使用 package manifest schema2；不传参数的既有调用继续使用 schema1及原 OutputPath 行为，其文件名不能用于推断资格。两种模式均保留完整 payload、completeSuite、Source Review 和 releaseIntegration 校验；snapshot 需要 `-Provisional` 且只能用于候选，release 只能用于 stable。预览/打包不修改版本元数据、不发布、不改变项目 pin，也不授予项目采用权限。
+
+这一步只实现根级分发命名和展示。snapshot 序号不意味着已采用“完整基线 + 累计差异”的验证合同；固定安装位置的 runtime 绑定也尚未引入。根级变更运行受影响专项并独立审查；未变版本证据按真实身份复用，不修改旧 completeSuite 的 payload hash 冒充重跑。用户包只包含所选版本消费内容、必要接入工具和用户入口，不含源码仓 Git/维护状态、其他版本或独立评估工具。
+
 ## 本地候选试点
 
 需要自然 project use 时，保持 direct version directory，并标记 `CANDIDATE / consumable=false / projectPinEligible=false`。`ADOPTION_PROFILE.json.localCandidatePilotEligible=true`。实现期 manifest 保持 `CANDIDATE / sourceReview=PENDING / releaseIntegration=PENDING`；进入试点前，manifest 必须把最终 payload、一次完整套件及独立 Source Review 绑定为同一候选证据，`sourceReview` 才投影为 `APPROVED`，而 `releaseIntegration` 仍为 `PENDING`。

@@ -2,6 +2,14 @@
 
 本文件是 Framework 根级可维护流程，不属于任何已封存版本。版本目录声明项目运行合同；本流程负责把某个版本投影到具体项目，并可在不改版本载荷时修复根级接入工具。
 
+## 从用户入口开始
+
+用户包从包内 README/AGENTS 导航，开发仓从 [README](../README.md) 导航。已有项目先读取自己的 Bootstrap；首次注册尚无 Bootstrap 时，先检查所选版本的 VERSION、RELEASE_MANIFEST、ADOPTION_PROFILE 和 TOOLCHAIN，再运行 [register-project.ps1](../scripts/register-project.ps1) 预览。注册必须显式给出内部 `FrameworkVersion`、项目 `RepositoryPath`、项目 ID 与 `ControllerId`，在已有项目写授权范围内应用后进入生成的 Bootstrap。用户包目录无需 Git，目标项目必须是 Git 仓库。
+
+升级使用 [upgrade-project.ps1](../scripts/upgrade-project.ps1) 预览及目标版本声明的兼容范围；目标未声明支持当前 Project Format/capability 时停止，不按发行名称推断兼容。Maintenance 的显式 sibling 布局仍由根级工具验证 CONTROL/TARGET 并叠加 maintenance-overlay；普通项目使用版本通用 starter。恢复和动作门禁只由当前项目 Bootstrap 与其 pin 对应的 runtime 合同维护，本入口不复制。
+
+项目资料和标准保存在用户选择的位置，优先直接复用已有文档；共享标准可在本机独立目录由多个项目分别引用。提取、精炼或改造均为可选，不是采用前置条件，不将标准正文抄入 Framework。引用方式与可选处理的用户指引见 [接入已有项目资料和标准](../README.md#接入已有项目资料和标准)。
+
 ## 统一数据流
 
 注册、跨 pin 升级、同 pin 受管修复和明确批准的永久规则迁移共用以下顺序：
@@ -9,7 +17,7 @@
 1. 读取项目真实配置、控制载体、选定发行和根工具依赖。
 2. 生成内存目标投影并报告逐对象差异；无差异时不创建事务、不改卡。
 3. 在项目写入前完成目标结构、目标 resolver 与独立授权预检。
-4. 只写有差异的受管对象；项目 pin 在正常应用中最后生效，任务卡按当前行动需要最后写。
+4. 只写有差异的受管对象；按版本合同应用 pin 与任务卡顺序。1.16 本地候选的 schema4/5 事务在全部 live postimages（task 最后）匹配后，还须登记既有 state 的 `transactionComplete` 标记才结束原事务，不能把 task 写完误报为事务完成。唯一运行合同见 [PROJECT_CONTROL](versions/1.16.0/PROJECT_CONTROL.md)。
 5. 对目标有效三源规则和项目格式做 Postcheck；失败时先恢复旧 pin，再恢复其余旧对象。
 6. 中断后只按已绑定恢复材料继续回退或完成，不覆盖第三方新字节。
 7. 成功结果同时报告 Framework pin、实际 Project Format 和 Root Tool Revision。

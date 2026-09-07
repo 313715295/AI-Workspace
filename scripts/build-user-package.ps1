@@ -3,6 +3,7 @@ param(
     [string]$WorkspaceRoot,
     [Parameter(Mandatory)][string]$FrameworkVersion,
     [Parameter(Mandatory)][string]$OutputPath,
+    [string]$Distribution,
     [switch]$Provisional,
     [switch]$Apply
 )
@@ -22,6 +23,10 @@ if (-not (Test-Path -LiteralPath $versionRoot -PathType Container)) {
 }
 if ($FrameworkVersion -cnotmatch '^\d+\.\d+\.\d+$') {
     throw 'FRAMEWORK_VERSION_INVALID'
+}
+if ($PSBoundParameters.ContainsKey('Distribution') -and
+    $Distribution -cnotmatch '^(?:snapshot\.[1-9][0-9]*|release)\z') {
+    throw 'PACKAGE_DISTRIBUTION_INVALID'
 }
 
 function Get-ReleasePayloadFacts([string]$Root, [string]$ExcludedManifestPath) {
@@ -126,6 +131,26 @@ if (-not $commonEvidenceValid -or -not $modeEvidenceValid) {
     throw $gateError
 }
 
+$distributionId = $FrameworkVersion
+$distributionNotice = '此包未指定分发修订标识；文件名不证明版本资格。'
+if ($PSBoundParameters.ContainsKey('Distribution')) {
+    if (($Distribution -ceq 'release' -and $Provisional) -or
+        ($Distribution.StartsWith('snapshot.', [StringComparison]::Ordinal) -and -not $Provisional)) {
+        throw 'PACKAGE_DISTRIBUTION_LIFECYCLE_MISMATCH'
+    }
+    $distributionId = $FrameworkVersion + '-' + $Distribution
+    $expectedName = 'AI-Workspace-' + $distributionId + '.zip'
+    if ([IO.Path]::GetFileName($OutputPath) -cne $expectedName) {
+        throw ('PACKAGE_DISTRIBUTION_FILENAME_MISMATCH|' + $expectedName)
+    }
+    $distributionNotice = if ($Provisional) {
+        '这是 CANDIDATE 快照包，仍不可普通注册或采用；仅供明确批准的本地试点。'
+    }
+    else {
+        '这是通过既有 STABLE 打包资格校验的发行包；项目仍按自身授权显式采用。'
+    }
+}
+
 $fixedMappings = @(
     [pscustomobject]@{ source = 'framework/user-package/README.md'; target = 'README.md'; template = $true },
     [pscustomobject]@{ source = 'framework/user-package/AGENTS.md'; target = 'AGENTS.md'; template = $true },
@@ -160,8 +185,11 @@ foreach ($mapping in $orderedMappings) {
         throw ('PACKAGE_DEPENDENCY_MISSING|' + $sourceRelative)
     }
     $bytes = if ([bool]$mapping.template) {
-        $text = [IO.File]::ReadAllText($sourcePath, [Text.UTF8Encoding]::new($false, $true)).Replace('{{FRAMEWORK_VERSION}}', $FrameworkVersion)
-        if ($text.Contains('{{FRAMEWORK_VERSION}}', [StringComparison]::Ordinal)) { throw ('PACKAGE_TEMPLATE_UNRESOLVED|' + $sourceRelative) }
+        $text = [IO.File]::ReadAllText($sourcePath, [Text.UTF8Encoding]::new($false, $true)).
+            Replace('{{FRAMEWORK_VERSION}}', $FrameworkVersion).
+            Replace('{{DISTRIBUTION_ID}}', $distributionId).
+            Replace('{{DISTRIBUTION_NOTICE}}', $distributionNotice)
+        if ($text -cmatch '\{\{[A-Z_]+\}\}') { throw ('PACKAGE_TEMPLATE_UNRESOLVED|' + $sourceRelative) }
         [Text.UTF8Encoding]::new($false).GetBytes($text)
     }
     else { [IO.File]::ReadAllBytes($sourcePath) }
@@ -178,6 +206,10 @@ $packageManifest = [ordered]@{
     canonical = $canonical
     files = @($records)
 }
+if ($PSBoundParameters.ContainsKey('Distribution')) {
+    $packageManifest.schemaVersion = 2
+    $packageManifest.distributionId = $distributionId
+}
 $outputFull = [IO.Path]::GetFullPath($OutputPath)
 if ([IO.Path]::GetExtension($outputFull) -cne '.zip') {
     throw 'PACKAGE_OUTPUT_EXTENSION'
@@ -189,6 +221,9 @@ $result = [pscustomobject]@{
     canonical = $canonical
     fileCount = $orderedMappings.Count
     outputPath = $outputFull
+}
+if ($PSBoundParameters.ContainsKey('Distribution')) {
+    $result | Add-Member -NotePropertyName distributionId -NotePropertyValue $distributionId
 }
 if (-not $Apply -or -not $PSCmdlet.ShouldProcess($outputFull, 'Build ordinary-user Framework package')) {
     return $result

@@ -8,8 +8,10 @@ $builder = Join-Path $workspace 'scripts/build-user-package.ps1'
 $fixture = Join-Path ([IO.Path]::GetTempPath()) ('aiw-package-test-' + [guid]::NewGuid().ToString('N'))
 $zip = Join-Path $fixture 'AI-Workspace-1.16.0.zip'
 $extract = Join-Path $fixture 'extract'
-$stableZip = Join-Path $fixture 'AI-Workspace-1.16.0-stable.zip'
+$stableZip = Join-Path $fixture 'AI-Workspace-1.16.0-release.zip'
 $stableExtract = Join-Path $fixture 'stable-extract'
+$snapshotZip = Join-Path $fixture 'AI-Workspace-1.16.0-snapshot.7.zip'
+$snapshotExtract = Join-Path $fixture 'snapshot-extract'
 $candidateConsumer = Join-Path $fixture 'candidate-consumer'
 $stableConsumer = Join-Path $fixture 'stable-consumer'
 $passed = 0
@@ -38,6 +40,7 @@ function Get-ReleasePayloadFacts([string]$Root, [string]$ManifestPath) {
 function Assert-True([bool]$Condition, [string]$Name) {
     if (-not $Condition) { throw ('ASSERT_FAIL|' + $Name) }
     $script:passed++
+    Write-Output ('PASS|user-package-case|' + $Name)
 }
 
 function Assert-Rejected([scriptblock]$Action, [string]$ExpectedReason, [string]$Name) {
@@ -70,6 +73,18 @@ function Remove-TestFixture([string]$Path) {
 
 try {
     $null = New-Item -ItemType Directory -Path $fixture
+    $rootLinksValid = $true
+    foreach ($relative in @('INITIALIZATION.md','README.md','framework/PROJECT_ADOPTION.md','framework/FRAMEWORK_RELEASE.md')) {
+        $document = Join-Path $workspace $relative
+        foreach ($match in [regex]::Matches([IO.File]::ReadAllText($document), '\]\((?<target>[^)#]+)(?:#[^)]*)?\)')) {
+            $link = [string]$match.Groups['target'].Value
+            if ($link -match '^[a-z]+:') { continue }
+            if (-not (Test-Path -LiteralPath (Join-Path (Split-Path -Parent $document) $link) -PathType Leaf)) { $rootLinksValid = $false }
+        }
+    }
+    Assert-True $rootLinksValid 'root-entry-and-adoption-links-resolve'
+    [IO.File]::Copy((Join-Path $workspace 'INITIALIZATION.md'), (Join-Path $fixture 'compatibility-navigation.md'), $false)
+    Assert-True (-not [IO.File]::ReadAllText((Join-Path $fixture 'compatibility-navigation.md')).Contains('之后零写入')) 'self-update-required-navigation-copy-has-no-obsolete-transaction-rule'
     $packageWorkspace = Join-Path $fixture 'workspace'
     foreach ($relative in @('LICENSE','framework/user-package/README.md','framework/user-package/AGENTS.md','scripts/MaintenanceOverlay.psm1','scripts/ProjectAdoptionProjection.psm1','scripts/ProjectAdoptionState.psm1','scripts/ProjectAdoptionTransaction.psm1','scripts/register-project.ps1','scripts/upgrade-project.ps1','skills/ai-workspace-router/SKILL.md')) {
         $destination = Join-Path $packageWorkspace $relative
@@ -102,6 +117,18 @@ try {
     $validManifestRaw = [IO.File]::ReadAllText($fixtureManifestPath, [Text.UTF8Encoding]::new($false, $true))
     $fixtureVersionPath = Join-Path $fixtureVersionRoot 'VERSION.json'
     $validVersionRaw = [IO.File]::ReadAllText($fixtureVersionPath, [Text.UTF8Encoding]::new($false, $true))
+
+    foreach ($invalid in @('', 'snapshot.0', 'snapshot.01', 'snapshot.-1', 'Snapshot.1', 'snapshot.1.2', 'snapshot.1/../release', "release`n")) {
+        Assert-Rejected { & $builder -WorkspaceRoot $packageWorkspace -FrameworkVersion '1.16.0' -OutputPath $snapshotZip -Provisional -Distribution $invalid } 'PACKAGE_DISTRIBUTION_INVALID' ('invalid-distribution-rejected-' + $passed)
+    }
+    Assert-Rejected { & $builder -WorkspaceRoot $packageWorkspace -FrameworkVersion '1.16.0' -OutputPath $stableZip -Distribution release } 'STABLE_PACKAGE_REQUIRED' 'candidate-cannot-be-released-by-renaming'
+    Assert-Rejected { & $builder -WorkspaceRoot $packageWorkspace -FrameworkVersion '1.16.0' -OutputPath $stableZip -Provisional -Distribution release } 'PACKAGE_DISTRIBUTION_LIFECYCLE_MISMATCH' 'provisional-release-name-rejected'
+    Assert-Rejected { & $builder -WorkspaceRoot $packageWorkspace -FrameworkVersion '1.16.0' -OutputPath $zip -Provisional -Distribution snapshot.7 } 'PACKAGE_DISTRIBUTION_FILENAME_MISMATCH' 'snapshot-filename-mismatch-rejected'
+
+    $case = $validManifestRaw | ConvertFrom-Json
+    $case.completeSuite.payloadCanonical = 'D' * 64
+    Write-Utf8Json $fixtureManifestPath $case
+    Assert-Rejected { & $builder -WorkspaceRoot $packageWorkspace -FrameworkVersion '1.16.0' -OutputPath $snapshotZip -Provisional -Distribution snapshot.7 } 'PROVISIONAL_PACKAGE_REVIEW_REQUIRED' 'snapshot-name-does-not-enable-incremental-evidence'
 
     $case = $validManifestRaw | ConvertFrom-Json
     $case.completeSuite.total = 2
@@ -148,6 +175,24 @@ try {
     [IO.File]::WriteAllText($fixtureVersionPath, $validVersionRaw, [Text.UTF8Encoding]::new($false))
     [IO.File]::WriteAllText($fixtureManifestPath, $validManifestRaw, [Text.UTF8Encoding]::new($false))
 
+    $snapshotPreview = & $builder -WorkspaceRoot $packageWorkspace -FrameworkVersion '1.16.0' -OutputPath $snapshotZip -Provisional -Distribution snapshot.7
+    Assert-True ($snapshotPreview.status -ceq 'WHAT_IF' -and $snapshotPreview.distributionId -ceq '1.16.0-snapshot.7' -and -not (Test-Path -LiteralPath $snapshotZip)) 'named-snapshot-preview-zero-write'
+    $snapshotCreated = & $builder -WorkspaceRoot $packageWorkspace -FrameworkVersion '1.16.0' -OutputPath $snapshotZip -Provisional -Distribution snapshot.7 -Apply -Confirm:$false
+    Assert-True ($snapshotCreated.status -ceq 'CREATED' -and $snapshotCreated.frameworkVersion -ceq '1.16.0') 'named-snapshot-created-with-internal-version'
+    Assert-Rejected { & $builder -WorkspaceRoot $packageWorkspace -FrameworkVersion '1.16.0' -OutputPath $snapshotZip -Provisional -Distribution snapshot.7 -Apply -Confirm:$false } 'PACKAGE_OUTPUT_EXISTS' 'named-snapshot-overwrite-rejected'
+    [IO.Compression.ZipFile]::ExtractToDirectory($snapshotZip, $snapshotExtract)
+    $snapshotManifest = Get-Content -LiteralPath (Join-Path $snapshotExtract 'PACKAGE_MANIFEST.json') -Raw | ConvertFrom-Json
+    $snapshotReadme = [IO.File]::ReadAllText((Join-Path $snapshotExtract 'README.md'))
+    Assert-True ($snapshotManifest.schemaVersion -eq 2 -and $snapshotManifest.distributionId -ceq '1.16.0-snapshot.7' -and $snapshotManifest.frameworkVersion -ceq '1.16.0' -and $snapshotManifest.provisional -and $snapshotReadme.Contains('# AI Workspace 1.16.0-snapshot.7 用户发行包') -and $snapshotReadme.Contains('仍不可普通注册或采用')) 'snapshot-manifest-readme-and-eligibility-agree'
+    Assert-True ($snapshotReadme.Contains('项目标准由用户选择保存位置') -and $snapshotReadme.Contains('提取规则、精炼或改造文档均为可选') -and $snapshotReadme.Contains('scripts/register-project.ps1') -and $snapshotReadme.Contains('.ai-workspace/BOOTSTRAP.md')) 'user-entry-preserves-standard-choice-and-registration-to-bootstrap-route'
+    $payloadUnchanged = $true
+    foreach ($file in @(Get-ChildItem -LiteralPath $fixtureVersionRoot -Recurse -File -Force)) {
+        $relative = [IO.Path]::GetRelativePath($fixtureVersionRoot, $file.FullName)
+        $packaged = Join-Path (Join-Path $snapshotExtract 'framework/versions/1.16.0') $relative
+        if ((Get-FileHash -LiteralPath $file.FullName).Hash -cne (Get-FileHash -LiteralPath $packaged).Hash) { $payloadUnchanged = $false }
+    }
+    Assert-True ($payloadUnchanged -and [IO.File]::ReadAllText($fixtureManifestPath) -ceq $validManifestRaw -and [IO.File]::ReadAllText($fixtureVersionPath) -ceq $validVersionRaw) 'snapshot-naming-preserves-all-version-bytes-and-source-metadata'
+
     $preview = & $builder -WorkspaceRoot $packageWorkspace -FrameworkVersion '1.16.0' -OutputPath $zip -Provisional
     Assert-True ($preview.status -ceq 'WHAT_IF' -and -not (Test-Path -LiteralPath $zip)) 'preview-zero-write'
 
@@ -157,6 +202,7 @@ try {
     [IO.Compression.ZipFile]::ExtractToDirectory($zip, $extract)
     $manifestPath = Join-Path $extract 'PACKAGE_MANIFEST.json'
     $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
+    Assert-True ($manifest.schemaVersion -eq 1 -and $null -eq $manifest.PSObject.Properties['distributionId']) 'legacy-default-manifest-contract-preserved'
     $allMatch = $true
     foreach ($record in @($manifest.files)) {
         $path = Join-Path $extract ([string]$record.path)
@@ -182,6 +228,7 @@ try {
     $packageAgentsPath = Join-Path $extract 'AGENTS.md'
     $expectedReadme = [IO.File]::ReadAllText((Join-Path $packageWorkspace 'framework/user-package/README.md'), [Text.UTF8Encoding]::new($false, $true)).Replace('{{FRAMEWORK_VERSION}}', '1.16.0')
     $expectedAgents = [IO.File]::ReadAllText((Join-Path $packageWorkspace 'framework/user-package/AGENTS.md'), [Text.UTF8Encoding]::new($false, $true)).Replace('{{FRAMEWORK_VERSION}}', '1.16.0')
+    $expectedReadme = $expectedReadme.Replace('{{DISTRIBUTION_ID}}', '1.16.0').Replace('{{DISTRIBUTION_NOTICE}}', '此包未指定分发修订标识；文件名不证明版本资格。')
     Assert-True (
         [IO.File]::ReadAllText($packageReadmePath, [Text.UTF8Encoding]::new($false, $true)) -ceq $expectedReadme -and
         [IO.File]::ReadAllText($packageAgentsPath, [Text.UTF8Encoding]::new($false, $true)) -ceq $expectedAgents -and
@@ -209,7 +256,7 @@ try {
     & git -C $candidateConsumer init -q
     Assert-True ($LASTEXITCODE -eq 0) 'candidate-consumer-git-initialized'
     Assert-Rejected {
-        & (Join-Path $extract 'scripts/register-project.ps1') -ProjectId 'candidate-package-consumer' -DisplayName 'Candidate Package Consumer' -FrameworkVersion '1.16.0' -RepositoryPath $candidateConsumer -ControllerId 'controller-fixture' -WorkspaceRoot $extract -Apply -Confirm:$false
+        & (Join-Path $snapshotExtract 'scripts/register-project.ps1') -ProjectId 'candidate-package-consumer' -DisplayName 'Candidate Package Consumer' -FrameworkVersion '1.16.0' -RepositoryPath $candidateConsumer -ControllerId 'controller-fixture' -WorkspaceRoot $snapshotExtract -Apply -Confirm:$false
     } 'FRAMEWORK_VERSION_NOT_CONSUMABLE|1.16.0' 'actual-candidate-package-remains-non-consumable'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $candidateConsumer '.ai-workspace'))) 'candidate-rejection-writes-no-project-control'
 
@@ -228,9 +275,12 @@ try {
     $stable.completeSuite.payloadCanonical = $stableFacts.Canonical
     $stable.sourceReviewEvidence.reviewedPayloadCanonical = $stableFacts.Canonical
     Write-Utf8Json $fixtureManifestPath $stable
-    $stableCreated = & $builder -WorkspaceRoot $packageWorkspace -FrameworkVersion '1.16.0' -OutputPath $stableZip -Apply -Confirm:$false
+    Assert-Rejected { & $builder -WorkspaceRoot $packageWorkspace -FrameworkVersion '1.16.0' -OutputPath $snapshotZip -Distribution snapshot.7 } 'PACKAGE_DISTRIBUTION_LIFECYCLE_MISMATCH' 'stable-cannot-use-snapshot-name'
+    $stableCreated = & $builder -WorkspaceRoot $packageWorkspace -FrameworkVersion '1.16.0' -OutputPath $stableZip -Distribution release -Apply -Confirm:$false
     Assert-True ($stableCreated.status -ceq 'CREATED') 'stable-fixture-package-created'
     [IO.Compression.ZipFile]::ExtractToDirectory($stableZip, $stableExtract)
+    $releaseManifest = Get-Content -LiteralPath (Join-Path $stableExtract 'PACKAGE_MANIFEST.json') -Raw | ConvertFrom-Json
+    Assert-True ($stableCreated.distributionId -ceq '1.16.0-release' -and $releaseManifest.distributionId -ceq '1.16.0-release' -and $releaseManifest.frameworkVersion -ceq '1.16.0' -and -not $releaseManifest.provisional -and [IO.File]::ReadAllText((Join-Path $stableExtract 'README.md')).Contains('# AI Workspace 1.16.0-release 用户发行包')) 'release-name-and-package-metadata-agree'
     Assert-True (
         -not (Test-Path -LiteralPath (Join-Path $stableExtract '.git')) -and
         -not (Test-Path -LiteralPath (Join-Path $stableExtract 'AI-Workspace-Maintenance')) -and
