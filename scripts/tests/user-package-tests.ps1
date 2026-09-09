@@ -12,6 +12,9 @@ $stableZip = Join-Path $fixture 'AI-Workspace-1.16.0-release.zip'
 $stableExtract = Join-Path $fixture 'stable-extract'
 $snapshotZip = Join-Path $fixture 'AI-Workspace-1.16.0-snapshot.7.zip'
 $snapshotExtract = Join-Path $fixture 'snapshot-extract'
+$internalZip = Join-Path $fixture 'AI-Workspace-Maintenance-1.16.0-snapshot.7.zip'
+$internalExtract = Join-Path $fixture 'internal-extract'
+$internalStableZip = Join-Path $fixture 'AI-Workspace-Maintenance-1.16.0-release.zip'
 $candidateConsumer = Join-Path $fixture 'candidate-consumer'
 $stableConsumer = Join-Path $fixture 'stable-consumer'
 $passed = 0
@@ -92,6 +95,13 @@ try {
         if (-not (Test-Path -LiteralPath $parent)) { $null = New-Item -ItemType Directory -Path $parent -Force }
         [IO.File]::Copy((Join-Path $workspace $relative), $destination, $false)
     }
+    $internalSupport = @('scripts/resolve-framework-maintenance-target.ps1','scripts/check-framework-maintenance-authorization.ps1','scripts/resolve-framework-maintenance-process-requirements.ps1','scripts/invoke-framework-maintenance-safe-git.ps1','scripts/integrate-framework-source.ps1','framework/FRAMEWORK_RELEASE.md')
+    $internalSupport += @(Get-ChildItem -LiteralPath (Join-Path $workspace 'framework/maintenance-overlay') -File | ForEach-Object { 'framework/maintenance-overlay/' + $_.Name })
+    foreach ($relative in $internalSupport) {
+        $destination = Join-Path $packageWorkspace $relative
+        $null = New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force
+        [IO.File]::Copy((Join-Path $workspace $relative), $destination, $false)
+    }
     $null = New-Item -ItemType Directory -Path (Join-Path $packageWorkspace 'framework/versions') -Force
     Copy-Item -LiteralPath (Join-Path $workspace 'framework/versions/1.16.0') -Destination (Join-Path $packageWorkspace 'framework/versions/1.16.0') -Recurse
     $fixtureManifestPath = Join-Path $packageWorkspace 'framework/versions/1.16.0/RELEASE_MANIFEST.json'
@@ -124,6 +134,8 @@ try {
     Assert-Rejected { & $builder -WorkspaceRoot $packageWorkspace -FrameworkVersion '1.16.0' -OutputPath $stableZip -Distribution release } 'STABLE_PACKAGE_REQUIRED' 'candidate-cannot-be-released-by-renaming'
     Assert-Rejected { & $builder -WorkspaceRoot $packageWorkspace -FrameworkVersion '1.16.0' -OutputPath $stableZip -Provisional -Distribution release } 'PACKAGE_DISTRIBUTION_LIFECYCLE_MISMATCH' 'provisional-release-name-rejected'
     Assert-Rejected { & $builder -WorkspaceRoot $packageWorkspace -FrameworkVersion '1.16.0' -OutputPath $zip -Provisional -Distribution snapshot.7 } 'PACKAGE_DISTRIBUTION_FILENAME_MISMATCH' 'snapshot-filename-mismatch-rejected'
+    Assert-Rejected { & $builder -WorkspaceRoot $packageWorkspace -FrameworkVersion '1.16.0' -OutputPath $snapshotZip -Provisional -Distribution snapshot.7 -InternalMaintenance } 'PACKAGE_DISTRIBUTION_FILENAME_MISMATCH|AI-Workspace-Maintenance-' 'internal-snapshot-rejects-user-name'
+    Assert-Rejected { & $builder -WorkspaceRoot $packageWorkspace -FrameworkVersion '1.16.0' -OutputPath $internalZip -Provisional -Distribution snapshot.7 } 'PACKAGE_DISTRIBUTION_FILENAME_MISMATCH|AI-Workspace-1.16.0-' 'user-snapshot-rejects-internal-name'
 
     $case = $validManifestRaw | ConvertFrom-Json
     $case.completeSuite.payloadCanonical = 'D' * 64
@@ -186,6 +198,15 @@ try {
     $binding=Get-AiwDistributionBinding $snapshotExtract '1.16.0' -Required
     Assert-True ($binding.distributionId-ceq'1.16.0-snapshot.7'-and$binding.runtimeRoot-ceq[IO.Path]::GetFullPath($snapshotExtract)) 'distribution-binds-exact-content-and-runtime'
     $null=Assert-AiwDistributionBinding $binding $snapshotExtract '1.16.0'
+    $internalPreview = & $builder -WorkspaceRoot $packageWorkspace -FrameworkVersion '1.16.0' -OutputPath $internalZip -Provisional -Distribution snapshot.7 -InternalMaintenance
+    Assert-True ($internalPreview.status -ceq 'WHAT_IF' -and -not (Test-Path -LiteralPath $internalZip)) 'internal-snapshot-preview-zero-write'
+    $internalCreated = & $builder -WorkspaceRoot $packageWorkspace -FrameworkVersion '1.16.0' -OutputPath $internalZip -Provisional -Distribution snapshot.7 -InternalMaintenance -Apply -Confirm:$false
+    Assert-True ($internalCreated.status -ceq 'CREATED') 'internal-snapshot-created-with-distinct-name'
+    Assert-Rejected { & $builder -WorkspaceRoot $packageWorkspace -FrameworkVersion '1.16.0' -OutputPath $internalZip -Provisional -Distribution snapshot.7 -InternalMaintenance -Apply -Confirm:$false } 'PACKAGE_OUTPUT_EXISTS' 'internal-snapshot-overwrite-rejected'
+    [IO.Compression.ZipFile]::ExtractToDirectory($internalZip, $internalExtract)
+    $internalBinding = Get-AiwDistributionBinding $internalExtract '1.16.0' -Required
+    Assert-True ($internalBinding.distributionId -ceq $binding.distributionId -and $internalBinding.contentIdentity -cne $binding.contentIdentity -and $internalBinding.runtimeRoot -ceq [IO.Path]::GetFullPath($internalExtract)) 'internal-name-preserves-distribution-and-valid-content-binding'
+    Assert-True ((Test-Path -LiteralPath (Join-Path $internalExtract 'scripts/resolve-framework-maintenance-target.ps1')) -and -not (Test-Path -LiteralPath (Join-Path $snapshotExtract 'scripts/resolve-framework-maintenance-target.ps1'))) 'maintenance-adapter-remains-internal-only'
     Assert-Rejected {Assert-AiwDistributionBinding $binding $packageWorkspace '1.16.0'} 'DISTRIBUTION_RUNTIME_ROOT_DRIFT' 'development-root-cannot-replace-fixed-runtime'
     $runtimeReadme=Join-Path $snapshotExtract 'README.md';$runtimeReadmeBytes=[IO.File]::ReadAllBytes($runtimeReadme)
     [IO.File]::AppendAllText($runtimeReadme,'tampered')
@@ -287,6 +308,10 @@ try {
     $stable.sourceReviewEvidence.reviewedPayloadCanonical = $stableFacts.Canonical
     Write-Utf8Json $fixtureManifestPath $stable
     Assert-Rejected { & $builder -WorkspaceRoot $packageWorkspace -FrameworkVersion '1.16.0' -OutputPath $snapshotZip -Distribution snapshot.7 } 'PACKAGE_DISTRIBUTION_LIFECYCLE_MISMATCH' 'stable-cannot-use-snapshot-name'
+    Assert-Rejected { & $builder -WorkspaceRoot $packageWorkspace -FrameworkVersion '1.16.0' -OutputPath $stableZip -Distribution release -InternalMaintenance } 'PACKAGE_DISTRIBUTION_FILENAME_MISMATCH' 'internal-release-rejects-user-name'
+    Assert-Rejected { & $builder -WorkspaceRoot $packageWorkspace -FrameworkVersion '1.16.0' -OutputPath $internalStableZip -Distribution release } 'PACKAGE_DISTRIBUTION_FILENAME_MISMATCH' 'user-release-rejects-internal-name'
+    $internalStablePreview = & $builder -WorkspaceRoot $packageWorkspace -FrameworkVersion '1.16.0' -OutputPath $internalStableZip -Distribution release -InternalMaintenance
+    Assert-True ($internalStablePreview.status -ceq 'WHAT_IF' -and $internalStablePreview.distributionId -ceq '1.16.0-release' -and -not (Test-Path -LiteralPath $internalStableZip)) 'internal-release-preview-uses-distinct-name'
     $stableCreated = & $builder -WorkspaceRoot $packageWorkspace -FrameworkVersion '1.16.0' -OutputPath $stableZip -Distribution release -Apply -Confirm:$false
     Assert-True ($stableCreated.status -ceq 'CREATED') 'stable-fixture-package-created'
     [IO.Compression.ZipFile]::ExtractToDirectory($stableZip, $stableExtract)

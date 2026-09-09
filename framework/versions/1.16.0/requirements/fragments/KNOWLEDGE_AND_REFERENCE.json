@@ -58,19 +58,15 @@
           "CRITICAL"
         ],
         "roles": [
-          "DOMAIN_OWNER",
-          "CONTROLLER"
+          "*"
         ],
         "phases": [
-          "VERIFY"
+          "*"
         ],
         "actionKinds": [
-          "CONTROL_WRITE",
-          "SOURCE_WRITE"
+          "*"
         ],
         "resultKinds": [
-          "OWNER_ACCEPTANCE",
-          "IMPLEMENTATION_RESULT",
           "*"
         ],
         "pathPrefixes": [],
@@ -78,16 +74,15 @@
           "KNOWLEDGE_REFERENCE"
         ],
         "semanticTerms": [
-          "knowledge",
-          "authority",
-          "stale",
-          "impact"
+          "knowledge query impact",
+          "changed authority",
+          "知识查询影响",
+          "权威变更",
+          "knowledge maintenance"
         ]
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_KNOWLEDGE_IMPACT_MAINTENANCE",
-      "preparationRequirements": [
-        "CHANGED_AUTHORITY_PATHS_BOUND"
-      ],
+      "preparationRequirements": [],
       "resultRequirements": [
         "KNOWLEDGE_IMPACT_RESOLVED"
       ]

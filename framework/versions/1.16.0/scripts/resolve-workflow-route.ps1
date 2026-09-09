@@ -1,8 +1,7 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
-    [string]$InputPath,
-
+    [Parameter(Mandatory,ParameterSetName='Path')][string]$InputPath,
+    [Parameter(Mandatory,ParameterSetName='Json')][string]$InputJson,
     [switch]$AsJson
 )
 
@@ -14,105 +13,7 @@ if ($PSVersionTable.PSEdition -cne 'Core' -or $PSVersionTable.PSVersion.Major -l
     exit 4
 }
 
-function Test-JsonWhitespace([char]$Character) {
-    return $Character -eq [char]0x20 -or $Character -eq [char]0x09 -or $Character -eq [char]0x0A -or $Character -eq [char]0x0D
-}
-
-function Skip-JsonWhitespace([string]$Text, [ref]$Index) {
-    while ($Index.Value -lt $Text.Length -and (Test-JsonWhitespace $Text[$Index.Value])) { $Index.Value++ }
-}
-
-function Read-JsonString([string]$Text, [ref]$Index) {
-    if ($Index.Value -ge $Text.Length -or $Text[$Index.Value] -ne [char]0x22) { throw 'INPUT_JSON_MEMBER_NAME' }
-    $start = $Index.Value
-    $cursor = $start + 1
-    while ($cursor -lt $Text.Length) {
-        $character = $Text[$cursor]
-        if ([int]$character -lt 0x20) { throw 'INPUT_JSON_STRING' }
-        if ($character -eq [char]0x5C) {
-            $cursor++
-            if ($cursor -ge $Text.Length) { throw 'INPUT_JSON_STRING' }
-            $escape = $Text[$cursor]
-            if ($escape -eq [char]0x75) {
-                if ($cursor + 4 -ge $Text.Length) { throw 'INPUT_JSON_STRING' }
-                for ($offset = 1; $offset -le 4; $offset++) {
-                    if ($Text[$cursor + $offset] -notmatch '^[0-9A-Fa-f]$') { throw 'INPUT_JSON_STRING' }
-                }
-                $cursor += 5
-                continue
-            }
-            if ('"\/bfnrt'.IndexOf($escape) -lt 0) { throw 'INPUT_JSON_STRING' }
-            $cursor++
-            continue
-        }
-        if ($character -eq [char]0x22) {
-            $cursor++
-            $token = $Text.Substring($start,$cursor - $start)
-            $Index.Value = $cursor
-            try { return [string]($token | ConvertFrom-Json) } catch { throw 'INPUT_JSON_STRING' }
-        }
-        $cursor++
-    }
-    throw 'INPUT_JSON_STRING'
-}
-
-function Get-JsonTopLevelMemberNames([string]$Text) {
-    $index = 0
-    Skip-JsonWhitespace $Text ([ref]$index)
-    if ($index -ge $Text.Length -or $Text[$index] -ne [char]0x7B) { throw 'INPUT_OBJECT_TYPE' }
-    $index++
-    Skip-JsonWhitespace $Text ([ref]$index)
-    $names = New-Object 'System.Collections.Generic.List[string]'
-    if ($index -lt $Text.Length -and $Text[$index] -eq [char]0x7D) {
-        $index++
-        Skip-JsonWhitespace $Text ([ref]$index)
-        if ($index -ne $Text.Length) { throw 'INPUT_JSON' }
-        return $names.ToArray()
-    }
-    while ($index -lt $Text.Length) {
-        $name = Read-JsonString $Text ([ref]$index)
-        $names.Add($name)
-        Skip-JsonWhitespace $Text ([ref]$index)
-        if ($index -ge $Text.Length -or $Text[$index] -ne [char]0x3A) { throw 'INPUT_JSON' }
-        $index++
-        Skip-JsonWhitespace $Text ([ref]$index)
-        if ($index -ge $Text.Length) { throw 'INPUT_JSON' }
-        if ($Text[$index] -eq [char]0x22) {
-            $null = Read-JsonString $Text ([ref]$index)
-        } else {
-            if ($Text[$index] -eq [char]0x7B -or $Text[$index] -eq [char]0x5B) { throw 'INPUT_JSON_NESTED_VALUE' }
-            $valueStart = $index
-            while ($index -lt $Text.Length -and $Text[$index] -ne [char]0x2C -and $Text[$index] -ne [char]0x7D -and -not (Test-JsonWhitespace $Text[$index])) { $index++ }
-            if ($index -eq $valueStart) { throw 'INPUT_JSON' }
-        }
-        Skip-JsonWhitespace $Text ([ref]$index)
-        if ($index -ge $Text.Length) { throw 'INPUT_JSON' }
-        if ($Text[$index] -eq [char]0x2C) {
-            $index++
-            Skip-JsonWhitespace $Text ([ref]$index)
-            continue
-        }
-        if ($Text[$index] -eq [char]0x7D) {
-            $index++
-            Skip-JsonWhitespace $Text ([ref]$index)
-            if ($index -ne $Text.Length) { throw 'INPUT_JSON' }
-            return $names.ToArray()
-        }
-        throw 'INPUT_JSON'
-    }
-    throw 'INPUT_JSON'
-}
-
-function Read-StrictUtf8Json([string]$Path) {
-    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw 'INPUT_MISSING' }
-    $bytes = [IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $Path))
-    if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) { throw 'INPUT_BOM' }
-    try { $text = [Text.UTF8Encoding]::new($false, $true).GetString($bytes) } catch { throw 'INPUT_UTF8' }
-    if ($text.Contains("`r") -or $text.Contains([char]0) -or $text.Contains([char]0xFFFD) -or -not $text.EndsWith("`n")) { throw 'INPUT_TEXT_FORMAT' }
-    $memberNames = @(Get-JsonTopLevelMemberNames $text)
-    try { $value = $text | ConvertFrom-Json } catch { throw 'INPUT_JSON' }
-    return [pscustomobject]@{ MemberNames=[string[]]$memberNames; Value=$value }
-}
+Import-Module (Join-Path $PSScriptRoot 'StrictJsonInput.psm1') -Force
 
 function Assert-ExactFields($Object, [string[]]$MemberNames, [string[]]$Fields) {
     if (-not ($Object -is [pscustomobject])) { throw 'INPUT_OBJECT_TYPE' }
@@ -143,7 +44,7 @@ function Test-JsonInteger($Value) {
         $Value -is [int32] -or $Value -is [uint32] -or $Value -is [int64] -or $Value -is [uint64]
 }
 
-$inputDocument = Read-StrictUtf8Json $InputPath
+$inputDocument = if($PSCmdlet.ParameterSetName -ceq 'Json'){ConvertFrom-AiwStrictInputJson $InputJson}else{Read-AiwStrictInputJson $InputPath}
 $inputMemberNames = [string[]]@($inputDocument.MemberNames)
 $inputObject = $inputDocument.Value
 if (-not ($inputObject -is [pscustomobject]) -or $inputObject.PSObject.Properties.Name -cnotcontains 'operation') { throw 'INPUT_OPERATION' }

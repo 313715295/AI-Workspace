@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([Parameter(Mandatory)][string]$InputPath,[switch]$AsJson,[switch]$DeleteInputOnExit,[string]$AuthorizationCheckerPath)
+param([Parameter(Mandatory)][string]$InputPath,[switch]$AsJson,[switch]$DeleteInputOnExit,[string]$AuthorizationCheckerPath,[string]$CompactReceiptPath)
 
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
@@ -8,6 +8,20 @@ Import-Module (Join-Path $PSScriptRoot 'ProcessRequirementComposition.psm1') -Fo
 $utf8=[Text.UTF8Encoding]::new($false,$true)
 
 function Get-Identity([string]$Path){$b=[IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $Path));return $b.Length.ToString()+'|'+[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($b))}
+function Save-CompactReceipt($Receipt,[string]$Path,[string]$ProjectRoot,[string]$TaskId,[string]$Actor){
+  if(-not[IO.Path]::IsPathRooted($Path)){throw 'COMPACT_PATH_ABSOLUTE_REQUIRED'}
+  foreach($segment in @($TaskId,$Actor)){if($segment-cnotmatch'^[0-9A-Za-z][0-9A-Za-z._-]*$'){throw 'COMPACT_CONTEXT_UNBOUND'}}
+  $full=[IO.Path]::GetFullPath($Path)
+  $expected=[IO.Path]::GetFullPath((Join-Path $ProjectRoot ('.ai-workspace/runtime/'+$TaskId+'/'+$Actor)))
+  if([IO.Path]::GetDirectoryName($full)-cne$expected-or[IO.Path]::GetFileName($full)-cnotmatch'^[0-9A-Za-z][0-9A-Za-z._-]*\.json$'){throw 'COMPACT_PATH_SCOPE'}
+  $cursor=Get-Item -LiteralPath $expected -Force -ErrorAction Stop
+  while($null-ne$cursor){if(($cursor.Attributes-band[IO.FileAttributes]::ReparsePoint)-ne0){throw 'COMPACT_PATH_REPARSE'};$cursor=$cursor.Parent}
+  $bytes=$utf8.GetBytes((($Receipt|ConvertTo-Json -Depth 100 -Compress)+"`n"))
+  # CreateNew refuses the input, an existing receipt, authority, or raced-in file.
+  $stream=[IO.File]::Open($full,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+  try{$stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)}finally{$stream.Dispose()}
+  return [ordered]@{path=$full;identity=Get-Identity $full}
+}
 function Get-SafeCleanupInput([string]$Path){
   $full=[IO.Path]::GetFullPath($Path);$temp=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath([IO.Path]::GetTempPath()))
   if([IO.Path]::GetExtension($full)-cne'.json'){throw 'INPUT_CLEANUP_PATH_UNSAFE'}
@@ -257,6 +271,7 @@ function Get-AuthorizationObservation([string]$Path,[string]$ExpectedIdentity,[s
 $cleanupInput=$null;$cleanupObservation=$null;$artifactStorage='CALLER_MANAGED'
 try{
   $input=Read-Input $InputPath
+  if($CompactReceiptPath -and [string]$input.mode-cne'DISCOVER'){throw 'COMPACT_DISCOVER_ONLY'}
   if($DeleteInputOnExit){$cleanupObservation=Get-SafeCleanupInput $InputPath;$artifactStorage=[string]$cleanupObservation.Storage;if($artifactStorage-ceq'SYSTEM_TEMP_FALLBACK'){$cleanupInput=[string]$cleanupObservation.Path}}
   if(-not($input-is[pscustomobject])-or$null-eq$input.PSObject.Properties['mode']-or-not($input.mode-is[string])){throw 'INPUT_MODE'}
   $mode=[string]$input.mode
@@ -265,7 +280,7 @@ try{
     $inputContract=[int]$input.schemaVersion
     if($inputContract-eq1){
       Assert-Fields $input @('schemaVersion','mode','projectRoot','frameworkRoot','taskPath','expectedProjectConfigIdentity','expectedCorrectionsIdentity','expectedTaskIdentity','observedActor','capabilities','objective','actionKind','resultKind','exactPaths','hostEnforcementGrade','evaluationOnly')
-      $intent=[pscustomobject][ordered]@{schemaVersion=1;objective=[string]$input.objective;requestedActionKind=[string]$input.actionKind;requestedResultKind=[string]$input.resultKind;semanticHints=@();pathHints=@($input.exactPaths);capabilityHints=@($input.capabilities);mutationHints=@();externalHints=@();ambiguityState='CLEAR'}
+      $intent=[pscustomobject][ordered]@{schemaVersion=1;objective=[string]$input.objective;requestedActionKind=[string]$input.actionKind;requestedResultKind=[string]$input.resultKind;semanticHints=@([string]$input.objective);pathHints=@($input.exactPaths);capabilityHints=@($input.capabilities);mutationHints=@();externalHints=@();ambiguityState='CLEAR'}
       $forbiddenPaths=@();$protectedPaths=@();$authorizationPath='NOT_REQUIRED';$authorizationIdentity='NOT_REQUIRED';$continuationReceiptPath='NOT_REQUIRED';$continuationReceiptIdentity='NOT_REQUIRED';$userDecision='NOT_REQUIRED';$recoveryState='UNKNOWN';$invocationState='UNPROVEN'
     }else{
       $discoverFields=@('schemaVersion','mode','projectRoot','frameworkRoot','taskPath','expectedProjectConfigIdentity','expectedCorrectionsIdentity','expectedTaskIdentity','observedActor','capabilities','exactPaths','forbiddenPaths','protectedPaths','authorizationPackagePath','expectedAuthorizationIdentity','userDecision','recoveryState','hostEnforcementGrade','invocationState','intentEnvelope','evaluationOnly')
@@ -318,7 +333,7 @@ try{
     [string[]]$intentFactMismatches=@();if($inputContract-ge2){$intentFactMismatches=@(Get-IntentFactMismatches $intent @($input.capabilities) @($input.exactPaths) ([string]$input.actionKind))}
     if($intentFactMismatches.Count-gt0-and[string]$intent.ambiguityState-ceq'CLEAR'){throw ('INTENT_FACT_MISMATCH|'+[string]::Join(',',@($intentFactMismatches)))}
     if($continuationReceiptPath-cne'NOT_REQUIRED'){$continuationInput=Read-Input $continuationReceiptPath;if([string]::Join("`n",@($continuationInput.forbiddenScope))-cne[string]::Join("`n",@($forbiddenPaths))-or[string]::Join("`n",@($continuationInput.protectedScope))-cne[string]::Join("`n",@($protectedPaths))){throw 'CONTINUATION_PROTECTION_SCOPE_DRIFT'}}
-    $semanticObjective=([string]$input.objective+' '+[string]::Join(' ',@($intent.semanticHints+$intent.externalHints))).Trim()
+    $semanticObjective=Get-AiwProcessSemanticText -IntentEnvelope $intent
     if(-not[bool]$input.evaluationOnly){
       $runtimeModule=Join-Path ([string]$input.frameworkRoot) 'scripts/ProjectAdoptionState.psm1'
       if(Test-Path -LiteralPath $runtimeModule -PathType Leaf){
@@ -446,7 +461,7 @@ try{
       foreach($name in @($sourceBindings|Where-Object{$_-in@('correctionsIdentity','policyIdentity','projectCustomIdentity')})){
         if([string]$sourcePathByBinding[[string]$name]-cnotin@($receipt.exactPaths)){throw ('SOURCE_POSTIMAGE_PATH_NOT_AUTHORIZED|'+[string]$name)}
       }
-      $semanticObjective=([string]$receipt.objective+' '+[string]::Join(' ',@($receipt.intentEnvelope.semanticHints+$receipt.intentEnvelope.externalHints))).Trim()
+      $semanticObjective=Get-AiwProcessSemanticText -IntentEnvelope $receipt.intentEnvelope
       $transitionComposition=Invoke-ProcessRequirementComposition -ProjectRoot ([string]$receipt.sourceLocators.projectRoot) -FrameworkRoot ([string]$receipt.sourceLocators.frameworkRoot) -TargetVersion '1.16.0' -ExpectedProjectConfigIdentity ([string]$currentBindings.projectConfigIdentity) -ExpectedCorrectionsIdentity ([string]$currentBindings.correctionsIdentity) -Profile ([string]$receipt.profile) -Role ([string]$receipt.role) -Phase ([string]$receipt.phase) -Actor ([string]$receipt.actor) -TaskIdentity ([string]$currentBindings.taskIdentity) -Capabilities @($receipt.authorityContext.observedCapabilities) -Objective $semanticObjective -ActionKind ([string]$receipt.actionKind) -ResultKind ([string]$receipt.resultKind) -ExactPaths @($receipt.exactPaths) -ForbiddenPaths @($receipt.authorityContext.forbiddenScope) -SemanticApplicabilityUnknown:([string]$receipt.intentEnvelope.ambiguityState-cne'CLEAR') -EvaluationOnly:([string]$receipt.status-ceq'EVALUATION_ONLY')
       foreach($name in @($receipt.sourceBindings.PSObject.Properties.Name)){
         $recomposedBinding=if([string]$name-ceq'taskIdentity'){[string]$currentBindings.taskIdentity}else{[string]$transitionComposition.$name}
@@ -486,6 +501,7 @@ try{
       if($null-ne$continuationReceipt){$result['continuationReceipt']=$continuationReceipt}
     }
   }else{throw 'INPUT_MODE'}
-  if($AsJson){$result|ConvertTo-Json -Depth 50 -Compress}else{$count=if($mode-ceq'DISCOVER'){@($result.selectedRuleBlocks).Count}else{@($receipt.selectedObligations).Count};Write-Output ($result.status+'|'+$mode+'|requirements='+$count)}
+  if($CompactReceiptPath){$result['savedCompactReceipt']=Save-CompactReceipt $compactReceipt $CompactReceiptPath $projectResolved $runtimeSegment $actor}
+  if($AsJson){$result|ConvertTo-Json -Depth 50 -Compress}else{$count=if($mode-ceq'DISCOVER'){@($result.selectedRuleBlocks).Count}else{@($receipt.selectedObligations).Count};Write-Output ($result.status+'|'+$mode+'|requirements='+$count);if($CompactReceiptPath){Write-Output ('COMPACT_RECEIPT|'+$result.savedCompactReceipt.path+'|'+$result.savedCompactReceipt.identity)}}
   if([string]$result.status-cnotin @('PASS','EVALUATION_ONLY')){exit 3}
-}catch{if($AsJson){[ordered]@{status='FAIL';reason=[string]$_.Exception.Message}|ConvertTo-Json -Compress}else{Write-Output ('FAIL|'+[string]$_.Exception.Message)};exit 2}finally{if($null-ne$cleanupInput-and(Test-Path -LiteralPath $cleanupInput -PathType Leaf)){Remove-Item -LiteralPath $cleanupInput -Force}}
+}catch{if($AsJson){[ordered]@{status='FAIL';reason=[string]$_.Exception.Message}|ConvertTo-Json -Compress}else{Write-Output ('FAIL|'+[string]$_.Exception.Message)};exit 2}finally{if($null-ne$cleanupInput-and(Test-Path -LiteralPath $cleanupInput -PathType Leaf)){Remove-Item -LiteralPath $cleanupInput}}

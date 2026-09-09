@@ -45,21 +45,18 @@ local candidate pilot 在任何 project preflight 前重算 candidate payload，
 <!-- AIW-REQUIREMENT:PR_PROJECT_UPGRADE_ACTOR_BOUND:END -->
 
 <!-- AIW-REQUIREMENT:PR_PROCESS_REQUIREMENTS_THREE_SOURCE_COMPOSITION:BEGIN -->
-## Progressive process requirements
+PROCESS_REQUIREMENTS_RESOLVE是受治理工作的唯一过程入口。DISCOVER组合sealed原生规则、仍有效纠正和永久项目规则，各自保留authority；动作与输出分别ADMIT_ACTION/FINALIZE_OUTPUT，receipt临时且非权威。调用/选择语义、严格来源校验、预算与临时生命周期只由TOOL_CONTRACT定义。
 
-`PROCESS_REQUIREMENTS_RESOLVE` 是所有 Framework-governed work 的唯一入口。`DISCOVER` 组合 sealed Framework requirements、仍有效 corrections 与 permanent project rules，但不合并其 authority。`ADMIT_ACTION` 在独立 action 前校验 preparation；`FINALIZE_OUTPUT` 在最终输出前校验 actual result 与 delivery。source/decision receipt 是 ephemeral、non-authoritative artifact。
+新项目以`.ai-workspace/process-policy.json`承载规则，selectedRulePackBytes由项目在1..98304内选择；运行只用该项目值，98304是上界，不保留旧分档豁免。legacy PROJECT-CUSTOM在独立Review的原子迁移同时建立structured carrier并退役已迁移正文前仍是bound source；empty-source与双载体同规则均拒绝。
 
-新项目使用 `.ai-workspace/process-policy.json`，其中 `selectedRulePackBytes` 由项目在 `1..98304` 内选择。runtime 只按该项目值判断 selected pack，Framework absolute cap 只是上界；不再保留 ordinary/absolute/legacy 三档运行时豁免。
+项目规则可内联或引用使用者维护的完整标准/唯一marked section及直接依赖。PROJECT_RELATIVE相对项目Git根；ABSOLUTE_FILE为显式本机非reparse绝对文件，可在项目外或独立checkout；省略kind保持PROJECT_RELATIVE。项目自行选择位置，多个项目绑定同一文件即可共享；不设全局注册或强制复制。policy保留selector、kind/locator、whole identity、section、dependency和decision evidence，原使用者拥有正文，读取不授予写权限。
 
-存在真实 PROJECT-CUSTOM rules 的 legacy project，在一个经过独立 Review 的 atomic migration 同时写入 structured carrier 并退役已迁移 normative bytes 前，继续把该 region 作为 bound project-rule source。empty-source claim 与 dual-carrier rule 必须 fail closed。不增加 role、service、registry、poller、ledger 或 executable project DSL。
+composer按TOOL_CONTRACT在选择前校验所有显式来源与禁读边界，不扫描目录、网络抓取或递归普通链接，未选正文不进模型。来源/章节/依赖漂移使旧receipt失效；正文漂移时不以旧selector/section排除，保守提供当前全文并公开ceiling，等待项目正常重绑。相同物理来源/当前身份/完整块的响应去重保留每条义务与全部依赖；不同来源不合并。
 
-structured project rule 可直接内联，也可绑定使用者维护的标准文档全文或唯一 marked section，并声明有界依赖。document 的 `locatorKind` 可为 `PROJECT_RELATIVE` 或 `ABSOLUTE_FILE`；旧记录未声明该字段时继续按 `PROJECT_RELATIVE` 解释。前者相对项目 Git 根解析，后者只接受当前受支持宿主上的显式本机绝对文件路径，可指向项目外目录或独立仓库 checkout。Framework 不规定来源目录、仓库或组织方式；多个项目分别绑定同一文件即可共享，不建立全局来源注册表，也不要求复制正文。
+项目维护AI根据用户指定文档、用途、全文/章节和直接依赖生成policy，用户无需手写JSON。直接原文引用已经可用，提炼/拆分是可选项目工作；摘要默认仅导航，替换规范须经原项目规则修改与验证门且保持唯一有效正文。
 
-来源正文仍由使用者及其原项目拥有；policy 只保存选择器、locator kind、locator、whole-file identity、section mode、依赖与 decision evidence。读取来源不授予修改来源、其他项目或外部仓库的权限。composer 在选择前验证显式来源，不扫描目录、不网络抓取，也不把普通文档链接自动解释为递归依赖；未命中的正文不进入模型。来源路径、kind、whole-file identity、section 或 dependency 变化都会使旧 source/receipt 绑定失效。正文漂移时旧 selector/section 不再用于排除，当前全文保守加载，等待项目按普通规则维护流程重新绑定。
+三源共用一套当前semanticHints选择语义、原结构轴与显式确定性触发；旧输入格式兼容不形成第二解析器或模式。真实不兼容沿原采用路径预检/转换。新增source字段进入identity，旧receipt及精确吸收映射不得沿用。
 
-用户无需手写机器 JSON。初始化或项目维护 AI 根据用户指出的现有文档、用途、全文/章节选择和直接依赖生成或更新 policy。直接引用原文是完整可用路径；精炼提取或文档拆分/去重是项目可选工作，不是 Framework 采用前置条件。摘要默认只是导航/参考；若项目明确选择其替换规范正文，必须在现有项目规则修改与验证边界内保持单一有效正文。
-
-三源 selectors 使用 `TOOL_CONTRACT.md` 的同一匹配合同：明确声明的确定性触发不再被关键词否决，原结构边界仍逐项匹配；旧字段解释不变，不自动转换项目记录。新增字段改变当前 source identity，旧 receipt 与旧精确吸收映射不得沿用。
 <!-- AIW-REQUIREMENT:PR_PROCESS_REQUIREMENTS_THREE_SOURCE_COMPOSITION:END -->
 
 <!-- AIW-REQUIREMENT:PR_TOOL_CONTRACT_BACKEND:BEGIN -->

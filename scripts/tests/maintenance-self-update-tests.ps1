@@ -5,7 +5,8 @@ param(
     [string]$SeedControlRoot,
     [string]$SeedFrameworkRoot,
     [string]$SeedTransactionPath,
-    [string]$ExpectedSeedTransactionIdentity
+    [string]$ExpectedSeedTransactionIdentity,
+    [switch]$CleanupOnly
 )
 $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
 $utf8=[Text.UTF8Encoding]::new($false);$passes=0;$lf=[string][char]10
@@ -46,7 +47,7 @@ function Admission([string]$Name,[string[]]$Paths,[string]$FrameworkRoot=$script
         expectedProjectConfigIdentity=Id (Join-Path $script:control '.ai-workspace/project.json');expectedCorrectionsIdentity=Id (Join-Path $script:control '.ai-workspace/corrections.json');expectedTaskIdentity=Id $script:task
         observedActor=$script:owner;capabilities=@();exactPaths=$Paths;forbiddenPaths=@('tools/','private/');protectedPaths=@('framework/','scripts/');authorizationPackagePath=$auth;expectedAuthorizationIdentity=Id $auth
         userDecision='NOT_REQUIRED';recoveryState='WARM';hostEnforcementGrade='INSTRUCTION_BOUND';invocationState='PROVEN_EXPLICIT'
-        intentEnvelope=[ordered]@{schemaVersion=1;objective='Apply the exact accepted Framework source in an isolated self-update fixture.';requestedActionKind='SOURCE_WRITE';requestedResultKind='IMPLEMENTATION_RESULT';semanticHints=@('root source update');pathHints=@();capabilityHints=@();mutationHints=@('source');externalHints=@();ambiguityState='CLEAR'};evaluationOnly=$false}
+        intentEnvelope=[ordered]@{schemaVersion=1;objective='Update the approved root source. Do not perform any new assignment or resource selection. Quoted history: formal review was cancelled.';requestedActionKind='SOURCE_WRITE';requestedResultKind='IMPLEMENTATION_RESULT';semanticHints=@('root source update');pathHints=@();capabilityHints=@();mutationHints=@('source');externalHints=@();ambiguityState='CLEAR'};evaluationOnly=$false}
     $ip=Join-Path $script:runtime ($Name+'-discover.json');Write-Json $ip $input
     $d=Json $script:adapter @{InputPath=$ip;AsJson=$true};Confirm ($d.status-ceq'PASS') ($Name+'-discover')
     $rp=Join-Path $script:runtime ($Name+'-receipt.json');Write-Json $rp $d.compactReceipt
@@ -80,6 +81,15 @@ try {
     }
     if(-not$SeedControlRoot){throw 'HEALTHY_MAINTENANCE_SEED_REQUIRED'}
     if(-not$SeedFrameworkRoot){$seedConfig=Get-Content -LiteralPath (Join-Path $SeedControlRoot '.ai-workspace/project.json') -Raw|ConvertFrom-Json;$SeedFrameworkRoot=Join-Path (Split-Path -Parent $SeedControlRoot) $seedConfig.frameworkTarget.siblingDirectory}
+    $seedSourceRoot=$SeedFrameworkRoot
+    if($SeedTransactionPath-or$ExpectedSeedTransactionIdentity){
+        if(-not$SeedTransactionPath-or-not$ExpectedSeedTransactionIdentity-or(Id $SeedTransactionPath)-cne$ExpectedSeedTransactionIdentity){throw 'SEED_TRANSACTION_IDENTITY'}
+        $seed=Get-Content -LiteralPath $SeedTransactionPath -Raw|ConvertFrom-Json -Depth 100
+        # A later live adoption may have changed the source. Consume the exact
+        # candidate retained by this completed transaction, then verify every
+        # recorded dependency before restoring its real old preimages below.
+        $seedSourceRoot=[string]$seed.candidateRoot
+    }
     # Seal only an isolated synthetic acceptance fixture. The input candidate retains its real review status.
     $candidateInput=$RepositoryRoot
     $fixtureSource=Join-Path $fixtureRoot 'accepted-source'
@@ -99,16 +109,16 @@ try {
     $m.sourceReviewEvidence.status='APPROVED';$m.sourceReviewEvidence.reviewer='fixture-reviewer';$m.sourceReviewEvidence.packageIdentity='1|'+('B'*64);$m.sourceReviewEvidence.reviewedPayloadCanonical=$m.canonical;$m.sourceReviewEvidence.reviewedManifestIdentity='1|'+('C'*64)
     Write-Json $mp $m
     $RepositoryRoot=$fixtureSource
-    $seedManifest=Get-Content -LiteralPath (Join-Path $SeedFrameworkRoot 'framework/versions/1.16.0/RELEASE_MANIFEST.json') -Raw|ConvertFrom-Json
+    $seedManifest=Get-Content -LiteralPath (Join-Path $seedSourceRoot 'framework/versions/1.16.0/RELEASE_MANIFEST.json') -Raw|ConvertFrom-Json
     $expectPayloadRefresh=$seedManifest.canonical-cne$m.canonical
     $control=Join-Path $fixtureRoot 'AI-Workspace-Maintenance';$target=Join-Path $fixtureRoot 'AI-Workspace'
     New-Item -ItemType Directory -Path $control,$target -Force|Out-Null
     # Relocate a real completed old-pilot seed byte-for-byte, not a handwritten pilot.
     foreach($root in @($control,$target)){& git -C $root init -q;if($LASTEXITCODE-ne0){throw 'FIXTURE_GIT_INIT'};& git -C $root config core.autocrlf false}
     foreach($folder in @('scripts','skills','framework/maintenance-overlay','framework/versions/1.16.0')){
-        $dest=Join-Path $target $folder;New-Item -ItemType Directory -Path (Split-Path -Parent $dest) -Force|Out-Null;Copy-Item -LiteralPath (Join-Path $SeedFrameworkRoot $folder) -Destination $dest -Recurse
+        $dest=Join-Path $target $folder;New-Item -ItemType Directory -Path (Split-Path -Parent $dest) -Force|Out-Null;Copy-Item -LiteralPath (Join-Path $seedSourceRoot $folder) -Destination $dest -Recurse
     }
-    foreach($name in @('AGENTS.md','README.md','LICENSE','INITIALIZATION.md')){Copy-Exact (Join-Path $SeedFrameworkRoot $name) (Join-Path $target $name)}
+    foreach($name in @('AGENTS.md','README.md','LICENSE','INITIALIZATION.md')){Copy-Exact (Join-Path $seedSourceRoot $name) (Join-Path $target $name)}
     foreach($relative in @('AGENTS.md','.gitignore','.ai-workspace/project.json','.ai-workspace/BOOTSTRAP.md','.ai-workspace/controller.json','.ai-workspace/corrections.json','.ai-workspace/process-policy.json','.ai-workspace/PROJECT-CUSTOM.md')){
         if(Test-Path -LiteralPath (Join-Path $SeedControlRoot $relative)){Copy-Exact (Join-Path $SeedControlRoot $relative) (Join-Path $control $relative)}
     }
@@ -246,7 +256,7 @@ try {
     $oldState=Id (Join-Path $control ($recovery+'/state.json'))
     # Current completed seed exercises genuine no-write recovery; the optional
     # byte-bound historical seed keeps the real schema3 write/rollback regression.
-    $scenarios=if($SeedTransactionPath-or$expectPayloadRefresh){@('interrupt-target','failure-target','reject-refresh-schema','interrupt-refresh','normal')}else{@('interrupt-target','failure-target','noop-drift','interrupt-refresh','normal')}
+    $scenarios=if($CleanupOnly){@('normal')}elseif($SeedTransactionPath-or$expectPayloadRefresh){@('interrupt-target','failure-target','reject-refresh-schema','interrupt-refresh','normal')}else{@('interrupt-target','failure-target','noop-drift','interrupt-refresh','normal')}
     foreach($scenario in $scenarios){
         $transaction=Join-Path $runtime ($scenario+'-transaction.json');$args=$common.Clone();$args.TransactionPath=$transaction;$args.Operation='PREVIEW'
         Confirm ((Json $integrator $args).status-ceq'PREVIEW') ($scenario+'-real-preview')
@@ -367,8 +377,26 @@ try {
         Confirm ($badComplete.code-ne0-and$badComplete.text.Contains('CALLER_DECISION_NOT_ACCEPTED')) 'fake-finalize-hash-refused'
         $final=$source.boundary;$final.mode='FINALIZE_OUTPUT';$final.preparationReceipts=@($ready.preparationRequirements);$final.resultReceipts=@($ready.resultRequirements)+@($paths|ForEach-Object{'OBJECT_POSTIMAGE|'+$_+'|'+(Id (Join-Path $target $_))})+@('MAINTENANCE_SELF_UPDATE_TRANSITION|'+$transaction+'|'+(Id $transaction))
         $finalPath=Join-Path $runtime 'source-final.json';Write-Json $finalPath $final
+        $current=Json $integrator @{Operation='FINALIZE_CHECK';ControlRepositoryPath=$control;TransactionPath=$transaction;ExpectedTransactionIdentity=Id $transaction;FinalizeInputPath=$finalPath;AsJson=$true}
+        $currentIds=@($current.selectedRuleBlocks.requirementId)
+        $inactive=@('framework:PR_CODEX_RESOURCE_ROUTE','framework:PR_TASK_LAUNCH_AND_ROUTE','framework:PR_TASK_RESOURCE_SELECTION')
+        Confirm ($current.status-ceq'PASS'-and@($inactive|Where-Object{$_-cin$currentIds}).Count-eq0) 'EFF-01-real-finalize-check-does-not-reactivate-negated-or-cancelled-objective'
+        $original=$source.discover.compactReceipt.selectedObligations
+        $originalPreparation=@($original|ForEach-Object{$_.preparationRequirements}|Sort-Object -Unique)
+        $originalResults=@($original|ForEach-Object{$_.resultRequirements}|Sort-Object -Unique)
+        Confirm (@($originalPreparation|Where-Object{$_-cnotin@($current.preparationRequirements)}).Count-eq0-and@($originalResults|Where-Object{$_-cnotin@($current.resultRequirements)}).Count-eq0) 'EFF-01-current-projection-retains-all-original-obligations'
+        Write-Output ('PASS|EFF-01-coupled-current-selection|blocks='+$currentIds.Count+'|inactive=0|original-obligations=retained')
         $fullReceipts=@($final.resultReceipts);$required=$ready.resultRequirements[0];$final.resultReceipts=@($fullReceipts|Where-Object{$_-cne$required});Write-Json $finalPath $final
-        $missing=Run $adapter @{InputPath=$finalPath;AsJson=$true} -Reject;Confirm ($missing.code-ne0-and$missing.text.Contains('CURRENT_OBLIGATIONS_MISSING')) 'current-and-original-obligations-required-before-complete'
+        $missing=Run $adapter @{InputPath=$finalPath;AsJson=$true;DeleteInputOnExit=$true} -Reject;Confirm ($missing.code-ne0-and$missing.text.Contains('CURRENT_OBLIGATIONS_MISSING')) 'current-and-original-obligations-required-before-complete'
+        Confirm (-not(Test-Path -LiteralPath $finalPath)) 'cleanup-self-update-business-failure-deletes-only-bound-input'
+        # Keep the transaction uncompleted while observing a cleanup failure.
+        # Restoring the deliberately injected attribute belongs only to fixture teardown.
+        Write-Json $finalPath $final;$readonlyIdentity=Id $finalPath;$readonlyTransaction=Id $transaction;$readonlyReceipt=Id $source.receipt;$ordinaryAttributes=[IO.File]::GetAttributes($finalPath)
+        [IO.File]::SetAttributes($finalPath,($ordinaryAttributes-bor[IO.FileAttributes]::ReadOnly))
+        try{
+            $readonly=try{Run $adapter @{InputPath=$finalPath;AsJson=$true;DeleteInputOnExit=$true} -Reject}catch{[pscustomobject]@{code=1;text=$_.Exception.Message}}
+            Confirm ($readonly.code-ne0-and(Test-Path -LiteralPath $finalPath)-and(Id $finalPath)-ceq$readonlyIdentity-and([IO.File]::GetAttributes($finalPath)-band[IO.FileAttributes]::ReadOnly)-ne0-and(Id $transaction)-ceq$readonlyTransaction-and(Id $source.receipt)-ceq$readonlyReceipt) 'cleanup-self-update-readonly-failure-visible-with-input-attribute-and-transaction-preserved'
+        }finally{if(Test-Path -LiteralPath $finalPath){[IO.File]::SetAttributes($finalPath,$ordinaryAttributes)}}
         $final.resultReceipts=@($fullReceipts|Where-Object{$_-cnotlike('OBJECT_POSTIMAGE|'+$paths[0]+'|*')});Write-Json $finalPath $final
         $missingPost=Run $adapter @{InputPath=$finalPath;AsJson=$true} -Reject;Confirm ($missingPost.code-ne0-and$missingPost.text.Contains('FINALIZE_POSTIMAGE')) 'missing-exact-postimage-refused'
         $final.resultReceipts=$fullReceipts;Write-Json $finalPath $final
@@ -379,14 +407,16 @@ try {
         Confirm (-not(Test-Path -LiteralPath $finalPath)) 'valid-finalize-input-cleaned-exactly'
         Confirm ($done.status-ceq'PASS'-and$done.originalDiscoverIdentity-ceq(Id $source.receipt)-and$done.currentSourceCompositionIdentity-match'^[A-F0-9]{64}$') 'original-source-write-finalizes-through-current-composer'
         $state=Get-Content -LiteralPath $transaction -Raw|ConvertFrom-Json;Confirm ($state.status-ceq'COMPLETE') 'complete-only-after-real-finalize'
+        Write-Output ('PASS|EFF-01-real-coupled-transaction|status='+$state.status+'|original-finalize='+$done.status)
     }
     Confirm ((Id (Join-Path $target 'tools/resource-evaluation/independent.txt'))-ceq$sentinel-and(Id (Join-Path $target 'private/protected.txt'))-ceq$protected) 'unrelated-target-and-protected-files-preserved'
+    if($CleanupOnly){Write-Output ('PASS|maintenance-self-update-cleanup|'+$passes+'/'+$passes);return}
     # Fixed runtime adoption starts from the retained old healthy source in a separate sibling fixture.
     $control=Join-Path $runtimeFixture 'AI-Workspace-Maintenance';$target=Join-Path $runtimeFixture 'AI-Workspace'
     $task=Join-Path $control $taskRelative;$runtime=Join-Path $control ('.ai-workspace/runtime/SELF-UPDATE-001/'+$owner)
     $developmentBefore=Freeze $target
     function Make-Runtime([int]$Number){
-        $zip=Join-Path $fixtureRoot ('AI-Workspace-1.16.0-snapshot.'+$Number+'.zip')
+        $zip=Join-Path $fixtureRoot ('AI-Workspace-Maintenance-1.16.0-snapshot.'+$Number+'.zip')
         $null=& (Join-Path $RepositoryRoot 'scripts/build-user-package.ps1') -WorkspaceRoot $RepositoryRoot -FrameworkVersion '1.16.0' -OutputPath $zip -Distribution ('snapshot.'+$Number) -Provisional -InternalMaintenance -Apply
         $dest=Join-Path $fixtureRoot ('runtime-'+$Number);Expand-Archive -LiteralPath $zip -DestinationPath $dest
         return $dest

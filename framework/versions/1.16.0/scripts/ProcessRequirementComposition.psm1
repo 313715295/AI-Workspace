@@ -4,6 +4,12 @@ $script:Utf8Strict = [Text.UTF8Encoding]::new($false,$true)
 $script:ProcessCarrierContractVersion = '1.16.0'
 $script:AbsoluteSelectedRulePackBytes = 98304
 
+function Get-AiwProcessSemanticText {
+    param([Parameter(Mandatory)]$IntentEnvelope)
+    # The consumed version owns the IntentEnvelope-to-selection projection.
+    return [string]::Join(' ', @($IntentEnvelope.semanticHints))
+}
+
 function Test-AiwJsonInteger($Value) {
     return $Value -is [byte] -or $Value -is [sbyte] -or $Value -is [int16] -or $Value -is [uint16] -or $Value -is [int32] -or $Value -is [uint32] -or $Value -is [int64] -or $Value -is [uint64]
 }
@@ -602,7 +608,7 @@ function Get-AiwProjectSourceRule {
     }
     Visit-AiwProjectSourceNode ([string]$source.rootSourceId)
     if($visited.Count-ne$byId.Count){throw ($Label+'_ORPHAN_SOURCE')}
-    $blocks=New-Object 'System.Collections.Generic.List[string]';$rows=New-Object 'System.Collections.Generic.List[string]';$drift=$false
+    $blockParts=New-Object 'System.Collections.Generic.List[object]';$blocks=New-Object 'System.Collections.Generic.List[string]';$rows=New-Object 'System.Collections.Generic.List[string]';$drift=$false
     foreach($id in @($order)){
         $node=$byId[$id];$document=$node.Document;$body=[string]$node.Text
         if([bool]$node.Drift){$drift=$true}
@@ -617,11 +623,13 @@ function Get-AiwProjectSourceRule {
         if([string]::IsNullOrWhiteSpace($body)){throw ($Label+'_SOURCE_EMPTY')}
         $sourceLabel=[string]$node.LocatorKind+':'+[string]$node.Locator
         $blocks.Add(('<!-- PROJECT-SOURCE:'+$sourceLabel+':BEGIN -->'+"`n"+$body.TrimEnd("`n")+"`n"+'<!-- PROJECT-SOURCE:'+$sourceLabel+':END -->'))
+        $key=[string]$node.SourcePath+'|'+[string]$node.ActualIdentity+'|'+(Get-AiwSha256Hex $script:Utf8Strict.GetBytes($body))
+        $blockParts.Add([pscustomobject]@{Key=$key;Text=$blocks[$blocks.Count-1];Locator=$sourceLabel})
         $rows.Add(([string]$id+'|'+[string]$node.LocatorKind+'|'+[string]$node.Locator+'|'+[string]$document.identity+'|'+[string]$node.ActualIdentity+'|'+[string]$document.mode+'|'+[string]::Join(',',@($document.dependencies))))
     }
     $identityBytes=$script:Utf8Strict.GetBytes(([string]::Join("`n",@($rows))))
     $documents=@($order|ForEach-Object{$node=$byId[[string]$_];[pscustomobject]@{locatorKind=[string]$node.LocatorKind;locator=[string]$node.Locator;relativePath=[string]$node.ProjectionRelativePath;sourcePath=[string]$node.SourcePath;identity=[string]$node.ActualIdentity;bytes=[byte[]]$node.SnapshotBytes}})
-    return [pscustomobject]@{FullText=[string]::Join("`n`n",@($blocks));Identity=($identityBytes.Length.ToString()+'|'+(Get-AiwSha256Hex $identityBytes));Drift=$drift;Bindings=@($rows);Documents=$documents}
+    return [pscustomobject]@{Blocks=$blockParts.ToArray();FullText=[string]::Join("`n`n",@($blocks));Identity=($identityBytes.Length.ToString()+'|'+(Get-AiwSha256Hex $identityBytes));Drift=$drift;Bindings=@($rows);Documents=$documents}
 }
 
 function Get-AiwProjectPolicySourceClosure {
@@ -893,12 +901,12 @@ function Invoke-ProcessRequirementComposition {
     }
     if ($policyRules.Count -gt 0 -and $custom.HasNormativeContent) { throw 'PROJECT_RULE_DUAL_CARRIER_FAIL_CLOSED' }
     $projectStandards=Get-AiwProjectStandardsSnapshot -ProjectRoot $project -Rules $policyRules -ForbiddenPaths $ForbiddenPaths
-    $effectiveRuleOwners=@{}
-    foreach($entry in (@($legacyEffective|ForEach-Object{[pscustomobject]@{Source='PROJECT_CORRECTION';Id=[string]$_.legacyRequirementId;Text=[string]$_.effectiveRule}})+@($policyRules|Where-Object{$null-eq$_.PSObject.Properties['source']-or-not[bool]$projectStandards.Rules[[string]$_.ruleId].Unavailable}|ForEach-Object{$text=if($null-ne$_.PSObject.Properties['source']){[string]$projectStandards.Rules[[string]$_.ruleId].FullText}else{[string]$_.effectiveRule};[pscustomobject]@{Source='PROJECT_POLICY';Id=[string]$_.ruleId;Text=$text}})+$(if($custom.HasNormativeContent){@([pscustomobject]@{Source='LEGACY_PROJECT_CUSTOM';Id=('project-custom:'+$projectId);Text=[string]$custom.Text})}else{@()}))){
+    $effectiveRuleOwners=@{};$effectiveSharedKeys=@{}
+    foreach($entry in (@($legacyEffective|ForEach-Object{[pscustomobject]@{Source='PROJECT_CORRECTION';SharedKey='';Id=[string]$_.legacyRequirementId;Text=[string]$_.effectiveRule}})+@($policyRules|Where-Object{$null-eq$_.PSObject.Properties['source']-or-not[bool]$projectStandards.Rules[[string]$_.ruleId].Unavailable}|ForEach-Object{$text=if($null-ne$_.PSObject.Properties['source']){[string]$projectStandards.Rules[[string]$_.ruleId].FullText}else{[string]$_.effectiveRule};[pscustomobject]@{Source='PROJECT_POLICY';SharedKey=$(if($null-ne$_.PSObject.Properties['source']){[string]::Join(';',@($projectStandards.Rules[[string]$_.ruleId].Blocks|ForEach-Object{$_.Key}))}else{''});Id=[string]$_.ruleId;Text=$text}})+$(if($custom.HasNormativeContent){@([pscustomobject]@{Source='LEGACY_PROJECT_CUSTOM';SharedKey='';Id=('project-custom:'+$projectId);Text=[string]$custom.Text})}else{@()}))){
         $normalized=([string]$entry.Text).Replace("`r`n","`n").Replace("`r","`n").Trim()
         $identity=$script:Utf8Strict.GetByteCount($normalized).ToString()+'|'+(Get-AiwSha256Hex $script:Utf8Strict.GetBytes($normalized))
-        if($effectiveRuleOwners.ContainsKey($identity)){throw ('CONFLICT_PROJECT_RULE_DUPLICATE_EFFECTIVE_RULE|'+[string]$effectiveRuleOwners[$identity]+'|'+[string]$entry.Source)}
-        $effectiveRuleOwners[$identity]=[string]$entry.Source+':'+[string]$entry.Id
+        if($effectiveRuleOwners.ContainsKey($identity)-and-not([string]$entry.SharedKey-and$effectiveSharedKeys[$identity]-ceq[string]$entry.SharedKey)){throw ('CONFLICT_PROJECT_RULE_DUPLICATE_EFFECTIVE_RULE|'+[string]$effectiveRuleOwners[$identity]+'|'+[string]$entry.Source)}
+        $effectiveRuleOwners[$identity]=[string]$entry.Source+':'+[string]$entry.Id;$effectiveSharedKeys[$identity]=[string]$entry.SharedKey
     }
 
     $selected = @(); $seenRequirement = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal); $ownerTextCache=@{}
@@ -924,6 +932,7 @@ function Invoke-ProcessRequirementComposition {
             }
         }
     }
+    $emittedSourceBlocks=[Collections.Generic.Dictionary[string,string]]::new([StringComparer]::OrdinalIgnoreCase)
     foreach ($rule in $policyRules) {
         $id='project:'+$projectId+':'+[string]$rule.ruleId
         if ([string]$rule.ruleId -cnotmatch '^[A-Z][A-Z0-9_]*$' -or -not $seenRequirement.Add($id)) { throw 'PROCESS_POLICY_RULE_ID' }
@@ -931,6 +940,15 @@ function Invoke-ProcessRequirementComposition {
         $match=Test-AiwRuleMatch $rule.selectors $Profile $Role $Phase $ActionKind $ResultKind $ExactPaths $Capabilities $Objective ([bool]$SemanticApplicabilityUnknown)
         if($null-ne$sourceRule-and[bool]$sourceRule.Unavailable){if($match.Match){throw ('PROJECT_STANDARD_SOURCE_UNAVAILABLE|'+[string]$rule.ruleId+'|'+[string]$sourceRule.Error)}else{continue}}
         if($null-ne$sourceRule-and[bool]$sourceRule.Drift){$match=[pscustomobject]@{Match=$true;Semantic='SOURCE_DRIFT_CONSERVATIVE_LOAD'}}
+        if($match.Match-and$null-ne$sourceRule){
+            $texts=New-Object 'System.Collections.Generic.List[string]'
+            foreach($part in @($sourceRule.Blocks)){
+                if($emittedSourceBlocks.ContainsKey([string]$part.Key)){
+                    $texts.Add(('<!-- PROJECT-SOURCE-REFERENCE: '+$part.Locator+'; complete body in '+$emittedSourceBlocks[[string]$part.Key]+' -->'))
+                }else{$texts.Add([string]$part.Text);$emittedSourceBlocks[[string]$part.Key]=$id}
+            }
+            $sourceRule.FullText=[string]::Join("`n`n",@($texts))
+        }
         if ($match.Match) { $selected += [pscustomobject]@{requirementId=$id;source='PROJECT_POLICY';ownerModule=$(if($null-ne$sourceRule){'PROJECT_STANDARD_SOURCE'}else{'PROJECT_PROCESS_POLICY'});semanticApplicability=$match.Semantic;fullText=$(if($null-ne$sourceRule){[string]$sourceRule.FullText}else{[string]$rule.effectiveRule});preparationRequirements=@($rule.preparationRequirements);resultRequirements=@($rule.resultRequirements)} }
     }
     if ($custom.HasNormativeContent) {
@@ -974,4 +992,4 @@ function Invoke-ProcessRequirementComposition {
     }
 }
 
-Export-ModuleMember -Function Get-AiwProjectCustomRegion,Invoke-ProcessRequirementComposition,Get-AiwCanonicalCorrectionRecordIdentityV1,Get-AiwCanonicalCorrectionRecordIdentityV2,Get-AiwFileIdentity,Get-AiwProcessBindingSnapshot,Get-AiwProjectPolicySourceClosure,Get-AiwLocalCandidateSupportBinding
+Export-ModuleMember -Function Get-AiwProcessSemanticText,Get-AiwProjectCustomRegion,Invoke-ProcessRequirementComposition,Get-AiwCanonicalCorrectionRecordIdentityV1,Get-AiwCanonicalCorrectionRecordIdentityV2,Get-AiwFileIdentity,Get-AiwProcessBindingSnapshot,Get-AiwProjectPolicySourceClosure,Get-AiwLocalCandidateSupportBinding

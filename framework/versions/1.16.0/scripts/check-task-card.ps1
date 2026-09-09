@@ -173,6 +173,20 @@ if ($summaryMatches.Count -ne 1) {
     $actual = Parse-PathList $summaryMatches[0].Groups['actual'].Value $reasons 'ACTUAL'
 }
 
+$closureOutcome='LEGACY_SUCCESS'
+$closure=[regex]::Matches($text,'(?m)^- Closure outcome:[ \t]*(?<value>[^\r\n]+)$')
+if($closure.Count-gt0){
+    if($closure.Count-ne1-or$closure[0].Groups['value'].Value-cnotin@('SUCCESS','CANCELLED','SUPERSEDED')){Add-Reason $reasons 'CLOSURE_OUTCOME_INVALID'}
+    else{$closureOutcome=$closure[0].Groups['value'].Value}
+    if($lifecycle-cne'CLOSED'){Add-Reason $reasons 'CLOSURE_REQUIRES_CLOSED'}
+    foreach($field in @('Closure evidence','Remaining obligations','Artifact disposition')){
+        $entries=[regex]::Matches($text,'(?m)^- '+[regex]::Escape($field)+':[ \t]*(?<value>[^\r\n]+)$')
+        if($entries.Count-ne1-or-not(Test-ResolvedField $entries[0].Groups['value'].Value)-or$entries[0].Groups['value'].Value-cmatch'^(PENDING|WAITING|BLOCKED|NOT_DELIVERED)$'){Add-Reason $reasons 'CLOSURE_EVIDENCE_INCOMPLETE'}
+    }
+    if([regex]::Matches($text,'(?m)^- Writer / reviewer / authorization:[ \t]*NONE / NONE / NONE[ \t]*$').Count-ne1){Add-Reason $reasons 'CLOSURE_LEASE_NOT_RELEASED'}
+    if($closureOutcome-ceq'SUPERSEDED'-and[regex]::IsMatch($text,'(?m)^- Remaining obligations:[ \t]*NONE[ \t]*$')){Add-Reason $reasons 'SUPERSEDED_SUCCESSOR_REQUIRED'}
+}
+
 if ($profile -ceq 'CRITICAL' -and [string]::IsNullOrWhiteSpace($currentExact)) { Add-Reason $reasons 'CRITICAL_CURRENT_EXACT' }
 
 if ($taskSchema -in @('1.9.0','1.10.0','1.11.0','1.12.0','1.13.0','1.16.0') -and $profile -ceq 'CRITICAL') {
@@ -271,7 +285,7 @@ if ($taskSchema -in @('1.5.2','1.9.0','1.10.0','1.11.0','1.12.0','1.13.0','1.16.
                 if ($userValue.StartsWith('NOT_APPLICABLE;') -and -not (Test-ResolvedField $userMatches[0].Groups['reason'].Value)) { Add-Reason $reasons 'PHASE_USER_FINAL_GATE' }
                 if (-not $projectReady) { Add-Reason $reasons 'USER_GATE_BEFORE_PROJECT_SIGNOFF' }
             }
-            if ($lifecycle -ceq 'CLOSED' -and (-not $projectReady -or -not $userReady)) { Add-Reason $reasons 'CLOSED_PHASE_ACCEPTANCE_INCOMPLETE' }
+            if ($lifecycle -ceq 'CLOSED' -and $closureOutcome -in @('SUCCESS','LEGACY_SUCCESS') -and (-not $projectReady -or -not $userReady)) { Add-Reason $reasons 'CLOSED_PHASE_ACCEPTANCE_INCOMPLETE' }
         }
     }
 }
@@ -340,5 +354,5 @@ if ($reasons.Count -gt 0) {
 
 $loadContext = if ($null-ne$effectiveRoute) { $(if($workRouteCurrentMatches.Count-eq1){'ACTOR_BOUND'}else{'LEGACY_ACTOR_CONTEXT_UNBOUND'}) } else { 'LEGACY_LOAD_CONTEXT' }
 $routeSuffix = if ($null-ne$effectiveRoute) { $(if($workRouteCurrentMatches.Count-eq1){'|actor='+$workActor}else{'|evidenceCeiling=LEGACY_ACTOR_CONTEXT_UNBOUND'}) + '|role=' + $workRole + '|phase=' + $workPhase } else { '|evidenceCeiling=ROLE_PHASE_NOT_DECLARED' }
-Write-Output ('PASS|' + [IO.Path]::GetFileName($TaskPath) + '|profile=' + $profile + '|lifecycle=' + $lifecycle + '|paths=' + $actual.Count + '|loadContext=' + $loadContext + $routeSuffix)
+Write-Output ('PASS|' + [IO.Path]::GetFileName($TaskPath) + '|profile=' + $profile + '|lifecycle=' + $lifecycle + '|paths=' + $actual.Count + '|loadContext=' + $loadContext + $routeSuffix + '|closure=' + $closureOutcome)
 exit 0

@@ -424,7 +424,7 @@ function Invoke-FinalizeCheck([string]$Path,[string]$Expected,[bool]$CheckEviden
     $authority=if([int]$receipt.schemaVersion-eq1){$receipt.authorityContext}else{$receipt.binding}
     $context=if([int]$receipt.schemaVersion-eq1){$receipt}else{$receipt.binding}
     $module=Join-Path $s.targetRoot ('framework/versions/'+$s.frameworkVersion+'/scripts/ProcessRequirementComposition.psm1')
-    Import-Module $module -Force
+    $composerModule=Import-Module $module -Force -PassThru
     $current=Get-AiwProcessBindingSnapshot -ProjectRoot $s.controlRoot -FrameworkRoot $s.targetRoot -TargetVersion $s.frameworkVersion -TaskRelativePath $s.taskRelativePath -ForbiddenPaths @($authority.forbiddenScope)
     $allowed=@('frameworkVersionIdentity','releaseManifestIdentity','nativeCatalogIdentity','correctionCoverageIdentity','candidatePilotStateIdentity')
     if(-not$noWrite-and'.ai-workspace/process-policy.json'-cin@($s.refresh.postimages.path)){$allowed+=@('policyIdentity','projectStandardsIdentity')}
@@ -433,7 +433,12 @@ function Invoke-FinalizeCheck([string]$Path,[string]$Expected,[bool]$CheckEviden
     }
     if($current.releaseManifestIdentity-cne$s.targetManifestIdentity){throw 'SELF_UPDATE_CURRENT_RELEASE'}
     $intent=$receipt.intentEnvelope
-    $semantic=([string]$intent.objective+' '+[string]::Join(' ',@($intent.semanticHints+$intent.externalHints))).Trim()
+    $semantic=if($composerModule.ExportedCommands.ContainsKey('Get-AiwProcessSemanticText')){
+        & $composerModule.ExportedCommands['Get-AiwProcessSemanticText'] -IntentEnvelope $intent
+    }else{
+        # Retained versions without the projection export use their original contract.
+        ([string]$intent.objective+' '+[string]::Join(' ',@($intent.semanticHints+$intent.externalHints))).Trim()
+    }
     $composition=Invoke-ProcessRequirementComposition -ProjectRoot $s.controlRoot -FrameworkRoot $s.targetRoot -TargetVersion $s.frameworkVersion -ExpectedProjectConfigIdentity $s.projectConfigIdentity -ExpectedCorrectionsIdentity $current.correctionsIdentity -Profile $context.profile -Role $context.role -Phase $context.phase -Actor $s.actor -TaskIdentity $s.taskIdentity -Capabilities @($authority.observedCapabilities) -Objective $semantic -ActionKind 'SOURCE_WRITE' -ResultKind $view.resultKind -ExactPaths @($s.exactPaths) -ForbiddenPaths @($authority.forbiddenScope)
     foreach($property in $receipt.sourceBindings.PSObject.Properties){
         $value=if($property.Name-ceq'taskIdentity'){$s.taskIdentity}else{$composition.($property.Name)}

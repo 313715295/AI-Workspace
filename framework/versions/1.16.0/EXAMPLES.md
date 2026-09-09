@@ -69,3 +69,76 @@ conforming adapter 可以证明调用 resolver；instruction-only host 报告 `I
 - 原话：用户：“帮我看看这两种方案，比较一下优缺点。”
 - 当前字段：`objective=比较两种方案`，`requestedActionKind=NONE`，`requestedResultKind=PLAN`，`semanticHints=[方案比较]`，`ambiguityState=CLEAR`。
 - 理由：没有 frozen candidate、独立审查或 verdict 请求，不能仅凭“看看”升级为 `REVIEW_EXECUTE`。
+
+## 已知材料与机械边界同批编排
+
+已知合法规则与专业材料用同一工具编排中的独立读取；当前模型必须取得完整正文。已有准备判断后，可在一个宿主调用中顺序执行 checker → ADMIT → 已授权操作 → FINALIZE；每一步检查退出码和结果，失败停止依赖链，有新语义问题才返回模型。不能从机械PASS生成接受或Review结论。短命令按预期耗时设置首次等待，例如预计十几秒时等待约20秒，未知长任务用宿主异步能力。
+
+```powershell
+# $entry由已核验TOOLCHAIN解析，$document来自当前真实绑定；PowerShell变量不作字符串代码执行。
+$json = ($document | ConvertTo-Json -Depth 50 -Compress) + "`n"
+& $workflowEntry -InputJson $json -AsJson
+if ($LASTEXITCODE -ne 0) { throw 'WORKFLOW_FAILED' }
+# process兼容文件输入；receipt目录已验证存在，文件必须尚不存在。
+& $processEntry -InputPath $inputPath -DeleteInputOnExit -CompactReceiptPath $receiptPath -AsJson
+if ($LASTEXITCODE -ne 0) { throw 'PROCESS_OR_SAVE_FAILED' }
+```
+
+参数只代表官方调用，不能复制样例布尔值充当当前授权事实。Maintenance使用自己的固定包根适配器；TARGET保留已支持的schema2 DISCOVER/schema1 compact组合。
+
+## 到期 receipt 的独立删除与核验
+
+先按 TOOL_CONTRACT 确认 receipt 的最后消费者已结束，并将下面路径替换为当前已核验、已授权的绝对文件路径。支持的 input 仍直接用所绑定入口的 `-DeleteInputOnExit`；此例用于 caller 管理的到期 receipt。
+
+宿主支持 `functions.exec` 时，可在同一次编排中顺序提交两个独立工具调用：
+
+```javascript
+const removed = await tools.exec_command({
+  cmd: "Remove-Item -LiteralPath 'C:/project/.ai-workspace/runtime/TASK-001/actor-1/receipt.json' -ErrorAction Stop"
+});
+if (removed.exit_code !== 0) throw new Error("删除未完成；停止依赖步骤并报告实际结果");
+const checked = await tools.exec_command({
+  cmd: "if (Test-Path -LiteralPath 'C:/project/.ai-workspace/runtime/TASK-001/actor-1/receipt.json') { throw 'RECEIPT_REMAINS' }"
+});
+if (checked.exit_code !== 0) throw new Error("删除后核验未通过");
+```
+
+删除调用只删除该文件，核验调用只读。普通文件不默认加 `-Force`、清属性或在失败后升级强制删除；特殊属性需按其真实原因和原权限处理。宿主政策拒绝时停止，不以换工具或改命令重试；分开调用也不保证宿主批准。
+
+## 外置授权包示例
+
+```json
+{
+  "schemaVersion": 1,
+  "frameworkVersion": "1.16.0",
+  "taskId": "TASK-001",
+  "profile": "STANDARD",
+  "lifecycle": "ACTIVE",
+  "owner": "owner-1",
+  "issuer": "owner-1",
+  "issuerRole": "DOMAIN_OWNER",
+  "grantee": "executor-1",
+  "bundle": "IMPLEMENT_LOCAL",
+  "decisionClass": "ROUTINE_LOCAL",
+  "userConfirmation": "NOT_REQUIRED",
+  "reviewIndependence": "NOT_APPLICABLE",
+  "delegatedGitCloser": false,
+  "taskIdentity": "<current bytes|UPPER_SHA256>",
+  "actions": ["SOURCE_WRITE", "TEST_WRITE", "TEST_RUN"],
+  "continuationPlan": ["SOURCE_WRITE", "TEST_WRITE", "TEST_RUN"],
+  "exactPaths": ["src/example.js", "tests/example.js"],
+  "objectIdentities": [{"path":"src/example.js","identity":"<bytes|UPPER_SHA256>"},{"path":"tests/example.js","identity":"NEW"}],
+  "projectConfigIdentity": "<bytes|UPPER_SHA256>",
+  "invalidatesOn": ["TASK_CHANGE","OWNER_CHANGE","GRANTEE_CHANGE","ACTION_CHANGE","PATHSET_CHANGE","OBJECT_DRIFT","USER_DECISION_CHANGE","PROJECT_CONFIG_DRIFT","CONTINUATION_RESULT_DRIFT"]
+}
+```
+
+示例须绑定当前真实身份；PROJECT_CONTROLLER按AUTHORIZATION_MODEL增加Controller字段，多仓schema2经原root adapter绑定repository。CRITICAL纯Review另绑定candidateWriter/materialContributors及独立性；不改Owner/Work route，不从示例取得权限。
+
+## 当前语义成对示例
+
+“不要另开任务，继续原实现”：objective保留否定；semanticHints只含当前实现概念，不含assignment。“另开一个会话，本地目录就行”：归一为assignment和实际环境决定，不能用原话恰好包含某个英文单词作为理解证据。
+
+“已修改完成，现在只汇报”：action=NONE仍携带changed output disposition；全程只读解释则无此活动。实际QUERY改变结论时携带knowledge query impact；仅enabled/无影响不加入。正式Review加“不要修改”仍是REVIEW_EXECUTE；只取消修复不取消审查，全部取消则按当前任务事实停止。例外Controller答复携带delivery/message及实际例外，不靠result一定等于TERMINAL才加载交付规则。
+
+这些是确定性字段回归案例，不证明自然模型归一化准确率。

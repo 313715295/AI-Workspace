@@ -256,8 +256,10 @@
           "KNOWLEDGE_REFERENCE"
         ],
         "semanticTerms": [
-          "knowledge",
-          "reference"
+          "knowledge query",
+          "knowledge maintenance",
+          "知识查询",
+          "知识维护"
         ]
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_KNOWLEDGE_REFERENCE_LIFECYCLE",

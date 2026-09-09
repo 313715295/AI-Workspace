@@ -1,5 +1,7 @@
 # Framework 1.16.0
 
+当前开发批：原生规则职责精简、normalized semanticHints选择、同源正文去重、WORKFLOW InputJson、compact精确保存与连续收尾。CANDIDATE；本批验证与独立Review状态以当前manifest及报告为准，旧769/769不覆盖新字节。
+
 lifecycle authority：`VERSION.json` 与 `RELEASE_MANIFEST.json`。本文不复制或选择 lifecycle state。
 
 baseline：immutable stable Framework `1.15.1`。release class：`MINOR`。

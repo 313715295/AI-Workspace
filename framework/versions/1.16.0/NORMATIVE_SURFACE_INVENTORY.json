@@ -2,15 +2,42 @@
   "schemaVersion": 1,
   "frameworkVersion": "1.16.0",
   "runtimeNormativeModules": [
-    {"document": "AUTHORIZATION_MODEL.md", "fragment": "requirements/fragments/AUTHORIZATION_MODEL.json"},
-    {"document": "GIT_AND_EXTERNAL.md", "fragment": "requirements/fragments/GIT_AND_EXTERNAL.json"},
-    {"document": "HOST_CODEX.md", "fragment": "requirements/fragments/HOST_CODEX.json"},
-    {"document": "KNOWLEDGE_AND_REFERENCE.md", "fragment": "requirements/fragments/KNOWLEDGE_AND_REFERENCE.json"},
-    {"document": "PERSPECTIVE_LENSES.md", "fragment": "requirements/fragments/PERSPECTIVE_LENSES.json"},
-    {"document": "PROJECT_CONTROL.md", "fragment": "requirements/fragments/PROJECT_CONTROL.json"},
-    {"document": "RECOVERY_CORE.md", "fragment": "requirements/fragments/RECOVERY_CORE.json"},
-    {"document": "REVIEW_AND_EVIDENCE.md", "fragment": "requirements/fragments/REVIEW_AND_EVIDENCE.json"},
-    {"document": "TASK_AND_SCOPE.md", "fragment": "requirements/fragments/TASK_AND_SCOPE.json"}
+    {
+      "document": "AUTHORIZATION_MODEL.md",
+      "fragment": "requirements/fragments/AUTHORIZATION_MODEL.json"
+    },
+    {
+      "document": "GIT_AND_EXTERNAL.md",
+      "fragment": "requirements/fragments/GIT_AND_EXTERNAL.json"
+    },
+    {
+      "document": "HOST_CODEX.md",
+      "fragment": "requirements/fragments/HOST_CODEX.json"
+    },
+    {
+      "document": "KNOWLEDGE_AND_REFERENCE.md",
+      "fragment": "requirements/fragments/KNOWLEDGE_AND_REFERENCE.json"
+    },
+    {
+      "document": "PERSPECTIVE_LENSES.md",
+      "fragment": "requirements/fragments/PERSPECTIVE_LENSES.json"
+    },
+    {
+      "document": "PROJECT_CONTROL.md",
+      "fragment": "requirements/fragments/PROJECT_CONTROL.json"
+    },
+    {
+      "document": "RECOVERY_CORE.md",
+      "fragment": "requirements/fragments/RECOVERY_CORE.json"
+    },
+    {
+      "document": "REVIEW_AND_EVIDENCE.md",
+      "fragment": "requirements/fragments/REVIEW_AND_EVIDENCE.json"
+    },
+    {
+      "document": "TASK_AND_SCOPE.md",
+      "fragment": "requirements/fragments/TASK_AND_SCOPE.json"
+    }
   ],
   "actionRequiredArtifacts": [
     "LOAD_MANIFEST.json",
@@ -65,7 +92,10 @@
     "tests/measure-process-requirements.ps1",
     "tests/process-runtime-v2-tests.ps1",
     "tests/source-postimage-transition-tests.ps1",
-    "tests/run-framework-tests.ps1"
+    "tests/run-framework-tests.ps1",
+    "scripts/StrictJsonInput.psm1",
+    "tests/efficiency-regression-tests.ps1",
+    "tests/workflow-route-tests.ps1"
   ],
   "explanationAndHistory": [
     "CHANGELOG.md",

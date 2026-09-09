@@ -17,139 +17,145 @@
     }
   },
   "candidate": {
-    "catalogIdentity": "40645|71F4FA48F92B3F540BE8D9A405851CFAB99B7E083EA52874D0DFC49C511CE917",
+    "catalogIdentity": "43616|199D4DBB8A0EE7B20A3E2D378B23BADB0803C22C4AC78241DF66B5A4FE62BBD2",
     "fixtureContractIdentity": "4990|B73AEA3E3E1963BCF0ECB1242A3E03A2C1503B38B03CBABB1706F33A39308993",
     "measurementHarnessIdentity": "16792|FA7A86DF6D7DCA136D0FD1307E6F4CBCE909763473FA7A66111582A96E78B75E",
     "legacyAuthorityContextFieldCount": 25,
     "compactAuthorityBindingFieldCount": 29,
     "intentEnvelopeFieldCount": 10,
     "receiptSourceBindingFieldCount": 13,
-    "compactBoundaryInputFieldCount": 9
+    "compactBoundaryInputFieldCount": 9,
+    "measurementObservation": {
+      "warmups": 1,
+      "measuredRuns": 1,
+      "host": "Microsoft Windows NT 10.0.26200.0 / PowerShell 7.6.5 / X64 / 16 logical processors",
+      "ceiling": "Prior one-run focused latency observation; final selected bytes are revalidated by the complete suite. No statistical latency or model cost claim"
+    }
   },
   "fixtures": [
     {
       "fixtureId": "no_match",
       "fixtureIdentity": "0602BDA60CC317A45C8BC3695EABA6A980E8444C32B549E3C336246B855E1DCE",
-      "selectedPackBytes": 14934,
-      "selectedPackEstimatedTokens": 3734,
-      "selectedRequirementCount": 9,
+      "selectedPackBytes": 8782,
+      "selectedPackEstimatedTokens": 2196,
+      "selectedRequirementCount": 6,
       "observedRuntimeMs": {
         "DISCOVER": {
-          "median": 1286.901,
-          "p95": 1300.229
+          "median": 1475.927,
+          "p95": 1475.927
         },
         "ADMIT_ACTION": {
-          "median": 916.516,
-          "p95": 918.258
+          "median": 989.927,
+          "p95": 989.927
         },
         "FINALIZE_OUTPUT": {
-          "median": 909.586,
-          "p95": 915.311
+          "median": 990.742,
+          "p95": 990.742
         }
       }
     },
     {
       "fixtureId": "ordinary_source",
       "fixtureIdentity": "5D596B512675523599F2A869C712AE580AFEF49C1FED9C67B227719DDC0450B4",
-      "selectedPackBytes": 21970,
-      "selectedPackEstimatedTokens": 5493,
-      "selectedRequirementCount": 11,
+      "selectedPackBytes": 18098,
+      "selectedPackEstimatedTokens": 4525,
+      "selectedRequirementCount": 10,
       "observedRuntimeMs": {
         "DISCOVER": {
-          "median": 1522.901,
-          "p95": 1529.858
+          "median": 1924.5,
+          "p95": 1924.5
         },
         "ADMIT_ACTION": {
-          "median": 1209.539,
-          "p95": 1221.779
+          "median": 1433.146,
+          "p95": 1433.146
         },
         "FINALIZE_OUTPUT": {
-          "median": 987.605,
-          "p95": 988.223
+          "median": 1013.603,
+          "p95": 1013.603
         }
       }
     },
     {
       "fixtureId": "critical_review",
       "fixtureIdentity": "62C1C37232E3F20DAF4165E8A9C65F3CCEC08D2B0AFFE8CC5DE221EAA9C60589",
-      "selectedPackBytes": 32535,
-      "selectedPackEstimatedTokens": 8134,
-      "selectedRequirementCount": 18,
+      "selectedPackBytes": 26932,
+      "selectedPackEstimatedTokens": 6733,
+      "selectedRequirementCount": 16,
       "observedRuntimeMs": {
         "DISCOVER": {
-          "median": 1569.052,
-          "p95": 1628.848
+          "median": 1695.829,
+          "p95": 1695.829
         },
         "ADMIT_ACTION": {
-          "median": 1227.729,
-          "p95": 1332.526
+          "median": 1215.396,
+          "p95": 1215.396
         },
         "FINALIZE_OUTPUT": {
-          "median": 1032.326,
-          "p95": 1161.74
+          "median": 987.1,
+          "p95": 987.1
         }
       }
     },
     {
       "fixtureId": "domain_external",
       "fixtureIdentity": "80ED0F8798C28C693D16DAC020F7D990C8D508CB638868C45695BD493A484827",
-      "selectedPackBytes": 19567,
-      "selectedPackEstimatedTokens": 4892,
-      "selectedRequirementCount": 12,
+      "selectedPackBytes": 15223,
+      "selectedPackEstimatedTokens": 3806,
+      "selectedRequirementCount": 10,
       "observedRuntimeMs": {
         "DISCOVER": {
-          "median": 1625.135,
-          "p95": 1834.297
+          "median": 1709.666,
+          "p95": 1709.666
         },
         "ADMIT_ACTION": {
-          "median": 1284.034,
-          "p95": 1395.588
+          "median": 1247.761,
+          "p95": 1247.761
         },
         "FINALIZE_OUTPUT": {
-          "median": 946.994,
-          "p95": 979.785
+          "median": 975.749,
+          "p95": 975.749
         }
       }
     },
     {
       "fixtureId": "framework_maintenance_review",
       "fixtureIdentity": "028F2A36B8F2D37D362118D70A7C573E920FB3670D8BB4CECCE8B7F72C359437",
-      "selectedPackBytes": 32548,
-      "selectedPackEstimatedTokens": 8137,
-      "selectedRequirementCount": 18,
+      "selectedPackBytes": 26945,
+      "selectedPackEstimatedTokens": 6737,
+      "selectedRequirementCount": 16,
       "observedRuntimeMs": {
         "DISCOVER": {
-          "median": 1571.143,
-          "p95": 1623.356
+          "median": 1599.718,
+          "p95": 1599.718
         },
         "ADMIT_ACTION": {
-          "median": 1221.862,
-          "p95": 1265.66
+          "median": 1219.105,
+          "p95": 1219.105
         },
         "FINALIZE_OUTPUT": {
-          "median": 971.594,
-          "p95": 1053.616
+          "median": 991.979,
+          "p95": 991.979
         }
       }
     },
     {
       "fixtureId": "worst_unknown",
       "fixtureIdentity": "F56055458B276B427F6BCF0D778448046D628D48918798C18388721AF007FC0D",
-      "selectedPackBytes": 32574,
-      "selectedPackEstimatedTokens": 8144,
-      "selectedRequirementCount": 21,
+      "selectedPackBytes": 33297,
+      "selectedPackEstimatedTokens": 8325,
+      "selectedRequirementCount": 24,
       "observedRuntimeMs": {
         "DISCOVER": {
-          "median": 1565.186,
-          "p95": 1604.154
+          "median": 1613.253,
+          "p95": 1613.253
         },
         "ADMIT_ACTION": {
-          "median": 1225.777,
-          "p95": 1234.212
+          "median": 1374.525,
+          "p95": 1374.525
         },
         "FINALIZE_OUTPUT": {
-          "median": 996.124,
-          "p95": 1032.823
+          "median": 1002.908,
+          "p95": 1002.908
         }
       }
     }

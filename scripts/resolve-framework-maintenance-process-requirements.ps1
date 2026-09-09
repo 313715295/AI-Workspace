@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([Parameter(Mandatory)][string]$InputPath,[switch]$AsJson,[switch]$DeleteInputOnExit)
+param([Parameter(Mandatory)][string]$InputPath,[switch]$AsJson,[switch]$DeleteInputOnExit,[string]$CompactReceiptPath)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -140,6 +140,7 @@ try {
     $authorizationAdapter = Join-Path $PSScriptRoot 'check-framework-maintenance-authorization.ps1'
     if (-not (Test-Path -LiteralPath $authorizationAdapter -PathType Leaf)) { throw 'MAINTENANCE_AUTHORIZATION_ADAPTER_MISSING' }
     $invoke = @('-NoProfile','-NonInteractive','-File',$entry,'-InputPath',$inputFull,'-AuthorizationCheckerPath',$authorizationAdapter)
+    if ($CompactReceiptPath) { $invoke += @('-CompactReceiptPath',$CompactReceiptPath) }
     if ($AsJson) { $invoke += '-AsJson' }; if ($DeleteInputOnExit) { $invoke += '-DeleteInputOnExit' }
     & pwsh @invoke
     exit $LASTEXITCODE
@@ -149,6 +150,6 @@ try {
 } finally {
     if ($customHandled -and $DeleteInputOnExit -and $null -ne $inputFull -and $null -ne $controlRoot) {
         $runtimeRoot = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Join-Path $controlRoot '.ai-workspace/runtime')))
-        if ($inputFull.StartsWith($runtimeRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath $inputFull -PathType Leaf)) { Remove-Item -LiteralPath $inputFull -Force }
+        if ($inputFull.StartsWith($runtimeRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath $inputFull -PathType Leaf)) { Remove-Item -LiteralPath $inputFull }
     }
 }

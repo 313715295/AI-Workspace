@@ -24,11 +24,11 @@ $budget=Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $versionRoot 'te
 $coverage=Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $versionRoot 'CORRECTION_COVERAGE.json')|ConvertFrom-Json
 
 $catalogCheck=Invoke-Ps $catalogGenerator @('-Check')
-Assert-True ($catalogCheck.Code-eq0-and$catalogCheck.Text.Contains('PASS|requirements=35|fragments=9')) 'process-requirements-canonical-fragments-match-generated-catalog'
+Assert-True ($catalogCheck.Code-eq0-and$catalogCheck.Text.Contains('PASS|requirements=37|fragments=9')) 'process-requirements-canonical-fragments-match-generated-catalog'
 $blockProjectionValid=-not$catalogText.Contains('"fullText"')
 foreach($fragmentPath in Get-ChildItem -LiteralPath (Join-Path $versionRoot 'requirements\fragments') -File -Filter '*.json'){if((Get-Content -Raw -Encoding utf8 -LiteralPath $fragmentPath.FullName).Contains('"fullText"')){$blockProjectionValid=$false}}
 foreach($requirement in @($catalog.requirements)){$ownerPath=Join-Path $versionRoot ([string]$requirement.ownerModule);try{$body=Get-RequirementBlock $ownerPath ([string]$requirement.requirementId)}catch{$blockProjectionValid=$false;continue};if([string]$requirement.exactBlockLocator-cne('AIW-REQUIREMENT:'+[string]$requirement.requirementId)-or[string]::IsNullOrWhiteSpace($body)){$blockProjectionValid=$false}}
-Assert-True ($blockProjectionValid-and@($catalog.requirements).Count-eq35) 'process-requirements-metadata-only-catalog-exact-markdown-blocks-nonempty'
+Assert-True ($blockProjectionValid-and@($catalog.requirements).Count-eq37) 'process-requirements-metadata-only-catalog-exact-markdown-blocks-nonempty'
 
 $temp=Join-Path ([IO.Path]::GetTempPath()) ('aiw-governance-contract-'+[guid]::NewGuid().ToString('N'))
 try{

@@ -28,7 +28,16 @@
         ],
         "pathPrefixes": [],
         "capabilities": [],
-        "semanticTerms": []
+        "semanticTerms": [
+          "resource selection",
+          "resource change",
+          "资源选择",
+          "资源调整",
+          "host acceptance",
+          "宿主接受",
+          "assignment",
+          "新分派"
+        ]
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_CODEX_RESOURCE_ROUTE",
       "preparationRequirements": [

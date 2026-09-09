@@ -161,7 +161,7 @@ try{
   Assert-True (@($unrelatedComposition.selectedRequirements|Where-Object{[string]$_.requirementId-ceq'project:process-v2-fixture:UNAVAILABLE_ONLY_WHEN_APPLICABLE'}).Count-eq0) 'unavailable-unrelated-project-standard-does-not-block-or-load'
 
   $neutralTaskOriginal=Get-Content -Raw -Encoding utf8 -LiteralPath $taskPath
-  $resourceRequirementIds=@('framework:PR_TASK_LAUNCH_AND_ROUTE','framework:PR_DYNAMIC_ROLE_DIRECT_ISSUANCE','framework:PR_CODEX_RESOURCE_ROUTE')
+  $resourceRequirementIds=@('framework:PR_DYNAMIC_ROLE_DIRECT_ISSUANCE')
   foreach($neutralPhase in @('RECOVER','DISCOVER')){
     Write-Utf8 $taskPath "# PROCESS-V2-001 — runtime contract fixture`n`n- Owner: owner-fixture`n- Work route: actor=reviewer-fixture; role=REVIEWER; phase=$neutralPhase`n- Range summary: profile=MICRO; risk=LOW; size=MICRO; uncertainty=LOW`n"
     $neutralArgs=@{ProjectRoot=$temp;FrameworkRoot=$frameworkRoot;TargetVersion='1.16.0';ExpectedProjectConfigIdentity=Get-Identity (Join-Path $control 'project.json');ExpectedCorrectionsIdentity=Get-Identity (Join-Path $control 'corrections.json');Profile='MICRO';Role='REVIEWER';Phase=$neutralPhase;Actor='reviewer-fixture';TaskIdentity=Get-Identity $taskPath;Capabilities=@();Objective='Continue the current bounded work';ActionKind='NONE';ResultKind='PLAN';ExactPaths=@();EvaluationOnly=$true}
@@ -176,7 +176,10 @@ try{
       if($composerBlock.Count-ne1-or$resolverBlock.Count-ne1-or[string]::IsNullOrWhiteSpace([string]$resolverBlock[0].fullText)-or[string]$resolverBlock[0].fullText-cne[string]$composerBlock[0].fullText){$completeBodiesMatch=$false}
     }
     $neutralBinding=$neutralRun.Value.compactReceipt.binding;$neutralPack=$neutralRun.Value.compactReceipt.pack
-    Assert-True ($neutralRun.Code-eq0-and$completeBodiesMatch-and[string]$neutralBinding.profile-ceq'MICRO'-and[string]$neutralBinding.role-ceq'REVIEWER'-and[string]$neutralBinding.phase-ceq$neutralPhase-and[string]$neutralBinding.authorizationIdentity-ceq'NOT_REQUIRED'-and@($neutralBinding.authorizedActions).Count-eq0-and-not[bool]$neutralRun.Value.compactReceipt.authorityGranted-and-not[bool]$neutralRun.Value.compactReceipt.semanticCorrectnessProven-and[int]$neutralPack.ceilingBytes-eq98304-and[int]$neutralPack.bytes-le[int]$neutralPack.ceilingBytes-and[int]$neutralComposition.selectedRulePackBytes-eq98304) ('neutral-micro-reviewer-resource-exact3-complete-without-authority-'+$neutralPhase.ToLowerInvariant())
+    Assert-True ($neutralRun.Code-eq0-and$completeBodiesMatch-and[string]$neutralBinding.profile-ceq'MICRO'-and[string]$neutralBinding.role-ceq'REVIEWER'-and[string]$neutralBinding.phase-ceq$neutralPhase-and[string]$neutralBinding.authorizationIdentity-ceq'NOT_REQUIRED'-and@($neutralBinding.authorizedActions).Count-eq0-and-not[bool]$neutralRun.Value.compactReceipt.authorityGranted-and-not[bool]$neutralRun.Value.compactReceipt.semanticCorrectnessProven-and[int]$neutralPack.ceilingBytes-eq98304-and[int]$neutralPack.bytes-le[int]$neutralPack.ceilingBytes-and[int]$neutralComposition.selectedRulePackBytes-eq98304) ('neutral-micro-reviewer-retains-role-boundary-without-authority-'+$neutralPhase.ToLowerInvariant())
+    Assert-True ('framework:PR_TASK_LAUNCH_AND_ROUTE'-cnotin@($neutralRun.Value.selectedRuleBlocks.requirementId)-and'framework:PR_CODEX_RESOURCE_ROUTE'-cnotin@($neutralRun.Value.selectedRuleBlocks.requirementId)) ('healthy-neutral-reuse-does-not-reopen-creation-resource-'+$neutralPhase)
+    $neutralDiscover.intentEnvelope.objective='Assign an independent actor and choose resources for the new work';$neutralDiscover.intentEnvelope.semanticHints=@('assignment','resource selection');Write-Json $discoverPath $neutralDiscover;$assignmentRun=Invoke-Resolver $resolver $discoverPath
+    Assert-True ($assignmentRun.Code-eq0-and'framework:PR_TASK_LAUNCH_AND_ROUTE'-cin@($assignmentRun.Value.selectedRuleBlocks.requirementId)-and'framework:PR_TASK_RESOURCE_SELECTION'-cin@($assignmentRun.Value.selectedRuleBlocks.requirementId)-and'framework:PR_CODEX_RESOURCE_ROUTE'-cin@($assignmentRun.Value.selectedRuleBlocks.requirementId)) ('new-assignment-loads-complete-resource-bodies-'+$neutralPhase)
   }
   Write-Utf8 $taskPath $neutralTaskOriginal
 
@@ -362,6 +365,16 @@ try{
   $temporaryTaskFinalize=$temporaryTaskBoundary|ConvertTo-Json -Depth 50|ConvertFrom-Json;$temporaryTaskFinalize.mode='FINALIZE_OUTPUT';$temporaryTaskFinalize.resultReceipts=@($temporaryTaskResults+@('OBJECT_POSTIMAGE|'+$taskRelative+'|'+(Get-Identity $taskPath)));Write-Json $boundaryPath $temporaryTaskFinalize;$temporaryTaskFinalizeRun=Invoke-Resolver $resolver $boundaryPath
   Assert-True ($temporaryTaskRun.Code-eq0-and$temporaryTaskAdmit.Code-eq0-and$temporaryTaskFinalizeRun.Code-ne0-and$temporaryTaskFinalizeRun.Text.Contains('CONTROL_TASK_POSTIMAGE_TRANSITION_NOT_AUTHORIZED')) 'temporary-action-actor-cannot-use-same-receipt-to-rewrite-task-card'
   Write-Utf8 $taskPath $taskPreText
+  $closureDocRelative='docs/closure.md';$closureDocPath=Join-Path $temp $closureDocRelative;Write-Utf8 $closureDocPath 'Document before closure.'
+  $closurePackage=$taskPackage|ConvertTo-Json -Depth 50|ConvertFrom-Json;$closurePackage.actions=@('SOURCE_WRITE');$closurePackage.exactPaths=@($closureDocRelative);$closurePackage.objectIdentities=@([ordered]@{path=$closureDocRelative;identity=Get-Identity $closureDocPath});$closurePackagePath=Join-Path $control 'document-closure-package.json';Write-Json $closurePackagePath $closurePackage
+  $closureDiscover=$taskDiscover|ConvertTo-Json -Depth 50|ConvertFrom-Json;$closureDiscover.exactPaths=@($closureDocRelative);$closureDiscover.authorizationPackagePath=$closurePackagePath;$closureDiscover.expectedAuthorizationIdentity=Get-Identity $closurePackagePath;$closureDiscover.intentEnvelope.requestedActionKind='SOURCE_WRITE';$closureDiscover.intentEnvelope.semanticHints=@('changed output disposition');$closureDiscover.intentEnvelope.pathHints=@($closureDocRelative);$closureDiscover.intentEnvelope.mutationHints=@('source')
+  Write-Json $discoverPath $closureDiscover;$closureRun=Invoke-Resolver $resolver $discoverPath;Assert-ResolverSuccess $closureRun 'document-before-card-discover'
+  $closureReceiptPath=Join-Path $control 'document-closure-receipt.json';Write-Json $closureReceiptPath $closureRun.Value.compactReceipt
+  $closureBoundary=[ordered]@{schemaVersion=2;mode='ADMIT_ACTION';discoverReceiptPath=$closureReceiptPath;expectedDiscoverReceiptIdentity=Get-Identity $closureReceiptPath;preparationReceipts=@($closureRun.Value.compactReceipt.selectedObligations|ForEach-Object{$_.preparationRequirements}|Sort-Object -Unique);resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='BOUND'}
+  Write-Json $boundaryPath $closureBoundary;$closureAdmit=Invoke-Resolver $resolver $boundaryPath;Assert-ResolverSuccess $closureAdmit 'document-before-card-admit'
+  Write-Utf8 $closureDocPath 'Document completed before current task mutation.';$closureDocumentIdentity=Get-Identity $closureDocPath
+  $closureBoundary.mode='FINALIZE_OUTPUT';$closureBoundary.resultReceipts=@($closureRun.Value.compactReceipt.selectedObligations|ForEach-Object{$_.resultRequirements}|Sort-Object -Unique)+@('OBJECT_POSTIMAGE|'+$closureDocRelative+'|'+$closureDocumentIdentity);Write-Json $boundaryPath $closureBoundary;$closureFinal=Invoke-Resolver $resolver $boundaryPath
+  Assert-True ($closureFinal.Code-eq0-and(Get-Identity $taskPath)-ceq$taskPackage.taskIdentity) 'document-finalizes-before-current-card-without-task-restore'
   Write-Json $discoverPath $taskDiscover;$taskDiscoverRun=Invoke-Resolver $resolver $discoverPath
   $taskReceiptPath=Join-Path $control 'task-write-receipt.json';Write-Json $taskReceiptPath $taskDiscoverRun.Value.compactReceipt
   $taskPrep=@($taskDiscoverRun.Value.compactReceipt.selectedObligations|ForEach-Object{@($_.preparationRequirements)}|Sort-Object -Unique)
@@ -371,7 +384,7 @@ try{
   Assert-True ($taskDiscoverRun.Code-eq0-and$taskAdmitRun.Code-eq0) 'repo-local-self-card-control-write-admits-exact-task-preimage'
   $taskPostText=(Get-Content -Raw -Encoding utf8 -LiteralPath $taskPath).TrimEnd("`n")+"`n`n- Completion: STRUCTURALLY_FINALIZED`n";Write-Utf8 $taskPath $taskPostText
   $taskFinalize=$taskBoundary|ConvertTo-Json -Depth 50|ConvertFrom-Json;$taskFinalize.mode='FINALIZE_OUTPUT';$taskFinalize.resultReceipts=@($taskResults+@('OBJECT_POSTIMAGE|'+$taskRelative+'|'+(Get-Identity $taskPath)));Write-Json $boundaryPath $taskFinalize;$taskFinalizeRun=Invoke-Resolver $resolver $boundaryPath
-  Assert-True ($taskFinalizeRun.Code-eq0) 'repo-local-self-card-finalize-allows-body-only-postimage'
+  Assert-True ($taskFinalizeRun.Code-eq0-and(Get-Identity $closureDocPath)-ceq$closureDocumentIdentity) 'repo-local-document-then-self-card-finalize-preserves-completed-document'
   $taskBindingDrifts=@(
     [pscustomobject]@{Name='task-id';Text=$taskPostText-replace '^# PROCESS-V2-001 ','# PROCESS-V2-OTHER '},
     [pscustomobject]@{Name='owner';Text=$taskPostText-replace '(?m)^- Owner: owner-fixture$','- Owner: other-owner'},

@@ -24,9 +24,9 @@ Project ID=`{{PROJECT_ID}}`；repo-local control plane=`.ai-workspace/`；pinned
 
 WARM、`FULL_COLD`、source composition、boundary decision 与 compaction 后当前模型正文恢复，全部按 `<FW>/RECOVERY_CORE.md` 的唯一规则判定；本 Bootstrap 不复制失效清单。连续健康上下文可复用仍有效部分，fresh authorization、tool call 或 routine progress 自身不推导全文重载。
 
-workflow input 与 process input/receipt 默认写入 `.ai-workspace/runtime/<task>/<actor>/`；只有 project runtime 不可用时才用 system temp `aiw-*.json`。调用后删除 exact input；它不是 project state、authority 或 ledger。
+输入、紧凑收据保存和临时产物生命周期只取 `<FW>/TOOL_CONTRACT.md`。WORKFLOW_ROUTE_RESOLVE 支持直接 InputJson 或文件 InputPath，不重复维护保存/删除步骤。
 
-执行 action，或声称 `TERMINAL`、`MESSAGE`、`HANDOFF`、`HOT_STATE` transition 前，必须从 current authority、当前 Git top、current package、public decision 与 authenticated host envelope 生成 strict `ephemeral` input；任一 mandatory fact 缺失或冲突都 `fail closed`。通过 `<FW>/TOOLCHAIN.json` 解析 `WORKFLOW_ROUTE_RESOLVE`，调用 exact entrypoint `-InputPath <ephemeral-input> -AsJson`，随后删除该 input；它不是 authority、project state 或 ledger。
+执行 `TERMINAL`、`MESSAGE`、`HANDOFF`、`HOT_STATE` 等真实 transition 前，从 current authority、Git top、package、public decision 与 authenticated host envelope 构造 strict `ephemeral` input，按 `<FW>/TOOLCHAIN.json` 解析 WORKFLOW_ROUTE_RESOLVE；任一 mandatory fact 缺失/冲突都 fail closed。健康机械步骤可以同批编排，各门仍单独验证。
 
 ## 3. Action 前
 
@@ -34,7 +34,7 @@ workflow input 与 process input/receipt 默认写入 `.ai-workspace/runtime/<ta
 
 没有 valid package 时保持 read-only。每个 package 绑定 current whole-task identity；一次纯临时 action，或显式 `continuationPlan` 的本地写/测批次，可让 grantee 不同于 task Work route actor，同时保持 task Owner、Work route 与 identity 不变，并按当前 action 形成临时执行/测试 context。Review/Git/browser/device/external 仍使用独立 gate；`REVIEW_ROUTE` 与 `OWNER_ACCEPT` 不走临时 actor。DOMAIN_OWNER package留在domain且省略Controller fields；PROJECT_CONTROLLER package绑定current controller object。schema3 authorization只用于closed actor-bound project-upgrade bundle。
 
-每个独立 action 前调用 `ADMIT_ACTION`，并让 independent action checker 单独 PASS。最终输出前以 actual result/delivery receipts 调用 `FINALIZE_OUTPUT`。优先使用 schema3 DISCOVER 的 schema2 compact receipt 与 schema2 boundary input，后者不重复 objective/action/scope/authorization。原 package 若有可选 `continuationPlan`，只可用 FINALIZE 返回并绑定真实 postimage 的 continuation receipt 进入其下一已授予本地写/测步骤；下一边界继续重验 package、receipt 与 current bytes，且不改变 Owner/Work route。普通 finalization、continuation 完成、invalidation 或 abort 后删除相关 receipt。`MISSING`/`NOT_DELIVERED` 不算完成；structural PASS 不证明 semantic correctness 或 host enforcement。
+每个独立 action 前调用 `ADMIT_ACTION`，并让 independent action checker 单独 PASS。最终输出前以 actual result/delivery receipts 调用 `FINALIZE_OUTPUT`。优先使用 schema3 DISCOVER 的 schema2 compact receipt 与 schema2 boundary input，后者不重复 objective/action/scope/authorization。原 package 若有可选 `continuationPlan`，只可用 FINALIZE 返回并绑定真实 postimage 的 continuation receipt 进入其下一已授予本地写/测步骤；下一边界继续重验 package、receipt 与 current bytes，且不改变 Owner/Work route。receipt保留至最后消费者，清理遵循TOOL_CONTRACT。`MISSING`/`NOT_DELIVERED` 不算完成；structural PASS 不证明 semantic correctness 或 host enforcement。
 
 同一 domain task 中，DOMAIN_OWNER 直接选择 temporary actor/Reviewer、签发 package 并接收 terminal result。Controller 只接 owner/public-decision、cross-domain-contract、protected-path、project-phase、Git/device/external、resource-conflict、routine-exclusion 或 object-drift exception。不得建立 ACK chain。
 

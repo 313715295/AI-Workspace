@@ -10,7 +10,7 @@ Recovery 只证明 authority 与 current facts；它不授予 write、test、Rev
 3. 只解析 `framework/versions/<project.json.frameworkVersion>/`。普通采用必须校验 stable `VERSION.json`、`RELEASE_MANIFEST.json`、`TOOLCHAIN.json` 与生成的 process-requirement catalog；显式本地候选试点则必须由 root upgrader 的既有 `upgrade-recovery/<version>/state.json` 证明 `LOCAL_PILOT`，并让其中的 candidate canonical、manifest identity 与当前候选快照一致。
 4. 绑定 current task、authenticated actor、`role + phase` Work route、profile、exact scope、protection boundary、capabilities 与 current Review profile。只读取证明这些输入所需的项目 facts。
 5. 在 `DISCOVER` 前，由当前主会话模型按 sealed `TOOL_CONTRACT.md` 的唯一 IntentEnvelope 构造段，从原始请求与仍有效上下文重建当前 objective/action/result/scope；authority 与授权另行核对。再解析 `PROCESS_REQUIREMENTS_RESOLVE`，对完整生成 catalog、仍有效 corrections 与当前 permanent project-rule carrier 执行 `DISCOVER`。
-6. 一次加载 `DISCOVER` 返回的每个精确完整 Markdown rule block；后续只保存 compact receipt，再取得规则要求的 facts、evidence、schemas、templates 或其他 action artifacts。
+6. 一次加载 `DISCOVER` 返回的每个精确完整 Markdown rule block；后续仅保留 compact receipt。已知合法的 facts、evidence、schemas、templates 与专业材料可同批取得，发现新依赖才补读。
 7. `LOAD_PLAN_RESOLVE` 只用于 1.14 compatibility、Framework-wide explanation/maintenance、non-rule supporting artifact，或 affected module block mapping 无法证明时的 bounded fallback。它不筛选 catalog，也不创建第二个规则决策。
 8. selected rule 或 intended action 要求时，用当前 version 的 safe-Git helper 重新证明 protected paths 与真实 Git state。
 9. 报告 unique next action、writer/reviewer/authorization state 与 evidence ceiling。

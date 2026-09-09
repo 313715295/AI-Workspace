@@ -1,156 +1,36 @@
 # 任务模板
 
-任务卡是current状态，不是历史日志。`<...>`必须替换；路径使用workspace相对`/`。新授权包是`.ai-workspace/runtime/<task>/<actor>/`中的外置纯JSON，由action checker及process input绑定locator与whole-file identity；不得把package identity或正文回填任务卡，否则会与package中的整卡`taskIdentity`形成自引用。历史卡可保留零或一个`authorization-package`块作结构兼容，两个以上fail closed；新卡不再创建该inline块。writer释放后外置包必须失效并清理，不能让旧包继续有效。
-
-## 1. MICRO（可选持久卡）
-
-健康owner能同turn闭合时不建卡；当轮仍要明确目标、exact/forbidden、验证、Git/external和结果。MICRO跨turn、阻断或扩面立即升级STANDARD。
+只填当前事实，替换 `<...>`；历史与详细测试引用原报告。MICRO同轮能闭合时可不建持久卡；跨轮、阻塞或扩面用STANDARD。授权JSON示例在 EXAMPLES.md，完整协议取 TOOL_CONTRACT / AUTHORIZATION_MODEL。先稳定卡正文再签外置包；不要把包正文、locator或identity回填卡造成 taskIdentity 自引用。旧inline包仅作既有格式兼容。
 
 ```markdown
 # <TASK-ID> — <标题>
 
-- 状态：IN_PROGRESS
 - Task schema: 1.16.0
-- 档位：MICRO；理由=<四维均低的事实>
-- Owner: <唯一owner>
-- Work route: actor=<HOST_AUTHENTICATED_TASK_ID>; role=<CONTROLLER|DOMAIN_OWNER|EXECUTOR|REVIEWER|FRAMEWORK_MAINTAINER>; phase=<DISCOVER|PLAN|IMPLEMENT|VERIFY|REVIEW|GIT|EXTERNAL|RECOVER>
-- Range summary: profile=MICRO; lifecycle=ACTIVE_WRITE; expected_paths=[<path>]; actual_paths=[]
-- Git / push / external：CLOSED / CLOSED / CLOSED
+- 状态：<READY|IN_PROGRESS|REVIEW|APPROVED|BLOCKED|CLOSED>
+- Profile: <MICRO|STANDARD|CRITICAL>; reason=<实际风险和复杂度>
+- Owner: <唯一Owner>
+- Work route: actor=<HOST_AUTHENTICATED_TASK_ID>; role=<ROLE>; phase=<PHASE>
+- Range summary: profile=<PROFILE>; lifecycle=<ACTIVE_WRITE|ACTIVE|REVIEW|CLOSED>; expected_paths=[<a>|<b>]; actual_paths=[<实际路径>]
+- Writer / reviewer / authorization: <当前状态>
+- Stable candidate: <NONE或稳定成果入口>
+- Git / push / external: <分别列状态>
 
 ## Current
 
-- 目标：<...>
-- exact / forbidden：<...>
-- 验收与直接验证：<...>
-- 最直接失败方式：<...> → <检查>
-- 唯一下一动作：<...>
+- 目标与实际增量：<用户成果、当前行为到目标行为>
+- 权威/责任实现/直接消费者：<必要专业入口>
+- exact / forbidden：<范围及保护>
+- 实现判断：<根因、最小充分路线、失败恢复；已有充分结论引用即可>
+- 验收与关键反例：<真实场景、直接验证及必要独立/用户门，不凑数量>
+- 当前结果/阻塞与证据上限：<只留current；详细报告入口>
+- 唯一下一动作：<actor的具体动作或恢复触发>
 ```
 
-若owner直接实施，在同卡加入最小阶段包，`issuer=owner=grantee`合法；这不是独立Review。
+只有实际发生才加：组织/资源选择及必要理由、QUERY影响引用、术语变化、写后产物/Git去向。健康结论复用，无新结果不写卡。
 
-## 2. STANDARD紧凑热卡
+CRITICAL补独立Reviewer、用户决定入口、稳定候选及必要依赖、范围变化触发；Range summary在lifecycle后增加 `current_exact=<稳定候选>`。每张CRITICAL卡有一条 `Phase gate: TRUE|FALSE` 和 `Proportionality`：重大方案新增机制时填写 existing / classification / minimum_sufficient_fix / added_machinery / escalation_trigger；真实不适用时填写 `NOT_APPLICABLE; reason=<原因>`。不要求固定Review轮数、卡片字节或反例数量。
 
-~~~~markdown
-# <TASK-ID> — <标题>
-
-- 状态：READY / IN_PROGRESS / REVIEW / APPROVED / BLOCKED
-- Task schema: 1.16.0
-- 档位：STANDARD；理由=<影响/复杂度/依赖/可观察性>
-- Owner: <唯一长期owner>
-- 当前actor / writer：<OWNER|EXECUTOR|REVIEWER|USER|NONE> / <id|NONE>
-- Work route: actor=<HOST_AUTHENTICATED_TASK_ID>; role=<CONTROLLER|DOMAIN_OWNER|EXECUTOR|REVIEWER|FRAMEWORK_MAINTAINER>; phase=<DISCOVER|PLAN|IMPLEMENT|VERIFY|REVIEW|GIT|EXTERNAL|RECOVER>
-- Range summary: profile=STANDARD; lifecycle=<ACTIVE_WRITE|ACTIVE|REVIEW|CLOSED>; expected_paths=[<a>|<b>]; actual_paths=[<已知actual>]
-- Stable candidate: <NONE或section/manifest identity>
-- Git / push / external：<状态分别列出>
-
-## Current
-
-- 目标：<问题、根因、目标行为、可达性>
-- 非目标：<不改变的产品/合同/相邻行为>
-- exact / contingency / forbidden：<...>
-- 权威与影响：<producer、direct consumers、tests、runner、必要docs>
-- Terminology impact：<仅新增/改变稳定概念时写BIND或CHANGE，并给canonical term、authority locator、映射、旧alias owner/退出条件；否则省略>
-- 验收与验证：<direct、相邻回归、运行/玩家门与UNVERIFIED>
-- pre-mortem：<1–3项，每项→实际检查>
-- 当前结果/阻断：<只留current>
-- 唯一下一动作：<一个actor可执行动作或明确trigger>
-
-## Current authorization
-
-将以下纯JSON写入`.ai-workspace/runtime/<TASK-ID>/<grantee-id>/<safe-name>.json`；实际locator与identity只进入checker/process input，不写回本卡：
-
-```json
-{
-  "schemaVersion": 1,
-  "frameworkVersion": "1.16.0",
-  "taskId": "<TASK-ID>",
-  "profile": "STANDARD",
-  "lifecycle": "ACTIVE",
-  "owner": "<owner-id>",
-  "issuer": "<owner-id>",
-  "issuerRole": "DOMAIN_OWNER",
-  "grantee": "<executor-id>",
-  "bundle": "IMPLEMENT_LOCAL",
-  "decisionClass": "ROUTINE_LOCAL",
-  "userConfirmation": "NOT_REQUIRED",
-  "reviewIndependence": "NOT_APPLICABLE",
-  "delegatedGitCloser": false,
-  "taskIdentity": "<current task bytes|UPPER_SHA256>",
-  "actions": ["SOURCE_WRITE", "TEST_WRITE", "TEST_RUN"],
-  "continuationPlan": ["SOURCE_WRITE", "TEST_WRITE", "TEST_RUN", "SOURCE_WRITE"],
-  "exactPaths": ["<a>", "<b>"],
-  "objectIdentities": [
-    {"path": "<a>", "identity": "<bytes|UPPER_SHA256>"},
-    {"path": "<b>", "identity": "NEW"}
-  ],
-  "projectConfigIdentity": "<.ai-workspace/project.json bytes|UPPER_SHA256>",
-  "invalidatesOn": ["TASK_CHANGE", "OWNER_CHANGE", "GRANTEE_CHANGE", "ACTION_CHANGE", "PATHSET_CHANGE", "OBJECT_DRIFT", "USER_DECISION_CHANGE", "PROJECT_CONFIG_DRIFT", "CONTINUATION_RESULT_DRIFT"]
-}
-```
-
-任务卡只记录`writer / reviewer / authorization`的当前状态或下一动作，不复制外置包正文、locator或identity。task正文稳定后再计算`taskIdentity`并生成package；action/grantee/path/object/decision变化时生成fresh外置包。
-
-当且仅当`issuerRole=PROJECT_CONTROLLER`时，在包中增加`issuerControllerId`、整数`issuerControllerEpoch`与`controllerControlIdentity`，并在`invalidatesOn`增加`CONTROLLER_EPOCH_CHANGE`；`DOMAIN_OWNER`示例保持不带这些字段。
-
-Fresh package只表示旧action/grantee/path/object/decision绑定已失效，不表示必须由Controller签发。相同domain/task/outcome下，DOMAIN_OWNER默认直接选择临时executor或独立Reviewer、签发范围包并接收终态；仅在owner/public decision、跨域合同、保护、项目phase、Git/device/external或resource conflict边界上收Controller。CRITICAL `REVIEW_EXECUTE`还必须绑定`candidateWriter`与`materialContributors`；Owner、issuer、writer和material contributors均不得成为独立Reviewer。
-
-纯`REVIEW_EXECUTE`的Reviewer只是action grantee：任务卡的Owner、`Work route`、task identity与candidate bytes保持不变。resolver在AuthorityContext中同时记录`taskActor`和当前action `actor`，并把effective role/phase设为`REVIEWER/REVIEW`。只有真实任务责任转移才改写`Work route`。
-
-需要由root adapter管理多个repository的任务，可使用`schemaVersion=2`并增加`repositoryId`；`projectConfigIdentity`是1.13+包的共同字段，schema2只额外在`invalidatesOn`增加`REPOSITORY_CHANGE`。同一包的所有exact都相对于该repository ID的Git top，各repository分别建包，不把共同父目录写入exact。schema2必须先经过相应root adapter的topology验证，不能直接调用version checker冒充完整入口。
-
-`Work route`原子绑定当前host-authenticated actor、临时role与phase，不授予任何action。任务卡是该字段的权威，tasks index只是locator/projection。schema 1.16.0必须使用三字段语法；1.11/1.12两字段卡可只读恢复并返回`LEGACY_ACTOR_CONTEXT_UNBOUND`，但第一次1.14实质动作前必须由当前Owner在同一卡自然rebind，不能从owner、包、prompt或host标签推断actor。
-
-在初次恢复、task/actor/role/phase/profile/capability/objective/exact-scope变化，以及进入独立action/result边界时，调用`PROCESS_REQUIREMENTS_RESOLVE`。`DISCOVER`只返回选中的完整规则和源绑定；`ADMIT_ACTION`检查准备完整性；`FINALIZE_OUTPUT`检查实际结果、交付和声明。它不替代或授予任何action gate。
-
-ephemeral package、input与receipt默认写入`.ai-workspace/runtime/<task>/<actor>/`，并由root `.gitignore`中的`/.ai-workspace/runtime/`排除；project runtime不可用时才使用system temp `aiw-*.json`。
-
-1.16.0 checker允许一次传入多个`ObservedAction`，并逐action返回结果；这只减少同一未漂移lease的重复预检，不合并action能力。可预测的本地写→测→一次修复可在同一包增加可选`continuationPlan`；`actions`仍是唯一授予集合且不重复，plan只排序并可重复已授予action。每一步必须使用同一exact set，由上一`FINALIZE_OUTPUT`返回的真实postimage receipt承接；无下一步时不返回receipt。未使用该机制的对象或decision漂移仍须fresh package。任务卡不新增字段级manifest，仓库也不新增授权消费ledger。
-
-## History locator
-
-- `<NONE，或NON_CURRENT carrier/commit与覆盖边界>`
-~~~~
-
-## 3. CRITICAL完整热卡
-
-在STANDARD字段基础上增加：
-
-```markdown
-- 档位：CRITICAL；理由=<至少一个关键维度高/高失败代价>
-- Range summary: profile=CRITICAL; lifecycle=<...>; current_exact=<稳定内容对象或NONE>; expected_paths=[...]; actual_paths=[...]
-- Phase gate: <TRUE|FALSE；仅推进项目/多领域里程碑的父任务为TRUE>
-- 重大方案/公共合同用户门：<确认引用或NOT_APPLICABLE及理由>
-- 独立Reviewer：<id|UNASSIGNED>
-- Review轮次/返工上限：<...>
-- Proportionality: <NOT_APPLICABLE; reason=...，或existing=sufficient|partial|insufficient; classification=execution_deviation|project_gap|framework_gap|mixed; minimum_sufficient_fix=...; added_machinery=NONE|name:count,...; escalation_trigger=...>
-
-## Stable authority and candidate
-
-- 产品/公共合同：<稳定section identity>
-- candidate：<内容manifest，不绑定持续变化的整张热卡>
-- dependencies / fixture / toolchain / environment：<有效键>
-- 验证上限与未验证：<...>
-
-## Scope closure
-
-- producer / direct consumers / tests / runner-manifest / docs：<...>
-- conditional contingency：<触发证据与路径>
-- forbidden paths/actions / routine exclusions：<...>
-
-## Design and risk
-
-- 根因、单一真相、数据流、生命周期、失败恢复：<...>
-- pre-mortem：<至少3项，每项→检查>
-- 适用审核视角：<只选择会改变判断的视角>
-
-## Review and user gates
-
-- 用户试玩/产品结果门：<候选、步骤、结果或PENDING>
-- independent Review：<stable object、verdict、findings、delta、残余风险>
-- stopline：<范围/产品/owner/权限/质量/复发/轮次>
-```
-
-`Phase gate: TRUE`时再增加下面的紧凑矩阵；FALSE时不添加。`PENDING`允许任务自然推进，不要求提前签署。
+只有推进项目/多领域里程碑的父任务使用 `Phase gate: TRUE`，否则FALSE；TRUE时使用以下已有矩阵：
 
 ```markdown
 ## Phase acceptance
@@ -163,37 +43,16 @@ ephemeral package、input与receipt默认写入`.ai-workspace/runtime/<task>/<ac
 - Acceptance order: TECHNICAL_EVIDENCE > DOMAIN_CONTRACT > RUNTIME_PLATFORM > PROJECT_SIGNOFF > USER_FINAL_GATE
 ```
 
-技术证据不能代签领域合同或项目阶段；领域合同检查不重复用户已完成的主观试玩；runtime/platform明显不适用时写明原因即可。项目签署只有在前三项ready/accepted/N/A后才能进入READY。技术Review与用户试玩的实际顺序由owner按风险、准备成本和反例拦截收益选择。矩阵中的`User final gate`只能在项目签署后闭合；`CONFIRMED`必须把`candidate`逐字绑定到Range summary的`current_exact`，并可引用同一stable candidate上更早发生的用户试玩/确认。这只是最终绑定，不要求再次询问用户。candidate或用户决定漂移时回到`PENDING`并重新确认。任务关闭时整条链必须闭合。
+矩阵按既有顺序闭合，真实不适用给理由；用户确认可引用同一稳定候选上的已完成决定，不重复询问。候选/决定变化重新绑定。
 
-CRITICAL授权包的`decisionClass`按事实使用`PRODUCT_RESULT / MAJOR_ARCHITECTURE / EXTERNAL_ACTION / ROUTINE_LOCAL`。重大方案已确认后的本地实施可以是`ROUTINE_LOCAL`，但卡内必须保留其所依据的用户门与失效条件。
+关闭时追加：
 
-CRITICAL独立Review包在基础字段外必须增加：
-
-```json
-{
-  "reviewIndependence": "INDEPENDENT",
-  "candidateWriter": "<candidate-writer-id>",
-  "materialContributors": ["<material-solution-contributor-id>"],
-  "actions": ["REVIEW_EXECUTE"],
-  "invalidatesOn": ["...", "CONTRIBUTOR_SET_CHANGE"]
-}
+```markdown
+- Closure outcome: <SUCCESS|CANCELLED|SUPERSEDED>
+- Closure evidence: <验收或取消/替代决定入口>
+- Remaining obligations: <NONE或未完成成果的明确去向/承接任务>
+- Artifact disposition: <保留/移交/Git去向>
+- Writer / reviewer / authorization: NONE / NONE / NONE
 ```
 
-`owner`/`issuer`仍是当前task的DOMAIN_OWNER时，不增加Controller字段；Reviewer必须与Owner、issuer、candidate writer和所有material contributors不同。空contributors允许，但不得隐去实际material contributor。
-
-## 4. 热卡与history
-
-任务实际查询项目knowledge index时，在Current里增加一行即可：`Knowledge reference: config=<identity>; index=<locator|identity>; query=<natural query|fixture>; result=<最多3条CURRENT ID|REFERENCE_UNAVAILABLE>; authority recheck=<locator>`。未查询时不添加；fixture必须标明`fixture`，不得计入自然样本。该行只记录引用证据，不授予权限，也不替代任务权威。
-
-- current正文建议10–20KB；超过时先识别history/process重复，不能机械删必要权威。
-- history carrier标记`NON_CURRENT / AUDIT_ONLY / NO_AUTHORITY / NO_ACTION`，与热卡双向locator并证明迁移字节。
-- Review绑定stable content/section和依赖，不绑定整张持续追加热卡SHA。
-- legacy卡只在自然写边界迁移，不为Framework升级批量重写。
-
-## 5. 阶段更新
-
-- `ACTIVE_WRITE`：actual可为expected已知子集，不得越界；有效authorization包存在。
-- writer release：actual固定，authorization失效，下一actor转OWNER/USER/REVIEWER。
-- `REVIEW / ACTIVE / CLOSED`：expected与actual相等；Review前先过task范围和授权释放preflight。
-- Git/external分别签发包，不从实现包继承。
-- CLOSED卡归档；仍有真实external下一动作时保持active。
+SUCCESS须完成适用验收；取消/替代不冒称成功，等待/阻塞保持active。先闭合文档/产物动作，再单卡更新；Owner消费结果并释放权限，按项目档案规则归位。侧边栏归档与业务完成分开，不为等待Review的健康执行者往返归档。

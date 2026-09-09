@@ -1,7 +1,7 @@
 # Knowledge 与 reference
 
 <!-- AIW-REQUIREMENT:PR_KNOWLEDGE_REFERENCE_QUERY:BEGIN -->
-Knowledge entry 是可选、project-local 且 `REFERENCE_ONLY / NON_AUTHORITY` 的资料。它不能替代 source、product facts、Controller/task authority、user decision 或 pinned Framework contract。
+Knowledge entry 是可选、project-local 且 `REFERENCE_ONLY / NON_AUTHORITY` 的资料。优先保存职责、公共保证、强关系与难以重建的易错约束，引用唯一专业权威；不复述目录/函数清单或堆积历史叙事。它不能替代 source、product facts、Controller/task authority、user decision 或 pinned Framework contract。
 
 项目必须在 `project.json.frameworkCapabilities` 中显式启用 `KNOWLEDGE_REFERENCE`。配置缺失、disabled、malformed 或 drifting 时，只得到 reference unavailable，不改变主任务路线。
 
@@ -11,6 +11,8 @@ schema1 index 仍可读取，其中单个 `authorityLocator`/`authorityIdentity`
 <!-- AIW-REQUIREMENT:PR_KNOWLEDGE_REFERENCE_QUERY:END -->
 
 <!-- AIW-REQUIREMENT:PR_KNOWLEDGE_IMPACT_MAINTENANCE:BEGIN -->
+只有实际 QUERY 影响本次判断，才在任务保留必要引用与 authority 复核；仅启用能力或 QUERY 无影响不增加维护记录。
+
 任务修改实际 authority file 后，只读 `check-knowledge-impact.ps1` 把 literal changed paths 与 declared dependencies 比较。exact overlap 为 `DIRECT_AFFECTED`；没有 overlap 且 identities 仍完整为 `NONE_DIRECT`；dependency evidence 缺失或漂移为 `UNKNOWN`。directly affected 或 unknown entry 必须在适用 final acceptance 前刷新或标记 `STALE`。checker 不写文件。
 
 natural query、quality/cost sample 与 project terminology 留在产生它们的项目。Framework 可定义 generic fixture，但不得汇总真实 consumer evidence。

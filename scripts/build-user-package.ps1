@@ -140,7 +140,8 @@ if ($PSBoundParameters.ContainsKey('Distribution')) {
         throw 'PACKAGE_DISTRIBUTION_LIFECYCLE_MISMATCH'
     }
     $distributionId = $FrameworkVersion + '-' + $Distribution
-    $expectedName = 'AI-Workspace-' + $distributionId + '.zip'
+    $packagePrefix = if ($InternalMaintenance) { 'AI-Workspace-Maintenance-' } else { 'AI-Workspace-' }
+    $expectedName = $packagePrefix + $distributionId + '.zip'
     if ([IO.Path]::GetFileName($OutputPath) -cne $expectedName) {
         throw ('PACKAGE_DISTRIBUTION_FILENAME_MISMATCH|' + $expectedName)
     }
@@ -236,7 +237,7 @@ $result = [pscustomobject]@{
 if ($PSBoundParameters.ContainsKey('Distribution')) {
     $result | Add-Member -NotePropertyName distributionId -NotePropertyValue $distributionId
 }
-if (-not $Apply -or -not $PSCmdlet.ShouldProcess($outputFull, 'Build ordinary-user Framework package')) {
+if (-not $Apply -or -not $PSCmdlet.ShouldProcess($outputFull, 'Build Framework package')) {
     return $result
 }
 if (Test-Path -LiteralPath $outputFull) {

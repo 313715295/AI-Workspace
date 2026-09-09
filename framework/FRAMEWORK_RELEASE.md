@@ -25,11 +25,15 @@ payload 只含 version-owned runtime rules、schemas、compatibility/adoption fa
 ```powershell
 # 已审 CANDIDATE；先预览，-Apply 才写 ZIP
 pwsh -File scripts/build-user-package.ps1 -FrameworkVersion 1.16.0 -Provisional -Distribution snapshot.1 -OutputPath AI-Workspace-1.16.0-snapshot.1.zip
+# 内部 Maintenance 包；不作为普通用户下载附件
+pwsh -File scripts/build-user-package.ps1 -FrameworkVersion 1.16.0 -Provisional -Distribution snapshot.1 -InternalMaintenance -OutputPath AI-Workspace-Maintenance-1.16.0-snapshot.1.zip
 # 已封存且满足现有完整证据门的 STABLE
 pwsh -File scripts/build-user-package.ps1 -FrameworkVersion 1.16.0 -Distribution release -OutputPath AI-Workspace-1.16.0-release.zip
 ```
 
-显式分发模式要求文件名精确为 `AI-Workspace-<分发标识>.zip`，并在包内 README 及 PACKAGE_MANIFEST 的 `distributionId` 中展示同一标识。命名包使用 package manifest schema2；不传参数的既有调用继续使用 schema1及原 OutputPath 行为，其文件名不能用于推断资格。两种模式均保留完整 payload、completeSuite、Source Review 和 releaseIntegration 校验；snapshot 需要 `-Provisional` 且只能用于候选，release 只能用于 stable。预览/打包不修改版本元数据、不发布、不改变项目 pin，也不授予项目采用权限。
+显式分发模式下，用户包文件名精确为 `AI-Workspace-<分发标识>.zip`；启用 `-InternalMaintenance` 则精确为 `AI-Workspace-Maintenance-<分发标识>.zip`，两种名称不可混用。前缀区分包用途，不改变包内 README 及 PACKAGE_MANIFEST 的 `distributionId`。命名包使用 package manifest schema2；不传参数的既有用户包调用继续使用 schema1及原 OutputPath 行为，其文件名不能用于推断资格。两种模式均保留完整 payload、completeSuite、Source Review 和 releaseIntegration 校验；snapshot 需要 `-Provisional` 且只能用于候选，release 只能用于 stable。预览/打包不修改版本元数据、不发布、不改变项目 pin，也不授予项目采用权限。
+
+发布 Owner 在本次任务中明确最终 ZIP 交付位置，并通过 `-OutputPath` 指定；用户包与内部包分别定位，不把会话 runtime 的中间产物路径直接作为最终交付入口。位置由发布者选择，不规定消费者的解压目录。整理已有交付副本只复制已验证字节并核验原 identity，保留原审计材料，不重建同号不同内容的包，也不改变项目已绑定的运行目录；旧内部包不因旧文件名失去采用资格。
 
 命名包可显式接入固定解压目录；distribution/content/manifest/runtime 绑定保存在原采用记录，开发目录变化不改变项目运行来源。snapshot 序号不意味着已采用“完整基线 + 累计差异”的验证合同。根级变更运行受影响专项并独立审查；未变版本证据按真实身份复用，不修改旧 completeSuite 的 payload hash 冒充重跑。用户包只包含所选版本消费内容、必要接入工具和用户入口，不含源码仓 Git/维护状态、其他版本或独立评估工具。
 

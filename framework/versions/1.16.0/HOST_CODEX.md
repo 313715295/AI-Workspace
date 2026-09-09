@@ -1,13 +1,11 @@
 # Codex host profile
 
 <!-- AIW-REQUIREMENT:PR_CODEX_RESOURCE_ROUTE:BEGIN -->
-消费PR_TASK_LAUNCH_AND_ROUTE的organization/abstract route；topology、选择顺序与风险正交以TASK为准。以下host建议待真实验证，不是能力排序、固定组合、比例、收益或质量证明。
+资源选择及调整只遵循 TASK 的 PR_TASK_RESOURCE_SELECTION；HOST负责核对当前可用 model、各自支持的 effort 与实际接受结果。同名 effort 不证明跨模型等价，角色/profile 不决定档位。
 
-长期PROJECT_CONTROLLER/Owner复用已准入identity/model。Astra/high是新常态比较目标；重大架构、复杂跨域冲突或最难判断用xhigh，已证简单限域可比较medium，既有Astra/xhigh保留作对照。临时Astra/high用于困难工作，xhigh限疑难，medium限域对照；Sol/high用于复杂实现与Review，目标/路径清楚用medium，确需深推理用xhigh；Terra/medium用于常规实现/分析，多约束局部逻辑用high；Luna保持PROBATIONARY、script-first、直接可验，提取/转换用low，规则判断用medium。临时工作主选medium/high，low限机械任务，xhigh限真正困难工作，max/ultra不作常用默认。正式Review以充分model和high为常见起点，复杂耦合再评估xhigh；独立性与质量门不降。
+健康 identity/model/effort 复用。新分派或实际调整时，宿主支持则显式传参并消费接受结果；omitted/rejected/normalized/ignored、接受不明、host move 或能力变化才复查。prompt 不能证明物理切档，也不要求健康 peer 额外握手。
 
-健康identity/model与足够effort正常复用；新temporary actor采用TASK已选路线。宿主支持时显式传model/effort并消费真实接受结果；effort只在自然工作边界调整。参数omitted/rejected/normalized/ignored、接受不明、host move或capability/evidence metadata drift时复查；prompt不能证明物理切档，健康peer不需握手。
-
-资源不足返回RESOURCE_CAPABILITY_REQUIRED，不静默降质。model/effort/host acceptance只作current-task fact；用代表性自然任务比较相邻effort的首次达标、漏项、返工、用户介入、总消耗与耗时，不以rule-pack bytes/resolver latency冒充模型收益，也不建model-effect台账、调度器、监控或评测平台。
+不可满足任务能力时报告 RESOURCE_CAPABILITY_REQUIRED；不静默降质、不擅自切换长期 Owner。保存当前任务的实际配置和必要观察；自然任务证据比较首次达标、漏项、返工、总消耗及耗时，不用 pack bytes 或 resolver 延迟代替模型收益。
 <!-- AIW-REQUIREMENT:PR_CODEX_RESOURCE_ROUTE:END -->
 
 <!-- AIW-REQUIREMENT:PR_COMPACT_NON_INTERRUPT_DELIVERY:BEGIN -->
@@ -21,11 +19,10 @@ temporary actor/Reviewer 一次 terminal 后即无写职责；不向 Owner 索�
 <!-- AIW-REQUIREMENT:PR_COMPACT_NON_INTERRUPT_DELIVERY:END -->
 
 <!-- AIW-REQUIREMENT:PR_CODEX_TOOL_OPERATION_RESOLUTION:BEGIN -->
-调用任何 Framework operation 前，Codex 读取项目级 backend 与 pinned `<FW>/TOOLCHAIN.json`，校验 official backend/runtime/platform contract，并解析 exact entrypoint。不得从 host shell 推断 backend、生成 wrapper，或让用户逐任务选择。
+首次解析、来源变化或正文实际缺失时读取项目backend与pinned TOOLCHAIN.json，校验runtime/platform并取得exact entrypoint；健康调用复用。不得从shell推断backend、另造后端或让用户逐任务选择。已知独立读查同批执行；有依赖且无需新语义判断的机械步骤按结果连续编排，各门保留独立结果，失败停止依赖链。按预期耗时合理首次等待；新事实、语义取舍或真实失败才返回模型，不能自动填授权、Review或接受PASS。
 
-任务显示标题遵循 `TASK_AND_SCOPE.md` 的唯一命名合同。创建独立 Codex task 时，宿主工具暴露 `title` 参数则显式传入；既有任务需更新标题时使用已提供的标题操作（例如 `set_thread_title`），按 authenticated thread ID 定位。此操作仅更新显示标题，不发送新的任务指令，也不改变 task authority。
+TASK定义的workflow transition使用fresh repo-local authority、cwd/Git top、package、用户决定和host-authenticated envelope，按 TOOLCHAIN 的 WORKFLOW_ROUTE_RESOLVE 提交 ephemeral input；缺事实 fail closed，具体字段及输入生命周期仅见TOOL_CONTRACT。任务显示名遵循TASK命名合同；创建时使用宿主title参数，主题实变时按authenticated task ID调用宿主标题操作，只改显示、不发指令或改authority。
 
-在 `TASK_AND_SCOPE.md` 指定的每个 workflow transition，Codex 必须从已加载的 repo-local facts、重新证明的 cwd/Git top、当前 package、当前 public decision 与 host-authenticated envelope 生成新的 ephemeral input，然后解析 `WORKFLOW_ROUTE_RESOLVE` 并调用其 sealed entrypoint。缺失或不可用 fact 必须 fail closed；resolver output 只是 decision boundary，不能增加权限。
 <!-- AIW-REQUIREMENT:PR_CODEX_TOOL_OPERATION_RESOLUTION:END -->
 
 <!-- AIW-REQUIREMENT:PR_CODEX_ROUTER_REACTIVATION:BEGIN -->
@@ -33,9 +30,7 @@ temporary actor/Reviewer 一次 terminal 后即无写职责；不向 Owner 索�
 
 激活、复用、重建及 compaction 后正文恢复只遵循 `RECOVERY_CORE.md`；本 host profile 不复制失效清单。`LOAD_PLAN_RESOLVE` 仅作 support/fallback，action/final boundary call 不自行推导全文重载。
 
-artifact 放置/清理由 `RECOVERY_CORE.md` 规定，不建立 host ledger。
-
-Codex 按 `TOOL_CONTRACT.md` 的唯一临时 artifact 调用约定执行：input 用 `-DeleteInputOnExit`；到期 caller receipt 以绝对路径独立删除，再由另一个只读调用核验，宿主 policy 拒绝时不重试。continuation receipt 留到最后消费者；终态文本不能替代当前 action 的 `DISCOVER`。
+输入、compact 保存与清理仅遵循 TOOL_CONTRACT 的调用和生命周期合同；此处不复制步骤。终态文本不能替代当前动作的 DISCOVER。
 
 Skill 缺失/不兼容/调用不可证时走 repo-local `BOOTSTRAP.md` 并报告 `INVOCATION_UNPROVEN`；不得声称机械证明 current `fullText` 已读、attention/memory retention 或物理免重读。
 

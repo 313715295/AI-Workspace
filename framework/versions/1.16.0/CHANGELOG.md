@@ -1,5 +1,9 @@
 # Framework 1.16.0 变更记录
 
+当前开发批：原生规则职责精简、normalized semanticHints选择、同源正文去重、WORKFLOW InputJson、compact精确保存与连续收尾。CANDIDATE；本批验证与独立Review状态以当前manifest及报告为准，旧769/769不覆盖新字节。
+
+- 普通输入清理一致性：版本 process 入口与 Maintenance 自更新收尾入口的 `DeleteInputOnExit` 使用非强制精确删除，保持原路径/绑定、最后消费者与异常边界；属性或权限阻止删除时不自动清属性或升级 Force。现有示例补充 caller 到期 receipt 的独立删除调用与后续只读核验。
+
 - 来源写后承接：已授权 `CONTROL_WRITE` 可在验证 exact source postimage 后，以同一 composer 重组 corrections/process-policy 当前来源并继续核验；旧授权与旧结果义务保持，越界来源、独立 drift、无效 source binding 和新 pack 超预算拒绝。临时 resolver input 的 `-DeleteInputOnExit` 与 continuation receipt 最后消费者边界同步写入工具/宿主合同。
 
 - 有界授权续作：可选 `continuationPlan` 让同一临时 actor 在原 package 预授予的写→测→局部修复顺序中继续；每步由 `FINALIZE_OUTPUT` 绑定真实 postimage，下一 `DISCOVER/ADMIT` 重验原包、source action/step、任务/actor、repository/config/Controller、decision/protection 与 current bytes。普通项目与 Maintenance 根适配器复用同一 checker/resolver；receipt 保持 `INSTRUCTION_BOUND`，不保存 checker 无法复验的 finalize hash，也不新增 ledger、签名或调度服务。
