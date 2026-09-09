@@ -396,6 +396,8 @@ function Get-AiwProjectAdoptionRuntimeIdentity {
         [string]$project.Value.frameworkVersion -cnotmatch '^\d+\.\d+\.\d+$') {
         throw 'PROJECT_FRAMEWORK_PIN'
     }
+    $distribution=Get-AiwAdoptedDistributionBinding $ProjectRoot ([string]$project.Value.frameworkVersion)
+    if($null-ne$distribution){$null=Assert-AiwDistributionBinding $distribution $FrameworkRoot ([string]$project.Value.frameworkVersion)}
     $dependencies = Get-AiwProjectAdoptionToolDependency $Operation $AdditionalDependencyPath
     $tool = Get-AiwRootToolRevision $FrameworkRoot $dependencies
     return [pscustomobject]@{
@@ -405,7 +407,85 @@ function Get-AiwProjectAdoptionRuntimeIdentity {
         projectCapabilities = @($format.capabilities)
         rootToolRevision = [string]$tool.revision
         rootToolDependencies = @($tool.dependencies)
+        distributionBinding = $distribution
     }
 }
 
 Export-ModuleMember -Function Get-AiwByteIdentity, Assert-AiwRelativePath, Resolve-AiwRepositoryRoot, Get-AiwContainedPath, Read-AiwProjectJson, Get-AiwProjectFormat, Get-AiwProjectedProjectFormat, Get-AiwRootToolRevision, Get-AiwProjectAdoptionToolDependency, Get-AiwProjectAdoptionRuntimeIdentity
+
+# Package identity is carried by the existing adoption record, never a latest selector.
+function Get-AiwDistributionBinding {
+    param([Parameter(Mandatory)][string]$FrameworkRoot,[Parameter(Mandatory)][string]$FrameworkVersion,[switch]$Required)
+    $root=Resolve-AiwRepositoryRoot $FrameworkRoot
+    $manifestPath=Get-AiwContainedPath $root 'PACKAGE_MANIFEST.json'
+    if(-not(Test-Path -LiteralPath $manifestPath -PathType Leaf)){
+        if($Required){throw 'DISTRIBUTION_MANIFEST_REQUIRED'}
+        return $null
+    }
+    if(Test-Path -LiteralPath (Join-Path $root '.git')){throw 'DISTRIBUTION_DEVELOPMENT_ROOT'}
+    $doc=Read-AiwProjectJson $manifestPath 'DISTRIBUTION_MANIFEST';$m=$doc.Value
+    if($m.schemaVersion-eq1-and$null-eq$m.PSObject.Properties['distributionId']){
+        if($Required){throw 'DISTRIBUTION_NAMED_PACKAGE_REQUIRED'}
+        return $null
+    }
+    $fields=@('schemaVersion','frameworkVersion','provisional','canonical','files','distributionId')
+    if(@($m.PSObject.Properties).Count-ne$fields.Count-or@($fields|Where-Object{$_-cnotin$m.PSObject.Properties.Name}).Count-ne0-or
+       $m.schemaVersion-ne2-or[string]$m.frameworkVersion-cne$FrameworkVersion-or
+       [string]$m.distributionId-cnotmatch('^'+[regex]::Escape($FrameworkVersion)+'-(snapshot\.[1-9][0-9]*|release)$')-or
+       $m.provisional-isnot[bool]-or$m.files-isnot[array]-or[string]$m.canonical-cnotmatch'^[A-F0-9]{64}$'){throw 'DISTRIBUTION_MANIFEST_FIELDS'}
+    if(([string]$m.distributionId).EndsWith('-release')-and[bool]$m.provisional){throw 'DISTRIBUTION_LIFECYCLE'}
+    $seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal);$rows=[Collections.Generic.List[string]]::new()
+    foreach($entry in $m.files){
+        if(@($entry.PSObject.Properties).Count-ne2-or$null-eq$entry.PSObject.Properties['path']-or$null-eq$entry.PSObject.Properties['identity']){throw 'DISTRIBUTION_FILE_FIELDS'}
+        $relative=[string]$entry.path;Assert-AiwRelativePath $relative
+        if(-not$seen.Add($relative)-or$relative-ceq'PACKAGE_MANIFEST.json'-or$relative.StartsWith('.git/',[StringComparison]::OrdinalIgnoreCase)-or$relative.StartsWith('.ai-workspace/',[StringComparison]::OrdinalIgnoreCase)){throw 'DISTRIBUTION_FILE_PATH'}
+        $file=Get-AiwContainedPath $root $relative
+        if(-not(Test-Path -LiteralPath $file -PathType Leaf)-or(Get-AiwByteIdentity ([IO.File]::ReadAllBytes($file)))-cne[string]$entry.identity){throw ('DISTRIBUTION_CONTENT_DRIFT|'+$relative)}
+        $rows.Add($relative+'='+[string]$entry.identity)
+    }
+    $all=@(Get-ChildItem -LiteralPath $root -Recurse -Force)
+    if(@($all|Where-Object{($_.Attributes-band[IO.FileAttributes]::ReparsePoint)-ne0}).Count-ne0){throw 'DISTRIBUTION_REPARSE'}
+    $actual=@($all|Where-Object{-not$_.PSIsContainer})
+    foreach($file in $actual){$relative=[IO.Path]::GetRelativePath($root,$file.FullName).Replace('\','/');if($relative-cne'PACKAGE_MANIFEST.json'-and-not$seen.Contains($relative)){throw ('DISTRIBUTION_UNLISTED_FILE|'+$relative)}}
+    $canonical=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes(([string]::Join([string][char]10,$rows)+[char]10))))
+    if($canonical-cne[string]$m.canonical){throw 'DISTRIBUTION_CANONICAL_DRIFT'}
+    return [pscustomobject][ordered]@{distributionId=[string]$m.distributionId;contentIdentity=$canonical;manifestIdentity=[string]$doc.Identity;runtimeRoot=$root}
+}
+
+function Assert-AiwDistributionBinding {
+    param([Parameter(Mandatory)]$Binding,[Parameter(Mandatory)][string]$FrameworkRoot,[Parameter(Mandatory)][string]$FrameworkVersion)
+    $fields=@('distributionId','contentIdentity','manifestIdentity','runtimeRoot')
+    if(@($Binding.PSObject.Properties).Count-ne4-or@($fields|Where-Object{$_-cnotin$Binding.PSObject.Properties.Name}).Count-ne0){throw 'DISTRIBUTION_BINDING_FIELDS'}
+    if([IO.Path]::GetFullPath($FrameworkRoot)-cne[IO.Path]::GetFullPath([string]$Binding.runtimeRoot)){throw 'DISTRIBUTION_RUNTIME_ROOT_DRIFT'}
+    $current=Get-AiwDistributionBinding $FrameworkRoot $FrameworkVersion -Required
+    foreach($name in $fields){if([string]$Binding.$name-cne[string]$current.$name){throw ('DISTRIBUTION_BINDING_DRIFT|'+$name)}}
+    return $current
+}
+Export-ModuleMember -Function Get-AiwDistributionBinding,Assert-AiwDistributionBinding
+function Get-AiwAdoptedDistributionBinding {
+    param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)][string]$FrameworkVersion)
+    $root=Resolve-AiwRepositoryRoot $ProjectRoot
+    $pendingPath=Get-AiwContainedPath $root '.ai-workspace/runtime/project-adoption/upgrade/state.json'
+    if(Test-Path -LiteralPath $pendingPath -PathType Leaf){
+        $pending=(Read-AiwProjectJson $pendingPath 'ADOPTION_TRANSACTION').Value
+        if($pending.transactionComplete-isnot[bool]-or-not$pending.transactionComplete){throw 'ADOPTION_RECOVERY_REQUIRED'}
+    }
+    $upgrade=Get-AiwContainedPath $root ('.ai-workspace/upgrade-recovery/'+$FrameworkVersion+'/state.json')
+    if(Test-Path -LiteralPath $upgrade -PathType Leaf){
+        $state=(Read-AiwProjectJson $upgrade 'ADOPTION_STATE').Value
+        if($null-ne$state.PSObject.Properties['distributionBinding']){
+            if($state.transactionComplete-isnot[bool]-or-not$state.transactionComplete){throw 'ADOPTION_RECOVERY_REQUIRED'}
+            return $state.distributionBinding
+        }
+    }
+    $registration=Get-AiwContainedPath $root '.ai-workspace/runtime/project-adoption/register/state.json'
+    if(Test-Path -LiteralPath $registration -PathType Leaf){
+        $state=(Read-AiwProjectJson $registration 'REGISTRATION_STATE').Value
+        if($null-ne$state.PSObject.Properties['metadata']-and$null-ne$state.metadata.PSObject.Properties['distributionBinding']-and$null-ne$state.metadata.distributionBinding){
+            if($state.transactionComplete-isnot[bool]-or-not$state.transactionComplete-or[string]$state.state-cne'COMPLETE'){throw 'ADOPTION_RECOVERY_REQUIRED'}
+            return $state.metadata.distributionBinding
+        }
+    }
+    return $null
+}
+Export-ModuleMember -Function Get-AiwAdoptedDistributionBinding

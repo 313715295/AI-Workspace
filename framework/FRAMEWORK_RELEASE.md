@@ -31,7 +31,7 @@ pwsh -File scripts/build-user-package.ps1 -FrameworkVersion 1.16.0 -Distribution
 
 显式分发模式要求文件名精确为 `AI-Workspace-<分发标识>.zip`，并在包内 README 及 PACKAGE_MANIFEST 的 `distributionId` 中展示同一标识。命名包使用 package manifest schema2；不传参数的既有调用继续使用 schema1及原 OutputPath 行为，其文件名不能用于推断资格。两种模式均保留完整 payload、completeSuite、Source Review 和 releaseIntegration 校验；snapshot 需要 `-Provisional` 且只能用于候选，release 只能用于 stable。预览/打包不修改版本元数据、不发布、不改变项目 pin，也不授予项目采用权限。
 
-这一步只实现根级分发命名和展示。snapshot 序号不意味着已采用“完整基线 + 累计差异”的验证合同；固定安装位置的 runtime 绑定也尚未引入。根级变更运行受影响专项并独立审查；未变版本证据按真实身份复用，不修改旧 completeSuite 的 payload hash 冒充重跑。用户包只包含所选版本消费内容、必要接入工具和用户入口，不含源码仓 Git/维护状态、其他版本或独立评估工具。
+命名包可显式接入固定解压目录；distribution/content/manifest/runtime 绑定保存在原采用记录，开发目录变化不改变项目运行来源。snapshot 序号不意味着已采用“完整基线 + 累计差异”的验证合同。根级变更运行受影响专项并独立审查；未变版本证据按真实身份复用，不修改旧 completeSuite 的 payload hash 冒充重跑。用户包只包含所选版本消费内容、必要接入工具和用户入口，不含源码仓 Git/维护状态、其他版本或独立评估工具。
 
 ## 本地候选试点
 
@@ -103,3 +103,11 @@ platform support 由 evidence 限定。release 只声称 sealed Tool Contract �
 ## 试点项目规则与安装快照
 
 本地候选获准试点后，安装历史不是项目规则的永久冻结清单。项目规则按项目任务授权、Review 和接受流程演进；runtime 重新绑定当前规则，安装历史保留不改。candidate 刷新使用当前规则的完整 preimage，并保留已接受的项目规则。schema4 的 Bootstrap managedIdentity 排除 PROJECT-CUSTOM 正文，但不排除框架管理区；旧 state 只经既有候选刷新转换，不允许手工改 state 绕过漂移。schema4 先保存 `transactionComplete=false`，在全部 live postimages（task 最后）匹配后，仅原子登记现有 state 的完成标记并结束原授权事务；未完成不得进入试点，原恢复可续完。日常恢复只读完成证明，不要求历史升级任务留在 active 或 archive。这一元数据收口不许可额外业务写入。此约束不改变既有 CANDIDATE_IMPLEMENTATION / PRE_PILOT_VERIFICATION / LOCAL_PILOT / RELEASE_CLOSURE 四阶段。
+
+内部 Maintenance 包使用同一构建入口的 -InternalMaintenance，仅增加内部根适配器与 overlay；普通用户包不启用此选项。两者独立绑定实际内容身份，均不可覆盖。旧健康包及原事务材料保留至新包接入和恢复验证完成。
+
+固定运行包的首次接入不需要先修改仍在运行的开发源。Owner 接受整批候选后，使用已验证的接入工具、原健康项目来源及独立 schema3 升级包，把既有采用状态和管理入口接入固定解压包；旧开发源和旧包保持可用。固定运行包接入后，开发仓 SOURCE_WRITE 的规则来源仍在固定包，直接经原 DISCOVER/ADMIT/FINALIZE 闭合，不走会替换运行来源的旧 self-update 刷新。此时每次切换包仍是显式采用动作。旧耦合项目继续使用已有 self-update 路线，直到显式接入固定包。
+
+固定包 same-pin 刷新复用 ProjectAdoptionTransaction 的升级事务，管理对象与原 state 最后写入；进程中断后，使用仍健康的接入工具执行 upgrade-project -RecoverRuntimeAdoption，并提供原包身份、实际事务身份及原 actor。COMPLETE 先验证目标包身份，ROLLBACK 只用已绑定前像；未知第三方对象拒绝且不发生部分恢复。原项目版本 state 是唯一采用记录，runtime/project-adoption 中的文件只保存本次事务与恢复材料。
+
+项目 Bootstrap custom 到 process-policy 的来源迁移由原 CONTROL_WRITE FINALIZE 处理；旧 receipt 可提供原包绑定的 Bootstrap 前像，仍须证明管理区未变。已授权动作中断时，upgrade-project 的 ProjectRuleRecoveryPlanPath 入口消费原 DISCOVER、原 ADMIT 输入与结果、原授权包及精确前后像。恢复事务明确在现在创建，不声称历史上已存在；COMPLETE 与 ROLLBACK 均复核所有对象和未授权来源后执行，并以原动作 FINALIZE 收口。缺失原 admission、前像或未知混合字节时拒绝，fresh DISCOVER 不替代原 action。

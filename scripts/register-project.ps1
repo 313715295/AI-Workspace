@@ -974,6 +974,7 @@ if (Test-AdoptionProfileVersion $FrameworkVersion) {
     $projection = New-AiwProjectProjection $repo @($targetSet.Targets)
     $toolDependencies = Get-AiwProjectAdoptionToolDependency REGISTER @($targetSet.Dependencies)
     $toolRevision = Get-AiwRootToolRevision $workspace $toolDependencies
+    $distributionBinding = Get-AiwDistributionBinding $workspace $FrameworkVersion
     $diff = @(Get-AiwProjectProjectionDiff $projection)
     if (-not $Apply -or -not $PSCmdlet.ShouldProcess($repo, 'Apply unified repository-local project registration')) {
         [string[]]$changedPaths=@($diff|Where-Object{[string]$_.change-cne'UNCHANGED'}|ForEach-Object{[string]$_.path})
@@ -1013,6 +1014,7 @@ if (Test-AdoptionProfileVersion $FrameworkVersion) {
     try{
         $transaction = Invoke-AiwProjectProjectionTransaction $repo $projection $projectAdoptionTransactionRelative $postcheck $rollbackPostcheck -Preflight $preflight -Metadata @{
             operation = 'REGISTER'
+            distributionBinding = $distributionBinding
             frameworkPin = $FrameworkVersion
             targetProjectFormat = 'repo-local/project-config-' + [string]$script:ActiveAdoptionProfile.projectControl.schemaVersion
             rootToolRevision = [string]$toolRevision.revision

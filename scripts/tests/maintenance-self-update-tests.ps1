@@ -40,9 +40,9 @@ function Package([string[]]$Paths,[string]$Root,[int]$Schema=2){
         projectConfigIdentity=Id (Join-Path $script:control '.ai-workspace/project.json');issuerControllerId=$script:owner;issuerControllerEpoch=$script:epoch;controllerControlIdentity=Id (Join-Path $script:control '.ai-workspace/controller.json');repositoryId='ai-workspace-framework'
     }
 }
-function Admission([string]$Name,[string[]]$Paths){
+function Admission([string]$Name,[string[]]$Paths,[string]$FrameworkRoot=$script:target){
     $auth=Join-Path $script:runtime ($Name+'-auth.json');Write-Json $auth (Package $Paths $script:target)
-    $input=[ordered]@{schemaVersion=2;mode='DISCOVER';projectRoot=$script:control;frameworkRoot=$script:target;taskPath=$script:task
+    $input=[ordered]@{schemaVersion=2;mode='DISCOVER';projectRoot=$script:control;frameworkRoot=$FrameworkRoot;taskPath=$script:task
         expectedProjectConfigIdentity=Id (Join-Path $script:control '.ai-workspace/project.json');expectedCorrectionsIdentity=Id (Join-Path $script:control '.ai-workspace/corrections.json');expectedTaskIdentity=Id $script:task
         observedActor=$script:owner;capabilities=@();exactPaths=$Paths;forbiddenPaths=@('tools/','private/');protectedPaths=@('framework/','scripts/');authorizationPackagePath=$auth;expectedAuthorizationIdentity=Id $auth
         userDecision='NOT_REQUIRED';recoveryState='WARM';hostEnforcementGrade='INSTRUCTION_BOUND';invocationState='PROVEN_EXPLICIT'
@@ -80,6 +80,27 @@ try {
     }
     if(-not$SeedControlRoot){throw 'HEALTHY_MAINTENANCE_SEED_REQUIRED'}
     if(-not$SeedFrameworkRoot){$seedConfig=Get-Content -LiteralPath (Join-Path $SeedControlRoot '.ai-workspace/project.json') -Raw|ConvertFrom-Json;$SeedFrameworkRoot=Join-Path (Split-Path -Parent $SeedControlRoot) $seedConfig.frameworkTarget.siblingDirectory}
+    # Seal only an isolated synthetic acceptance fixture. The input candidate retains its real review status.
+    $candidateInput=$RepositoryRoot
+    $fixtureSource=Join-Path $fixtureRoot 'accepted-source'
+    foreach($folder in @('scripts','skills','framework/maintenance-overlay','framework/user-package','framework/versions/1.16.0')){
+        $dest=Join-Path $fixtureSource $folder;New-Item -ItemType Directory -Path (Split-Path -Parent $dest) -Force|Out-Null
+        Copy-Item -LiteralPath (Join-Path $candidateInput $folder) -Destination $dest -Recurse
+    }
+    foreach($name in @('AGENTS.md','README.md','LICENSE','INITIALIZATION.md','framework/FRAMEWORK_RELEASE.md','framework/PROJECT_ADOPTION.md','framework/ROADMAP.md')){Copy-Exact (Join-Path $candidateInput $name) (Join-Path $fixtureSource $name)}
+    $vr=Join-Path $fixtureSource 'framework/versions/1.16.0';$mp=Join-Path $vr 'RELEASE_MANIFEST.json'
+    [string[]]$payload=@(Get-ChildItem -LiteralPath $vr -File -Recurse|Where-Object{$_.FullName-cne$mp}|ForEach-Object{[IO.Path]::GetRelativePath($vr,$_.FullName).Replace('\','/')})
+    [Array]::Sort($payload,[StringComparer]::Ordinal);$rows=@();[long]$total=0
+    foreach($name in $payload){$parts=(Id (Join-Path $vr $name)).Split('|');$rows+=$name+'|'+$parts[0]+'|'+$parts[1];$total+=[long]$parts[0]}
+    $m=Get-Content -LiteralPath $mp -Raw|ConvertFrom-Json
+    $m.canonical=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($utf8.GetBytes([string]::Join($lf,$rows))))
+    $m.fileCount=$payload.Count;$m.totalBytes=$total;$m.sourceReview='APPROVED';$m.sourceCandidate='SYNTHETIC_TEST_FIXTURE_ONLY'
+    $m.completeSuite.status='PASS';$m.completeSuite.passed=1;$m.completeSuite.total=1;$m.completeSuite.payloadCanonical=$m.canonical;$m.completeSuite.evidenceIdentity='1|'+('A'*64)
+    $m.sourceReviewEvidence.status='APPROVED';$m.sourceReviewEvidence.reviewer='fixture-reviewer';$m.sourceReviewEvidence.packageIdentity='1|'+('B'*64);$m.sourceReviewEvidence.reviewedPayloadCanonical=$m.canonical;$m.sourceReviewEvidence.reviewedManifestIdentity='1|'+('C'*64)
+    Write-Json $mp $m
+    $RepositoryRoot=$fixtureSource
+    $seedManifest=Get-Content -LiteralPath (Join-Path $SeedFrameworkRoot 'framework/versions/1.16.0/RELEASE_MANIFEST.json') -Raw|ConvertFrom-Json
+    $expectPayloadRefresh=$seedManifest.canonical-cne$m.canonical
     $control=Join-Path $fixtureRoot 'AI-Workspace-Maintenance';$target=Join-Path $fixtureRoot 'AI-Workspace'
     New-Item -ItemType Directory -Path $control,$target -Force|Out-Null
     # Relocate a real completed old-pilot seed byte-for-byte, not a handwritten pilot.
@@ -121,7 +142,11 @@ try {
     if($LASTEXITCODE-ne0){throw 'FIXTURE_PARENT'}
     $parent=(& git -C $target rev-parse HEAD).Trim()
     $adapter=Join-Path $target 'scripts/resolve-framework-maintenance-process-requirements.ps1'
-    $installPaths=@('scripts/integrate-framework-source.ps1','scripts/resolve-framework-maintenance-process-requirements.ps1','scripts/upgrade-project.ps1')
+    $runtimeFixture=Join-Path $fixtureRoot 'runtime-switch'
+    New-Item -ItemType Directory -Path $runtimeFixture -Force|Out-Null
+    Copy-Item -LiteralPath $control -Destination (Join-Path $runtimeFixture 'AI-Workspace-Maintenance') -Recurse -Force
+    Copy-Item -LiteralPath $target -Destination (Join-Path $runtimeFixture 'AI-Workspace') -Recurse -Force
+    $installPaths=@('scripts/integrate-framework-source.ps1','scripts/resolve-framework-maintenance-process-requirements.ps1','scripts/upgrade-project.ps1','scripts/ProjectAdoptionState.psm1','scripts/ProjectAdoptionProjection.psm1','scripts/ProjectAdoptionTransaction.psm1','scripts/resolve-framework-maintenance-target.ps1','scripts/check-framework-maintenance-authorization.ps1')
     $install=Admission 'root-install' $installPaths
     foreach($path in $installPaths){Copy-Exact (Join-Path $RepositoryRoot $path) (Join-Path $target $path)}
     $final=$install.boundary;$final.mode='FINALIZE_OUTPUT';$final.resultReceipts=@($install.discover.compactReceipt.selectedObligations|ForEach-Object{@($_.resultRequirements)}|Sort-Object -Unique)+@($installPaths|ForEach-Object{'OBJECT_POSTIMAGE|'+$_+'|'+(Id (Join-Path $target $_))})
@@ -221,7 +246,7 @@ try {
     $oldState=Id (Join-Path $control ($recovery+'/state.json'))
     # Current completed seed exercises genuine no-write recovery; the optional
     # byte-bound historical seed keeps the real schema3 write/rollback regression.
-    $scenarios=if($SeedTransactionPath){@('interrupt-target','failure-target','reject-refresh-schema','interrupt-refresh','normal')}else{@('interrupt-target','failure-target','noop-drift','interrupt-refresh','normal')}
+    $scenarios=if($SeedTransactionPath-or$expectPayloadRefresh){@('interrupt-target','failure-target','reject-refresh-schema','interrupt-refresh','normal')}else{@('interrupt-target','failure-target','noop-drift','interrupt-refresh','normal')}
     foreach($scenario in $scenarios){
         $transaction=Join-Path $runtime ($scenario+'-transaction.json');$args=$common.Clone();$args.TransactionPath=$transaction;$args.Operation='PREVIEW'
         Confirm ((Json $integrator $args).status-ceq'PREVIEW') ($scenario+'-real-preview')
@@ -257,7 +282,7 @@ try {
             elseif($line-match'^UPGRADE_WRITESET\|(?<paths>.+)$'){$writeSet=@($Matches.paths-split'\|')}
             elseif($line-match'^UPGRADE_TARGET_RELEASE\|canonical=(?<hash>[A-F0-9]{64})\|manifest=(?<id>\d+\|[A-F0-9]{64})$'){$canonical=$Matches.hash;$manifest=$Matches.id}
         }
-        $noWrite=-not[bool]$SeedTransactionPath
+        $noWrite=$writeSet.Count-eq0
         if($noWrite){
             Confirm ($applied.writes-gt0-and$writeSet.Count-eq0-and$preview.output.Count-eq2-and$preview.output[0]-ceq'UPGRADE_RECOVERY_WRITESET|'-and$preview.output[1]-ceq'RECOVERY_COMPLETE|to=1.16.0|writes=ZERO|state=LOCAL_CANDIDATE_MANAGED_PROJECTION') ($scenario+'-real-source-write-and-synchronized-upgrader-preview')
             $beforeRefresh=Get-Content -LiteralPath $transaction -Raw|ConvertFrom-Json -Depth 100
@@ -356,6 +381,134 @@ try {
         $state=Get-Content -LiteralPath $transaction -Raw|ConvertFrom-Json;Confirm ($state.status-ceq'COMPLETE') 'complete-only-after-real-finalize'
     }
     Confirm ((Id (Join-Path $target 'tools/resource-evaluation/independent.txt'))-ceq$sentinel-and(Id (Join-Path $target 'private/protected.txt'))-ceq$protected) 'unrelated-target-and-protected-files-preserved'
+    # Fixed runtime adoption starts from the retained old healthy source in a separate sibling fixture.
+    $control=Join-Path $runtimeFixture 'AI-Workspace-Maintenance';$target=Join-Path $runtimeFixture 'AI-Workspace'
+    $task=Join-Path $control $taskRelative;$runtime=Join-Path $control ('.ai-workspace/runtime/SELF-UPDATE-001/'+$owner)
+    $developmentBefore=Freeze $target
+    function Make-Runtime([int]$Number){
+        $zip=Join-Path $fixtureRoot ('AI-Workspace-1.16.0-snapshot.'+$Number+'.zip')
+        $null=& (Join-Path $RepositoryRoot 'scripts/build-user-package.ps1') -WorkspaceRoot $RepositoryRoot -FrameworkVersion '1.16.0' -OutputPath $zip -Distribution ('snapshot.'+$Number) -Provisional -InternalMaintenance -Apply
+        $dest=Join-Path $fixtureRoot ('runtime-'+$Number);Expand-Archive -LiteralPath $zip -DestinationPath $dest
+        return $dest
+    }
+    function Runtime-Upgrade([string]$Name,[string]$NewRuntime,[int]$Interrupt=-1){
+        $tool=Join-Path $RepositoryRoot 'scripts/upgrade-project.ps1'
+        $config=Get-Content -LiteralPath (Join-Path $control '.ai-workspace/project.json') -Raw|ConvertFrom-Json
+        $args=@{ProjectId=[string]$config.id;ToVersion='1.16.0';RepositoryPath=$control;WorkspaceRoot=$NewRuntime;ControllerId=$owner;ActorRouteTaskPath=$taskRelative;ExpectedActorRouteTaskIdentity=Id $task;ActorRouteActor=$owner;LocalCandidatePilot=$true}
+        $preview=@(Run $tool $args);$post=@{};$paths=@();$canonical='';$manifest=''
+        foreach($line in $preview){
+            if($line-match'^UPGRADE_POSTIMAGE\|(?<path>.+)=(?<id>ABSENT|\d+\|[A-F0-9]{64})$'){$post[$Matches.path]=$Matches.id}
+            elseif($line-match'^UPGRADE_WRITESET\|(?<paths>.+)$'){$paths=@($Matches.paths-split'\|')}
+            elseif($line-match'^UPGRADE_TARGET_RELEASE\|canonical=(?<hash>[A-F0-9]{64})\|manifest=(?<id>\d+\|[A-F0-9]{64})$'){$canonical=$Matches.hash;$manifest=$Matches.id}
+        }
+        Confirm ($paths.Count-gt0-and$post.Count-eq$paths.Count) ($Name+'-exact-original-preview')
+        $pkg=Package $paths $control 3;$pkg.Remove('repositoryId');$pkg.bundle='ACTOR_BOUND_PROJECT_UPGRADE';$pkg.actions=@('CONTROL_WRITE');$pkg.decisionClass='MAJOR_ARCHITECTURE';$pkg.userConfirmation='USER_FIXTURE_APPROVED_RUNTIME_ADOPTION';$pkg.invalidatesOn+=@('POST_OBJECT_DRIFT')
+        $pkg['postObjectIdentities']=@($paths|ForEach-Object{[ordered]@{path=$_;identity=$post[$_]}})
+        $pkg['targetFrameworkSnapshot']=[ordered]@{canonical=$canonical;manifestIdentity=$manifest}
+        $auth=Join-Path $runtime ($Name+'-upgrade-auth.json');Write-Json $auth $pkg
+        $args.AuthorizationPackagePath=$auth;$args.ExpectedAuthorizationPackageIdentity=Id $auth;$args.Apply=$true;$args.InterruptAfterAdoptionWrite=$Interrupt
+        $output=@(Run $tool $args)
+        return [pscustomobject]@{auth=$auth;args=$args;output=$output;paths=$paths}
+    }
+    $fixedOne=Make-Runtime 101
+    $first=Runtime-Upgrade 'first-fixed' $fixedOne 1
+    $statePath=Join-Path $control ($recovery+'/state.json')
+    $txnPath=Join-Path $control '.ai-workspace/runtime/project-adoption/upgrade/state.json'
+    $interrupted=Get-Content -LiteralPath $txnPath -Raw|ConvertFrom-Json
+    $pending=@($interrupted.projection.objects|Where-Object{$_.changed-and(Id (Join-Path $control $_.path))-cne$_.newIdentity})
+    $prospectiveState=$utf8.GetString([Convert]::FromBase64String(@($interrupted.projection.objects|Where-Object path -CEQ ($recovery+'/state.json'))[0].newBase64))|ConvertFrom-Json
+    Confirm (($first.output-join$lf).Contains('RUNTIME_ADOPTION_INTERRUPTED')-and$pending.Count-gt0-and'AGENTS.md'-cnotin@($interrupted.projection.objects.path)-and@($prospectiveState.projectionObjects|Where-Object{$_.relative-ceq'AGENTS.md'-and$null-ne$_.PSObject.Properties['managedIdentity']}).Count-eq1) 'R2-real-first-adoption-interrupted-with-managed-AGENTS-outside-write-set'
+    function Live-Identities {
+        $rows=@(Get-ChildItem -LiteralPath $control -File -Recurse -Force|Where-Object{$_.FullName-notlike('*'+[IO.Path]::DirectorySeparatorChar+'.git'+[IO.Path]::DirectorySeparatorChar+'*')}|ForEach-Object{[IO.Path]::GetRelativePath($control,$_.FullName).Replace('\','/')+'|'+(Id $_.FullName)}|Sort-Object)
+        return [string]::Join($lf,$rows)
+    }
+    $agentsPath=Join-Path $control 'AGENTS.md';$agentsBefore=[IO.File]::ReadAllBytes($agentsPath)
+    $agentsThirdParty=$utf8.GetBytes($utf8.GetString($agentsBefore).Replace('<!-- AI-WORKSPACE-FRAMEWORK:BEGIN -->','<!-- AI-WORKSPACE-FRAMEWORK:BEGIN -->'+$lf+'Third-party managed drift.'))
+    [IO.File]::WriteAllBytes($agentsPath,$agentsThirdParty)
+    $beforeRejectedRecovery=Live-Identities
+    $firstResume=@{ProjectId='ai-workspace-maintenance';ToVersion='1.16.0';RepositoryPath=$control;ActorRouteActor=$owner;RecoverRuntimeAdoption=$true;ExpectedAdoptionTransactionIdentity=Id $txnPath;AuthorizationPackagePath=$first.auth;ExpectedAuthorizationPackageIdentity=Id $first.auth;Apply=$true}
+    $reason='';try{& (Join-Path $RepositoryRoot 'scripts/upgrade-project.ps1') @firstResume|Out-Null}catch{$reason=$_.Exception.Message}
+    Confirm ($reason.Contains('LOCAL_CANDIDATE_PILOT_PROJECTION_DRIFT|AGENTS.md')-and(Live-Identities)-ceq$beforeRejectedRecovery) 'R2-preexisting-managed-drift-rejects-through-CLI-with-no-live-or-transaction-write'
+    [IO.File]::WriteAllBytes($agentsPath,$agentsBefore)
+
+    # Fault injection after a real resumed write/journal flush, before the real
+    # support postcheck. No product-only test hook or alternate recovery route.
+    Import-Module (Join-Path $RepositoryRoot 'scripts/ProjectAdoptionState.psm1') -Force
+    $transactionModule=Import-Module (Join-Path $RepositoryRoot 'scripts/ProjectAdoptionTransaction.psm1') -Force -PassThru
+    $journalOriginal=& $transactionModule { (Get-Item Function:Write-AiwTransactionState).ScriptBlock }
+    $txnBefore=[IO.File]::ReadAllBytes($txnPath);$pilotBefore=[IO.File]::ReadAllBytes($statePath)
+    foreach($fault in @('UNCHANGED_MANAGED','RESUMED_OBJECT')){
+        $beforeResume=Live-Identities
+        $faultPath=if($fault-ceq'UNCHANGED_MANAGED'){$agentsPath}else{$statePath}
+        $faultBytes=if($fault-ceq'UNCHANGED_MANAGED'){$agentsThirdParty}else{$utf8.GetBytes('Third-party adoption state.'+$lf)}
+        & $transactionModule {
+            param($original,$target,$bytes)
+            $script:R2JournalOriginal=$original;$script:R2FaultTarget=$target;$script:R2FaultBytes=$bytes;$script:R2FaultCount=0
+            Set-Item Function:script:Write-AiwTransactionState {
+                param($Path,$Value)
+                & $script:R2JournalOriginal $Path $Value
+                if($script:R2FaultCount-eq0){$script:R2FaultCount++;[IO.File]::WriteAllBytes($script:R2FaultTarget,$script:R2FaultBytes)}
+            }
+        } $journalOriginal $faultPath $faultBytes
+        $reason=''
+        try {
+            Resume-AiwRuntimeAdoption -RepositoryRoot $control -ExpectedTransactionIdentity (Id $txnPath) -AuthorizationPackagePath $first.auth -ExpectedAuthorizationPackageIdentity (Id $first.auth) -ObservedActor $owner -Direction COMPLETE -Apply|Out-Null
+        } catch {$reason=$_.Exception.Message}
+        finally { & $transactionModule {param($original) Set-Item Function:script:Write-AiwTransactionState $original} $journalOriginal }
+        $injected=& $transactionModule {$script:R2FaultCount}
+        Confirm ($injected-eq1-and(Id $faultPath)-ceq(Get-AiwByteIdentity $faultBytes)) ('R2-late-failure-preserves-third-party-bytes-'+$fault)
+        if($fault-ceq'UNCHANGED_MANAGED'){
+            Confirm ($reason.Contains('LOCAL_CANDIDATE_PILOT_PROJECTION_DRIFT|AGENTS.md')-and$reason.Contains('ADOPTION_RECOVERY_RESUMED_WRITES_RESTORED')-and(Id $txnPath)-ceq(Get-AiwByteIdentity $txnBefore)) 'R2-late-postcheck-restores-entry-transaction'
+            [IO.File]::WriteAllBytes($agentsPath,$agentsBefore)
+            Confirm ((Live-Identities)-ceq$beforeResume) 'R2-late-postcheck-undoes-only-resumed-writes-and-keeps-earlier-interruption'
+        }else{
+            Confirm ($reason.Contains('ADOPTION_RECOVERY_COMPENSATION_INCOMPLETE')-and$reason.Contains('ROLLBACK_THIRD_PARTY_DRIFT')-and-not(Get-Content -LiteralPath $txnPath -Raw|ConvertFrom-Json).transactionComplete) 'R2-compensation-conflict-stays-incomplete-without-overwrite'
+            [IO.File]::WriteAllBytes($statePath,$pilotBefore);[IO.File]::WriteAllBytes($txnPath,$txnBefore)
+            Confirm ((Live-Identities)-ceq$beforeResume) 'R2-late-conflict-test-restores-exact-fixture-for-normal-resume'
+        }
+    }
+    $firstResume.ExpectedAdoptionTransactionIdentity=Id $txnPath
+    $firstCompleted=@(& (Join-Path $RepositoryRoot 'scripts/upgrade-project.ps1') @firstResume)
+    Confirm (@($firstCompleted|Where-Object{$null-ne$_.PSObject.Properties['status']-and$_.status-ceq'COMPLETE'}).Count-eq1) 'R2-healthy-first-adoption-still-completes-through-real-CLI'
+    $fixedState=Get-Content -LiteralPath $statePath -Raw|ConvertFrom-Json
+    Confirm ($fixedState.schemaVersion-eq6-and$fixedState.distributionBinding.runtimeRoot-ceq$fixedOne-and(Freeze $target).canonical-ceq$developmentBefore.canonical) 'old-healthy-source-adopts-fixed-runtime-with-development-unchanged'
+    $adapter=Join-Path $fixedOne 'scripts/resolve-framework-maintenance-process-requirements.ps1'
+    $direct=Admission 'direct-development' @('scripts/upgrade-project.ps1') $fixedOne
+    Write-Text (Join-Path $target 'scripts/upgrade-project.ps1') ([IO.File]::ReadAllText((Join-Path $target 'scripts/upgrade-project.ps1'))+$lf+'# Development-only change.')
+    $boundary=$direct.boundary;$boundary.mode='FINALIZE_OUTPUT'
+    $boundary.resultReceipts=@($direct.discover.compactReceipt.selectedObligations|ForEach-Object{@($_.resultRequirements)}|Sort-Object -Unique)+@('OBJECT_POSTIMAGE|scripts/upgrade-project.ps1|'+(Id (Join-Path $target 'scripts/upgrade-project.ps1')))
+    $bp=Join-Path $runtime 'direct-development-final.json';Write-Json $bp $boundary
+    Confirm ((Json $adapter @{InputPath=$bp;AsJson=$true}).status-ceq'PASS') 'fixed-runtime-original-source-write-finalizes-without-self-update-transition'
+    $fixedTwo=Make-Runtime 102
+    $oldStateBytes=[IO.File]::ReadAllBytes($statePath)
+    $second=Runtime-Upgrade 'second-fixed' $fixedTwo 1
+    $txnPath=Join-Path $control '.ai-workspace/runtime/project-adoption/upgrade/state.json'
+    Confirm (($second.output-join$lf).Contains('RUNTIME_ADOPTION_INTERRUPTED')) 'runtime-switch-real-durable-interruption'
+    Import-Module (Join-Path $fixedOne 'scripts/ProjectAdoptionState.psm1') -Force
+    $pendingReason='';try{$null=Get-AiwAdoptedDistributionBinding $control '1.16.0'}catch{$pendingReason=$_.Exception.Message}
+    Confirm ($pendingReason.Contains('ADOPTION_RECOVERY_REQUIRED')) 'pending-adoption-rejects-normal-runtime'
+    $resume=@{ProjectId='ai-workspace-maintenance';ToVersion='1.16.0';RepositoryPath=$control;ActorRouteActor=$owner;RecoverRuntimeAdoption=$true;ExpectedAdoptionTransactionIdentity=Id $txnPath;AuthorizationPackagePath=$second.auth;ExpectedAuthorizationPackageIdentity=Id $second.auth;Apply=$true}
+    $restored=@(& (Join-Path $fixedOne 'scripts/upgrade-project.ps1') @resume)
+    Confirm (@($restored|Where-Object{$null-ne$_.PSObject.Properties['status']-and$_.status-ceq'COMPLETE'}).Count-eq1) 'old-healthy-runtime-completes-new-runtime-under-original-authorization'
+    $fixedThree=Make-Runtime 103
+    $secondStateIdentity=Id $statePath
+    $third=Runtime-Upgrade 'third-fixed' $fixedThree 1
+    $resume.ExpectedAdoptionTransactionIdentity=Id $txnPath;$resume.AuthorizationPackagePath=$third.auth;$resume.ExpectedAuthorizationPackageIdentity=Id $third.auth
+    $badRuntimePath=Join-Path $fixedThree 'README.md';Write-Text $badRuntimePath 'broken target package'
+    $reason='';try{& (Join-Path $fixedTwo 'scripts/upgrade-project.ps1') @resume|Out-Null}catch{$reason=$_.Exception.Message}
+    Confirm ($reason.Contains('DISTRIBUTION_CONTENT_DRIFT')) 'broken-new-runtime-completion-refused-before-further-write'
+    $resume.AdoptionRecoveryDirection='ROLLBACK'
+    $rolled=@(& (Join-Path $fixedTwo 'scripts/upgrade-project.ps1') @resume)
+    Confirm ((Id $statePath)-ceq$secondStateIdentity-and@($rolled|Where-Object{$null-ne$_.PSObject.Properties['status']-and$_.status-ceq'ROLLED_BACK'}).Count-eq1) 'retained-old-helper-rolls-back-without-executing-broken-target'
+    $configPath=Join-Path $control '.ai-workspace/project.json';$config=Get-Content -LiteralPath $configPath -Raw|ConvertFrom-Json
+    $config.frameworkTarget.routineExcludedPaths=@('private/protected.txt');Write-Json $configPath $config
+    $doc='review 文档 with spaces.md';$docPath=Join-Path $target $doc
+    Write-Text $docPath ('context private/protected.txt'+$lf+'removed private/protected.txt')
+    & git -C $target add -- $doc
+    & git -C $target -c user.name=Fixture -c user.email=fixture@example.invalid commit -qm 'safe-git-fixture'
+    Write-Text $docPath ('context private/protected.txt'+$lf+'added private/protected.txt')
+    $safe=Json (Join-Path $fixedTwo 'scripts/invoke-framework-maintenance-safe-git.ps1') @{ControlRepositoryPath=$control;RepositoryId='ai-workspace-framework';Operation='DIFF';AllowPath=@($doc);ExpectedProjectConfigIdentity=Id $configPath}
+    Confirm ($safe.status-ceq'VERIFIED') 'root-safe-git-all-patch-body-mentions-and-unicode-space-path'
     Write-Output ('PASS|maintenance-self-update|'+$passes+'/'+$passes)
 } finally {
     if(Test-Path -LiteralPath $fixtureRoot){

@@ -11,7 +11,7 @@
 
 `FINALIZE_OUTPUT` 逐 path 核对 `OBJECT_POSTIMAGE` 后才生成 caller-managed `AUTHORIZED_ACTION_CONTINUATION`。checker 将该 receipt 精确绑定原 package、source Discover identity及其实际 action/`continuationStepIndex`、task/Owner/taskActor/action actor、repository/config/Controller/decision/protection、下一步骤和当前整组 postimage；旧包、错链、自报错误 hash 或 stale postimage 不能续权。Review、`OWNER_ACCEPT`、Git、browser/device、external、publication 与 adoption 始终另走独立 gate。
 
-`FINALIZE_OUTPUT` 可承接 exact `CONTROL_WRITE` 对 corrections/process-policy 的真实 postimage：先验原 package 与全部 postimage，再用同一 composer 重组并核对当前 source bindings。只允许两者及 policy 派生的 standard identity；旧授权和 result obligations 不变。越界来源、独立 drift、无效绑定或新 pack 超预算均拒绝。
+FINALIZE_OUTPUT 可接 exact CONTROL_WRITE 的 corrections/process-policy/BOOTSTRAP custom 后像：验原包与全量 postimage，同一 composer 重组 source，满足原/新 obligations。managed 区不变；旧 receipt 由原授权整文件 preimage 补证，不改收据；其他 drift、无效来源、超预算拒绝。root helper 仅复证原 ADMIT 与 live old/new 后恢复中断迁移，原动作收口；第三方状态拒绝。
 
 schema3 project-upgrade package 可包含 `targetFrameworkSnapshot={canonical,manifestIdentity}`。stable adoption 保持向后兼容；local candidate pilot 则必须由 root upgrader 要求该字段，并与当次重算 payload 及最终 manifest identity 精确一致。它只是逐次使用的候选绑定，不创建发布 ledger 或第二份 release truth。
 

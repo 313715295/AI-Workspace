@@ -25,7 +25,7 @@ source composition、progressive selection 与 boundary decision identity 分离
 - 只有 project runtime 不可用时，才接受 operating-system temp 下的 exact non-reparse `aiw-*.json`，并公开 fallback evidence ceiling；
 - success 或 failure 都只删除该 exact file；unsafe cleanup request 在删除前失败。
 
-受支持的临时 input 调用默认直接使用 `-DeleteInputOnExit`，不另写 wrapper；continuation 所需 receipt 保留到最后消费者。其余失效 input/receipt 由 caller 在一个独立调用中只按已解析的绝对路径精确删除，再用另一个只读调用核验不存在；不得把删除与核验拼成同一调用。该分离只定义可审计边界，不保证宿主批准；宿主以 policy 拒绝时不重试或修改安全设置，只报告实际拒绝。
+受支持的临时 input 调用默认直接使用 `-DeleteInputOnExit`，不另写 wrapper；continuation 所需 receipt 保留到最后消费者。普通、已授权且生命周期已结束的临时 input/receipt 由 caller 在一个独立调用中只按已解析的绝对路径非强制精确删除（不默认使用 -Force），再用另一个只读调用核验不存在；不得把删除与核验拼成同一调用。长期报告、审计证据、恢复材料、在用包及仍有消费者的 receipt 不属于到期临时文件。该分离只定义可审计边界，不保证宿主批准；宿主以 policy 拒绝时不重试或修改安全设置，只报告实际拒绝。
 
 caller 在没有 continuation 的普通 `FINALIZE_OUTPUT`、invalidation 或 abort 后立即删除 compact receipt。若返回 continuation receipt，则原 compact 与该 continuation 必须一起保留到使用它的下一 action boundary 完成：下一次 `DISCOVER`、`ADMIT_ACTION` 和 `FINALIZE_OUTPUT` 都可能复验这两个来源；该边界完成并先保存新的 successor continuation（如有）后，才删除上一步这对 artifact。未进入后继边界便失效或中止时，两者一起删除。它们都不是 project state、ledger 或 authority。
 

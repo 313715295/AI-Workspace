@@ -5,6 +5,7 @@ param(
     [Parameter(Mandatory)][string]$OutputPath,
     [string]$Distribution,
     [switch]$Provisional,
+    [switch]$InternalMaintenance,
     [switch]$Apply
 )
 
@@ -163,6 +164,16 @@ $fixedMappings = @(
     [pscustomobject]@{ source = 'scripts/upgrade-project.ps1'; target = 'scripts/upgrade-project.ps1'; template = $false },
     [pscustomobject]@{ source = 'skills/ai-workspace-router/SKILL.md'; target = 'skills/ai-workspace-router/SKILL.md'; template = $false }
 )
+if($InternalMaintenance){
+    if(-not$PSBoundParameters.ContainsKey('Distribution')){throw 'INTERNAL_DISTRIBUTION_REQUIRED'}
+    foreach($relative in @('scripts/resolve-framework-maintenance-target.ps1','scripts/check-framework-maintenance-authorization.ps1','scripts/resolve-framework-maintenance-process-requirements.ps1','scripts/invoke-framework-maintenance-safe-git.ps1','scripts/integrate-framework-source.ps1','framework/FRAMEWORK_RELEASE.md')){
+        $fixedMappings += [pscustomobject]@{source=$relative;target=$relative;template=$false}
+    }
+    foreach($file in Get-ChildItem -LiteralPath (Join-Path $workspace 'framework/maintenance-overlay') -File){
+        $relative='framework/maintenance-overlay/'+$file.Name
+        $fixedMappings += [pscustomobject]@{source=$relative;target=$relative;template=$false}
+    }
+}
 $mappings = [Collections.Generic.List[object]]::new()
 foreach ($mapping in $fixedMappings) { $mappings.Add($mapping) }
 foreach ($file in @(Get-ChildItem -LiteralPath $versionRoot -Recurse -File -Force)) {

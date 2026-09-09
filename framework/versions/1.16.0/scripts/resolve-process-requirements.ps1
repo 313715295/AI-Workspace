@@ -97,6 +97,7 @@ function Get-Receipt([string]$Path){
   Assert-Fields $view.sourceLocators @('projectRoot','frameworkRoot','taskRelativePath','authorizationPackagePath')
   foreach($name in @('projectRoot','frameworkRoot','taskRelativePath','authorizationPackagePath')){Assert-InputString $view.sourceLocators.$name $name}
   $bindingNames=@($view.sourceBindings.PSObject.Properties.Name);$requiredBindings=@('projectConfigIdentity','controllerIdentity','correctionsIdentity','policyIdentity','projectCustomIdentity','projectStandardsIdentity','taskIdentity','frameworkVersionIdentity','releaseManifestIdentity','candidatePilotStateIdentity','nativeCatalogIdentity','correctionCoverageIdentity')
+  if($bindingNames -ccontains 'bootstrapManagedIdentity'){$requiredBindings+='bootstrapManagedIdentity'}
   if(@($requiredBindings|Where-Object{$_-cnotin$bindingNames}).Count-ne0-or@($bindingNames|Where-Object{$_-cnotin$requiredBindings}).Count-ne0){throw 'DISCOVER_RECEIPT_BINDINGS'}
   foreach($name in $bindingNames){Assert-InputString $view.sourceBindings.$name $name;if([string]$view.sourceBindings.$name-cnotin@('MISSING','NOT_APPLICABLE')-and[string]$view.sourceBindings.$name-cnotmatch'^\d+\|[A-F0-9]{64}$'){throw ('DISCOVER_RECEIPT_BINDING|'+$name)}}
   $authorityFields=@('schemaVersion','projectId','projectRoot','repositoryGitTop','frameworkVersion','frameworkSealIdentity','controllerIdentity','taskIdentity','taskActor','actor','role','phase','profile','exactScope','forbiddenScope','protectedScope','authorizationIdentity','authorizedActions','observedCapabilities','projectConfigIdentity','correctionsIdentity','policyIdentity','userDecision','recoveryState','hostEnforcementGrade')
@@ -318,6 +319,16 @@ try{
     if($intentFactMismatches.Count-gt0-and[string]$intent.ambiguityState-ceq'CLEAR'){throw ('INTENT_FACT_MISMATCH|'+[string]::Join(',',@($intentFactMismatches)))}
     if($continuationReceiptPath-cne'NOT_REQUIRED'){$continuationInput=Read-Input $continuationReceiptPath;if([string]::Join("`n",@($continuationInput.forbiddenScope))-cne[string]::Join("`n",@($forbiddenPaths))-or[string]::Join("`n",@($continuationInput.protectedScope))-cne[string]::Join("`n",@($protectedPaths))){throw 'CONTINUATION_PROTECTION_SCOPE_DRIFT'}}
     $semanticObjective=([string]$input.objective+' '+[string]::Join(' ',@($intent.semanticHints+$intent.externalHints))).Trim()
+    if(-not[bool]$input.evaluationOnly){
+      $runtimeModule=Join-Path ([string]$input.frameworkRoot) 'scripts/ProjectAdoptionState.psm1'
+      if(Test-Path -LiteralPath $runtimeModule -PathType Leaf){
+        Import-Module $runtimeModule -ErrorAction Stop
+        if($null-ne(Get-Command Get-AiwAdoptedDistributionBinding -ErrorAction SilentlyContinue)){
+          $adopted=Get-AiwAdoptedDistributionBinding ([string]$input.projectRoot) '1.16.0'
+          if($null-ne$adopted){$null=Assert-AiwDistributionBinding $adopted ([string]$input.frameworkRoot) '1.16.0'}
+        }
+      }
+    }
     $composition=Invoke-ProcessRequirementComposition -ProjectRoot ([string]$input.projectRoot) -FrameworkRoot ([string]$input.frameworkRoot) -TargetVersion '1.16.0' -ExpectedProjectConfigIdentity ([string]$input.expectedProjectConfigIdentity) -ExpectedCorrectionsIdentity ([string]$input.expectedCorrectionsIdentity) -Profile $profile -Role $effectiveRole -Phase $effectivePhase -Actor $actor -TaskIdentity $taskIdentity -Capabilities @($input.capabilities) -Objective $semanticObjective -ActionKind ([string]$input.actionKind) -ResultKind ([string]$input.resultKind) -ExactPaths @($input.exactPaths) -ForbiddenPaths @($forbiddenPaths) -SemanticApplicabilityUnknown:([string]$intent.ambiguityState-cne'CLEAR') -EvaluationOnly:([bool]$input.evaluationOnly)
     if($null-ne$cleanupObservation-and[string]$cleanupObservation.Storage-ceq'PROJECT_RUNTIME'){Assert-ProjectRuntimeCleanupBinding $cleanupObservation $projectResolved $runtimeSegment $actor}
     $auth=Get-AuthorizationObservation $authorizationPath $authorizationIdentity $actor @($input.exactPaths) $userDecision ([string]$input.actionKind) $projectResolved $taskRelative $taskIdentity $taskId $taskOwner ([string]$input.expectedProjectConfigIdentity) $continuationReceiptPath $continuationReceiptIdentity
@@ -340,11 +351,11 @@ try{
     $selectedObligations=@($composition.selectedRequirements|ForEach-Object{[ordered]@{requirementId=[string]$_.requirementId;preparationRequirements=@($_.preparationRequirements);resultRequirements=@($_.resultRequirements)}})
     $frameworkResolved=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Resolve-Path -LiteralPath ([string]$input.frameworkRoot))))
     if($inputContract-eq3){
-      $sourceBindings=[ordered]@{projectConfigIdentity=$composition.projectConfigIdentity;controllerIdentity=$composition.controllerIdentity;correctionsIdentity=$composition.correctionsIdentity;policyIdentity=$composition.policyIdentity;projectCustomIdentity=$composition.projectCustomIdentity;projectStandardsIdentity=$composition.projectStandardsIdentity;taskIdentity=$taskIdentity;frameworkVersionIdentity=$composition.frameworkVersionIdentity;releaseManifestIdentity=$composition.releaseManifestIdentity;candidatePilotStateIdentity=$composition.candidatePilotStateIdentity;nativeCatalogIdentity=$composition.nativeCatalogIdentity;correctionCoverageIdentity=$composition.correctionCoverageIdentity}
+      $sourceBindings=[ordered]@{projectConfigIdentity=$composition.projectConfigIdentity;controllerIdentity=$composition.controllerIdentity;correctionsIdentity=$composition.correctionsIdentity;policyIdentity=$composition.policyIdentity;bootstrapManagedIdentity=$composition.bootstrapManagedIdentity;projectCustomIdentity=$composition.projectCustomIdentity;projectStandardsIdentity=$composition.projectStandardsIdentity;taskIdentity=$taskIdentity;frameworkVersionIdentity=$composition.frameworkVersionIdentity;releaseManifestIdentity=$composition.releaseManifestIdentity;candidatePilotStateIdentity=$composition.candidatePilotStateIdentity;nativeCatalogIdentity=$composition.nativeCatalogIdentity;correctionCoverageIdentity=$composition.correctionCoverageIdentity}
       $compactReceipt=[ordered]@{schemaVersion=2;receiptType='PROCESS_REQUIREMENTS_DISCOVER';status=[string]$composition.status;mode=$mode;inputContractVersion=$inputContract;sourceCompositionIdentity=$composition.sourceCompositionIdentity;selectionIdentity=$selectionIdentity;contextIdentity=$contextIdentity;binding=$authority;intentEnvelope=$intent;selectedObligations=$selectedObligations;pack=[ordered]@{bytes=$packBytes;ceilingBytes=$selectedRulePackBytes;estimatedTokens=[int][math]::Ceiling($packBytes/4.0)};sourceLocators=[ordered]@{frameworkRoot=$frameworkResolved;taskRelativePath=$taskRelative;authorizationPackagePath=$authorizationPath};sourceBindings=$sourceBindings;evidence=[ordered]@{ceilings=@($ceilings|Sort-Object -Unique);invocationState=$invocationState};counts=[ordered]@{sourceBuildCount=$composition.sourceBuildCount;legacyCorrectionsFullReadCount=$composition.legacyCorrectionsFullReadCount;legacyProjectCustomFullReadCount=$composition.legacyProjectCustomFullReadCount};authorityGranted=$false;semanticCorrectnessProven=$false}
       $result=[ordered]@{schemaVersion=2;resultType='PROCESS_REQUIREMENTS_DISCOVER_RESULT';status=[string]$composition.status;mode=$mode;artifactStorage=$artifactStorage;selectedRuleBlocks=@($composition.selectedRequirements);compactReceipt=$compactReceipt}
     }else{
-      $compactReceipt=[ordered]@{schemaVersion=1;receiptType='PROCESS_REQUIREMENTS_DISCOVER';status=[string]$composition.status;mode=$mode;inputContractVersion=$inputContract;sourceCompositionIdentity=$composition.sourceCompositionIdentity;selectionIdentity=$selectionIdentity;contextIdentity=$contextIdentity;projectId=$composition.projectId;frameworkVersion='1.16.0';taskIdentity=$taskIdentity;taskId=$taskId;taskOwner=$taskOwner;taskActor=$taskActor;actor=$actor;role=$effectiveRole;phase=$effectivePhase;profile=$profile;objective=[string]$input.objective;actionKind=[string]$input.actionKind;resultKind=[string]$input.resultKind;exactPaths=@($input.exactPaths);authorityContext=$authority;intentEnvelope=$intent;selectedObligations=$selectedObligations;selectedPackBytes=$packBytes;selectedPackCeilingBytes=$selectedRulePackBytes;selectedPackEstimatedTokens=[int][math]::Ceiling($packBytes/4.0);sourceLocators=[ordered]@{projectRoot=$projectResolved;frameworkRoot=$frameworkResolved;taskRelativePath=$taskRelative;authorizationPackagePath=$authorizationPath};sourceBindings=[ordered]@{projectConfigIdentity=$composition.projectConfigIdentity;controllerIdentity=$composition.controllerIdentity;correctionsIdentity=$composition.correctionsIdentity;policyIdentity=$composition.policyIdentity;projectCustomIdentity=$composition.projectCustomIdentity;projectStandardsIdentity=$composition.projectStandardsIdentity;taskIdentity=$taskIdentity;frameworkVersionIdentity=$composition.frameworkVersionIdentity;releaseManifestIdentity=$composition.releaseManifestIdentity;candidatePilotStateIdentity=$composition.candidatePilotStateIdentity;nativeCatalogIdentity=$composition.nativeCatalogIdentity;correctionCoverageIdentity=$composition.correctionCoverageIdentity};evidenceCeilings=@($ceilings|Sort-Object -Unique);sourceBuildCount=$composition.sourceBuildCount;legacyCorrectionsFullReadCount=$composition.legacyCorrectionsFullReadCount;legacyProjectCustomFullReadCount=$composition.legacyProjectCustomFullReadCount;hostEnforcementGrade=[string]$input.hostEnforcementGrade;invocationState=$invocationState;authorityGranted=$false;semanticCorrectnessProven=$false}
+      $compactReceipt=[ordered]@{schemaVersion=1;receiptType='PROCESS_REQUIREMENTS_DISCOVER';status=[string]$composition.status;mode=$mode;inputContractVersion=$inputContract;sourceCompositionIdentity=$composition.sourceCompositionIdentity;selectionIdentity=$selectionIdentity;contextIdentity=$contextIdentity;projectId=$composition.projectId;frameworkVersion='1.16.0';taskIdentity=$taskIdentity;taskId=$taskId;taskOwner=$taskOwner;taskActor=$taskActor;actor=$actor;role=$effectiveRole;phase=$effectivePhase;profile=$profile;objective=[string]$input.objective;actionKind=[string]$input.actionKind;resultKind=[string]$input.resultKind;exactPaths=@($input.exactPaths);authorityContext=$authority;intentEnvelope=$intent;selectedObligations=$selectedObligations;selectedPackBytes=$packBytes;selectedPackCeilingBytes=$selectedRulePackBytes;selectedPackEstimatedTokens=[int][math]::Ceiling($packBytes/4.0);sourceLocators=[ordered]@{projectRoot=$projectResolved;frameworkRoot=$frameworkResolved;taskRelativePath=$taskRelative;authorizationPackagePath=$authorizationPath};sourceBindings=[ordered]@{projectConfigIdentity=$composition.projectConfigIdentity;controllerIdentity=$composition.controllerIdentity;correctionsIdentity=$composition.correctionsIdentity;policyIdentity=$composition.policyIdentity;bootstrapManagedIdentity=$composition.bootstrapManagedIdentity;projectCustomIdentity=$composition.projectCustomIdentity;projectStandardsIdentity=$composition.projectStandardsIdentity;taskIdentity=$taskIdentity;frameworkVersionIdentity=$composition.frameworkVersionIdentity;releaseManifestIdentity=$composition.releaseManifestIdentity;candidatePilotStateIdentity=$composition.candidatePilotStateIdentity;nativeCatalogIdentity=$composition.nativeCatalogIdentity;correctionCoverageIdentity=$composition.correctionCoverageIdentity};evidenceCeilings=@($ceilings|Sort-Object -Unique);sourceBuildCount=$composition.sourceBuildCount;legacyCorrectionsFullReadCount=$composition.legacyCorrectionsFullReadCount;legacyProjectCustomFullReadCount=$composition.legacyProjectCustomFullReadCount;hostEnforcementGrade=[string]$input.hostEnforcementGrade;invocationState=$invocationState;authorityGranted=$false;semanticCorrectnessProven=$false}
       $result=[ordered]@{schemaVersion=1;resultType='PROCESS_REQUIREMENTS_DISCOVER_RESULT';status=[string]$composition.status;mode=$mode;artifactStorage=$artifactStorage;selectedRuleBlocks=@($composition.selectedRequirements);compactReceipt=$compactReceipt}
     }
     if($null-ne$cleanupObservation-and[string]$cleanupObservation.Storage-ceq'PROJECT_RUNTIME'){$cleanupInput=[string]$cleanupObservation.Path}
@@ -386,10 +397,37 @@ try{
     $sourceBindings=@()
     foreach($name in @($changedBindings)){
       if($taskPostimageTransition){if([string]$name-ceq'taskIdentity'){continue};throw ('DISCOVER_SOURCE_DRIFT|'+[string]$name)}
-      if($sourceTransitionEligible-and[string]$name-in@('correctionsIdentity','policyIdentity','projectStandardsIdentity')){$sourceBindings+=[string]$name;continue}
+      if($sourceTransitionEligible-and[string]$name-in@('correctionsIdentity','policyIdentity','projectStandardsIdentity','projectCustomIdentity')){$sourceBindings+=[string]$name;continue}
       throw ('DISCOVER_SOURCE_DRIFT|'+[string]$name)
     }
     if('projectStandardsIdentity'-cin$sourceBindings-and'policyIdentity'-cnotin$sourceBindings){throw 'DISCOVER_SOURCE_DRIFT|projectStandardsIdentity'}
+    if('projectCustomIdentity'-cin$sourceBindings){
+      $oldManaged=''
+      if($null-ne$receipt.sourceBindings.PSObject.Properties['bootstrapManagedIdentity']){
+        $oldManaged=[string]$receipt.sourceBindings.bootstrapManagedIdentity
+      }else{
+        # A pre-existing admitted action can use its exact original package-bound
+        # Bootstrap bytes. This does not rewrite or replace the original receipt.
+        $proofs=@($input.preparationReceipts|Where-Object{$_-clike'BOOTSTRAP_PREIMAGE|*'})
+        if($proofs.Count-ne1-or[string]$proofs[0]-cnotmatch'^BOOTSTRAP_PREIMAGE\|([^|]+)\|(\d+\|[A-F0-9]{64})$'){throw 'SOURCE_POSTIMAGE_BOOTSTRAP_PREIMAGE_UNBOUND'}
+        $oldPath=[IO.Path]::GetFullPath($Matches[1]);$oldIdentity=$Matches[2]
+        $control=[IO.Path]::GetFullPath([string]$receipt.sourceLocators.projectRoot)
+        $allowedRoot=Join-Path $control '.ai-workspace'
+        if(-not$oldPath.StartsWith($allowedRoot+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)){throw 'SOURCE_POSTIMAGE_BOOTSTRAP_PREIMAGE_PATH'}
+        $cursor=$allowedRoot
+        foreach($part in $oldPath.Substring($allowedRoot.Length+1).Split([IO.Path]::DirectorySeparatorChar)){
+          $cursor=Join-Path $cursor $part
+          if(((Get-Item -LiteralPath $cursor -Force).Attributes-band[IO.FileAttributes]::ReparsePoint)-ne0){throw 'SOURCE_POSTIMAGE_BOOTSTRAP_PREIMAGE_REPARSE'}
+        }
+        $package=Read-Input ([string]$receipt.sourceLocators.authorizationPackagePath)
+        $entry=@($package.objectIdentities|Where-Object{[string]$_.path-ceq'.ai-workspace/BOOTSTRAP.md'})
+        if($entry.Count-ne1-or[string]$entry[0].identity-cne$oldIdentity-or(Get-Identity $oldPath)-cne$oldIdentity){throw 'SOURCE_POSTIMAGE_BOOTSTRAP_PREIMAGE_IDENTITY'}
+        $oldCustom=Get-AiwProjectCustomRegion $oldPath
+        if([string]$oldCustom.Identity-cne[string]$receipt.sourceBindings.projectCustomIdentity){throw 'SOURCE_POSTIMAGE_BOOTSTRAP_PREIMAGE_SOURCE'}
+        $oldManaged=[string]$oldCustom.ManagedIdentity
+      }
+      if($oldManaged-cne[string]$currentBindings.bootstrapManagedIdentity){throw 'SOURCE_POSTIMAGE_BOOTSTRAP_MANAGED_DRIFT'}
+    }
     if([int]$receipt.inputContractVersion-ge2-and[string]$receipt.sourceLocators.authorizationPackagePath-cne'NOT_REQUIRED'){
       $currentAuthorizationIdentity=Get-Identity ([string]$receipt.sourceLocators.authorizationPackagePath);if($currentAuthorizationIdentity-cne[string]$receipt.authorityContext.authorizationIdentity){throw 'DISCOVER_SOURCE_DRIFT|authorizationIdentity'}
       $boundaryContinuationPath='NOT_REQUIRED';$boundaryContinuationIdentity='NOT_REQUIRED'
@@ -404,8 +442,8 @@ try{
       if($mode-ceq'FINALIZE_OUTPUT'){Assert-AuthorizationPostimages ([string]$receipt.sourceLocators.authorizationPackagePath) ([string]$receipt.sourceLocators.projectRoot) @($receipt.exactPaths) @($input.resultReceipts)}
     }
     if($sourceBindings.Count-gt0){
-      $sourcePathByBinding=@{correctionsIdentity='.ai-workspace/corrections.json';policyIdentity='.ai-workspace/process-policy.json'}
-      foreach($name in @($sourceBindings|Where-Object{$_-in@('correctionsIdentity','policyIdentity')})){
+      $sourcePathByBinding=@{correctionsIdentity='.ai-workspace/corrections.json';policyIdentity='.ai-workspace/process-policy.json';projectCustomIdentity='.ai-workspace/BOOTSTRAP.md'}
+      foreach($name in @($sourceBindings|Where-Object{$_-in@('correctionsIdentity','policyIdentity','projectCustomIdentity')})){
         if([string]$sourcePathByBinding[[string]$name]-cnotin@($receipt.exactPaths)){throw ('SOURCE_POSTIMAGE_PATH_NOT_AUTHORIZED|'+[string]$name)}
       }
       $semanticObjective=([string]$receipt.objective+' '+[string]::Join(' ',@($receipt.intentEnvelope.semanticHints+$receipt.intentEnvelope.externalHints))).Trim()
@@ -423,6 +461,10 @@ try{
     if([string]$input.objective-cne[string]$receipt.objective-or[string]$input.actionKind-cne[string]$receipt.actionKind-or[string]$input.resultKind-cne[string]$receipt.resultKind-or[string]::Join("`n",@($input.exactPaths))-cne[string]::Join("`n",@($receipt.exactPaths))){throw 'DISCOVER_CONTEXT_DRIFT'}
     $requiredPrep=@($receipt.selectedObligations|ForEach-Object{@($_.preparationRequirements)}|Sort-Object -Unique)
     $requiredResult=@($receipt.selectedObligations|ForEach-Object{@($_.resultRequirements)}|Sort-Object -Unique)
+    if($null-ne$sourcePostimageTransition){
+      $requiredPrep=@($requiredPrep+@($transitionComposition.selectedRequirements|ForEach-Object{@($_.preparationRequirements)})|Sort-Object -Unique)
+      $requiredResult=@($requiredResult+@($transitionComposition.selectedRequirements|ForEach-Object{@($_.resultRequirements)})|Sort-Object -Unique)
+    }
     $providedPrep=@($input.preparationReceipts);$providedResult=@($input.resultReceipts)
     $missingPrep=@($requiredPrep|Where-Object{$_-cnotin$providedPrep})
     if([int]$receipt.inputContractVersion-eq1-and[string]$receipt.actionKind-in$categoricalActions){$missingPrep+='LEGACY_AUTHORITY_CONTEXT_UNBOUND'}

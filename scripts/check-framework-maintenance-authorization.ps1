@@ -25,6 +25,12 @@ try{
     $resolvedOutput=@(& $resolver -ControlRepositoryPath $ControlRepositoryPath -ExpectedProjectConfigIdentity $ExpectedProjectConfigIdentity -AsJson 2>&1|ForEach-Object{[string]$_});$resolvedCode=$LASTEXITCODE
     if($resolvedCode-ne0-or$resolvedOutput.Count-ne1){throw ('MAINTENANCE_TARGET_RESOLUTION_FAILED|'+($resolvedOutput-join';'))}
     $resolved=$resolvedOutput[0]|ConvertFrom-Json
+    if($null-eq$resolved.PSObject.Properties['runtimeRoot']){
+        Import-Module (Join-Path $PSScriptRoot 'ProjectAdoptionState.psm1') -ErrorAction Stop
+        if($null-ne(Get-AiwAdoptedDistributionBinding ([string]$resolved.controlRoot) ([string]$resolved.frameworkVersion))){throw 'FIXED_RUNTIME_ADAPTER_REQUIRED'}
+        # Old health source has no fixed-runtime carrier; keep its verified target.
+        $resolved|Add-Member -NotePropertyName runtimeRoot -NotePropertyValue ([string]$resolved.targetRoot)
+    }
     if($ObservedRepositoryId-cnotin@('CONTROL',[string]$resolved.targetRepositoryId)){throw 'REPOSITORY_ID_UNKNOWN'}
     $checkerVersion=[string]$resolved.frameworkVersion
     $packageSelectionPath=if([IO.Path]::IsPathRooted($PackagePath)){$PackagePath}else{Join-Path ([string]$resolved.controlRoot) $PackagePath}
@@ -46,7 +52,7 @@ try{
             $checkerVersion=[string]$packageSelection.frameworkVersion
         }
     }
-    $checker=Join-Path ([string]$resolved.targetRoot) ('framework\versions\'+$checkerVersion+'\scripts\check-authorization.ps1')
+    $checker=Join-Path ([string]$resolved.runtimeRoot) ('framework\versions\'+$checkerVersion+'\scripts\check-authorization.ps1')
     if(-not(Test-Path -LiteralPath $checker -PathType Leaf)){throw 'AUTHORIZATION_CHECKER_MISSING'}
     $control=[string]$resolved.controlRoot;Push-Location $control
     try{

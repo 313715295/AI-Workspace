@@ -244,17 +244,24 @@ function Get-AiwLocalCandidatePilotBinding {
     if([int64]$manifest.fileCount-ne$facts.FileCount-or[int64]$manifest.totalBytes-ne$facts.TotalBytes-or[string]$manifest.canonical-cne$facts.Canonical){throw 'FRAMEWORK_LOCAL_CANDIDATE_MANIFEST_DRIFT'}
     $statePath=Resolve-AiwChildFile $ProjectRoot ('.ai-workspace/upgrade-recovery/'+$Version+'/state.json') 'LOCAL_CANDIDATE_PILOT_STATE'
     $stateDoc=Read-AiwStrictJson $statePath 'LOCAL_CANDIDATE_PILOT_STATE';$state=$stateDoc.Value
-    if(-not(Test-AiwJsonInteger $state.schemaVersion)-or[int]$state.schemaVersion-notin@(2,3,4,5)){throw 'LOCAL_CANDIDATE_PILOT_BINDING_DRIFT'}
+    if(-not(Test-AiwJsonInteger $state.schemaVersion)-or[int]$state.schemaVersion-notin@(2,3,4,5,6)){throw 'LOCAL_CANDIDATE_PILOT_BINDING_DRIFT'}
     $stateFields=@('schemaVersion','projectId','fromVersion','toVersion','targetReleaseCanonical','targetReleaseManifestIdentity','actor','taskId','taskOwner','taskRelative','authorizationIdentity','objects')
-    if([int]$state.schemaVersion-in@(3,4,5)){$stateFields+=@('projectionMode','projectionObjects')}
-    if([int]$state.schemaVersion-in@(4,5)){$stateFields+='transactionComplete'}
-    if([int]$state.schemaVersion-eq5){$stateFields+=@('projectFormat','projectCapabilities','rootToolRevision','rootToolDependencies')}
+    if([int]$state.schemaVersion-in@(3,4,5,6)){$stateFields+=@('projectionMode','projectionObjects')}
+    if([int]$state.schemaVersion-in@(4,5,6)){$stateFields+='transactionComplete'}
+    if([int]$state.schemaVersion-in@(5,6)){$stateFields+=@('projectFormat','projectCapabilities','rootToolRevision','rootToolDependencies')}
+    if([int]$state.schemaVersion-eq6){$stateFields+='distributionBinding'}
     Assert-AiwExactFields $state $stateFields 'LOCAL_CANDIDATE_PILOT_STATE'
-    if([int]$state.schemaVersion-in@(4,5)){
+    if([int]$state.schemaVersion-eq6){
+        $runtimeRoot=[IO.Path]::GetFullPath((Join-Path $VersionDirectory '../../..'))
+        $runtimeModule=Join-Path $runtimeRoot 'scripts/ProjectAdoptionState.psm1'
+        Import-Module $runtimeModule -ErrorAction Stop
+        $null=Assert-AiwDistributionBinding $state.distributionBinding $runtimeRoot $Version
+    }
+    if([int]$state.schemaVersion-in@(4,5,6)){
         if(-not($state.transactionComplete-is[bool])){throw 'LOCAL_CANDIDATE_PILOT_BINDING_DRIFT'}
         if(-not[bool]$state.transactionComplete){throw 'LOCAL_CANDIDATE_PILOT_TRANSACTION_INCOMPLETE'}
     }
-    if([int]$state.schemaVersion-eq5){
+    if([int]$state.schemaVersion-in@(5,6)){
         if([string]$state.projectFormat-cnotmatch'^repo-local/project-config-[1-9][0-9]*$'-or-not($state.projectCapabilities-is[Array])-or[string]$state.rootToolRevision-cnotmatch'^[A-F0-9]{64}$'-or-not($state.rootToolDependencies-is[Array])){throw 'LOCAL_CANDIDATE_PILOT_BINDING_DRIFT'}
     }
     if([string]$state.projectId-cne$ProjectId-or[string]$state.toVersion-cne$Version-or[string]$state.targetReleaseCanonical-cne$facts.Canonical-or[string]$state.targetReleaseManifestIdentity-cne$ManifestDoc.Identity-or[string]$state.authorizationIdentity-cnotmatch'^\d+\|[A-F0-9]{64}$'-or-not($state.objects-is[Array])){throw 'LOCAL_CANDIDATE_PILOT_BINDING_DRIFT'}
@@ -278,8 +285,8 @@ function Get-AiwLocalCandidatePilotBinding {
         foreach($entry in @($state.projectionObjects)){
             $relative=ConvertTo-AiwSafeRelativePath ([string]$entry.relative) 'LOCAL_CANDIDATE_PILOT_PROJECTION_OBJECT'
             $entryFields=@('relative','identity')
-            if([int]$state.schemaVersion-in@(4,5)-and$relative-ceq'.ai-workspace/BOOTSTRAP.md'){$entryFields+='managedIdentity'}
-            if([int]$state.schemaVersion-in@(4,5)-and$relative-ceq'AGENTS.md'-and$null-ne$entry.PSObject.Properties['managedIdentity']){$entryFields+='managedIdentity'}
+            if([int]$state.schemaVersion-in@(4,5,6)-and$relative-ceq'.ai-workspace/BOOTSTRAP.md'){$entryFields+='managedIdentity'}
+            if([int]$state.schemaVersion-in@(4,5,6)-and$relative-ceq'AGENTS.md'-and$null-ne$entry.PSObject.Properties['managedIdentity']){$entryFields+='managedIdentity'}
             Assert-AiwExactFields $entry $entryFields 'LOCAL_CANDIDATE_PILOT_PROJECTION_OBJECT'
             if(-not$projectionSeen.Add($relative)-or([string]$entry.identity-cne'MISSING'-and[string]$entry.identity-cnotmatch'^\d+\|[A-F0-9]{64}$')){throw 'LOCAL_CANDIDATE_PILOT_BINDING_DRIFT'}
             $projection=[ordered]@{relative=$relative;identity=[string]$entry.identity}
@@ -289,20 +296,20 @@ function Get-AiwLocalCandidatePilotBinding {
             }
             $projectionRecords.Add([pscustomobject]$projection)
         }
-        if([int]$state.schemaVersion-in@(4,5)-and-not$projectionSeen.Contains('.ai-workspace/BOOTSTRAP.md')){throw 'LOCAL_CANDIDATE_PILOT_BOOTSTRAP_BINDING_REQUIRED'}
+        if([int]$state.schemaVersion-in@(4,5,6)-and-not$projectionSeen.Contains('.ai-workspace/BOOTSTRAP.md')){throw 'LOCAL_CANDIDATE_PILOT_BOOTSTRAP_BINDING_REQUIRED'}
         foreach($relative in $objectSeen){if(-not$projectionSeen.Contains($relative)){throw ('LOCAL_CANDIDATE_PILOT_PROJECTION_OBJECT_MISSING|'+$relative)}}
         $projectProjection=@($projectionRecords|Where-Object{[string]$_.relative-ceq'.ai-workspace/project.json'});$taskProjection=@($projectionRecords|Where-Object{[string]$_.relative-ceq$taskRelative})
         if($projectProjection.Count-ne1-or$taskProjection.Count-ne1-or[string]$projectProjection[0].identity-cnotmatch'^\d+\|[A-F0-9]{64}$'-or[string]$taskProjection[0].identity-cnotmatch'^\d+\|[A-F0-9]{64}$'-or[string]$projectionRecords[-1].relative-cne$taskRelative){throw 'LOCAL_CANDIDATE_PILOT_BINDING_DRIFT'}
     }
     foreach($entry in @($projectionRecords|Where-Object{[string]$_.relative-cne$taskRelative})){
         $relative=[string]$entry.relative;$expected=[string]$entry.identity;$full=[IO.Path]::GetFullPath((Join-Path $ProjectRoot $relative))
-        if([int]$state.schemaVersion-in@(4,5)-and$relative-in@('.ai-workspace/BOOTSTRAP.md','.ai-workspace/process-policy.json','.ai-workspace/corrections.json')){
+        if([int]$state.schemaVersion-in@(4,5,6)-and$relative-in@('.ai-workspace/BOOTSTRAP.md','.ai-workspace/process-policy.json','.ai-workspace/corrections.json')){
             $resolved=Resolve-AiwChildFile $ProjectRoot $relative 'LOCAL_CANDIDATE_PILOT_PROJECTION'
             if($relative-ceq'.ai-workspace/BOOTSTRAP.md'-and(Get-AiwProjectCustomRegion $resolved).ManagedIdentity-cne[string]$entry.managedIdentity){throw ('LOCAL_CANDIDATE_PILOT_PROJECTION_DRIFT|'+$relative)}
             # 项目规则由当前 composer 严格校验并绑定当前身份，不被历史安装快照永久冻结。
             continue
         }
-        if([int]$state.schemaVersion-in@(4,5)-and$relative-ceq'AGENTS.md'-and$null-ne$entry.PSObject.Properties['managedIdentity']){
+        if([int]$state.schemaVersion-in@(4,5,6)-and$relative-ceq'AGENTS.md'-and$null-ne$entry.PSObject.Properties['managedIdentity']){
             $resolved=Resolve-AiwChildFile $ProjectRoot $relative 'LOCAL_CANDIDATE_PILOT_PROJECTION'
             if((Get-AiwAgentsManagedBlockIdentity $resolved)-cne[string]$entry.managedIdentity){throw ('LOCAL_CANDIDATE_PILOT_PROJECTION_DRIFT|'+$relative)}
             continue
@@ -318,8 +325,8 @@ function Get-AiwLocalCandidatePilotBinding {
         Identity=$stateDoc.Identity
         Canonical=$facts.Canonical
         SchemaVersion=[int]$state.schemaVersion
-        TransactionComplete=$(if([int]$state.schemaVersion-in@(4,5)){[bool]$state.transactionComplete}else{$false})
-        ProjectionMode=$(if([int]$state.schemaVersion-in@(3,4,5)){[string]$state.projectionMode}else{'LEGACY'})
+        TransactionComplete=$(if([int]$state.schemaVersion-in@(4,5,6)){[bool]$state.transactionComplete}else{$false})
+        ProjectionMode=$(if([int]$state.schemaVersion-in@(3,4,5,6)){[string]$state.projectionMode}else{'LEGACY'})
     }
 }
 
@@ -344,7 +351,7 @@ function Get-AiwLocalCandidateSupportBinding {
     $manifestDoc=Read-AiwStrictJson (Resolve-AiwChildFile $VersionDirectory 'RELEASE_MANIFEST.json' 'RELEASE_MANIFEST') 'RELEASE_MANIFEST'
     $binding=Get-AiwLocalCandidatePilotBinding -ProjectRoot $project -ProjectId ([string]$config.id) -VersionDirectory $VersionDirectory -Version $Version -VersionObject $versionDoc.Value -ManifestDoc $manifestDoc
     if([string]$binding.Identity-cne$ExpectedCandidatePilotStateIdentity){throw 'LOCAL_CANDIDATE_PILOT_STATE_DRIFT'}
-    if([int]$binding.SchemaVersion-notin@(4,5)-or-not[bool]$binding.TransactionComplete-or[string]$binding.ProjectionMode-cne'LOCAL_CANDIDATE_MANAGED'){throw 'LOCAL_CANDIDATE_SUPPORT_COMPLETION_REQUIRED'}
+    if([int]$binding.SchemaVersion-notin@(4,5,6)-or-not[bool]$binding.TransactionComplete-or[string]$binding.ProjectionMode-cne'LOCAL_CANDIDATE_MANAGED'){throw 'LOCAL_CANDIDATE_SUPPORT_COMPLETION_REQUIRED'}
     return [pscustomobject]@{
         lifecycle='CANDIDATE'
         evidenceCeiling='LOCAL_CANDIDATE_PILOT'
@@ -428,6 +435,14 @@ function Get-AiwProcessBindingSnapshot {
     }
     $configPath=Resolve-AiwChildFile $project '.ai-workspace/project.json' 'PROJECT_CONFIG'
     $configDoc=Read-AiwStrictJson $configPath 'PROJECT_CONFIG';$config=$configDoc.Value
+    $runtimeStateModule=Join-Path $framework 'scripts/ProjectAdoptionState.psm1'
+    if(Test-Path -LiteralPath $runtimeStateModule -PathType Leaf){
+        Import-Module $runtimeStateModule -ErrorAction Stop
+        if($null-ne(Get-Command Get-AiwAdoptedDistributionBinding -ErrorAction SilentlyContinue)){
+            $adopted=Get-AiwAdoptedDistributionBinding $project $TargetVersion
+            if($null-ne$adopted){$null=Assert-AiwDistributionBinding $adopted $framework $TargetVersion}
+        }
+    }
     $versionDirectory=Join-Path $framework ('framework/versions/'+$TargetVersion)
     $versionPath=Resolve-AiwChildFile $framework ('framework/versions/'+$TargetVersion+'/VERSION.json') 'FRAMEWORK_VERSION'
     $manifestPath=Resolve-AiwChildFile $framework ('framework/versions/'+$TargetVersion+'/RELEASE_MANIFEST.json') 'RELEASE_MANIFEST'
@@ -460,7 +475,7 @@ function Get-AiwProcessBindingSnapshot {
         controllerIdentity=$(if($null-eq$controllerPath){'MISSING'}else{Get-AiwFileIdentity $controllerPath})
         correctionsIdentity=$(if($null-eq$correctionsPath){'MISSING'}else{Get-AiwFileIdentity $correctionsPath})
         policyIdentity=$policyIdentity
-        projectCustomIdentity=$custom.Identity
+        bootstrapManagedIdentity=$custom.ManagedIdentity;projectCustomIdentity=$custom.Identity
         projectStandardsIdentity=$projectStandardsIdentity
         taskIdentity=$(if($null-eq$taskPath){'NOT_APPLICABLE'}else{Get-AiwFileIdentity $taskPath})
         frameworkVersionIdentity=Get-AiwFileIdentity $versionPath
@@ -950,7 +965,7 @@ function Invoke-ProcessRequirementComposition {
     if([bool]$projectStandards.Drift){$evidenceCeilings+='PROJECT_STANDARD_SOURCE_DRIFT_CONSERVATIVE_LOAD'}
     return [pscustomobject]@{
         status=$(if($candidateEvaluation){'EVALUATION_ONLY'}else{'PASS'}); projectId=$projectId; targetVersion=$TargetVersion; sourceCompositionIdentity=$sourceKey
-        projectConfigIdentity=$configDoc.Identity; controllerIdentity=$controllerIdentity; correctionsIdentity=$correctionsIdentity; policyIdentity=$policyIdentity; projectCustomIdentity=$custom.Identity; projectStandardsIdentity=$projectStandards.Identity
+        projectConfigIdentity=$configDoc.Identity; controllerIdentity=$controllerIdentity; correctionsIdentity=$correctionsIdentity; policyIdentity=$policyIdentity; bootstrapManagedIdentity=$custom.ManagedIdentity;projectCustomIdentity=$custom.Identity; projectStandardsIdentity=$projectStandards.Identity
         frameworkVersionIdentity=$versionDoc.Identity; releaseManifestIdentity=$releaseManifestIdentity; nativeCatalogIdentity=$catalogDoc.Identity; correctionCoverageIdentity=$coverageIdentity
         candidatePilotStateIdentity=$candidatePilotStateIdentity
         coverageStatus=$coverageStatus; incorporated=@($legacyIncorporated); stillEffective=@($legacyEffective); conflicts=@($legacyConflicts)
@@ -959,4 +974,4 @@ function Invoke-ProcessRequirementComposition {
     }
 }
 
-Export-ModuleMember -Function Invoke-ProcessRequirementComposition,Get-AiwCanonicalCorrectionRecordIdentityV1,Get-AiwCanonicalCorrectionRecordIdentityV2,Get-AiwFileIdentity,Get-AiwProcessBindingSnapshot,Get-AiwProjectPolicySourceClosure,Get-AiwLocalCandidateSupportBinding
+Export-ModuleMember -Function Get-AiwProjectCustomRegion,Invoke-ProcessRequirementComposition,Get-AiwCanonicalCorrectionRecordIdentityV1,Get-AiwCanonicalCorrectionRecordIdentityV2,Get-AiwFileIdentity,Get-AiwProcessBindingSnapshot,Get-AiwProjectPolicySourceClosure,Get-AiwLocalCandidateSupportBinding

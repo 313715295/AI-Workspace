@@ -15,9 +15,10 @@ Recovery 只证明 authority 与 current facts；它不授予 write、test、Rev
 8. selected rule 或 intended action 要求时，用当前 version 的 safe-Git helper 重新证明 protected paths 与真实 Git state。
 9. 报告 unique next action、writer/reviewer/authorization state 与 evidence ceiling。
 
-project pin 是唯一 Framework-version authority。root HEAD、tag、network state 或其他项目 pin 都不是 fallback。`controller.json` 是当前 Controller ID/epoch 的唯一字面真相；历史 literal ID 只用于 audit。
+project pin 是唯一版本 authority；root HEAD/tag/network/其他项目 pin 均非 fallback。命名包另由既有 adoption state 的 distributionId/contentIdentity/manifestIdentity/runtimeRoot 固定完整来源；漂移或事务未完拒绝运行，按原授权恢复，不转回开发根。controller.json 唯一确定当前 Controller ID/epoch，历史 literal 只作 audit。
 
-普通 pin 不是 sealed stable release 时返回最窄 blocker。唯一例外是已经通过 root `-LocalCandidatePilot` 完成的一次性准入：后续 recovery 只复核 `LOCAL_PILOT` 绑定与候选快照未漂移，不重跑完整测试、Source Review 或旧 schema3 授权，也不要求 current task 保持升级时的 postimage。候选快照或试点绑定不一致时仍 fail closed。schema4 以既有 recovery state 的 `transactionComplete=true` 作为原升级事务的完成证明；false 表示必须先由 root upgrader 按原授权续完。完成后的 runtime 不读取历史升级任务路径，该任务可正常更新、归档；当前任务仍独立受 DISCOVER/边界身份校验。
+普通 pin 非 sealed stable 则阻断。已完成 root -LocalCandidatePilot 准入后，仅复核 LOCAL_PILOT 与当前 candidate 快照，不重跑完整测试、Source Review 或旧 schema3 授权。schema4+ 的 transactionComplete=true 证明完成，false 须原授权续完；快照或绑定漂移拒绝。完成态不读取历史升级任务，允许其更新/归档；当前 task 仍由 DISCOVER 独立校验。
+
 <!-- AIW-REQUIREMENT:PR_RECOVERY_CURRENT_AUTHORITY:END -->
 
 <!-- AIW-REQUIREMENT:PR_PROCESS_REQUIREMENTS_PROGRESSIVE_BOUNDARIES:BEGIN -->

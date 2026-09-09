@@ -182,6 +182,16 @@ try {
     Assert-Rejected { & $builder -WorkspaceRoot $packageWorkspace -FrameworkVersion '1.16.0' -OutputPath $snapshotZip -Provisional -Distribution snapshot.7 -Apply -Confirm:$false } 'PACKAGE_OUTPUT_EXISTS' 'named-snapshot-overwrite-rejected'
     [IO.Compression.ZipFile]::ExtractToDirectory($snapshotZip, $snapshotExtract)
     $snapshotManifest = Get-Content -LiteralPath (Join-Path $snapshotExtract 'PACKAGE_MANIFEST.json') -Raw | ConvertFrom-Json
+    Import-Module (Join-Path $snapshotExtract 'scripts/ProjectAdoptionState.psm1') -Force
+    $binding=Get-AiwDistributionBinding $snapshotExtract '1.16.0' -Required
+    Assert-True ($binding.distributionId-ceq'1.16.0-snapshot.7'-and$binding.runtimeRoot-ceq[IO.Path]::GetFullPath($snapshotExtract)) 'distribution-binds-exact-content-and-runtime'
+    $null=Assert-AiwDistributionBinding $binding $snapshotExtract '1.16.0'
+    Assert-Rejected {Assert-AiwDistributionBinding $binding $packageWorkspace '1.16.0'} 'DISTRIBUTION_RUNTIME_ROOT_DRIFT' 'development-root-cannot-replace-fixed-runtime'
+    $runtimeReadme=Join-Path $snapshotExtract 'README.md';$runtimeReadmeBytes=[IO.File]::ReadAllBytes($runtimeReadme)
+    [IO.File]::AppendAllText($runtimeReadme,'tampered')
+    Assert-Rejected {Assert-AiwDistributionBinding $binding $snapshotExtract '1.16.0'} 'DISTRIBUTION_CONTENT_DRIFT|README.md' 'fixed-runtime-content-drift-rejected'
+    [IO.File]::WriteAllBytes($runtimeReadme,$runtimeReadmeBytes)
+    $null=Assert-AiwDistributionBinding $binding $snapshotExtract '1.16.0'
     $snapshotReadme = [IO.File]::ReadAllText((Join-Path $snapshotExtract 'README.md'))
     Assert-True ($snapshotManifest.schemaVersion -eq 2 -and $snapshotManifest.distributionId -ceq '1.16.0-snapshot.7' -and $snapshotManifest.frameworkVersion -ceq '1.16.0' -and $snapshotManifest.provisional -and $snapshotReadme.Contains('# AI Workspace 1.16.0-snapshot.7 用户发行包') -and $snapshotReadme.Contains('仍不可普通注册或采用')) 'snapshot-manifest-readme-and-eligibility-agree'
     Assert-True ($snapshotReadme.Contains('项目标准由用户选择保存位置') -and $snapshotReadme.Contains('提取规则、精炼或改造文档均为可选') -and $snapshotReadme.Contains('scripts/register-project.ps1') -and $snapshotReadme.Contains('.ai-workspace/BOOTSTRAP.md')) 'user-entry-preserves-standard-choice-and-registration-to-bootstrap-route'
@@ -250,7 +260,8 @@ try {
         }
     }
     Assert-True $allLinksResolve 'package-root-relative-links-resolve'
-    Assert-True (@($manifest.files).Count -eq 86) 'package-fixed-distribution-file-count'
+    $payloadCount=@(Get-ChildItem -LiteralPath (Join-Path $packageWorkspace 'framework/versions/1.16.0') -Recurse -File).Count
+    Assert-True (@($manifest.files).Count -eq ($payloadCount+10)) 'package-complete-version-plus-ten-root-files'
 
     $null = New-Item -ItemType Directory -Path $candidateConsumer
     & git -C $candidateConsumer init -q

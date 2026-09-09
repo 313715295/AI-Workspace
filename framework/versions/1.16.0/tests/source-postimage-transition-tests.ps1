@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param()
+param([string]$LegacyResolverPath)
 
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
@@ -103,6 +103,106 @@ try{
   Assert-True ($budgetRun.Code-ne0-and$budgetRun.Text.Contains('SOURCE_POSTIMAGE_SELECTED_RULE_PACK_BUDGET_EXCEEDED')) 'invalid-new-policy-budget-rejected'
   $policy.selectedRulePackBytes=90000;Write-Json $policyPath $policy
 
+  $policy.rules=@();Write-Json $policyPath $policy
+  $bootstrapPath=Join-Path $control 'BOOTSTRAP.md'
+  $bootstrapBefore=Get-Content -LiteralPath $bootstrapPath -Raw
+  Write-Utf8 $bootstrapPath ('Managed entry'+[char]10+'<!-- PROJECT-CUSTOM:BEGIN -->'+[char]10+'Preserve project review evidence.'+[char]10+'<!-- PROJECT-CUSTOM:END -->')
+  $customBefore=[IO.File]::ReadAllBytes($bootstrapPath);$policyBefore=[IO.File]::ReadAllBytes($policyPath)
+  $customScopePackage=New-Package 'policy-only-custom-drift' $policyPaths
+  $customScopeAction=Start-Action 'policy-only-custom-drift' $policyPaths $customScopePackage
+  $customReceipt=Get-Content -LiteralPath $customScopeAction.ReceiptPath -Raw|ConvertFrom-Json
+  Assert-True ($customScopeAction.Discover.Code-eq0-and$customScopeAction.Admit.Code-eq0-and$null-ne$customReceipt.sourceBindings.PSObject.Properties['bootstrapManagedIdentity']-and'.ai-workspace/BOOTSTRAP.md'-cnotin@($customReceipt.binding.exactScope)) 'R1-policy-only-real-admission-has-new-managed-binding'
+  $policy.selectedRulePackBytes=89000;Write-Json $policyPath $policy
+  Write-Utf8 $bootstrapPath ('Managed entry'+[char]10+'<!-- PROJECT-CUSTOM:BEGIN -->'+[char]10+'Preserve changed project review evidence.'+[char]10+'<!-- PROJECT-CUSTOM:END -->')
+  $customDriftIdentity=Get-Identity $bootstrapPath;$policyDriftIdentity=Get-Identity $policyPath
+  $customScopeFinal=Invoke-Finalize $customScopeAction (@($customScopeAction.Results)+(Get-Postimages $policyPaths))
+  Assert-True ($customScopeFinal.Code-ne0-and$customScopeFinal.Text.Contains('SOURCE_POSTIMAGE_PATH_NOT_AUTHORIZED|projectCustomIdentity')-and(Get-Identity $bootstrapPath)-ceq$customDriftIdentity-and(Get-Identity $policyPath)-ceq$policyDriftIdentity) 'R1-package-external-custom-drift-rejected-without-live-mutation'
+  [IO.File]::WriteAllBytes($bootstrapPath,$customBefore);[IO.File]::WriteAllBytes($policyPath,$policyBefore)
+  $policy=Get-Content -LiteralPath $policyPath -Raw|ConvertFrom-Json
+  $migrationPaths=@('.ai-workspace/BOOTSTRAP.md','.ai-workspace/process-policy.json')
+  $migrationPackage=New-Package 'bootstrap-policy-migration' $migrationPaths
+  $migrationAction=Start-Action 'bootstrap-policy-migration' $migrationPaths $migrationPackage
+  Assert-True ($migrationAction.Discover.Code-eq0-and$migrationAction.Admit.Code-eq0) ('bootstrap-policy-original-action-admitted|'+$(if($migrationAction.Discover.Code-ne0){$migrationAction.Discover.Text}else{$migrationAction.Admit.Text}))
+  $migratedBootstrap='Managed entry'+[char]10+'<!-- PROJECT-CUSTOM:BEGIN -->'+[char]10+'<!-- PROJECT-CUSTOM:END -->'
+  Write-Utf8 $bootstrapPath $migratedBootstrap
+  $migratedRule=[ordered]@{ruleId='PERMANENT_REVIEW_EVIDENCE';requirementReason='Preserve the former Bootstrap rule';effectiveRule='Preserve project review evidence.';selectors=[ordered]@{profiles=@();roles=@();phases=@();actionKinds=@();resultKinds=@();pathPrefixes=@();capabilities=@();semanticTerms=@()};preparationRequirements=@();resultRequirements=@();decisionLocator='fixture:explicit-rule-migration'}
+  $policy.rules=@($policy.rules)+@($migratedRule);Write-Json $policyPath $policy
+  $migrationFinal=Invoke-Finalize $migrationAction (@($migrationAction.Results)+(Get-Postimages $migrationPaths))
+  Assert-True ($migrationFinal.Code-eq0-and'projectCustomIdentity'-cin@($migrationFinal.Value.sourcePostimageTransition.changedBindings)) 'bootstrap-to-policy-original-finalize-succeeds'
+  # Reusing the original admission must not mask a third-party managed-region edit.
+  Write-Utf8 $bootstrapPath ('Changed managed entry'+[char]10+$migratedBootstrap)
+  $managedDrift=Invoke-Finalize $migrationAction (@($migrationAction.Results)+(Get-Postimages $migrationPaths))
+  Assert-True ($managedDrift.Code-ne0-and$managedDrift.Text.Contains('bootstrapManagedIdentity')) 'bootstrap-managed-third-party-drift-rejected'
+  Write-Utf8 $bootstrapPath $migratedBootstrap
+
+  # Recover an already-admitted action after one live source write, with no
+  # historical transaction record. The recovery record is created now.
+  $recoveryRuntime=Join-Path $control 'runtime/SOURCE-POSTIMAGE-001/executor-fixture/recovery-material'
+  New-Item -ItemType Directory -Path $recoveryRuntime -Force|Out-Null
+  $policy.rules=@();Write-Json $policyPath $policy
+  $recoveryBootstrap='Managed entry'+[char]10+'<!-- PROJECT-CUSTOM:BEGIN -->'+[char]10+'Keep deployment evidence.'+[char]10+'<!-- PROJECT-CUSTOM:END -->'
+  Write-Utf8 $bootstrapPath $recoveryBootstrap
+  $oldBootstrap=Join-Path $recoveryRuntime 'bootstrap-old.md';$newBootstrap=Join-Path $recoveryRuntime 'bootstrap-new.md'
+  $oldPolicy=Join-Path $recoveryRuntime 'policy-old.json';$newPolicy=Join-Path $recoveryRuntime 'policy-new.json'
+  [IO.File]::Copy($bootstrapPath,$oldBootstrap);[IO.File]::Copy($policyPath,$oldPolicy)
+  Write-Utf8 $newBootstrap $migratedBootstrap
+  $nextPolicy=Get-Content -LiteralPath $policyPath -Raw|ConvertFrom-Json -Depth 100
+  $nextRule=$migratedRule|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100
+  $nextRule.ruleId='DEPLOYMENT_EVIDENCE';$nextRule.effectiveRule='Keep deployment evidence.'
+  $nextPolicy.rules=@($nextPolicy.rules)+@($nextRule);Write-Json $newPolicy $nextPolicy
+  $currentResolver=$resolver
+  if($LegacyResolverPath){$resolver=$LegacyResolverPath}
+  $recoveryPackage=New-Package 'historical-rule-action' $migrationPaths
+  $recoveryAction=Start-Action 'historical-rule-action' $migrationPaths $recoveryPackage
+  $resolver=$currentResolver
+  Assert-True ($recoveryAction.Discover.Code-eq0-and$recoveryAction.Admit.Code-eq0) 'historical-rule-action-really-admitted'
+  $historicalReceipt=Join-Path $recoveryRuntime 'original-receipt.json';[IO.File]::Copy($receiptPath,$historicalReceipt)
+  $historicalAdmitInput=Join-Path $recoveryRuntime 'original-admit-input.json'
+  $savedAdmit=Get-Content -LiteralPath $boundaryPath -Raw|ConvertFrom-Json -Depth 100
+  # The admission decision binds receipt identity, not its storage locator.
+  $savedAdmit.discoverReceiptPath=$historicalReceipt;Write-Json $historicalAdmitInput $savedAdmit
+  $historicalAdmitResult=Join-Path $recoveryRuntime 'original-admit-result.json';Write-Json $historicalAdmitResult $recoveryAction.Admit.Value
+  $recoveryPlanPath=Join-Path $recoveryRuntime 'recovery-plan.json'
+  $recoveryPlan=[ordered]@{schemaVersion=1;discoverReceiptPath=$historicalReceipt;discoverReceiptIdentity=Get-Identity $historicalReceipt;admitInputPath=$historicalAdmitInput;admitInputIdentity=Get-Identity $historicalAdmitInput;admitResultPath=$historicalAdmitResult;admitResultIdentity=Get-Identity $historicalAdmitResult;objects=@(
+    [ordered]@{path='.ai-workspace/BOOTSTRAP.md';preimagePath=$oldBootstrap;preimageIdentity=Get-Identity $oldBootstrap;postimagePath=$newBootstrap;postimageIdentity=Get-Identity $newBootstrap},
+    [ordered]@{path='.ai-workspace/process-policy.json';preimagePath=$oldPolicy;preimageIdentity=Get-Identity $oldPolicy;postimagePath=$newPolicy;postimageIdentity=Get-Identity $newPolicy}
+  );preparationReceipts=@($recoveryAction.Prep);resultReceipts=@($recoveryAction.Results);transactionRelativePath='.ai-workspace/upgrade-recovery/project-rules/SOURCE-POSTIMAGE-001/recovery/state.json'}
+  Write-Json $recoveryPlanPath $recoveryPlan
+  [IO.File]::Copy($newPolicy,$policyPath,$true)
+  Import-Module (Join-Path $sourceFrameworkRoot 'scripts/ProjectAdoptionTransaction.psm1') -Force
+  $beforeRecoveryPolicy=Get-Identity $policyPath
+  $preview=Invoke-AiwProjectRuleActionRecovery -RepositoryRoot $project -PlanPath $recoveryPlanPath -ExpectedPlanIdentity (Get-Identity $recoveryPlanPath) -ObservedActor 'executor-fixture'
+  Assert-True ($preview.status-ceq'WHAT_IF'-and(Get-Identity $policyPath)-ceq$beforeRecoveryPolicy) 'authorized-mixed-state-recovery-preview-zero-write'
+  $reason=''
+  try{$null=Invoke-AiwProjectRuleActionRecovery -RepositoryRoot $project -PlanPath $recoveryPlanPath -ExpectedPlanIdentity (Get-Identity $recoveryPlanPath) -ObservedActor 'wrong-actor' -Apply}catch{$reason=$_.Exception.Message}
+  Assert-True ($reason.Contains('RULE_RECOVERY_CONTEXT')-and(Get-Identity $policyPath)-ceq$beforeRecoveryPolicy) 'recovery-wrong-actor-rejected-before-write'
+  $realAdmit=[IO.File]::ReadAllBytes($historicalAdmitResult)
+  $fakeAdmit=Get-Content -LiteralPath $historicalAdmitResult -Raw|ConvertFrom-Json
+  $fakeAdmit.decisionIdentity='F'*64;Write-Json $historicalAdmitResult $fakeAdmit
+  $recoveryPlan.admitResultIdentity=Get-Identity $historicalAdmitResult;Write-Json $recoveryPlanPath $recoveryPlan
+  $reason='';try{$null=Invoke-AiwProjectRuleActionRecovery -RepositoryRoot $project -PlanPath $recoveryPlanPath -ExpectedPlanIdentity (Get-Identity $recoveryPlanPath) -ObservedActor 'executor-fixture' -Apply}catch{$reason=$_.Exception.Message}
+  Assert-True ($reason.Contains('RULE_RECOVERY_ORIGINAL_ADMISSION_DECISION')-and(Get-Identity $policyPath)-ceq$beforeRecoveryPolicy) 'recovery-rejects-forged-original-admission'
+  [IO.File]::WriteAllBytes($historicalAdmitResult,$realAdmit)
+  $recoveryPlan.admitResultIdentity=Get-Identity $historicalAdmitResult;Write-Json $recoveryPlanPath $recoveryPlan
+  $interrupted=Invoke-AiwProjectRuleActionRecovery -RepositoryRoot $project -PlanPath $recoveryPlanPath -ExpectedPlanIdentity (Get-Identity $recoveryPlanPath) -ObservedActor 'executor-fixture' -Apply -InterruptAfterWrite 1
+  Assert-True ($interrupted.status-ceq'INTERRUPTED') 'rule-recovery-interruption-has-real-new-transaction'
+  $recovered=Invoke-AiwProjectRuleActionRecovery -RepositoryRoot $project -PlanPath $recoveryPlanPath -ExpectedPlanIdentity (Get-Identity $recoveryPlanPath) -ObservedActor 'executor-fixture' -Apply
+  Assert-True ($recovered.status-ceq'COMPLETED'-and$recovered.originalActionFinalized-and(Get-Identity $policyPath)-ceq(Get-Identity $newPolicy)) 'authorized-mixed-state-original-action-finalized'
+  $savedPolicyBytes=[IO.File]::ReadAllBytes($policyPath);Write-Utf8 $policyPath 'unknown third-party data'
+  $thirdPartyReason=''
+  try{Invoke-AiwProjectRuleActionRecovery -RepositoryRoot $project -PlanPath $recoveryPlanPath -ExpectedPlanIdentity (Get-Identity $recoveryPlanPath) -ObservedActor 'executor-fixture' -Apply|Out-Null}catch{$thirdPartyReason=$_.Exception.Message}
+  Assert-True ($thirdPartyReason.Contains('RULE_RECOVERY_THIRD_PARTY_OBJECT')-and[IO.File]::ReadAllText($policyPath).Contains('unknown third-party data')) 'recovery-rejects-unknown-mixed-state-without-write'
+  [IO.File]::WriteAllBytes($policyPath,$savedPolicyBytes)
+  $gitConfig=Get-Content -LiteralPath $projectPath -Raw|ConvertFrom-Json
+  $gitConfig.routineExcludedPaths=@('private/blocked.bin');Write-Json $projectPath $gitConfig
+  $docRelative='notes Unicode 文档.md';$docPath=Join-Path $project $docRelative
+  Write-Utf8 $docPath ('Context private/blocked.bin'+[char]10+'Old private/blocked.bin')
+  & git -C $project add -- $docRelative
+  & git -C $project -c user.name=Fixture -c user.email=fixture@example.invalid commit -qm 'fixture'
+  Write-Utf8 $docPath ('Context private/blocked.bin'+[char]10+'New private/blocked.bin')
+  $safeGit=Join-Path $versionRoot 'scripts/invoke-protected-safe-git.ps1'
+  $safeOutput=@(& $safeGit -ProjectRoot $project -Operation DIFF -AllowPath @($docRelative) -ExpectedProjectConfigIdentity (Get-Identity $projectPath) 2>&1)
+  Assert-True ($LASTEXITCODE-eq0-and(($safeOutput-join[char]10)|ConvertFrom-Json).status-ceq'VERIFIED') 'safe-git-context-added-deleted-path-mentions-unicode-space-allowed'
   $retroPackage=New-Package 'retroactive-authority' $policyPaths @('TEST_RUN');$retroAction=Start-Action 'retroactive-authority' $policyPaths $retroPackage 'CONTROL_WRITE'
   Assert-True ($retroAction.Discover.Code-ne0-and$retroAction.Discover.Text.Contains('ACTION_NOT_GRANTED')) 'new-rules-cannot-retroactively-authorize-old-action'
 }finally{

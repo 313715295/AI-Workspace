@@ -7,7 +7,7 @@ Project ID=`{{PROJECT_ID}}`；repo-local control plane=`.ai-workspace/`；pinned
 
 1. 严格读取 `.ai-workspace/project.json`：要求 schema4、repo-local、`repositoryRoot=..`、expected project ID/pin、`frameworkToolBackend=powershell7`、array `routineExcludedPaths`、closed `frameworkCapabilities` 与 exact process-policy locator。
 2. 严格读取 `.ai-workspace/controller.json`：project ID 相同、controller ID 非空、epoch integer >= 1、`state=CURRENT`。
-3. 在 mounted workspace 中唯一定位同时含 `README.md` 与 `framework/versions/{{FRAMEWORK_VERSION}}/RECOVERY_CORE.md` 的 AI-Workspace。零个或多个候选都 fail closed。
+3. 先从原采用记录定位已绑定的固定 runtimeRoot 并验证 distribution/content/manifest 身份；有绑定时只使用该目录。尚无固定包绑定的旧项目，才在 mounted workspace 中唯一定位包含所选版本的 AI-Workspace；零个或多个候选均 fail closed。显式升级完成后退出该旧定位方式。
 4. 普通采用的 pinned stable version 必须完整且 canonical sealed。若项目由 root `-LocalCandidatePilot` 显式进入本地候选试点，则只接受 `.ai-workspace/upgrade-recovery/<version>/state.json` 绑定的 exact candidate canonical 与 manifest identity；后续 recovery 不重跑准入时的完整测试、Source Review 或 schema3 授权，也不把升级时 task postimage 当长期条件。两种模式都严格读取 exact `TOOLCHAIN.json`，要求 backend、当前 platform 与 `pwsh` Core >= 7，并只从 exact manifest entrypoint 解析；不得从其他 version/tag/HEAD/network repair。
 5. 严格校验 `.ai-workspace/corrections.json` 与 `.ai-workspace/process-policy.json`。policy 必须含 `selectedRulePackBytes`，范围 `1..98304`；两者保持独立 project authority。标准正文只从 policy 明确绑定的项目内相对文件或本机绝对文件读取；外部文件仍由使用者维护，读取不授予修改权限。
 6. root `.gitignore` 必须有且只有一个等价 `/.ai-workspace/runtime/` exclusion，不能有对应 negation。完整 repo-local plane 是唯一 live project authority；partial、reparse、identity conflict 或 unknown control bytes fail closed。

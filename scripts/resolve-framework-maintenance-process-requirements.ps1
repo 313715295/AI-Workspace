@@ -100,9 +100,15 @@ try {
     $resolvedOutput = @(& $resolver -ControlRepositoryPath $projectRoot -ExpectedProjectConfigIdentity $projectConfigIdentity -AsJson 2>&1 | ForEach-Object { [string]$_ });$resolvedCode=$LASTEXITCODE
     if ($resolvedCode -ne 0 -or $resolvedOutput.Count -ne 1) { throw ('MAINTENANCE_TARGET_RESOLUTION_FAILED|' + ($resolvedOutput -join ';')) }
     $resolved = $resolvedOutput[0] | ConvertFrom-Json -Depth 30
+    if($null-eq$resolved.PSObject.Properties['runtimeRoot']){
+        Import-Module (Join-Path $PSScriptRoot 'ProjectAdoptionState.psm1') -ErrorAction Stop
+        if($null-ne(Get-AiwAdoptedDistributionBinding ([string]$resolved.controlRoot) ([string]$resolved.frameworkVersion))){throw 'FIXED_RUNTIME_ADAPTER_REQUIRED'}
+        # Old health source has no fixed-runtime carrier; keep its verified target.
+        $resolved|Add-Member -NotePropertyName runtimeRoot -NotePropertyValue ([string]$resolved.targetRoot)
+    }
     $controlRoot = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Resolve-Path -LiteralPath $projectRoot)))
     $inputFramework = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Resolve-Path -LiteralPath $frameworkRoot)))
-    if ($controlRoot -cne [string]$resolved.controlRoot -or $inputFramework -cne [string]$resolved.targetRoot) { throw 'MAINTENANCE_PROCESS_ROOT_DRIFT' }
+    if ($controlRoot -cne [string]$resolved.controlRoot -or $inputFramework -cne [string]$resolved.runtimeRoot) { throw 'MAINTENANCE_PROCESS_ROOT_DRIFT' }
     if ($null -ne $receipt -and [int64]$receipt.schemaVersion -eq 2) {
         $boundRoot = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Resolve-Path -LiteralPath ([string]$receipt.binding.projectRoot))))
         if ($boundRoot -cnotin @([string]$resolved.controlRoot,[string]$resolved.targetRoot)) { throw 'MAINTENANCE_RECEIPT_PROJECT_ROOT_DRIFT' }
@@ -129,7 +135,7 @@ try {
         if ([string]$result.status -cne 'PASS') { exit 3 }
         exit 0
     }
-    $entry = Join-Path ([string]$resolved.targetRoot) ('framework\versions\' + [string]$resolved.frameworkVersion + '\scripts\resolve-process-requirements.ps1')
+    $entry = Join-Path ([string]$resolved.runtimeRoot) ('framework\versions\' + [string]$resolved.frameworkVersion + '\scripts\resolve-process-requirements.ps1')
     if (-not (Test-Path -LiteralPath $entry -PathType Leaf)) { throw 'PROCESS_REQUIREMENTS_RESOLVER_MISSING' }
     $authorizationAdapter = Join-Path $PSScriptRoot 'check-framework-maintenance-authorization.ps1'
     if (-not (Test-Path -LiteralPath $authorizationAdapter -PathType Leaf)) { throw 'MAINTENANCE_AUTHORIZATION_ADAPTER_MISSING' }

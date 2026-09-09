@@ -69,3 +69,15 @@ Maintenance 把已审根来源写回其 configured target 时，采用[Maintenan
 ## 试点与发布
 
 可变候选先在隔离 fixture 完成定向验证，冻结后执行一次完整集成测试和独立 Source Review。只有同一已审快照才可进入明确批准的本地项目试点。试点未完成前不封存、不发布；发布后项目仍按自己的 pin 独立采用。
+
+### 固定分发运行来源
+
+运行包位置沿用使用者指定或已授权选择的目录；接入不默认迁移、复制发行包，也不规定按项目独占或多项目共享。位置尚未确定时，在执行部署前补齐；已有有效指定或选择授权不重复确认。发布 ZIP 本身不包含消费者解压、部署或接入动作。
+
+命名分发包解压到独立目录，保留 PACKAGE_MANIFEST.json 和原文件字节。注册或显式升级将 distributionId、完整包 contentIdentity、manifestIdentity 与 runtimeRoot 写入既有 adoption state；版本 pin 仍由 project.json.frameworkVersion 决定。日常恢复从该已绑定目录加载。目录被替换、包内文件漂移或升级事务未完成时拒绝运行，不转回开发仓库 HEAD。
+
+同版本 snapshot 切换也须经过 root upgrade-project.ps1 的真实 preview、精确 schema3 preimage/postimage 授权与 Apply。旧运行目录保留到切换及恢复验证完成。若中断，使用仍健康的旧包 root upgrader、原授权与当前 transaction identity，通过 RecoverRuntimeAdoption 选择 COMPLETE 或 ROLLBACK；前者先验证目标包，后者从原事务保存的字节回滚，不执行损坏目标。既有事务关闭后不能用同一恢复入口反向切换。
+
+Maintenance 的开发 TARGET 保持 Git 源码职责；内部命名分发额外携带根适配器与维护 overlay，由 build-user-package.ps1 -InternalMaintenance 构建。普通用户包不携带这些维护专用入口。首次从旧开发来源接入固定包也使用显式 root upgrade；后续 TARGET 源码写入由固定 runtime 完成原动作 FINALIZE，不要求开发源码与运行绑定一起变化。
+
+BOOTSTRAP project-custom 迁移至 process-policy 是同一精确 CONTROL_WRITE 的来源迁移；managed 区域保持不变。若动作已实际准入后写到一半，ProjectRuleRecoveryPlanPath 指向绑定原 DISCOVER、原 ADMIT 输入/结果和两个载体原/目标字节的恢复材料。root upgrader 先复证原动作与所有 live 字节，再在恢复当下创建事务；第三方状态、缺失原准入、扩大范围均拒绝，最终仍由原 FINALIZE 收口。材料格式由 root helper 校验，不改变 compact receipt schema。
