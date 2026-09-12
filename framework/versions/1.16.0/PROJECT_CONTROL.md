@@ -94,5 +94,7 @@ effective project rules 是没有被 explicit pinned version 精确吸收的 cor
 
 coverage metadata 不是 semantic proof。release 只有在 effective requirement 已进入 load manifest 可达的 applicable normative modules、被 behavior tests 覆盖，并由 independent Review 对照 original reason/boundary 接受后，才可声明吸收 correction。不创建 correction-to-module registry 或 absorption ledger。
 
+项目内修订/拆合不是版本吸收。沿原审核与Owner接受对完整义务作原子替换，保留原完整来源身份、原因及历史定位；回滚使用兼容完整组，不用停用字段或不可能匹配的selector退役。混有项目特例的记录不能按通用部分整条抑制，须保留未被原生承担的有效义务；不引入partial状态。
+
 registration 创建一个空 corrections object。upgrade 在 pin projection 前校验并报告 incorporated、still-effective 与 conflicting records；保留 existing correction bytes 与 legacy PROJECT-CUSTOM bytes；对 customized legacy region 不自动添加 structured policy，并在 projection 后复检。采用旧版或 alternate version 时重新评估相同 records，绝不静默退役。
 <!-- AIW-REQUIREMENT:PR_CORRECTIONS_V2_COMPATIBILITY:END -->

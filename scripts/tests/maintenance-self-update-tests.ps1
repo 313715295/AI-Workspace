@@ -6,7 +6,8 @@ param(
     [string]$SeedFrameworkRoot,
     [string]$SeedTransactionPath,
     [string]$ExpectedSeedTransactionIdentity,
-    [switch]$CleanupOnly
+    [switch]$CleanupOnly,
+    [switch]$RelocationOnly
 )
 $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
 $utf8=[Text.UTF8Encoding]::new($false);$passes=0;$lf=[string][char]10
@@ -256,7 +257,7 @@ try {
     $oldState=Id (Join-Path $control ($recovery+'/state.json'))
     # Current completed seed exercises genuine no-write recovery; the optional
     # byte-bound historical seed keeps the real schema3 write/rollback regression.
-    $scenarios=if($CleanupOnly){@('normal')}elseif($SeedTransactionPath-or$expectPayloadRefresh){@('interrupt-target','failure-target','reject-refresh-schema','interrupt-refresh','normal')}else{@('interrupt-target','failure-target','noop-drift','interrupt-refresh','normal')}
+    $scenarios=if($RelocationOnly){@()}elseif($CleanupOnly){@('normal')}elseif($SeedTransactionPath-or$expectPayloadRefresh){@('interrupt-target','failure-target','reject-refresh-schema','interrupt-refresh','normal')}else{@('interrupt-target','failure-target','noop-drift','interrupt-refresh','normal')}
     foreach($scenario in $scenarios){
         $transaction=Join-Path $runtime ($scenario+'-transaction.json');$args=$common.Clone();$args.TransactionPath=$transaction;$args.Operation='PREVIEW'
         Confirm ((Json $integrator $args).status-ceq'PREVIEW') ($scenario+'-real-preview')
@@ -509,6 +510,62 @@ try {
     $boundary.resultReceipts=@($direct.discover.compactReceipt.selectedObligations|ForEach-Object{@($_.resultRequirements)}|Sort-Object -Unique)+@('OBJECT_POSTIMAGE|scripts/upgrade-project.ps1|'+(Id (Join-Path $target 'scripts/upgrade-project.ps1')))
     $bp=Join-Path $runtime 'direct-development-final.json';Write-Json $bp $boundary
     Confirm ((Json $adapter @{InputPath=$bp;AsJson=$true}).status-ceq'PASS') 'fixed-runtime-original-source-write-finalizes-without-self-update-transition'
+    # Same package, different location: retain the real original process ADMIT
+    # and use the real root upgrade transaction. Historical receipts stay intact.
+    $relocatedRuntime=Join-Path $fixtureRoot 'relocated-runtime'
+    Copy-Item -LiteralPath $fixedOne -Destination $relocatedRuntime -Recurse
+    $relocationProcessAuth=Join-Path $runtime 'relocation-process-auth.json'
+    $relocationPackage=Package @($recovery+'/state.json') $control
+    $relocationPackage.repositoryId='CONTROL';$relocationPackage.actions=@('CONTROL_WRITE')
+    Write-Json $relocationProcessAuth $relocationPackage
+    $relocationInput=Get-Content -Raw -LiteralPath (Join-Path $runtime 'direct-development-discover.json')|ConvertFrom-Json -AsHashtable
+    $relocationInput.schemaVersion=3;$relocationInput['contextType']='TASK';$relocationInput['readOnlyContext']='NOT_APPLICABLE';$relocationInput.exactPaths=@($recovery+'/state.json')
+    $relocationInput.authorizationPackagePath=$relocationProcessAuth;$relocationInput.expectedAuthorizationIdentity=Id $relocationProcessAuth
+    $relocationInput.intentEnvelope.objective='Relocate the same adopted runtime under the original admitted state-only action.'
+    $relocationInput.intentEnvelope.requestedActionKind='CONTROL_WRITE';$relocationInput.intentEnvelope.mutationHints=@('control')
+    $relocationDiscoverPath=Join-Path $runtime 'relocation-discover.json';Write-Json $relocationDiscoverPath $relocationInput
+    $relocationDiscover=Json $adapter @{InputPath=$relocationDiscoverPath;AsJson=$true}
+    $relocationReceiptPath=Join-Path $runtime 'relocation-receipt.json';Write-Json $relocationReceiptPath $relocationDiscover.compactReceipt
+    $relocationBoundary=[ordered]@{schemaVersion=2;mode='ADMIT_ACTION';discoverReceiptPath=$relocationReceiptPath;expectedDiscoverReceiptIdentity=Id $relocationReceiptPath;preparationReceipts=@($relocationDiscover.compactReceipt.selectedObligations|ForEach-Object{$_.preparationRequirements}|Sort-Object -Unique);resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='BOUND'}
+    $relocationAdmitInput=Join-Path $runtime 'relocation-admit-input.json';Write-Json $relocationAdmitInput $relocationBoundary
+    $relocationAdmit=Json $adapter @{InputPath=$relocationAdmitInput;AsJson=$true;DeleteInputOnExit=$true}
+    Confirm (-not(Test-Path -LiteralPath $relocationAdmitInput)-and$null-ne$relocationAdmit.PSObject.Properties['originalAdmissionInput']-and$relocationAdmit.originalAdmissionInput.expectedDiscoverReceiptIdentity-ceq(Id $relocationReceiptPath)) 'relocation-original-admit-cleans-input-and-retains-bound-evidence-in-result'
+    $relocationAdmitResult=Join-Path $runtime 'relocation-admit-result.json';Write-Json $relocationAdmitResult $relocationAdmit
+    Confirm ($relocationDiscover.status-ceq'PASS'-and$relocationAdmit.status-ceq'PASS') 'relocation-real-original-discover-and-admit'
+    $relocation=Runtime-Upgrade 'relocation' $relocatedRuntime
+    $relocationBoundary.mode='FINALIZE_OUTPUT'
+    $relocationBoundary.resultReceipts=@($relocationDiscover.compactReceipt.selectedObligations|ForEach-Object{$_.resultRequirements}|Sort-Object -Unique)+@('OBJECT_POSTIMAGE|'+$recovery+'/state.json|'+(Id $statePath))
+    $relocationFinalInput=Join-Path $runtime 'relocation-final-input.json';Write-Json $relocationFinalInput $relocationBoundary
+    $relocationArgs=@{InputPath=$relocationFinalInput;AsJson=$true;AdmitResultPath=$relocationAdmitResult;ExpectedAdmitResultIdentity=Id $relocationAdmitResult;AdoptionAuthorizationPackagePath=$relocation.auth;ExpectedAdoptionAuthorizationIdentity=Id $relocation.auth;ExpectedAdoptionTransactionIdentity=Id $txnPath}
+    $retained=@($relocationReceiptPath,$relocationAdmitInput,$relocationAdmitResult,$relocationProcessAuth,$relocation.auth,$txnPath,$statePath)
+    $retainedBefore=[string]::Join($lf,@($retained|ForEach-Object{$_+'='+(Id $_)}))
+    foreach($fault in @('missing-admit','admit-decision','admit-input-evidence','authorization-drift','transaction-identity','postimage','result','preparation','task-drift','correction-drift','pending-transaction','package-drift')){
+        $probe=$relocationArgs.Clone();$restorePath=$null;$restoreBytes=$null
+        if($fault-ceq'missing-admit'){$probe.Remove('AdmitResultPath')}
+        elseif($fault-ceq'transaction-identity'){$probe.ExpectedAdoptionTransactionIdentity='1|'+('0'*64)}
+        elseif($fault-in@('postimage','result','preparation')){
+            $restorePath=$relocationFinalInput;$restoreBytes=[IO.File]::ReadAllBytes($restorePath)
+            $bad=$relocationBoundary|ConvertTo-Json -Depth 100|ConvertFrom-Json -AsHashtable
+            if($fault-ceq'postimage'){$bad.resultReceipts=@($bad.resultReceipts|Where-Object{$_-cnotlike'OBJECT_POSTIMAGE|*'})}
+            elseif($fault-ceq'result'){$bad.resultReceipts=@('OBJECT_POSTIMAGE|'+$recovery+'/state.json|'+(Id $statePath))}
+            else{$bad.preparationReceipts=@()};Write-Json $restorePath $bad
+        }else{
+            $restorePath=switch($fault){'admit-decision'{$relocationAdmitResult};'admit-input-evidence'{$relocationAdmitResult};'authorization-drift'{$relocationProcessAuth};'task-drift'{$task};'correction-drift'{Join-Path $control '.ai-workspace/corrections.json'};'pending-transaction'{$txnPath};'package-drift'{Join-Path $relocatedRuntime 'README.md'}}
+            $restoreBytes=[IO.File]::ReadAllBytes($restorePath)
+            if($fault-ceq'admit-decision'){$bad=$relocationAdmit|ConvertTo-Json -Depth 100|ConvertFrom-Json;$bad.decisionIdentity='0'*64;Write-Json $restorePath $bad;$probe.ExpectedAdmitResultIdentity=Id $restorePath}
+            elseif($fault-ceq'admit-input-evidence'){$bad=$relocationAdmit|ConvertTo-Json -Depth 100|ConvertFrom-Json;$bad.originalAdmissionInput.preparationReceipts+=@('NOT_IN_ORIGINAL_DECISION');Write-Json $restorePath $bad;$probe.ExpectedAdmitResultIdentity=Id $restorePath}
+            elseif($fault-ceq'pending-transaction'){$bad=Get-Content -Raw $restorePath|ConvertFrom-Json -Depth 100;$bad.transactionComplete=$false;Write-Json $restorePath $bad;$probe.ExpectedAdoptionTransactionIdentity=Id $restorePath}
+            else{[IO.File]::WriteAllBytes($restorePath,$restoreBytes+$utf8.GetBytes($lf))}
+        }
+        try{$rejected=Run $adapter $probe -Reject;Confirm ($rejected.code-ne0-and$rejected.text.Contains('FAIL')) ('relocation-rejects-'+$fault)}
+        finally{if($restorePath){[IO.File]::WriteAllBytes($restorePath,$restoreBytes)}}
+    }
+    $relocationFinal=Json $adapter $relocationArgs
+    Confirm ($relocationFinal.status-ceq'PASS'-and$relocationFinal.reason-ceq'ORIGINAL_RUNTIME_RELOCATION_FINALIZED'-and$relocationFinal.originalAdmitDecisionIdentity-ceq$relocationAdmit.decisionIdentity-and$relocationFinal.originalDiscoverReceiptIdentity-ceq(Id $relocationReceiptPath)-and$relocationFinal.runtimeRoot-ceq$relocatedRuntime-and-not$relocationFinal.authorityGranted) 'relocation-finalizes-original-admitted-action-with-bound-package-and-transaction'
+    Confirm ([string]::Join($lf,@($retained|ForEach-Object{$_+'='+(Id $_)}))-ceq$retainedBefore) 'relocation-checks-preserve-original-evidence-live-state-and-transaction'
+    Confirm (-not(Test-Path -LiteralPath $relocationAdmitInput)) 'relocation-finalize-never-recreates-deleted-admit-input'
+    if($RelocationOnly){Write-Output ('PASS|maintenance-runtime-relocation|'+$passes+'/'+$passes);return}
+    $fixedOne=$relocatedRuntime;$adapter=Join-Path $fixedOne 'scripts/resolve-framework-maintenance-process-requirements.ps1'
     $fixedTwo=Make-Runtime 102
     $oldStateBytes=[IO.File]::ReadAllBytes($statePath)
     $second=Runtime-Upgrade 'second-fixed' $fixedTwo 1

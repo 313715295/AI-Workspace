@@ -39,11 +39,13 @@ project policy rule 的正文可以继续内联为 `effectiveRule`，也可以�
 
 来源位置和组织方式由使用者决定。多个项目引用同一个 `ABSOLUTE_FILE` 即共享同一来源，各项目仍可通过自己的 rule/dependency 补充本地要求。target-before-pin 预检只把 `PROJECT_RELATIVE` 来源快照复制到隔离投影；`ABSOLUTE_FILE` 始终从原只读路径复核，不搬迁、不写入临时项目，也不把它纳入采用写集。
 
-`requirements/fragments/*.json` 拥有 native requirement ID、deterministic selectors、exact Markdown locator 与 preparation/result gates。marked Markdown block 是唯一 native rule body。`PROCESS_REQUIREMENTS.json` 是 deterministic sealed metadata projection，只作为 internal operation input，不独立编辑，也不把 native rule body 加载进 model。host 只读取 DISCOVER 返回的 selected complete rules。
+`requirements/fragments/*.json` 拥有 native requirement ID、deterministic selectors、exact Markdown locator 与 preparation/result gates。marked Markdown block 是唯一 native rule body。`PROCESS_REQUIREMENTS.json` 是 deterministic sealed metadata projection，不独立编辑；首次构造可读取其 id/title/description/selectors 元数据，正文仍只消费 DISCOVER 返回的 selected complete rules。元数据不成为第二权威或预先筛选器，composer 始终校验完整规则集合。
 
 ### IntentEnvelope 构造
 
 首次 DISCOVER 直接应用上文输入/收据合同，无需先加载 HOST。
+
+首次构造或相关来源改变时，随已知项目事实同批取得当前 generated catalog 的 id/title/description/selectors，以及当前有效纠正和policy对应元数据；健康上下文复用。原生目录直接投影现有 PROCESS_REQUIREMENTS.json，不新增目录文件、operation 或 LOAD_PLAN 前置门。纠正是否有效只取当前精确coverage求值，不能按ID删掉incorporated历史；未验证的记录不自行排除。旧free-text或没有可靠selector的来源沿原兼容全文/保守处理，source漂移也不靠旧元数据排除。PROMPTS的读取/构造样例只教如何使用这些来源，不生成意图或替代严格校验。
 
 `DISCOVER` 前，当前主会话模型从本轮原始用户请求、仍有效的多轮上下文与已绑定任务事实，重建当前真实请求：目标、这一步实际要做的 action、当前应交付的 result、受限范围，以及仍然有效的否定、条件和先后关系。然后只填写现有 `IntentEnvelope` 字段；resolver 负责结构与 authority facts 的核对，不替模型理解原话，也不建立第二套 intent authority。
 
@@ -56,6 +58,12 @@ project policy rule 的正文可以继续内联为 `effectiveRule`，也可以�
 `semanticHints` 保存当前适用活动与内容概念：被否定/取消或条件未满足的动作不作为正触发词，否定对象和延后条件保存在 objective。正式Review禁止修复仍保留Review语义。当前新分派、资源选择、实际QUERY影响、写后待交付/产物Git处置、Controller例外答复按任务事实表达；NONE不清除前序尚未履行的责任。依据已提供catalog描述/selector将同义请求映射为当前概念，不需要全局概念枚举；不得为了命中 selector 补入用户未请求的 action 名、Review 词或其他 trigger padding。`pathHints`、`capabilityHints`、`mutationHints` 与 `externalHints` 仍受当前 scope、已观察能力和实际 action 约束。任何 hint 都不授予写入、测试、Review、Git 或 external 权限。
 
 本合同继续使用当前 schema、单一 composer 与 resolver。说明性示例只证明字段可表达这些关系；在受控原始多轮回放实际观察主会话模型的输出前，不得声称自然意图识别准确率或语义 PASS，也不新增 intent-generation operation、provider/model 配置或服务。
+
+### 调用字段来源与路径
+
+process schema3 TASK DISCOVER 使用绝对 projectRoot/frameworkRoot/taskPath；其readOnlyContext为NOT_APPLICABLE，不伪造无任务上下文。Maintenance TARGET动作继续使用schema2 DISCOVER/schema1 compact，不能把CONTROL示例的schema3复制过去；根前门不改写不支持的receipt。独立authorization checker的TaskPath则是相对已绑定CONTROL/项目根的规范路径；调用时同时对齐PowerShell工作目录与进程当前目录，避免.NET相对文件API指向旧cwd。ObservedIdentity为path=length|SHA256（新对象为path=NEW），不是裸hash数组。
+
+有包时userDecision精确绑定仍有效的package.userConfirmation；无包只读为NOT_REQUIRED，不能由样例制造授权。boundary schema2只引用原compact并提交实际完成的preparation/result/delivery证据；publicDecisionIdentity为NOT_REQUIRED或length|SHA256，不是任意decision哈希；protectionState仅BOUND/NOT_APPLICABLE，须符合实际保护事实。不得把selected obligations自动当完成证据。输入用UTF-8无BOM、紧凑JSON加final LF，避免Windows格式化输出的CR；旧严格格式、未知字段/重复键与漂移拒绝不变。
 
 ### 选择条件：结构边界、确定性触发与内容判断
 

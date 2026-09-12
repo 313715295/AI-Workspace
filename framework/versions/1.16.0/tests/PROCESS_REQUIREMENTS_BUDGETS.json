@@ -17,7 +17,7 @@
     }
   },
   "candidate": {
-    "catalogIdentity": "43616|199D4DBB8A0EE7B20A3E2D378B23BADB0803C22C4AC78241DF66B5A4FE62BBD2",
+    "catalogIdentity": "43720|E41F0D00C7A3A693BE2609EDF49A4E0492EAF8AD7AE1B370CCF15B4E2DCBE787",
     "fixtureContractIdentity": "4990|B73AEA3E3E1963BCF0ECB1242A3E03A2C1503B38B03CBABB1706F33A39308993",
     "measurementHarnessIdentity": "16792|FA7A86DF6D7DCA136D0FD1307E6F4CBCE909763473FA7A66111582A96E78B75E",
     "legacyAuthorityContextFieldCount": 25,
@@ -57,8 +57,8 @@
     {
       "fixtureId": "ordinary_source",
       "fixtureIdentity": "5D596B512675523599F2A869C712AE580AFEF49C1FED9C67B227719DDC0450B4",
-      "selectedPackBytes": 18098,
-      "selectedPackEstimatedTokens": 4525,
+      "selectedPackBytes": 19471,
+      "selectedPackEstimatedTokens": 4868,
       "selectedRequirementCount": 10,
       "observedRuntimeMs": {
         "DISCOVER": {
@@ -78,8 +78,8 @@
     {
       "fixtureId": "critical_review",
       "fixtureIdentity": "62C1C37232E3F20DAF4165E8A9C65F3CCEC08D2B0AFFE8CC5DE221EAA9C60589",
-      "selectedPackBytes": 26932,
-      "selectedPackEstimatedTokens": 6733,
+      "selectedPackBytes": 29499,
+      "selectedPackEstimatedTokens": 7375,
       "selectedRequirementCount": 16,
       "observedRuntimeMs": {
         "DISCOVER": {
@@ -120,8 +120,8 @@
     {
       "fixtureId": "framework_maintenance_review",
       "fixtureIdentity": "028F2A36B8F2D37D362118D70A7C573E920FB3670D8BB4CECCE8B7F72C359437",
-      "selectedPackBytes": 26945,
-      "selectedPackEstimatedTokens": 6737,
+      "selectedPackBytes": 29512,
+      "selectedPackEstimatedTokens": 7378,
       "selectedRequirementCount": 16,
       "observedRuntimeMs": {
         "DISCOVER": {
@@ -141,8 +141,8 @@
     {
       "fixtureId": "worst_unknown",
       "fixtureIdentity": "F56055458B276B427F6BCF0D778448046D628D48918798C18388721AF007FC0D",
-      "selectedPackBytes": 33297,
-      "selectedPackEstimatedTokens": 8325,
+      "selectedPackBytes": 36204,
+      "selectedPackEstimatedTokens": 9051,
       "selectedRequirementCount": 24,
       "observedRuntimeMs": {
         "DISCOVER": {

@@ -296,6 +296,23 @@ try{
     Confirm ($reparseSourcePreviewCode-ne0-and($reparseSourcePreview-join"`n").Contains('PROCESS_POLICY_PILOT_SOURCE_CLOSURE_SOURCE_FILE_REPARSE')-and$sourceClosureAfterReparse-ceq$sourceClosureBaseline) 'target-preview-rejects-reparse-project-source-document-with-zero-net-write'
     $sourceClosurePreview=@(& pwsh -NoProfile -NonInteractive -File $upgradePath @pilotPreviewArguments 2>&1|ForEach-Object{[string]$_});$sourceClosurePreviewCode=$LASTEXITCODE;$sourceClosurePreviewText=$sourceClosurePreview-join"`n"
     Confirm ($sourceClosurePreviewCode-eq0-and$sourceClosurePreviewText.Contains('TARGET_PROJECTED_PROCESS_PREFLIGHT|to=1.17.0|resolver=PASS')-and$sourceClosurePreviewText.Contains('transaction=actor-bound-schema3')) 'local-candidate-upgrade-preview-projects-two-document-source-closure'
+    # A locked, irrelevant runtime object makes the old recursive copy fail.
+    # The real target resolver must retain the clean fixture's preflight result.
+    $unrelatedRuntime=Join-Path $pilotControl 'runtime/preflight-unrelated.bin'
+    Write-TestUtf8 $unrelatedRuntime ('unrelated runtime history '*40000)
+    $unrelatedBefore=Get-TestIdentity $unrelatedRuntime
+    $locked=[IO.File]::Open($unrelatedRuntime,[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
+    try{$boundedPreview=@(& pwsh -NoProfile -NonInteractive -File $upgradePath @pilotPreviewArguments 2>&1|ForEach-Object{[string]$_});$boundedCode=$LASTEXITCODE}
+    finally{$locked.Dispose()}
+    $cleanPreflight=@($sourceClosurePreview|Where-Object{$_-clike'TARGET_PROJECTED_PROCESS_PREFLIGHT|*'})
+    $boundedPreflight=@($boundedPreview|Where-Object{$_-clike'TARGET_PROJECTED_PROCESS_PREFLIGHT|*'})
+    Confirm ($boundedCode-eq0-and$cleanPreflight.Count-eq1-and$boundedPreflight.Count-eq1-and[string]$cleanPreflight[0]-ceq[string]$boundedPreflight[0]-and(Get-TestIdentity $unrelatedRuntime)-ceq$unrelatedBefore) 'target-preflight-ignores-locked-runtime-history-and-keeps-identical-real-resolver-result'
+    $driftStandardBytes=[IO.File]::ReadAllBytes($pilotBaseStandard)
+    Write-TestUtf8 $pilotBaseStandard "Changed source without updating the bound identity.`n"
+    try{$driftSourcePreview=@(& pwsh -NoProfile -NonInteractive -File $upgradePath @pilotPreviewArguments 2>&1|ForEach-Object{[string]$_});$driftSourceCode=$LASTEXITCODE}
+    finally{[IO.File]::WriteAllBytes($pilotBaseStandard,$driftStandardBytes)}
+    $driftPreflight=@($driftSourcePreview|Where-Object{$_-clike'TARGET_PROJECTED_PROCESS_PREFLIGHT|*'})
+    Confirm ($driftSourceCode-eq0-and$driftPreflight.Count-eq1-and[string]$driftPreflight[0]-cne[string]$cleanPreflight[0]) 'target-preflight-preserves-conservative-source-drift-loading-and-changed-identity'
     $sharedStandardsRoot=Join-Path $candidateWorkspace 'shared-standards';$sharedPilotStandard=Join-Path $sharedStandardsRoot 'base.md';Write-TestUtf8 $sharedPilotStandard "# Shared external standard`n`nThe target preflight must read this original file without projecting or mutating it.`n"
     $externalPilotPolicy=$pilotSourcePolicyText|ConvertFrom-Json -Depth 50;$externalPilotPolicy.rules[0].source.documents[0]|Add-Member -NotePropertyName locatorKind -NotePropertyValue 'ABSOLUTE_FILE';$externalPilotPolicy.rules[0].source.documents[0].locator=$sharedPilotStandard;$externalPilotPolicy.rules[0].source.documents[0].identity=Get-TestIdentity $sharedPilotStandard
     Write-TestUtf8 $pilotPolicyPath (($externalPilotPolicy|ConvertTo-Json -Depth 50)+"`n");$sharedPilotPreimage=Get-TestIdentity $sharedPilotStandard

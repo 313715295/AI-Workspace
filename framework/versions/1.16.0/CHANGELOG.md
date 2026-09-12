@@ -1,6 +1,9 @@
 # Framework 1.16.0 变更记录
 
-当前开发批：原生规则职责精简、normalized semanticHints选择、同源正文去重、WORKFLOW InputJson、compact精确保存与连续收尾。CANDIDATE；本批验证与独立Review状态以当前manifest及报告为准，旧769/769不覆盖新字节。
+当前开发批：首次意图目录取得、任务分派selector消歧、真实协议教学、方案验证依据、定向复审及正常状态/归档/送达责任收敛。仍为CANDIDATE/MINOR且不可采用；当前manifest保持真实未完成门，旧snapshot完整suite/Review不覆盖新字节，已运行快照不变。
+
+- 目录直接复用现有generated catalog和有效项目规则元数据，健康复用，composer仍选择完整索引；裸assignment/launch改为明确任务概念，旧schema1显式裸词不再保证命中任务规则，现有输入格式与matcher保持。协议样例覆盖schema3 TASK、schema2 boundary、根TARGET既有限制及严格LF/字段来源，不自动填完成证据。
+- 同范围执行与OpenSpec式当前行为/增量/关键场景沿原任务；方案同时核对消费者、验证依据、失败及未解假设。局部修复保留未受影响审查/测试证据，真正扩面才扩审，权限与当前对象仍重绑。普通结果按实际影响维护已有入口，健康续作/长期Owner保留；送达依宿主真实信号，拒绝与未知不盲重发。
 
 - 普通输入清理一致性：版本 process 入口与 Maintenance 自更新收尾入口的 `DeleteInputOnExit` 使用非强制精确删除，保持原路径/绑定、最后消费者与异常边界；属性或权限阻止删除时不自动清属性或升级 Force。现有示例补充 caller 到期 receipt 的独立删除调用与后续只读核验。
 

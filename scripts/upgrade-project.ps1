@@ -1294,20 +1294,22 @@ function Get-TargetProjectedProcessPreflight([string]$RepositoryRoot,[string]$Fr
             $projectedControl=Join-Path $projection 'Control';$projectedFramework=Join-Path $projection ([string]$targetConfigObject.frameworkTarget.siblingDirectory)
             New-Item -ItemType Directory -Path $projectedControl,$projectedFramework -Force|Out-Null
             foreach($gitRoot in @($projectedControl,$projectedFramework)){$gitOutput=@(& git -C $gitRoot init --quiet 2>&1|ForEach-Object{[string]$_});if($LASTEXITCODE-ne0){throw ('TARGET_PROJECTED_PROCESS_GIT_INIT|'+($gitOutput-join';'))}}
-            Copy-Item -LiteralPath (Join-Path $RepositoryRoot '.ai-workspace') -Destination (Join-Path $projectedControl '.ai-workspace') -Recurse -Force
             New-Item -ItemType Directory -Path (Join-Path $projectedFramework 'framework\versions') -Force|Out-Null
             Copy-Item -LiteralPath (Join-ChildPath $FrameworkWorkspace ('framework/versions/'+$TargetVersion)) -Destination (Join-Path $projectedFramework ('framework\versions\'+$TargetVersion)) -Recurse -Force
             Write-ProjectedText (Join-Path $projectedFramework 'README.md') "# Projected Framework target`n";Write-ProjectedText (Join-Path $projectedFramework 'AGENTS.md') "# Projected target navigation`n"
             $projectRoot=$projectedControl;$frameworkRootProjected=$projectedFramework
         }else{
             $projectRoot=$projection;$frameworkRootProjected=$FrameworkWorkspace
-            Copy-Item -LiteralPath (Join-Path $RepositoryRoot '.ai-workspace') -Destination (Join-Path $projectRoot '.ai-workspace') -Recurse -Force
             $gitOutput=@(& git -C $projectRoot init --quiet 2>&1|ForEach-Object{[string]$_});if($LASTEXITCODE-ne0){throw ('TARGET_PROJECTED_PROCESS_GIT_INIT|'+($gitOutput-join';'))}
         }
         $composerPath=Join-ChildPath $frameworkRootProjected ('framework/versions/'+$TargetVersion+'/scripts/ProcessRequirementComposition.psm1')
         if(-not(Test-Path -LiteralPath $composerPath -PathType Leaf)){throw 'TARGET_PROJECTED_PROCESS_COMPOSER_MISSING'}
         $composerModule=@(Import-Module $composerPath -Force -PassThru)[0]
-        try{$sourceClosure=Get-AiwProjectPolicySourceClosure -ProjectRoot $RepositoryRoot -Rules @($targetPolicyObject.rules)}finally{Remove-Module -ModuleInfo $composerModule -Force}
+        # Evaluation consumes the prospective control objects below and explicit
+        # permanent-rule dependencies. Runtime packages, adoption journals and
+        # unrelated tasks/history are not inputs to this target-before-pin check.
+        $preflightForbidden=@('src/','tests/','assets/','docs/')
+        try{$sourceClosure=Get-AiwProjectPolicySourceClosure -ProjectRoot $RepositoryRoot -Rules @($targetPolicyObject.rules) -ForbiddenPaths $preflightForbidden}finally{Remove-Module -ModuleInfo $composerModule -Force}
         foreach($document in @($sourceClosure.Documents)){
             if([string]$document.locatorKind-ceq'PROJECT_RELATIVE'){
                 $relative=[string]$document.relativePath;$destination=Join-ChildPath $projectRoot $relative
@@ -1320,6 +1322,8 @@ function Get-TargetProjectedProcessPreflight([string]$RepositoryRoot,[string]$Fr
             }else{throw ('TARGET_PROJECTED_PROCESS_SOURCE_KIND|'+[string]$document.locatorKind)}
         }
         $projectPath=Join-Path $projectRoot '.ai-workspace\project.json';$bootstrapPath=Join-Path $projectRoot '.ai-workspace\BOOTSTRAP.md';$correctionsPath=Join-Path $projectRoot '.ai-workspace\corrections.json';$policyPath=Join-Path $projectRoot '.ai-workspace\process-policy.json';$controllerProjected=Join-Path $projectRoot '.ai-workspace\controller.json';$taskPath=Join-ChildPath $projectRoot ([string]$Migration.Relative)
+        [IO.Directory]::CreateDirectory((Split-Path -Parent $projectPath))|Out-Null
+        [IO.Directory]::CreateDirectory((Split-Path -Parent $taskPath))|Out-Null
         Write-ProjectedText $projectPath $TargetProject;Write-ProjectedText $bootstrapPath $TargetBootstrap;Write-ProjectedText $correctionsPath $TargetCorrections;Write-ProjectedText $policyPath $TargetPolicy;[IO.File]::Copy($ControllerPath,$controllerProjected,$true);Write-ProjectedText $taskPath ([string]$Migration.Content)
         $projectRaw=Read-StrictUtf8NoBom $projectPath;$project=$projectRaw|ConvertFrom-Json;$capabilities=@(Get-ExactEnabledCapabilityIds $project $projectRaw)
         $input=[ordered]@{schemaVersion=2;mode='DISCOVER';projectRoot=$projectRoot;frameworkRoot=$frameworkRootProjected;taskPath=$taskPath;expectedProjectConfigIdentity=(Get-MinimalFileIdentity $projectPath);expectedCorrectionsIdentity=(Get-MinimalFileIdentity $correctionsPath);expectedTaskIdentity=(Get-MinimalFileIdentity $taskPath);observedActor=[string]$Migration.Actor;capabilities=$capabilities;exactPaths=@([string]$Migration.Relative);forbiddenPaths=@('src/','tests/','assets/','docs/');protectedPaths=@('.ai-workspace/');authorizationPackagePath='NOT_REQUIRED';expectedAuthorizationIdentity='NOT_REQUIRED';userDecision=$userDecision;recoveryState='FULL_COLD';hostEnforcementGrade='FRAMEWORK_GATED';invocationState='PROVEN_EXPLICIT';intentEnvelope=[ordered]@{schemaVersion=1;objective='Validate the complete target Framework process pack before changing the project pin.';requestedActionKind='NONE';requestedResultKind='PLAN';semanticHints=@('Framework adoption','target-before-pin');pathHints=@([string]$Migration.Relative);capabilityHints=$capabilities;mutationHints=@();externalHints=@();ambiguityState='CLEAR'};evaluationOnly=$true}

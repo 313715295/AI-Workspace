@@ -129,7 +129,8 @@
           "资源调整",
           "host acceptance",
           "宿主接受",
-          "assignment",
+          "task assignment",
+          "new assignment",
           "新分派"
         ]
       },
@@ -1444,8 +1445,9 @@
         "pathPrefixes": [],
         "capabilities": [],
         "semanticTerms": [
-          "assignment",
-          "launch",
+          "task assignment",
+          "new assignment",
+          "task launch",
           "organization change",
           "新分派",
           "创建任务",
@@ -1494,7 +1496,8 @@
         "pathPrefixes": [],
         "capabilities": [],
         "semanticTerms": [
-          "assignment",
+          "task assignment",
+          "new assignment",
           "resource selection",
           "resource change",
           "新分派",

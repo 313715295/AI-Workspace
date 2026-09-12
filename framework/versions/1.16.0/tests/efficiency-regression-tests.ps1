@@ -48,6 +48,68 @@ try{
  function DiscoverCase([string[]]$Hints){$discovery.intentEnvelope.semanticHints=@($Hints);SaveJson $inputPath $discovery;$r=Run $resolver @{InputPath=$inputPath;AsJson=$true};if($r.Code-ne0){throw $r.Text};return $r.Value}
  $read=DiscoverCase @('configuration explanation');$ids=@($read.selectedRuleBlocks.requirementId)
  Check ('framework:PR_TASK_LAUNCH_AND_ROUTE'-cnotin$ids-and'framework:PR_TASK_RESOURCE_SELECTION'-cnotin$ids-and'framework:PR_TASK_CHANGED_OUTPUT_DISPOSITION'-cnotin$ids) 'healthy-read-only-does-not-load-creation-resource-or-write-closure'
+ # Execute the actual documentation, not a separately maintained imitation.
+ $promptText=[IO.File]::ReadAllText((Join-Path $versionRoot 'PROMPTS.md'))
+ $example=[regex]::Match($promptText,'(?s)<!-- AIW-EXAMPLE:PROCESS_INPUTS:BEGIN -->\s*```powershell\s*(.*?)\s*```\s*<!-- AIW-EXAMPLE:PROCESS_INPUTS:END -->')
+ Check $example.Success 'documented-process-example-found'
+ . ([scriptblock]::Create($example.Groups[1].Value))
+ $catalog=Get-Content -Raw -LiteralPath (Join-Path $fv 'PROCESS_REQUIREMENTS.json')|ConvertFrom-Json
+ $metadata=@(Get-ExampleIntentMetadata $catalog)
+ Check ($metadata.Count-eq$catalog.requirements.Count-and@($metadata|Where-Object{$null-ne$_.PSObject.Properties['fullText']}).Count-eq0) 'intent-metadata-complete-without-rule-bodies'
+ $sample=New-ExampleDiscover $discovery $intent
+ [IO.File]::WriteAllText($inputPath,(ConvertTo-ExampleInputJson $sample),$utf8)
+ $documented=Run $resolver @{InputPath=$inputPath;AsJson=$true}
+ Check ($documented.Code-eq0-and($documented.Value.selectedRuleBlocks.requirementId-join'|')-ceq($ids-join'|')) 'documented-discover-real-consumer-equivalence'
+ $exampleReceipt=Join-Path $runtime 'example-receipt.json';SaveJson $exampleReceipt $documented.Value.compactReceipt
+ $emptyBoundary=New-ExampleBoundary $exampleReceipt (Id $exampleReceipt) 'ADMIT_ACTION' @() @() @() 'NOT_REQUIRED' 'BOUND'
+ [IO.File]::WriteAllText($inputPath,(ConvertTo-ExampleInputJson $emptyBoundary),$utf8)
+ $notCompleted=Run $resolver @{InputPath=$inputPath;AsJson=$true}
+ Check ($notCompleted.Code-ne0-and$notCompleted.Value.reason-ceq'PREPARATION_INCOMPLETE') 'example-does-not-invent-completed-obligations'
+ # This fixture has actually created/bound the project and loaded its complete rules.
+ $completedPreparation=@($documented.Value.compactReceipt.selectedObligations|ForEach-Object{$_.preparationRequirements}|Sort-Object -Unique)
+ $completedResults=@($documented.Value.compactReceipt.selectedObligations|ForEach-Object{$_.resultRequirements}|Sort-Object -Unique)
+ $goodBoundary=New-ExampleBoundary $exampleReceipt (Id $exampleReceipt) 'FINALIZE_OUTPUT' $completedPreparation $completedResults @('USER_RESPONSE|fixture-current-result') 'NOT_REQUIRED' 'BOUND'
+ [IO.File]::WriteAllText($inputPath,(ConvertTo-ExampleInputJson $goodBoundary),$utf8)
+ $closedExample=Run $resolver @{InputPath=$inputPath;AsJson=$true}
+ Check ($closedExample.Code-eq0-and$closedExample.Value.status-ceq'PASS') 'documented-boundary-real-consumer-finalize'
+ foreach($bad in @(@{Field='publicDecisionIdentity';Value=('A'*64);Reason='PUBLIC_DECISION_IDENTITY'},@{Field='protectionState';Value='PASS';Reason='PROTECTION_STATE'})){
+  $invalid=$goodBoundary|ConvertTo-Json -Depth 100|ConvertFrom-Json;$invalid.($bad.Field)=$bad.Value
+  [IO.File]::WriteAllText($inputPath,(ConvertTo-ExampleInputJson $invalid),$utf8);$rejected=Run $resolver @{InputPath=$inputPath;AsJson=$true}
+  Check ($rejected.Code-ne0-and$rejected.Text.Contains($bad.Reason)) ('documented-boundary-rejects-'+$bad.Field)
+ }
+ foreach($term in @('variable assignment','product launch','assignment','launch')){
+  $negative=DiscoverCase @($term)
+  Check (@($negative.selectedRuleBlocks.requirementId|Where-Object{$_-cin@('framework:PR_TASK_LAUNCH_AND_ROUTE','framework:PR_TASK_RESOURCE_SELECTION','framework:PR_CODEX_RESOURCE_ROUTE')}).Count-eq0) ('ambiguous-non-task-term-not-selected-'+$term)
+ }
+ foreach($term in @('task assignment','new assignment','新分派')){
+  $positive=DiscoverCase @($term)
+  Check (@($positive.selectedRuleBlocks.requirementId|Where-Object{$_-cin@('framework:PR_TASK_LAUNCH_AND_ROUTE','framework:PR_TASK_RESOURCE_SELECTION','framework:PR_CODEX_RESOURCE_ROUTE')}).Count-eq3) ('explicit-task-assignment-selects-three-'+$term)
+ }
+ # Frozen constructions made from these requests; downstream regression, not live model accuracy.
+ foreach($case in @(
+  @{Request='把这项工作分派给另一个任务，沿用当前目录。';Hints=@('task assignment');Select=$true},
+  @{Request='如果以后需要再新建任务，现在只解释配置。';Hints=@('configuration explanation');Select=$false},
+  @{Request='取消刚才的分派，继续说明变量赋值。';Hints=@('variable assignment');Select=$false},
+  @{Request='报告中的“new assignment”是历史引用，不是当前请求。';Hints=@('configuration explanation');Select=$false}
+ )){
+  $discovery.intentEnvelope.objective=$case.Request;$actual=DiscoverCase $case.Hints
+  Check (('framework:PR_TASK_LAUNCH_AND_ROUTE'-cin@($actual.selectedRuleBlocks.requirementId))-eq$case.Select) ('request-construction-selection-'+$case.Request)
+ }
+ $originalTask=[IO.File]::ReadAllText($task)
+ SaveText $task ($originalTask.Replace('phase=PLAN','phase=REVIEW').Replace('profile=STANDARD','profile=CRITICAL'))
+ $discovery.expectedTaskIdentity=Id $task;$discovery.intentEnvelope.objective='正式独立审核此候选，不要修改。'
+ $discovery.intentEnvelope.requestedActionKind='REVIEW_EXECUTE';$discovery.intentEnvelope.requestedResultKind='REVIEW_VERDICT'
+ $formalReview=DiscoverCase @('formal review')
+ Check ('framework:PR_CRITICAL_REVIEW_INDEPENDENCE'-cin@($formalReview.selectedRuleBlocks.requirementId)-and'framework:PR_PERSPECTIVE_LENS_SELECTION'-cin@($formalReview.selectedRuleBlocks.requirementId)) 'formal-review-no-repair-keeps-independent-review-and-lenses'
+ SaveText $task $originalTask;$discovery.expectedTaskIdentity=Id $task
+ $discovery.intentEnvelope.requestedActionKind='NONE';$discovery.intentEnvelope.requestedResultKind='USER_RESPONSE'
+ # Legacy schema1 still consumes explicit selection text; bare ambiguous words intentionally narrow.
+ foreach($term in @('assignment','task assignment')){
+  $legacy=[ordered]@{schemaVersion=1;mode='DISCOVER';projectRoot=$project;frameworkRoot=$framework;taskPath=$task;expectedProjectConfigIdentity=$discovery.expectedProjectConfigIdentity;expectedCorrectionsIdentity=$discovery.expectedCorrectionsIdentity;expectedTaskIdentity=Id $task;observedActor='actor';capabilities=@();objective=$term;actionKind='NONE';resultKind='USER_RESPONSE';exactPaths=@();hostEnforcementGrade='INSTRUCTION_BOUND';evaluationOnly=$true}
+  SaveJson $inputPath $legacy;$legacyResult=Run $resolver @{InputPath=$inputPath;AsJson=$true}
+  Check ($legacyResult.Code-eq0-and(('framework:PR_TASK_LAUNCH_AND_ROUTE'-cin@($legacyResult.Value.selectedRuleBlocks.requirementId))-eq($term-ceq'task assignment'))) ('legacy-explicit-selection-'+$term)
+ }
+ $discovery.intentEnvelope.semanticHints=@('configuration explanation')
  # Real entrypoint cleanup: exact ordinary input, failure, attributes and binding.
  $cleanupNeighbor=Join-Path $runtime 'cleanup-neighbor.json';SaveText $cleanupNeighbor '{"keep":true}'
  $cleanupReceipt=Join-Path $runtime 'cleanup-receipt.json';SaveJson $cleanupReceipt $read.compactReceipt
@@ -67,7 +129,7 @@ try{
  $wrongActorCleanup=Run $resolver @{InputPath=$wrongActorInput;DeleteInputOnExit=$true;AsJson=$true}
  Check ($wrongActorCleanup.Code-ne0-and(Id $wrongActorInput)-ceq$wrongActorIdentity-and(Id $cleanupNeighbor)-ceq$neighborIdentity) 'cleanup-version-wrong-actor-scope-rejected-and-retained'
  $discovery.intentEnvelope.objective='Give this work another task, using the local directory.'
- $launch=DiscoverCase @('assignment','resource selection');Check ('framework:PR_TASK_LAUNCH_AND_ROUTE'-cin@($launch.selectedRuleBlocks.requirementId)-and'framework:PR_TASK_RESOURCE_SELECTION'-cin@($launch.selectedRuleBlocks.requirementId)-and'framework:PR_CODEX_RESOURCE_ROUTE'-cin@($launch.selectedRuleBlocks.requirementId)) 'normalized-synonym-assignment-loads-organization-and-resource'
+ $launch=DiscoverCase @('task assignment','resource selection');Check ('framework:PR_TASK_LAUNCH_AND_ROUTE'-cin@($launch.selectedRuleBlocks.requirementId)-and'framework:PR_TASK_RESOURCE_SELECTION'-cin@($launch.selectedRuleBlocks.requirementId)-and'framework:PR_CODEX_RESOURCE_ROUTE'-cin@($launch.selectedRuleBlocks.requirementId)) 'normalized-synonym-assignment-loads-organization-and-resource'
  $discovery.intentEnvelope.objective='The edits are complete; now report their remaining artifact disposition.'
  $written=DiscoverCase @('changed output disposition');Check ('framework:PR_TASK_CHANGED_OUTPUT_DISPOSITION'-cin@($written.selectedRuleBlocks.requirementId)) 'none-after-write-keeps-disposition'
  $discovery.intentEnvelope.objective='Quoted history: assignment, resource change, formal review; all were cancelled.';$cancelled=DiscoverCase @('configuration explanation');Check ((@($cancelled.selectedRuleBlocks.requirementId)-join'|') -ceq ($ids-join'|')) 'objective-negation-history-cancellation-not-trigger-pool'

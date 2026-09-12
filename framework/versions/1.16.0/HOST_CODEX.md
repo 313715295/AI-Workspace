@@ -15,13 +15,15 @@ Codex 遵循 `PR_FINAL_OUTPUT_CURRENT_RESULT` 通用合同：终态、routing id
 
 temporary actor/Reviewer 一次 terminal 后即无写职责；不向 Owner 索要反向 task 写权、package 删除或释放确认。Owner 更新唯一 task facts；STATUS/index 仅随 lifecycle/routing 变化投影。
 
-失败仅重送同一终态；不得绕过 host 拒绝、重复 Review 或建 ACK 链。
+宿主实际成功/拒绝/未知/明确可重试信号按 PR_FINAL_OUTPUT_CURRENT_RESULT 消费；没有送达证明不称 DELIVERED，不能把未知结果当作可重试。
 <!-- AIW-REQUIREMENT:PR_COMPACT_NON_INTERRUPT_DELIVERY:END -->
 
 <!-- AIW-REQUIREMENT:PR_CODEX_TOOL_OPERATION_RESOLUTION:BEGIN -->
 首次解析、来源变化或正文实际缺失时读取项目backend与pinned TOOLCHAIN.json，校验runtime/platform并取得exact entrypoint；健康调用复用。不得从shell推断backend、另造后端或让用户逐任务选择。已知独立读查同批执行；有依赖且无需新语义判断的机械步骤按结果连续编排，各门保留独立结果，失败停止依赖链。按预期耗时合理首次等待；新事实、语义取舍或真实失败才返回模型，不能自动填授权、Review或接受PASS。
 
 TASK定义的workflow transition使用fresh repo-local authority、cwd/Git top、package、用户决定和host-authenticated envelope，按 TOOLCHAIN 的 WORKFLOW_ROUTE_RESOLVE 提交 ephemeral input；缺事实 fail closed，具体字段及输入生命周期仅见TOOL_CONTRACT。任务显示名遵循TASK命名合同；创建时使用宿主title参数，主题实变时按authenticated task ID调用宿主标题操作，只改显示、不发指令或改authority。
+
+创建环境/起点按TASK的当前基线与隔离结论及宿主合同传参，消费实际接受结果；不支持时报告具体能力限制，不静默换环境/起点。用户已有授权与宿主不支持是不同事实，不能把后者误报为用户未授权；不维护第二份参数表。
 
 <!-- AIW-REQUIREMENT:PR_CODEX_TOOL_OPERATION_RESOLUTION:END -->
 

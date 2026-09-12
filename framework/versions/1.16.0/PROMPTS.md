@@ -2,7 +2,47 @@
 
 ## Cold recovery
 
-证明 cwd 与 Git top。读取 repo-local project/controller/Bootstrap、current task locator 与绑定 profile、task owner、task actor、action actor、role、phase、paths、capabilities 和 authority sources 所需的最小 facts。调用 `DISCOVER` 前，按 `TOOL_CONTRACT.md` 的唯一 IntentEnvelope 构造段，从原始请求与仍有效上下文重建当前 objective/action/result 与 scope；package 或权限事实另行核对，不能改写 intent。解析 pinned Framework，对完整 catalog 执行 `PROCESS_REQUIREMENTS_RESOLVE / DISCOVER`，一次加载全部 returned exact Markdown blocks 与 selected corrections/project-policy rules，再加载必要 supporting artifacts。Recovery 只读；报告 boundary、evidence ceiling 与 unique next action。compatible root Router 未证明运行时，直接走 Bootstrap 并如实说明。
+证明 cwd 与 Git top。读取 repo-local project/controller/Bootstrap、current task locator 与绑定 profile、task owner、task actor、action actor、role、phase、paths、capabilities 和 authority sources 所需的最小 facts。调用 `DISCOVER` 前，按 `TOOL_CONTRACT.md` 的唯一 IntentEnvelope 构造段，同批取得当前目录与有效项目规则元数据，从原始请求与仍有效上下文重建 objective/action/result/scope；package 或权限事实另行核对，不能改写 intent。解析 pinned Framework，对完整 catalog 执行 `PROCESS_REQUIREMENTS_RESOLVE / DISCOVER`，一次加载全部 returned exact Markdown blocks 与 selected corrections/project-policy rules，再加载必要 supporting artifacts。Recovery 只读；报告 boundary、evidence ceiling 与 unique next action。compatible root Router 未证明运行时，直接走 Bootstrap 并如实说明。
+
+## 目录与协议构造示例
+
+以下是可执行教学片段，不是新operation、意图生成器或授权助手；测试从本文提取同一片段执行。`$facts` 是已按Bootstrap证明的schema3 TASK输入事实（除mode/contextType/readOnlyContext/intentEnvelope）；`$intent` 由当前模型依据原话构造，不由目录关键词反推动作。taskPath/projectRoot/frameworkRoot使用绝对路径。Maintenance TARGET改用schema2 DISCOVER、删除contextType/readOnlyContext，仍由原根前门调用。
+
+元数据从已验证的 `PROCESS_REQUIREMENTS.json` 的requirements投影；项目部分使用当前精确求值后的effective corrections及policy rules，读取其id/原因/selector即可，不能按历史ID自行抑制记录。没有可靠selector的旧来源按TOOL_CONTRACT全文兼容，来源漂移不沿用旧筛选。健康目录复用，不逐步重读。
+
+<!-- AIW-EXAMPLE:PROCESS_INPUTS:BEGIN -->
+```powershell
+function Get-ExampleIntentMetadata($Catalog) {
+    @($Catalog.requirements | Select-Object requirementId,title,description,selectors)
+}
+function New-ExampleDiscover($Facts, $Intent) {
+    $value = [ordered]@{schemaVersion=3;mode='DISCOVER';contextType='TASK';readOnlyContext='NOT_APPLICABLE'}
+    foreach ($name in @('projectRoot','frameworkRoot','taskPath','expectedProjectConfigIdentity',
+        'expectedCorrectionsIdentity','expectedTaskIdentity','observedActor','capabilities',
+        'exactPaths','forbiddenPaths','protectedPaths','authorizationPackagePath',
+        'expectedAuthorizationIdentity','userDecision','recoveryState','hostEnforcementGrade',
+        'invocationState','evaluationOnly')) { $value[$name] = $Facts[$name] }
+    $value.intentEnvelope = $Intent
+    return $value
+}
+function New-ExampleBoundary($ReceiptPath, $ReceiptIdentity, $Mode,
+    [string[]]$CompletedPreparation, [string[]]$ObservedResults, [string[]]$ActualDelivery,
+    $PublicDecisionIdentity, $ProtectionState) {
+    [ordered]@{schemaVersion=2;mode=$Mode;discoverReceiptPath=$ReceiptPath;
+        expectedDiscoverReceiptIdentity=$ReceiptIdentity;
+        preparationReceipts=@($CompletedPreparation);resultReceipts=@($ObservedResults);
+        deliveryReceipts=@($ActualDelivery);publicDecisionIdentity=$PublicDecisionIdentity;
+        protectionState=$ProtectionState}
+}
+function ConvertTo-ExampleInputJson($Value) {
+    ($Value | ConvertTo-Json -Depth 100 -Compress) + "`n"
+}
+```
+<!-- AIW-EXAMPLE:PROCESS_INPUTS:END -->
+
+将返回JSON用 `[IO.File]::WriteAllText($inputPath, $json, [Text.UTF8Encoding]::new($false))` 写入已绑定ephemeral目录，调用解析出的process入口 `-InputPath $inputPath -DeleteInputOnExit -AsJson`；DISCOVER需要后续边界时可指定新的 `-CompactReceiptPath $receiptPath`，消费其实际返回身份，完整正文在本次响应读取。目录须存在，旧收据不可覆盖。每次检查退出码和status，失败停止依赖链。
+
+`New-ExampleBoundary` 的证据数组仅含已经实际完成/观察的义务；不能把目录或selectedObligations直接复制成PASS。无包只读的userDecision为NOT_REQUIRED；有包按仍有效决定精确对应package.userConfirmation。publicDecisionIdentity为NOT_REQUIRED或文件length|SHA256，protectionState为实际BOUND/NOT_APPLICABLE。真实动作先checker/ADMIT，实际动作和验证后FINALIZE；保存仍有消费者的compact/continuation，按唯一生命周期清理。示例不执行动作、不授予测试/Review/Git，也不声称自然语义准确。
 
 ## Implementation launch
 
