@@ -37,7 +37,9 @@
       "exactBlockLocator": "AIW-REQUIREMENT:PR_CRITICAL_REVIEW_INDEPENDENCE",
       "preparationRequirements": [
         "CANDIDATE_FROZEN",
-        "REVIEWER_INDEPENDENCE_PROVEN"
+        "REVIEWER_INDEPENDENCE_PROVEN",
+        "REVIEW_CARRIER_QUALIFIED",
+        "REVIEW_MATERIALS_BOUND"
       ],
       "resultRequirements": [
         "REVIEW_VERDICT_BOUND"

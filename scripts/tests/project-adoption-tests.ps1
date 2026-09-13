@@ -1,5 +1,10 @@
 [CmdletBinding()]
-param()
+param(
+    [string]$SeedControlRoot,
+    [string]$SeedFrameworkRoot,
+    [string]$SeedTransactionPath,
+    [string]$ExpectedSeedTransactionIdentity
+)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -72,6 +77,15 @@ function Reset-TestProject {
 }
 
 try {
+    $custom = "# User decisions`nOnly the approved project goal is delegated.`n"
+    Assert-True ((Get-AiwStandingDelegationProjection -Text $custom) -ceq $custom) 'viewing-or-template-presence-does-not-create-user-delegation'
+    $delegated = Get-AiwStandingDelegationProjection -Text $custom -AdoptionRequested $true
+    Assert-True ($delegated.StartsWith($custom) -and $delegated.Contains('用户持续委托AI，为完成本项目已授权目标') -and $delegated.Contains('规则明确保留给用户的决定仍由用户作出。')) 'explicit-adoption-projects-whole-project-delegation-and-preserves-custom-text'
+    Assert-True ((Get-AiwStandingDelegationProjection -Text $delegated -AdoptionRequested $true) -ceq $delegated) 'registration-delegation-projection-is-idempotent'
+    foreach ($decision in @('用户撤回持续委托。','用户将委托收窄为只读分析。')) {
+        $existing = "<!-- AI-WORKSPACE-USER-DECISION:BEGIN -->`n$decision`n<!-- AI-WORKSPACE-USER-DECISION:END -->`n"
+        Assert-True ((Get-AiwStandingDelegationProjection -Text $existing -AdoptionRequested $true) -ceq $existing) 'existing-revoked-or-narrowed-decision-is-not-overwritten'
+    }
     Reset-TestProject
     $format = Get-AiwProjectFormat $fixtureRoot
     Assert-True (
@@ -374,10 +388,20 @@ try {
     ) 'no-op-no-transaction'
 
     $selfUpdateTest = Join-Path $PSScriptRoot 'maintenance-self-update-tests.ps1'
-    $selfUpdateOutput = @(& pwsh -NoProfile -NonInteractive -File $selfUpdateTest 2>&1 | ForEach-Object { [string]$_ })
+    # A completed historical transaction exercises the legacy self-update route;
+    # the same suite separately tests fixed-runtime adoption and relocation.
+    $seedArguments=@()
+    foreach($name in @('SeedControlRoot','SeedFrameworkRoot','SeedTransactionPath','ExpectedSeedTransactionIdentity')){
+        $value=Get-Variable -Name $name -ValueOnly
+        if(-not[string]::IsNullOrEmpty($value)){$seedArguments+=@(('-'+$name),$value)}
+    }
+    $selfUpdateOutput = @(& pwsh -NoProfile -NonInteractive -File $selfUpdateTest @seedArguments 2>&1 | ForEach-Object { [string]$_ })
     $selfUpdateCode = $LASTEXITCODE
     if ($selfUpdateCode -ne 0) { throw ('MAINTENANCE_SELF_UPDATE_FAILED|' + ($selfUpdateOutput -join [Environment]::NewLine)) }
-    Assert-True ($selfUpdateCode -eq 0 -and $selfUpdateOutput.Count -eq 1 -and $selfUpdateOutput[0] -cmatch '^PASS\|maintenance-self-update\|\d+/\d+$') 'maintenance-self-update-focused-entrypoint'
+    $selfUpdateFinal=@($selfUpdateOutput|Where-Object{$_-cmatch'^PASS\|maintenance-self-update\|\d+/\d+$'})
+    $selfUpdateCounts=if($selfUpdateFinal.Count-eq1){[regex]::Match($selfUpdateFinal[0],'^PASS\|maintenance-self-update\|(\d+)/(\d+)$')}else{$null}
+    Assert-True ($selfUpdateCode-eq0-and$selfUpdateFinal.Count-eq1-and$null-ne$selfUpdateCounts-and$selfUpdateCounts.Groups[1].Value-ceq$selfUpdateCounts.Groups[2].Value) 'maintenance-self-update-focused-entrypoint'
+    $selfUpdateOutput|Write-Output
 
     Write-Output ('PASS|project-adoption-tests|' + $passed + '/' + $passed)
 }

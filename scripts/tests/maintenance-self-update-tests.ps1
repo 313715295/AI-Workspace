@@ -7,9 +7,11 @@ param(
     [string]$SeedTransactionPath,
     [string]$ExpectedSeedTransactionIdentity,
     [switch]$CleanupOnly,
-    [switch]$RelocationOnly
+    [switch]$RelocationOnly,
+    [switch]$CrossDistributionOnly
 )
 $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
+if($CrossDistributionOnly){$RelocationOnly=$true}
 $utf8=[Text.UTF8Encoding]::new($false);$passes=0;$lf=[string][char]10
 $fixtureRoot=Join-Path ([IO.Path]::GetTempPath()) ('aiw-maintenance-self-update-'+[guid]::NewGuid().ToString('N'))
 function Confirm([bool]$Condition,[string]$Name){if(-not$Condition){throw ('ASSERT_FAIL|'+$Name)};$script:passes++}
@@ -441,6 +443,29 @@ try {
         $output=@(Run $tool $args)
         return [pscustomobject]@{auth=$auth;args=$args;output=$output;paths=$paths}
     }
+    # First adopt the changed managed template through the real interrupted CLI.
+    # The later recovery cases require an already-current AGENTS outside the write set.
+    $initialFixed=Make-Runtime 100
+    $initial=Runtime-Upgrade 'initial-template-fixed' $initialFixed 1
+    $initialTxnPath=Join-Path $control '.ai-workspace/runtime/project-adoption/upgrade/state.json'
+    $initialTxn=Get-Content -LiteralPath $initialTxnPath -Raw|ConvertFrom-Json
+    Confirm (($initial.output-join$lf).Contains('RUNTIME_ADOPTION_INTERRUPTED')-and@($initialTxn.projection.objects|Where-Object{$_.path-ceq'AGENTS.md'-and$_.changed}).Count-eq1-and-not$initialTxn.transactionComplete) 'first-template-adoption-interrupted-with-AGENTS-in-write-set'
+    $initialResume=@{ProjectId='ai-workspace-maintenance';ToVersion='1.16.0';RepositoryPath=$control;ActorRouteActor=$owner;RecoverRuntimeAdoption=$true;ExpectedAdoptionTransactionIdentity=Id $initialTxnPath;AuthorizationPackagePath=$initial.auth;ExpectedAuthorizationPackageIdentity=Id $initial.auth;Apply=$true}
+    $initialAgentsPath=Join-Path $control 'AGENTS.md';$initialAgents=[IO.File]::ReadAllBytes($initialAgentsPath);$initialTxnIdentity=Id $initialTxnPath
+    Write-Text $initialAgentsPath 'Third-party AGENTS during first template adoption.'
+    $thirdPartyIdentity=Id $initialAgentsPath
+    $reason='';try{& (Join-Path $RepositoryRoot 'scripts/upgrade-project.ps1') @initialResume|Out-Null}catch{$reason=$_.Exception.Message}
+    Confirm ($reason.Contains('ADOPTION_RECOVERY_THIRD_PARTY_OBJECT|AGENTS.md')-and(Id $initialAgentsPath)-ceq$thirdPartyIdentity-and(Id $initialTxnPath)-ceq$initialTxnIdentity) 'first-template-adoption-recovery-preserves-third-party-AGENTS-and-journal'
+    [IO.File]::WriteAllBytes($initialAgentsPath,$initialAgents)
+    $initialCompleted=@(& (Join-Path $RepositoryRoot 'scripts/upgrade-project.ps1') @initialResume)
+    Confirm (@($initialCompleted|Where-Object{$null-ne$_.PSObject.Properties['status']-and$_.status-ceq'COMPLETE'}).Count-eq1-and(Get-Content -LiteralPath $initialTxnPath -Raw|ConvertFrom-Json).transactionComplete) 'first-template-adoption-resumes-to-completion-through-real-CLI'
+    # Evolve only the unsealed isolated fixture source before building the next
+    # package. BOOTSTRAP plus adoption state give a real pending write after one
+    # completed write; the already-built runtime and managed AGENTS stay intact.
+    $nextBootstrapPath=Join-Path $RepositoryRoot 'framework/maintenance-overlay/BOOTSTRAP.md'
+    $nextBootstrap=[IO.File]::ReadAllText($nextBootstrapPath)
+    Confirm ([regex]::Matches($nextBootstrap,'<!-- FRAMEWORK-MANAGED:END -->').Count-eq1) 'next-fixed-fixture-bootstrap-managed-marker-unique'
+    Write-Text $nextBootstrapPath ($nextBootstrap.Replace('<!-- FRAMEWORK-MANAGED:END -->','<!-- Isolated recovery fixture revision. -->'+$lf+'<!-- FRAMEWORK-MANAGED:END -->'))
     $fixedOne=Make-Runtime 101
     $first=Runtime-Upgrade 'first-fixed' $fixedOne 1
     $statePath=Join-Path $control ($recovery+'/state.json')
@@ -448,7 +473,8 @@ try {
     $interrupted=Get-Content -LiteralPath $txnPath -Raw|ConvertFrom-Json
     $pending=@($interrupted.projection.objects|Where-Object{$_.changed-and(Id (Join-Path $control $_.path))-cne$_.newIdentity})
     $prospectiveState=$utf8.GetString([Convert]::FromBase64String(@($interrupted.projection.objects|Where-Object path -CEQ ($recovery+'/state.json'))[0].newBase64))|ConvertFrom-Json
-    Confirm (($first.output-join$lf).Contains('RUNTIME_ADOPTION_INTERRUPTED')-and$pending.Count-gt0-and'AGENTS.md'-cnotin@($interrupted.projection.objects.path)-and@($prospectiveState.projectionObjects|Where-Object{$_.relative-ceq'AGENTS.md'-and$null-ne$_.PSObject.Properties['managedIdentity']}).Count-eq1) 'R2-real-first-adoption-interrupted-with-managed-AGENTS-outside-write-set'
+    Confirm (($first.output-join$lf).Contains('RUNTIME_ADOPTION_INTERRUPTED')-and$pending.Count-gt0-and'AGENTS.md'-cnotin@($interrupted.projection.objects.path)-and@($prospectiveState.projectionObjects|Where-Object{$_.relative-ceq'AGENTS.md'-and$null-ne$_.PSObject.Properties['managedIdentity']}).Count-eq1) 'R2-subsequent-fixed-adoption-interrupted-with-managed-AGENTS-outside-write-set'
+    Write-Output ('PASS|R2-real-pending-adoption|writes='+$interrupted.projection.objects.Count+'|pending='+$pending.Count+'|AGENTS=outside-write-set')
     function Live-Identities {
         $rows=@(Get-ChildItem -LiteralPath $control -File -Recurse -Force|Where-Object{$_.FullName-notlike('*'+[IO.Path]::DirectorySeparatorChar+'.git'+[IO.Path]::DirectorySeparatorChar+'*')}|ForEach-Object{[IO.Path]::GetRelativePath($control,$_.FullName).Replace('\','/')+'|'+(Id $_.FullName)}|Sort-Object)
         return [string]::Join($lf,$rows)
@@ -500,7 +526,7 @@ try {
     }
     $firstResume.ExpectedAdoptionTransactionIdentity=Id $txnPath
     $firstCompleted=@(& (Join-Path $RepositoryRoot 'scripts/upgrade-project.ps1') @firstResume)
-    Confirm (@($firstCompleted|Where-Object{$null-ne$_.PSObject.Properties['status']-and$_.status-ceq'COMPLETE'}).Count-eq1) 'R2-healthy-first-adoption-still-completes-through-real-CLI'
+    Confirm (@($firstCompleted|Where-Object{$null-ne$_.PSObject.Properties['status']-and$_.status-ceq'COMPLETE'}).Count-eq1) 'R2-healthy-subsequent-fixed-adoption-completes-through-real-CLI'
     $fixedState=Get-Content -LiteralPath $statePath -Raw|ConvertFrom-Json
     Confirm ($fixedState.schemaVersion-eq6-and$fixedState.distributionBinding.runtimeRoot-ceq$fixedOne-and(Freeze $target).canonical-ceq$developmentBefore.canonical) 'old-healthy-source-adopts-fixed-runtime-with-development-unchanged'
     $adapter=Join-Path $fixedOne 'scripts/resolve-framework-maintenance-process-requirements.ps1'
@@ -564,6 +590,22 @@ try {
     Confirm ($relocationFinal.status-ceq'PASS'-and$relocationFinal.reason-ceq'ORIGINAL_RUNTIME_RELOCATION_FINALIZED'-and$relocationFinal.originalAdmitDecisionIdentity-ceq$relocationAdmit.decisionIdentity-and$relocationFinal.originalDiscoverReceiptIdentity-ceq(Id $relocationReceiptPath)-and$relocationFinal.runtimeRoot-ceq$relocatedRuntime-and-not$relocationFinal.authorityGranted) 'relocation-finalizes-original-admitted-action-with-bound-package-and-transaction'
     Confirm ([string]::Join($lf,@($retained|ForEach-Object{$_+'='+(Id $_)}))-ceq$retainedBefore) 'relocation-checks-preserve-original-evidence-live-state-and-transaction'
     Confirm (-not(Test-Path -LiteralPath $relocationAdmitInput)) 'relocation-finalize-never-recreates-deleted-admit-input'
+    if($CrossDistributionOnly){
+        # A separate process confines the child's explicit exit to that process;
+        # the parent must still verify its markers and execute its own finally.
+        $crossOutput=@(& pwsh -NoProfile -NonInteractive -File (Join-Path $PSScriptRoot 'upgrade-project-bridge-tests.ps1') -RepositoryRoot $RepositoryRoot -CrossDistributionOnly -CrossLayout framework-maintenance-sibling -CrossProjectRoot $control -CrossSourceRoot $RepositoryRoot 2>&1|ForEach-Object{[string]$_})
+        $crossCode=$LASTEXITCODE
+        $crossOutput|Write-Output
+        if($crossCode-ne0){throw 'CROSS_MAINTENANCE_MATRIX_FAILED'}
+        foreach($schema in @(2,3)){
+            foreach($stage in @('PREPARE=PASS','ADMIT=PASS|input=DELETED','FINALIZE=PASS')){
+                $expected='CROSS_CASE|layout=framework-maintenance-sibling|schema='+$schema+'|'+$stage
+                Confirm (@($crossOutput|Where-Object{$_-ceq$expected}).Count-eq1) ('cross-outer-marker-'+$schema+'-'+$stage)
+            }
+        }
+        Confirm (@($crossOutput|Where-Object{$_-ceq'PASS|cross-distribution-framework-maintenance-sibling|68/68'}).Count-eq1) 'cross-outer-complete-matrix-marker'
+        Write-Output 'PASS|maintenance-cross-distribution-outer|child-exit=0|markers=7'
+    }
     if($RelocationOnly){Write-Output ('PASS|maintenance-runtime-relocation|'+$passes+'/'+$passes);return}
     $fixedOne=$relocatedRuntime;$adapter=Join-Path $fixedOne 'scripts/resolve-framework-maintenance-process-requirements.ps1'
     $fixedTwo=Make-Runtime 102
@@ -602,5 +644,9 @@ try {
         $full=[IO.Path]::GetFullPath($fixtureRoot);$temp=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath([IO.Path]::GetTempPath()))
         if(-not$full.StartsWith($temp+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)-or-not[IO.Path]::GetFileName($full).StartsWith('aiw-maintenance-self-update-',[StringComparison]::Ordinal)){throw 'FIXTURE_CLEANUP_BOUNDARY'}
         Remove-Item -LiteralPath $full -Recurse -Force
+    }
+    if($CrossDistributionOnly){
+        if(Test-Path -LiteralPath $fixtureRoot){throw 'CROSS_MAINTENANCE_CLEANUP_INCOMPLETE'}
+        Write-Output 'PASS|maintenance-cross-distribution-cleanup|fixture=REMOVED'
     }
 }

@@ -68,6 +68,34 @@ try{
   Assert-True ($boundaryRun.Code-eq0-and[string]$boundaryRun.Value.status-ceq'PASS') 'compact-boundary-input-reuses-receipt-bound-intent-and-authority'
   Assert-True ($boundaryRun.Code-eq0-and-not$compactReceiptText.Contains('"fullText"')-and-not[bool]$boundaryRun.Value.semanticCorrectnessProven-and-not[bool]$boundaryRun.Value.hostInvocationProven) 'compact-receipt-reuse-is-mechanical-not-model-fulltext-proof'
 
+  $decisionPath=Join-Path $temp 'AGENTS.md'
+  Write-Utf8 $decisionPath 'User delegates the approved project goal under current rules.'
+  Write-Json $discoverPath $discover;$decisionDiscover=Invoke-Resolver $resolver $discoverPath
+  $decisionReceipt=Join-Path $temp 'decision-receipt.json';Write-Json $decisionReceipt $decisionDiscover.Value.compactReceipt
+  $decisionBoundary=$boundary|ConvertTo-Json -Depth 100|ConvertFrom-Json
+  $decisionBoundary.discoverReceiptPath=$decisionReceipt;$decisionBoundary.expectedDiscoverReceiptIdentity=Get-Identity $decisionReceipt
+  Write-Json $boundaryPath $decisionBoundary;$healthyDecision=Invoke-Resolver $resolver $boundaryPath
+  Assert-True ($healthyDecision.Code-eq0) 'standing-user-decision-reuses-healthy-source-binding'
+  foreach($changedDecision in @('User narrows delegation to read-only analysis.','User revokes standing delegation.')){
+    Write-Utf8 $decisionPath $changedDecision
+    Write-Json $boundaryPath $decisionBoundary;$decisionDrift=Invoke-Resolver $resolver $boundaryPath
+    Assert-True ($decisionDrift.Code-ne0-and$decisionDrift.Text.Contains('DISCOVER_SOURCE_DRIFT|projectAgentsIdentity')) 'user-decision-narrowing-or-revocation-rejects-stale-receipt'
+  }
+  [IO.File]::Delete($decisionPath)
+  Write-Json $boundaryPath $boundary
+
+  $legacyDecisionReceipt=$run.Value.compactReceipt|ConvertTo-Json -Depth 100|ConvertFrom-Json
+  $legacyDecisionReceipt.sourceBindings.PSObject.Properties.Remove('projectAgentsIdentity')
+  Write-Json $decisionReceipt $legacyDecisionReceipt
+  $decisionBoundary.expectedDiscoverReceiptIdentity=Get-Identity $decisionReceipt
+  Write-Json $boundaryPath $decisionBoundary;$legacyNoAgents=Invoke-Resolver $resolver $boundaryPath
+  Assert-True ($legacyNoAgents.Code-eq0) 'legacy-receipt-with-no-agents-preserves-supported-readonly-entry'
+  Write-Utf8 $decisionPath 'Current explicit user restriction.'
+  Write-Json $boundaryPath $decisionBoundary;$legacyUnboundAgents=Invoke-Resolver $resolver $boundaryPath
+  Assert-True ($legacyUnboundAgents.Code-ne0-and$legacyUnboundAgents.Text.Contains('PROJECT_AGENTS_BINDING_REQUIRED')) 'legacy-receipt-cannot-ignore-present-user-decision-source'
+  [IO.File]::Delete($decisionPath)
+  Write-Json $boundaryPath $boundary
+
   $compact1Discover=($discover|ConvertTo-Json -Depth 100|ConvertFrom-Json);$compact1Discover.schemaVersion=2;$compact1Discover.PSObject.Properties.Remove('contextType');$compact1Discover.PSObject.Properties.Remove('readOnlyContext')
   Write-Json $discoverPath $compact1Discover;$compact1Run=Invoke-Resolver $resolver $discoverPath
   Assert-True ($compact1Run.Code-eq0-and[int]$compact1Run.Value.compactReceipt.schemaVersion-eq1-and$null-ne$compact1Run.Value.compactReceipt.sourceBindings.PSObject.Properties['projectStandardsIdentity']) 'compact1-receipt-binds-project-standard-sources'
@@ -237,6 +265,26 @@ try{
   Write-Json $boundaryPath $freshAuthorizationBoundary;$freshAuthorizationAdmit=Invoke-Resolver $resolver $boundaryPath
   Assert-True ($actorAdmit.Code-eq0-and$freshAuthorizationRun.Code-eq0-and$freshAuthorizationAdmit.Code-eq0-and[string]$freshAuthorizationRun.Value.compactReceipt.sourceCompositionIdentity-ceq[string]$actorRun.Value.compactReceipt.sourceCompositionIdentity-and[string]$freshAuthorizationRun.Value.compactReceipt.selectionIdentity-ceq[string]$actorRun.Value.compactReceipt.selectionIdentity-and[string]$freshAuthorizationRun.Value.compactReceipt.contextIdentity-cne[string]$actorRun.Value.compactReceipt.contextIdentity-and[string]$freshAuthorizationAdmit.Value.decisionIdentity-cne[string]$actorAdmit.Value.decisionIdentity) 'healthy-context-fresh-authorization-rebinds-boundary-without-changing-source-composition-or-selection'
   [IO.File]::WriteAllText($packagePath,$actorPackageOriginal,$utf8)
+
+  $agentsPath=Join-Path $temp 'AGENTS.md';Write-Utf8 $agentsPath 'Original user decision.'
+  $agentsPackage=$package|ConvertTo-Json -Depth 100|ConvertFrom-Json
+  $agentsPackage.actions=@('CONTROL_WRITE');$agentsPackage.exactPaths=@('AGENTS.md');$agentsPackage.objectIdentities=@([pscustomobject]@{path='AGENTS.md';identity=Get-Identity $agentsPath})
+  $agentsPackagePath=Join-Path $control 'agents-package.json';Write-Json $agentsPackagePath $agentsPackage
+  $agentsDiscover=$actorDiscover|ConvertTo-Json -Depth 100|ConvertFrom-Json
+  $agentsDiscover.intentEnvelope.pathHints=@('AGENTS.md')
+  $agentsDiscover.authorizationPackagePath=$agentsPackagePath;$agentsDiscover.expectedAuthorizationIdentity=Get-Identity $agentsPackagePath;$agentsDiscover.exactPaths=@('AGENTS.md');$agentsDiscover.intentEnvelope.requestedActionKind='CONTROL_WRITE';$agentsDiscover.intentEnvelope.mutationHints=@('control')
+  Write-Json $discoverPath $agentsDiscover;$agentsRun=Invoke-Resolver $resolver $discoverPath
+  if($agentsRun.Code-ne0){throw ('AGENTS_DISCOVER|'+$agentsRun.Text)}
+  $agentsReceipt=Join-Path $control 'agents-receipt.json';Write-Json $agentsReceipt $agentsRun.Value.compactReceipt
+  $agentsBoundary=[ordered]@{schemaVersion=2;mode='ADMIT_ACTION';discoverReceiptPath=$agentsReceipt;expectedDiscoverReceiptIdentity=Get-Identity $agentsReceipt;preparationReceipts=@($agentsRun.Value.compactReceipt.selectedObligations|ForEach-Object{$_.preparationRequirements}|Sort-Object -Unique);resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='BOUND'}
+  Write-Json $boundaryPath $agentsBoundary;$agentsAdmit=Invoke-Resolver $resolver $boundaryPath
+  Assert-True ($agentsAdmit.Code-eq0) 'explicit-agents-control-write-admits-exact-preimage'
+  Write-Utf8 $agentsPath 'User narrows delegation; authorized decision update.'
+  $agentsBoundary.mode='FINALIZE_OUTPUT';$agentsBoundary.resultReceipts=@($agentsRun.Value.compactReceipt.selectedObligations|ForEach-Object{$_.resultRequirements}|Sort-Object -Unique)+@('OBJECT_POSTIMAGE|AGENTS.md|'+(Get-Identity $agentsPath))
+  Write-Json $boundaryPath $agentsBoundary;$agentsFinalize=Invoke-Resolver $resolver $boundaryPath
+  if($agentsFinalize.Code-ne0){Write-Output ('AGENTS_FINALIZE|'+$agentsFinalize.Text)}
+  Assert-True ($agentsFinalize.Code-eq0-and$agentsFinalize.Value.sourcePostimageTransition.changedBindings-contains'projectAgentsIdentity') 'authorized-agents-postimage-finalizes-through-existing-source-transition'
+  [IO.File]::Delete($agentsPath)
 
   $continuationPackage=$package|ConvertTo-Json -Depth 100|ConvertFrom-Json;$continuationPackage.actions=@('SOURCE_WRITE','TEST_RUN');$continuationPackage|Add-Member -NotePropertyName continuationPlan -NotePropertyValue @('SOURCE_WRITE','TEST_RUN','SOURCE_WRITE','TEST_RUN');$continuationPackage.invalidatesOn+=@('CONTINUATION_RESULT_DRIFT')
   $continuationPackagePath=Join-Path $control 'continuation-package.json';Write-Json $continuationPackagePath $continuationPackage;$continuationPackageIdentity=Get-Identity $continuationPackagePath

@@ -5,6 +5,8 @@
 
 健康 identity/model/effort 复用。新分派或实际调整时，宿主支持则显式传参并消费接受结果；omitted/rejected/normalized/ignored、接受不明、host move 或能力变化才复查。prompt 不能证明物理切档，也不要求健康 peer 额外握手。
 
+用户持续委托的来源与复用遵循 AUTHORIZATION_MODEL。HOST 只映射当前调用参数、实际配置和结果，不新增泛化宿主限制预检、安装守卫或授权台账；实际拒绝仍按真实原因处理。
+
 不可满足任务能力时报告 RESOURCE_CAPABILITY_REQUIRED；不静默降质、不擅自切换长期 Owner。保存当前任务的实际配置和必要观察；自然任务证据比较首次达标、漏项、返工、总消耗及耗时，不用 pack bytes 或 resolver 延迟代替模型收益。
 <!-- AIW-REQUIREMENT:PR_CODEX_RESOURCE_ROUTE:END -->
 

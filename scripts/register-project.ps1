@@ -952,6 +952,7 @@ $templateRoot = $starter.TemplateRoot
 $managedTemplateRoot=if($ControlPlaneLayout-ceq'framework-maintenance-sibling'){[string]$maintenanceOverlay.Root}else{$templateRoot}
 $bootstrapTemplate=Read-StrictUtf8Template (Join-ChildPath $managedTemplateRoot 'BOOTSTRAP.md')
 $agentsProjection=Get-FrameworkAgentsProjection $repo $managedTemplateRoot $FrameworkVersion
+$agentsProjection.TargetAgents=Get-AiwStandingDelegationProjection -Text $agentsProjection.TargetAgents -AdoptionRequested $true
 
 $createdDate = Get-Date -Format 'yyyy-MM-dd'
 $markdownTokens = [ordered]@{

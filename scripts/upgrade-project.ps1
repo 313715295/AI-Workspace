@@ -33,6 +33,13 @@ param(
 
     [string]$ExpectedCurrentProcessInputIdentity,
 
+    [ValidateSet('PREPARE','ADMIT_ACTION','FINALIZE_OUTPUT')][string]$AdoptionProcessMode,
+    [string]$AdoptionPreparationPath,
+    [string]$ExpectedAdoptionPreparationIdentity,
+    [string]$AdmitResultPath,
+    [string]$ExpectedAdmitResultIdentity,
+    [switch]$DeleteProcessInputOnExit,
+
     [ValidateRange(1, 98304)]
     [int]$SelectedRulePackBytes = 32768,
 
@@ -85,6 +92,18 @@ foreach($modulePath in @($adoptionStateModulePath,$adoptionProjectionModulePath,
     Import-Module $modulePath -Force
 }
 
+if($AdoptionProcessMode-and($Apply-or$RecoverRuntimeAdoption-or$ProjectRuleRecoveryPlanPath)){throw 'ADOPTION_PROCESS_READ_ONLY_BOUNDARY'}
+if($AdoptionProcessMode){
+    $processProject=(Read-AiwProjectJson (Get-AiwContainedPath (Resolve-AiwRepositoryRoot $RepositoryPath) '.ai-workspace/project.json') 'ADOPTION_PROCESS_PROJECT').Value
+    if($processProject.id-cne$ProjectId-or$processProject.frameworkVersion-cne$ToVersion-or$ToVersion-cne'1.16.0'){throw 'ADOPTION_PROCESS_PROJECT_BINDING'}
+}
+if($AdoptionProcessMode-cin@('ADMIT_ACTION','FINALIZE_OUTPUT')){
+    try {
+        $result=Invoke-AiwAdoptionProcessBoundary -RepositoryRoot $RepositoryPath -InputPath $CurrentProcessInputPath -ExpectedInputIdentity $ExpectedCurrentProcessInputIdentity -PreparationPath $AdoptionPreparationPath -ExpectedPreparationIdentity $ExpectedAdoptionPreparationIdentity -AdmitResultPath $AdmitResultPath -ExpectedAdmitResultIdentity $ExpectedAdmitResultIdentity -AuthorizationPackagePath $AuthorizationPackagePath -ExpectedAuthorizationPackageIdentity $ExpectedAuthorizationPackageIdentity -ExpectedTransactionIdentity $ExpectedAdoptionTransactionIdentity -ObservedActor $ActorRouteActor -ExpectedMode $AdoptionProcessMode -DeleteInputOnExit:$DeleteProcessInputOnExit
+        $result|ConvertTo-Json -Depth 100 -Compress
+        exit 0
+    }catch{[ordered]@{status='FAIL';reason=$_.Exception.Message}|ConvertTo-Json -Compress;exit 2}
+}
 if($RecoverRuntimeAdoption-or-not[string]::IsNullOrWhiteSpace($ProjectRuleRecoveryPlanPath)){
     $recoveryConfig=(Read-AiwProjectJson (Get-AiwContainedPath (Resolve-AiwRepositoryRoot $RepositoryPath) '.ai-workspace/project.json') 'RECOVERY_PROJECT').Value
     if([string]$recoveryConfig.id-cne$ProjectId-or[string]$recoveryConfig.frameworkVersion-cne$ToVersion){throw 'RECOVERY_PROJECT_BINDING'}
@@ -727,6 +746,11 @@ function Set-LocalCandidateProjectionRecord($Record,[bool]$UseOld){
 }
 
 function Invoke-LocalCandidateSamePinProjectionRefresh([string]$RepositoryRoot,[string]$FrameworkWorkspace,[string]$TargetFramework,[string]$TargetVersion,[string]$ProjectFile,$Migration,$Plan,[bool]$ApplyChange){
+    if($AdoptionProcessMode-ceq'PREPARE'){
+        $prepared=New-AiwAdoptionProcessPreparation -RepositoryRoot $RepositoryRoot -InputPath $CurrentProcessInputPath -ExpectedInputIdentity $ExpectedCurrentProcessInputIdentity -TargetRuntimeRoot $FrameworkWorkspace -Projection $Plan.Projection -ObservedActor $Migration.Actor
+        $prepared|ConvertTo-Json -Depth 100 -Compress
+        exit 0
+    }
     if($null-ne$Plan.ProjectedPreflight){$preflight=$Plan.ProjectedPreflight;Write-Output ('TARGET_PROJECTED_PROCESS_PREFLIGHT|to='+$TargetVersion+'|resolver='+$preflight.ResolverReason+'|capabilities='+[string]::Join(',',@($preflight.Capabilities))+'|budget='+$preflight.BudgetMode+'|requirements='+$preflight.SelectedRequirementCount+'|bytes='+$preflight.SelectedPackBytes+'|pack='+$preflight.SelectedPackIdentity+'|source='+$preflight.SourceCompositionIdentity)}
     Write-Output ('UPGRADE_TARGET_MODE|lifecycle='+[string]$script:ActiveTargetSnapshot.Lifecycle+'|localCandidate=True');Write-Output ('UPGRADE_TARGET_RELEASE|canonical='+[string]$Plan.State.targetReleaseCanonical+'|manifest='+[string]$Plan.State.targetReleaseManifestIdentity);foreach($entry in $Plan.Preimages){Write-Output ('UPGRADE_PREIMAGE|'+[string]$entry.path+'='+[string]$entry.identity)};foreach($entry in $Plan.Postimages){Write-Output ('UPGRADE_POSTIMAGE|'+[string]$entry.path+'='+[string]$entry.identity)};Write-Output ('UPGRADE_WRITESET|'+[string]::Join('|',@($Plan.ExactPaths)))
     if(-not$ApplyChange){Write-Output ('WHAT_IF|from='+$TargetVersion+'|to='+$TargetVersion+'|objects='+($Plan.Records.Count+1)+'|transaction=local-candidate-managed-projection-refresh');return}
@@ -1280,7 +1304,13 @@ function Get-TargetProjectedProcessPreflight([string]$RepositoryRoot,[string]$Fr
         $authorizationRaw=Read-StrictUtf8NoBom $AuthorizationPackagePath;try{$authorization=$authorizationRaw|ConvertFrom-Json}catch{throw 'TARGET_PROJECTED_PROCESS_AUTHORIZATION_JSON'};$userDecision=[string]$authorization.userConfirmation
     }elseif(-not[string]::IsNullOrWhiteSpace($CurrentProcessInputPath)-and-not[string]::IsNullOrWhiteSpace($ExpectedCurrentProcessInputIdentity)){
         if(-not(Test-Path -LiteralPath $CurrentProcessInputPath -PathType Leaf)-or(Get-MinimalFileIdentity $CurrentProcessInputPath)-cne$ExpectedCurrentProcessInputIdentity){throw 'TARGET_PROJECTED_PROCESS_INPUT_DRIFT'}
-        $legacyInput=Read-StrictUtf8NoBom $CurrentProcessInputPath|ConvertFrom-Json;$userDecision=[string]$legacyInput.userDecision
+        $legacyInput=Read-StrictUtf8NoBom $CurrentProcessInputPath|ConvertFrom-Json
+        if($AdoptionProcessMode-ceq'PREPARE'){
+            $processReceipt=(Read-AiwProjectJson ([string]$legacyInput.discoverReceiptPath) 'ADOPTION_PROCESS_DISCOVER')
+            if($processReceipt.Identity-cne[string]$legacyInput.expectedDiscoverReceiptIdentity){throw 'ADOPTION_PROCESS_DISCOVER_DRIFT'}
+            $context=if($processReceipt.Value.schemaVersion-eq1){$processReceipt.Value.authorityContext}else{$processReceipt.Value.binding}
+            $userDecision=[string]$context.userDecision
+        }else{$userDecision=[string]$legacyInput.userDecision}
     }
     if([string]::IsNullOrWhiteSpace($userDecision)-and$ReadOnlyCandidateRefresh-and-not$Apply){$userDecision='NOT_REQUIRED'}
     if([string]::IsNullOrWhiteSpace($userDecision)){throw 'TARGET_PROJECTED_PROCESS_USER_DECISION'}

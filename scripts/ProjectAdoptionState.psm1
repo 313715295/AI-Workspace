@@ -489,3 +489,19 @@ function Get-AiwAdoptedDistributionBinding {
     return $null
 }
 Export-ModuleMember -Function Get-AiwAdoptedDistributionBinding
+
+function Get-AiwStandingDelegationProjection {
+    param([AllowEmptyString()][string]$Text, [bool]$AdoptionRequested = $false)
+    # Only the registration request supplies this fact. File presence is not adoption.
+    if (-not $AdoptionRequested) { return $Text }
+    $begin = '<!-- AI-WORKSPACE-USER-DECISION:BEGIN -->'
+    $end = '<!-- AI-WORKSPACE-USER-DECISION:END -->'
+    $starts = [regex]::Matches($Text, [regex]::Escape($begin)).Count
+    $ends = [regex]::Matches($Text, [regex]::Escape($end)).Count
+    if ($starts -eq 1 -and $ends -eq 1 -and $Text.IndexOf($begin) -lt $Text.IndexOf($end)) { return $Text }
+    if ($starts -ne 0 -or $ends -ne 0) { throw 'USER_DECISION_MARKERS_MALFORMED' }
+    $separator = if ($Text.Length -eq 0) { '' } elseif ($Text.EndsWith("`n")) { "`n" } else { "`n`n" }
+    return $Text + $separator + $begin + "`n" +
+        '用户持续委托AI，为完成本项目已授权目标，遵循当前采用的Framework、当前生效的项目纠正和永久规则，自主作出并执行其允许的工作决定。该委托持续有效，无须逐任务、逐步骤重复确认；用户后续明确决定优先，规则明确保留给用户的决定仍由用户作出。' + "`n" + $end + "`n"
+}
+Export-ModuleMember -Function Get-AiwStandingDelegationProjection

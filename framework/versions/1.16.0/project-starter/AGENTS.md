@@ -8,4 +8,6 @@
 Skill 只负责 navigation，不能授予 write、test、Review、OWNER_ACCEPT、Git、push、browser、device 或 external authority。项目自己的 instruction 可写在本 managed block 之外。
 
 项目说明与标准不复制到这里。AI 只按当前任务读取用户已指定的资料入口；规范性标准通过 `.ai-workspace/process-policy.json` 的显式来源绑定接入，普通文档链接不会自动递归成为规则依赖。
+
+同时读取本文件管理段之外的用户决定及后续明确收窄或撤回。注册会保存用户已作出的 Framework 使用决定；此模板导航自身不是持续委托。具体动作继续使用当前授权包。
 <!-- AI-WORKSPACE-FRAMEWORK:END -->

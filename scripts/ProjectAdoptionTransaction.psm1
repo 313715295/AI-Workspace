@@ -719,3 +719,190 @@ function Resume-AiwRuntimeAdoption {
     return [pscustomobject]@{status='COMPLETE';transactionIdentity=Get-AiwCurrentIdentity $path;distributionBinding=$binding}
 }
 Export-ModuleMember -Function Resume-AiwRuntimeAdoption
+
+# Prospective closeout for one named-runtime refresh. The existing upgrade plan
+# supplies the projection; the version composer remains the only rule selector.
+function Assert-AiwAdoptionSame($Left,$Right,[string]$Label) {
+    if(($Left|ConvertTo-Json -Depth 100 -Compress)-cne($Right|ConvertTo-Json -Depth 100 -Compress)){throw ('ADOPTION_PROCESS_'+$Label)}
+}
+function Read-AiwAdoptionEvidence([string]$Path,[string]$Identity,[string]$Label) {
+    if([string]::IsNullOrWhiteSpace($Path)-or$Identity-cnotmatch'^\d+\|[A-F0-9]{64}$'){throw ('ADOPTION_PROCESS_EVIDENCE_REQUIRED|'+$Label)}
+    $doc=Read-AiwProjectJson $Path $Label
+    if($doc.Identity-cne$Identity){throw ('ADOPTION_PROCESS_EVIDENCE_DRIFT|'+$Label)}
+    return $doc
+}
+function Get-AiwAdoptionProcessContext($Receipt) {
+    if(($Receipt.schemaVersion-eq1-and$Receipt.inputContractVersion-eq2)){$c=$Receipt.authorityContext}
+    elseif($Receipt.schemaVersion-eq2-and$Receipt.inputContractVersion-eq3){$c=$Receipt.binding}
+    else{throw 'ADOPTION_PROCESS_RECEIPT_LAYOUT'}
+    if($Receipt.status-cne'PASS'-or$Receipt.mode-cne'DISCOVER'-or$Receipt.receiptType-cne'PROCESS_REQUIREMENTS_DISCOVER'-or$Receipt.authorityGranted-ne$false-or$Receipt.semanticCorrectnessProven-ne$false){throw 'ADOPTION_PROCESS_RECEIPT_CONTRACT'}
+    $intent=$Receipt.intentEnvelope
+    $hash=Get-AiwByteIdentity ($script:Utf8NoBom.GetBytes(($c|ConvertTo-Json -Depth 30 -Compress)+"`n"+($intent|ConvertTo-Json -Depth 30 -Compress)))
+    if($hash.Split('|')[1]-cne$Receipt.contextIdentity){throw 'ADOPTION_PROCESS_CONTEXT_IDENTITY'}
+    if($Receipt.schemaVersion-eq1){
+        # Legacy authorityContext omits these task labels. Normalize a private
+        # view only, after hashing the original context; never mutate the receipt.
+        $c=$c|ConvertTo-Json -Depth 100 -Compress|ConvertFrom-Json -Depth 100
+        $c|Add-Member -NotePropertyName taskId -NotePropertyValue ([string]$Receipt.taskId)
+        $c|Add-Member -NotePropertyName taskOwner -NotePropertyValue ([string]$Receipt.taskOwner)
+    }
+    $allowed=@('AGENTS.md','.ai-workspace/BOOTSTRAP.md','.ai-workspace/upgrade-recovery/1.16.0/state.json')
+    if($c.frameworkVersion-cne'1.16.0'-or$intent.requestedActionKind-cne'CONTROL_WRITE'-or$intent.ambiguityState-cne'CLEAR'-or'CONTROL_WRITE'-cnotin@($c.authorizedActions)-or@($c.exactScope).Count-eq0-or@($c.exactScope|Where-Object{$_-cnotin$allowed}).Count-ne0-or$allowed[2]-cnotin@($c.exactScope)){throw 'ADOPTION_PROCESS_CONTEXT_SCOPE'}
+    return $c
+}
+function Get-AiwAdoptionComposition([string]$Root,[string]$Runtime,$Receipt,[switch]$EvaluationOnly) {
+    $c=Get-AiwAdoptionProcessContext $Receipt
+    Import-Module (Join-Path $Runtime 'framework/versions/1.16.0/scripts/ProcessRequirementComposition.psm1') -Force
+    $result=Invoke-ProcessRequirementComposition -ProjectRoot $Root -FrameworkRoot $Runtime -TargetVersion '1.16.0' -ExpectedProjectConfigIdentity (Get-AiwCurrentIdentity (Get-AiwContainedPath $Root '.ai-workspace/project.json')) -ExpectedCorrectionsIdentity (Get-AiwCurrentIdentity (Get-AiwContainedPath $Root '.ai-workspace/corrections.json')) -Profile $c.profile -Role $c.role -Phase $c.phase -Actor $c.actor -TaskIdentity $c.taskIdentity -Capabilities @($c.observedCapabilities) -Objective (Get-AiwProcessSemanticText $Receipt.intentEnvelope) -ActionKind 'CONTROL_WRITE' -ResultKind $Receipt.intentEnvelope.requestedResultKind -ExactPaths @($c.exactScope) -ForbiddenPaths @($c.forbiddenScope) -EvaluationOnly:$EvaluationOnly
+    $size=$script:Utf8NoBom.GetByteCount((@($result.selectedRequirements)|ConvertTo-Json -Depth 50 -Compress))
+    if($size-gt$result.selectedRulePackBytes-or$result.selectedRulePackBytes-gt$result.absoluteSelectedRulePackBytes){throw 'ADOPTION_PROCESS_PACK_BUDGET'}
+    return $result
+}
+function New-AiwAdoptionProcessPreparation {
+    [CmdletBinding()]
+    param([string]$RepositoryRoot,[string]$InputPath,[string]$ExpectedInputIdentity,[string]$TargetRuntimeRoot,$Projection,[string]$ObservedActor)
+    $root=Resolve-AiwRepositoryRoot $RepositoryRoot
+    $inputDoc=Read-AiwAdoptionEvidence $InputPath $ExpectedInputIdentity 'PREPARE_INPUT';$boundary=$inputDoc.Value
+    if($boundary.schemaVersion-ne2-or$boundary.mode-cne'ADMIT_ACTION'){throw 'ADOPTION_PROCESS_PREPARE_INPUT'}
+    $receiptDoc=Read-AiwAdoptionEvidence $boundary.discoverReceiptPath $boundary.expectedDiscoverReceiptIdentity 'DISCOVER';$receipt=$receiptDoc.Value
+    $c=Get-AiwAdoptionProcessContext $receipt
+    if((Resolve-AiwRepositoryRoot $c.projectRoot)-cne$root-or$c.actor-cne$ObservedActor){throw 'ADOPTION_PROCESS_ACTOR_ROOT'}
+    $null=Assert-AiwProjectionContract $root $Projection
+    Assert-AiwAdoptionSame @($Projection.objects.path|Sort-Object) @($c.exactScope|Sort-Object) 'PROJECTION_SCOPE'
+    foreach($entry in $Projection.objects){if($entry.kind-cne'FILE'-or-not$entry.oldExists-or-not$entry.newExists-or(Get-AiwCurrentIdentity (Get-AiwContainedPath $root $entry.path))-cne$entry.oldIdentity){throw 'ADOPTION_PROCESS_PROJECTION_PREIMAGE'}}
+    $oldBinding=Get-AiwAdoptedDistributionBinding $root '1.16.0'
+    $null=Assert-AiwDistributionBinding $oldBinding $receipt.sourceLocators.frameworkRoot '1.16.0'
+    $newBinding=Get-AiwDistributionBinding $TargetRuntimeRoot '1.16.0' -Required
+    Import-Module (Join-Path $receipt.sourceLocators.frameworkRoot 'framework/versions/1.16.0/scripts/ProcessRequirementComposition.psm1') -Force
+    $oldSources=Get-AiwProcessBindingSnapshot -ProjectRoot $root -FrameworkRoot $receipt.sourceLocators.frameworkRoot -TargetVersion '1.16.0' -TaskRelativePath $receipt.sourceLocators.taskRelativePath -ForbiddenPaths @($c.forbiddenScope)
+    foreach($field in $receipt.sourceBindings.PSObject.Properties){if($null-eq$oldSources.PSObject.Properties[$field.Name]-or[string]$oldSources.($field.Name)-cne[string]$field.Value){throw ('ADOPTION_PROCESS_OLD_SOURCE_DRIFT|'+$field.Name)}}
+    $policy=(Read-AiwProjectJson (Get-AiwContainedPath $root '.ai-workspace/process-policy.json') 'POLICY').Value
+    $closure=Get-AiwProjectPolicySourceClosure -ProjectRoot $root -Rules @($policy.rules) -ForbiddenPaths @($c.forbiddenScope)
+    $stage=Join-Path ([IO.Path]::GetTempPath()) ('aiw-adoption-process-'+[guid]::NewGuid().ToString('N'))
+    $null=[IO.Directory]::CreateDirectory($stage)
+    try {
+        $paths=@('.ai-workspace/project.json','.ai-workspace/controller.json','.ai-workspace/corrections.json','.ai-workspace/process-policy.json','.ai-workspace/BOOTSTRAP.md','AGENTS.md',[string]$receipt.sourceLocators.taskRelativePath)
+        foreach($path in $paths){$source=Get-AiwContainedPath $root $path;if(Test-Path -LiteralPath $source -PathType Leaf){Write-AiwAtomicBytes (Get-AiwContainedPath $stage $path) ([IO.File]::ReadAllBytes($source))}}
+        foreach($doc in $closure.Documents){if($doc.locatorKind-ceq'PROJECT_RELATIVE'){Write-AiwAtomicBytes (Get-AiwContainedPath $stage $doc.relativePath) $doc.bytes}elseif((Get-AiwCurrentIdentity $doc.sourcePath)-cne$doc.identity){throw 'ADOPTION_PROCESS_EXTERNAL_SOURCE_DRIFT'}}
+        foreach($entry in $Projection.objects){Write-AiwAtomicBytes (Get-AiwContainedPath $stage $entry.path) ([Convert]::FromBase64String($entry.newBase64))}
+        $composition=Get-AiwAdoptionComposition $stage $TargetRuntimeRoot $receipt -EvaluationOnly
+        $projectedSources=[ordered]@{}
+        foreach($name in @('projectConfigIdentity','controllerIdentity','correctionsIdentity','policyIdentity','bootstrapManagedIdentity','projectCustomIdentity','projectAgentsIdentity','projectStandardsIdentity','frameworkVersionIdentity','releaseManifestIdentity','nativeCatalogIdentity','correctionCoverageIdentity')){
+            if($null-ne$composition.PSObject.Properties[$name]){$projectedSources[$name]=[string]$composition.$name}
+        }
+        return [ordered]@{schemaVersion=1;status='PREPARED';discoverReceiptIdentity=$receiptDoc.Identity;previousDistribution=$oldBinding;targetDistribution=$newBinding;projection=$Projection;oldSourceBindings=$oldSources;projectedSourceBindings=$projectedSources;selectedRuleBlocks=@($composition.selectedRequirements);selectedPackCeilingBytes=$composition.selectedRulePackBytes;authorityGranted=$false;evidenceGrade='INSTRUCTION_BOUND'}
+    }finally{
+        $base=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath([IO.Path]::GetTempPath()))+[IO.Path]::DirectorySeparatorChar
+        $full=[IO.Path]::GetFullPath($stage)
+        if(-not$full.StartsWith($base,[StringComparison]::OrdinalIgnoreCase)-or-not[IO.Path]::GetFileName($full).StartsWith('aiw-adoption-process-')){throw 'ADOPTION_PROCESS_CLEANUP_SCOPE'}
+        [IO.Directory]::Delete($full,$true)
+    }
+}
+function Invoke-AiwAdoptionProcessBoundary {
+    [CmdletBinding()]
+    param([string]$RepositoryRoot,[string]$InputPath,[string]$ExpectedInputIdentity,[string]$PreparationPath,[string]$ExpectedPreparationIdentity,[string]$AdmitResultPath,[string]$ExpectedAdmitResultIdentity,[string]$AuthorizationPackagePath,[string]$ExpectedAuthorizationPackageIdentity,[string]$ExpectedTransactionIdentity,[string]$ObservedActor,[string]$ExpectedMode,[switch]$DeleteInputOnExit)
+    $root=Resolve-AiwRepositoryRoot $RepositoryRoot
+    $inputDoc=Read-AiwAdoptionEvidence $InputPath $ExpectedInputIdentity 'BOUNDARY';$b=$inputDoc.Value
+    $fields=@('schemaVersion','mode','discoverReceiptPath','expectedDiscoverReceiptIdentity','preparationReceipts','resultReceipts','deliveryReceipts','publicDecisionIdentity','protectionState')
+    Assert-AiwAdoptionSame @($b.PSObject.Properties.Name|Sort-Object) @($fields|Sort-Object) 'BOUNDARY_FIELDS'
+    if($b.schemaVersion-ne2-or$b.mode-cne$ExpectedMode-or$b.mode-cnotin@('ADMIT_ACTION','FINALIZE_OUTPUT')-or$b.protectionState-cne'BOUND'){throw 'ADOPTION_PROCESS_BOUNDARY_CONTRACT'}
+    $receiptDoc=Read-AiwAdoptionEvidence $b.discoverReceiptPath $b.expectedDiscoverReceiptIdentity 'DISCOVER';$r=$receiptDoc.Value;$c=Get-AiwAdoptionProcessContext $r
+    if((Resolve-AiwRepositoryRoot $c.projectRoot)-cne$root-or$c.actor-cne$ObservedActor){throw 'ADOPTION_PROCESS_ACTOR_ROOT'}
+    $cleanup=$false
+    if($DeleteInputOnExit){
+        foreach($name in @($c.taskId,$c.actor)){if($name-cnotmatch'^[0-9A-Za-z][0-9A-Za-z._-]*$'){throw 'ADOPTION_PROCESS_CLEANUP_CONTEXT'}}
+        $prefix=(Get-AiwContainedPath $root ('.ai-workspace/runtime/'+$c.taskId+'/'+$c.actor))+[IO.Path]::DirectorySeparatorChar
+        if(-not$inputDoc.Path.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase)){throw 'ADOPTION_PROCESS_CLEANUP_SCOPE'}
+        $null=Get-AiwContainedPath $root ([IO.Path]::GetRelativePath($root,$inputDoc.Path).Replace('\','/'));$cleanup=$true
+    }
+    try {
+        foreach($field in @('preparationReceipts','resultReceipts','deliveryReceipts')){if($b.$field-isnot[array]-or@($b.$field|Where-Object{$_-isnot[string]-or[string]::IsNullOrWhiteSpace($_)}).Count){throw 'ADOPTION_PROCESS_BOUNDARY_ARRAY'}}
+        if($b.mode-ceq'ADMIT_ACTION'){
+            $pDoc=Read-AiwAdoptionEvidence $PreparationPath $ExpectedPreparationIdentity 'PREPARATION';$p=$pDoc.Value
+            $current=New-AiwAdoptionProcessPreparation $root $InputPath $ExpectedInputIdentity $p.targetDistribution.runtimeRoot $p.projection $ObservedActor
+            Assert-AiwAdoptionSame $current $p 'PREPARATION_DRIFT'
+            $required=@($p.selectedRuleBlocks|ForEach-Object{$_.preparationRequirements}|Sort-Object -Unique)
+            if(@($required|Where-Object{$_-cnotin@($b.preparationReceipts)}).Count-or('ADOPTION_TARGET_RULES_LOADED|'+$pDoc.Identity)-cnotin@($b.preparationReceipts)){throw 'ADOPTION_PROCESS_TARGET_PREPARATION_INCOMPLETE'}
+            # Delegate the actual, unmodified admission exactly once. Retain its
+            # exact input before the version resolver's normal cleanup.
+            $entry=Join-Path $r.sourceLocators.frameworkRoot 'framework/versions/1.16.0/scripts/resolve-process-requirements.ps1'
+            $args=@('-NoProfile','-NonInteractive','-File',$entry,'-InputPath',$InputPath,'-AsJson')
+            $config=(Read-AiwProjectJson (Get-AiwContainedPath $root '.ai-workspace/project.json') 'PROJECT').Value
+            if($null-ne$config.PSObject.Properties['controlPlaneLayout']-and$config.controlPlaneLayout-ceq'framework-maintenance-sibling'){$args+=@('-AuthorizationCheckerPath',(Join-Path $PSScriptRoot 'check-framework-maintenance-authorization.ps1'))}
+            if($DeleteInputOnExit){$args+='-DeleteInputOnExit'}
+            $output=@(& pwsh @args);if($LASTEXITCODE-ne0-or$output.Count-ne1){throw ('ADOPTION_PROCESS_ORIGINAL_ADMIT|'+($output-join';'))}
+            $result=$output[0]|ConvertFrom-Json -Depth 100
+            if($result.status-cne'PASS'-or$result.mode-cne'ADMIT_ACTION'){throw 'ADOPTION_PROCESS_ORIGINAL_ADMIT'}
+            $result|Add-Member originalAdmissionInput $b
+            $result|Add-Member adoptionPreparation $p
+            $result|Add-Member adoptionPreparationIdentity $pDoc.Identity
+            $result|Add-Member adoptionPreparationBase64 ([Convert]::ToBase64String($pDoc.Bytes))
+            return $result
+        }
+        $adDoc=Read-AiwAdoptionEvidence $AdmitResultPath $ExpectedAdmitResultIdentity 'ADMIT_RESULT';$ad=$adDoc.Value
+        if($null-eq$ad.PSObject.Properties['originalAdmissionInput']-or$null-eq$ad.PSObject.Properties['adoptionPreparation']){throw 'ADOPTION_PROCESS_ORIGINAL_EVIDENCE_REQUIRED'}
+        $a=$ad.originalAdmissionInput;$p=$ad.adoptionPreparation
+        $preparationBytes=[Convert]::FromBase64String($ad.adoptionPreparationBase64)
+        if((Get-AiwByteIdentity $preparationBytes)-cne$ad.adoptionPreparationIdentity){throw 'ADOPTION_PROCESS_PREPARATION_IDENTITY'}
+        Assert-AiwAdoptionSame ($script:Utf8NoBom.GetString($preparationBytes)|ConvertFrom-Json -Depth 100) $p 'PREPARATION_CONTENT'
+        foreach($field in $r.sourceBindings.PSObject.Properties){if($null-eq$p.oldSourceBindings.PSObject.Properties[$field.Name]-or[string]$p.oldSourceBindings.($field.Name)-cne[string]$field.Value){throw ('ADOPTION_PROCESS_OLD_SOURCE_DRIFT|'+$field.Name)}}
+        Assert-AiwAdoptionSame @($a.PSObject.Properties.Name|Sort-Object) @($fields|Sort-Object) 'ADMIT_FIELDS'
+        foreach($field in @('preparationReceipts','resultReceipts','deliveryReceipts')){if($a.$field-isnot[array]-or@($a.$field|Where-Object{$_-isnot[string]-or[string]::IsNullOrWhiteSpace($_)}).Count){throw 'ADOPTION_PROCESS_ADMIT_ARRAY'}}
+        if($ad.status-cne'PASS'-or$ad.mode-cne'ADMIT_ACTION'-or$a.mode-cne'ADMIT_ACTION'-or$a.schemaVersion-ne2-or$ad.selectionIdentity-cne$r.selectionIdentity-or$a.expectedDiscoverReceiptIdentity-cne$receiptDoc.Identity-or$a.discoverReceiptPath-cne$b.discoverReceiptPath-or$a.protectionState-cne$b.protectionState-or$a.publicDecisionIdentity-cne$b.publicDecisionIdentity-or@($ad.missingPreparation).Count-or@($ad.missingResult).Count-or$p.discoverReceiptIdentity-cne$receiptDoc.Identity){throw 'ADOPTION_PROCESS_ORIGINAL_ADMISSION'}
+        $material=@($r.sourceCompositionIdentity,$r.selectionIdentity,$r.contextIdentity,'ADMIT_ACTION',$r.intentEnvelope.objective,'CONTROL_WRITE',$r.intentEnvelope.requestedResultKind,[string]::Join(',',@($c.exactScope)),$c.authorizationIdentity,[string]::Join(',',@($a.preparationReceipts)),[string]::Join(',',@($a.resultReceipts)),[string]::Join(',',@($a.deliveryReceipts)),$a.publicDecisionIdentity,$a.protectionState,'NO_SOURCE_POSTIMAGE_TRANSITION','')-join"`n"
+        if((Get-AiwByteIdentity ($script:Utf8NoBom.GetBytes($material))).Split('|')[1]-cne$ad.decisionIdentity){throw 'ADOPTION_PROCESS_ORIGINAL_DECISION'}
+        if(('ADOPTION_TARGET_RULES_LOADED|'+$ad.adoptionPreparationIdentity)-cnotin@($a.preparationReceipts)){throw 'ADOPTION_PROCESS_TARGET_PREPARATION_INCOMPLETE'}
+        $pkgDoc=Read-AiwAdoptionEvidence $r.sourceLocators.authorizationPackagePath $c.authorizationIdentity 'PROCESS_PACKAGE';$pkg=$pkgDoc.Value
+        if($pkg.schemaVersion-ne2-or$pkg.grantee-cne$c.actor-or$pkg.owner-cne$c.taskOwner-or$pkg.taskIdentity-cne$c.taskIdentity-or$pkg.taskId-cne$c.taskId-or$pkg.projectConfigIdentity-cne$r.sourceBindings.projectConfigIdentity-or$pkg.userConfirmation-cne$c.userDecision-or$null-ne$pkg.PSObject.Properties['continuationPlan']){throw 'ADOPTION_PROCESS_PACKAGE_BINDING'}
+        Assert-AiwAdoptionSame @($pkg.actions) @('CONTROL_WRITE') 'PACKAGE_ACTION'
+        Assert-AiwAdoptionSame @($pkg.exactPaths|Sort-Object) @($c.exactScope|Sort-Object) 'PACKAGE_SCOPE'
+        $txnPath=Get-AiwContainedPath $root '.ai-workspace/runtime/project-adoption/upgrade/state.json'
+        $txnDoc=Read-AiwAdoptionEvidence $txnPath $ExpectedTransactionIdentity 'TRANSACTION';$t=$txnDoc.Value
+        if($t.transactionComplete-isnot[bool]-or-not$t.transactionComplete-or$t.state-cne'COMPLETE'-or$t.metadata.taskPath-cne$r.sourceLocators.taskRelativePath-or$t.metadata.taskIdentity-cne$c.taskIdentity-or$t.metadata.projectConfigIdentity-cne$r.sourceBindings.projectConfigIdentity-or$t.metadata.controllerIdentity-cne$r.sourceBindings.controllerIdentity){throw 'ADOPTION_PROCESS_TRANSACTION_INCOMPLETE_OR_CONTEXT'}
+        Assert-AiwAdoptionSame $t.projection $p.projection 'TRANSACTION_PROJECTION'
+        $verified=Resume-AiwRuntimeAdoption -RepositoryRoot $root -ExpectedTransactionIdentity $txnDoc.Identity -AuthorizationPackagePath $AuthorizationPackagePath -ExpectedAuthorizationPackageIdentity $ExpectedAuthorizationPackageIdentity -ObservedActor $ObservedActor
+        if($verified.status-cne'COMPLETE'-or$verified.writes-ne0){throw 'ADOPTION_PROCESS_TRANSACTION_INCOMPLETE'}
+        $null=Assert-AiwDistributionBinding $p.previousDistribution $r.sourceLocators.frameworkRoot '1.16.0'
+        $null=Assert-AiwDistributionBinding $p.targetDistribution $p.targetDistribution.runtimeRoot '1.16.0'
+        Assert-AiwAdoptionSame $t.metadata.distributionBinding $p.targetDistribution 'TRANSACTION_DISTRIBUTION'
+        Assert-AiwAdoptionSame (Get-AiwAdoptedDistributionBinding $root '1.16.0') $p.targetDistribution 'LIVE_DISTRIBUTION'
+        foreach($e in $t.projection.objects){
+            $pre=@($pkg.objectIdentities|Where-Object{$_.path-ceq$e.path})
+            if($pre.Count-ne1-or$pre[0].identity-cne$e.oldIdentity-or(Get-AiwCurrentIdentity (Get-AiwContainedPath $root $e.path))-cne$e.newIdentity-or('OBJECT_POSTIMAGE|'+$e.path+'|'+$e.newIdentity)-cnotin@($b.resultReceipts)){throw 'ADOPTION_PROCESS_OBJECT_PROOF'}
+        }
+        if(@($pkg.objectIdentities).Count-ne@($t.projection.objects).Count){throw 'ADOPTION_PROCESS_OBJECT_SCOPE'}
+        $stateEntry=@($t.projection.objects|Where-Object{$_.path-ceq'.ai-workspace/upgrade-recovery/1.16.0/state.json'})[0]
+        $oldState=$script:Utf8NoBom.GetString([Convert]::FromBase64String($stateEntry.oldBase64))|ConvertFrom-Json -Depth 100
+        Assert-AiwAdoptionSame $oldState.distributionBinding $p.previousDistribution 'OLD_DISTRIBUTION'
+        if($stateEntry.oldIdentity-cne$r.sourceBindings.candidatePilotStateIdentity){throw 'ADOPTION_PROCESS_OLD_STATE'}
+        $composition=Get-AiwAdoptionComposition $root $p.targetDistribution.runtimeRoot $r
+        Assert-AiwAdoptionSame @($composition.selectedRequirements) @($p.selectedRuleBlocks) 'TARGET_RULE_DRIFT'
+        if($composition.selectedRulePackBytes-ne$p.selectedPackCeilingBytes){throw 'ADOPTION_PROCESS_PACK_BUDGET'}
+        foreach($field in $p.projectedSourceBindings.PSObject.Properties){if([string]$composition.($field.Name)-cne[string]$field.Value){throw ('ADOPTION_PROCESS_SOURCE_DRIFT|'+$field.Name)}}
+        # All unrelated sources must remain exactly the original sources. The
+        # projected managed files and package fields are proved separately above.
+        $bindings=Get-AiwProcessBindingSnapshot -ProjectRoot $root -FrameworkRoot $p.targetDistribution.runtimeRoot -TargetVersion '1.16.0' -TaskRelativePath $r.sourceLocators.taskRelativePath -ForbiddenPaths @($c.forbiddenScope)
+        $projectedFields=@('frameworkVersionIdentity','releaseManifestIdentity','nativeCatalogIdentity','correctionCoverageIdentity','bootstrapManagedIdentity','projectAgentsIdentity')
+        foreach($field in $bindings.PSObject.Properties){
+            $name=$field.Name
+            if($name-ceq'candidatePilotStateIdentity'){$expected=[string]$stateEntry.newIdentity}
+            elseif($name-cin$projectedFields){
+                if($null-eq$p.projectedSourceBindings.PSObject.Properties[$name]){throw ('ADOPTION_PROCESS_UNSUPPORTED_SOURCE|'+$name)}
+                $expected=[string]$p.projectedSourceBindings.$name
+            }else{
+                if($null-eq$p.oldSourceBindings.PSObject.Properties[$name]){throw ('ADOPTION_PROCESS_UNSUPPORTED_SOURCE|'+$name)}
+                $expected=[string]$p.oldSourceBindings.$name
+            }
+            if([string]$field.Value-cne$expected){throw ('ADOPTION_PROCESS_SOURCE_DRIFT|'+$name)}
+        }
+        foreach($name in $p.oldSourceBindings.PSObject.Properties.Name){if($null-eq$bindings.PSObject.Properties[$name]){throw ('ADOPTION_PROCESS_UNSUPPORTED_SOURCE|'+$name)}}
+        $prep=@(@($r.selectedObligations|ForEach-Object{$_.preparationRequirements})+@($p.selectedRuleBlocks|ForEach-Object{$_.preparationRequirements})|Sort-Object -Unique)
+        if(@($prep|Where-Object{$_-cnotin@($a.preparationReceipts)-or$_-cnotin@($b.preparationReceipts)}).Count){throw 'ADOPTION_PROCESS_PREPARATION_INCOMPLETE'}
+        $results=@(@($r.selectedObligations|ForEach-Object{$_.resultRequirements})+@($p.selectedRuleBlocks|ForEach-Object{$_.resultRequirements})|Sort-Object -Unique)
+        if(@($results|Where-Object{$_-cnotin@($b.resultReceipts)}).Count){throw 'ADOPTION_PROCESS_RESULT_INCOMPLETE'}
+        if($r.intentEnvelope.requestedResultKind-cin@('USER_RESPONSE','TERMINAL','HANDOFF','REVIEW_VERDICT','OWNER_ACCEPTANCE')-and@($b.deliveryReceipts).Count-eq0){throw 'ADOPTION_PROCESS_DELIVERY_INCOMPLETE'}
+        foreach($doc in @($inputDoc,$receiptDoc,$adDoc,$pkgDoc,$txnDoc)){if((Get-AiwCurrentIdentity $doc.Path)-cne$doc.Identity){throw 'ADOPTION_PROCESS_EVIDENCE_CHANGED_DURING_CHECK'}}
+        return [ordered]@{status='PASS';mode='FINALIZE_OUTPUT';reason='ORIGINAL_CROSS_DISTRIBUTION_ADOPTION_FINALIZED';originalDiscoverReceiptIdentity=$receiptDoc.Identity;originalAdmitDecisionIdentity=$ad.decisionIdentity;adoptionTransactionIdentity=$txnDoc.Identity;previousSourceCompositionIdentity=$r.sourceCompositionIdentity;currentSourceCompositionIdentity=$composition.sourceCompositionIdentity;runtimeRoot=$p.targetDistribution.runtimeRoot;missingPreparation=@();missingResult=@();authorityGranted=$false;semanticCorrectnessProven=$false;hostInvocationProven=$false;evidenceGrade='INSTRUCTION_BOUND'}
+    }finally{if($cleanup-and(Test-Path -LiteralPath $inputDoc.Path -PathType Leaf)){[IO.File]::Delete($inputDoc.Path)}}
+}
+Export-ModuleMember -Function New-AiwAdoptionProcessPreparation,Invoke-AiwAdoptionProcessBoundary

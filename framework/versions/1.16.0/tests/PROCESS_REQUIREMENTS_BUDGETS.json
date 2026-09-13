@@ -17,19 +17,19 @@
     }
   },
   "candidate": {
-    "catalogIdentity": "43720|E41F0D00C7A3A693BE2609EDF49A4E0492EAF8AD7AE1B370CCF15B4E2DCBE787",
+    "catalogIdentity": "43790|794637D667FC6ABBD7E660C755FDA1F3E175ED5041D39267939735525B273CE6",
     "fixtureContractIdentity": "4990|B73AEA3E3E1963BCF0ECB1242A3E03A2C1503B38B03CBABB1706F33A39308993",
     "measurementHarnessIdentity": "16792|FA7A86DF6D7DCA136D0FD1307E6F4CBCE909763473FA7A66111582A96E78B75E",
     "legacyAuthorityContextFieldCount": 25,
     "compactAuthorityBindingFieldCount": 29,
     "intentEnvelopeFieldCount": 10,
-    "receiptSourceBindingFieldCount": 13,
+    "receiptSourceBindingFieldCount": 14,
     "compactBoundaryInputFieldCount": 9,
     "measurementObservation": {
       "warmups": 1,
       "measuredRuns": 1,
       "host": "Microsoft Windows NT 10.0.26200.0 / PowerShell 7.6.5 / X64 / 16 logical processors",
-      "ceiling": "Prior one-run focused latency observation; final selected bytes are revalidated by the complete suite. No statistical latency or model cost claim"
+      "ceiling": "Current six-fixture selected bytes and counts were replayed once. observedRuntimeMs retains prior snapshot latency observations; it is not current-candidate latency evidence. Current concurrent-run timings are retained with candidate validation and do not establish latency qualification or model benefit."
     }
   },
   "fixtures": [
@@ -57,8 +57,8 @@
     {
       "fixtureId": "ordinary_source",
       "fixtureIdentity": "5D596B512675523599F2A869C712AE580AFEF49C1FED9C67B227719DDC0450B4",
-      "selectedPackBytes": 19471,
-      "selectedPackEstimatedTokens": 4868,
+      "selectedPackBytes": 20587,
+      "selectedPackEstimatedTokens": 5147,
       "selectedRequirementCount": 10,
       "observedRuntimeMs": {
         "DISCOVER": {
@@ -78,8 +78,8 @@
     {
       "fixtureId": "critical_review",
       "fixtureIdentity": "62C1C37232E3F20DAF4165E8A9C65F3CCEC08D2B0AFFE8CC5DE221EAA9C60589",
-      "selectedPackBytes": 29499,
-      "selectedPackEstimatedTokens": 7375,
+      "selectedPackBytes": 31709,
+      "selectedPackEstimatedTokens": 7928,
       "selectedRequirementCount": 16,
       "observedRuntimeMs": {
         "DISCOVER": {
@@ -99,8 +99,8 @@
     {
       "fixtureId": "domain_external",
       "fixtureIdentity": "80ED0F8798C28C693D16DAC020F7D990C8D508CB638868C45695BD493A484827",
-      "selectedPackBytes": 15223,
-      "selectedPackEstimatedTokens": 3806,
+      "selectedPackBytes": 16339,
+      "selectedPackEstimatedTokens": 4085,
       "selectedRequirementCount": 10,
       "observedRuntimeMs": {
         "DISCOVER": {
@@ -120,8 +120,8 @@
     {
       "fixtureId": "framework_maintenance_review",
       "fixtureIdentity": "028F2A36B8F2D37D362118D70A7C573E920FB3670D8BB4CECCE8B7F72C359437",
-      "selectedPackBytes": 29512,
-      "selectedPackEstimatedTokens": 7378,
+      "selectedPackBytes": 31722,
+      "selectedPackEstimatedTokens": 7931,
       "selectedRequirementCount": 16,
       "observedRuntimeMs": {
         "DISCOVER": {
@@ -141,8 +141,8 @@
     {
       "fixtureId": "worst_unknown",
       "fixtureIdentity": "F56055458B276B427F6BCF0D778448046D628D48918798C18388721AF007FC0D",
-      "selectedPackBytes": 36204,
-      "selectedPackEstimatedTokens": 9051,
+      "selectedPackBytes": 36705,
+      "selectedPackEstimatedTokens": 9177,
       "selectedRequirementCount": 24,
       "observedRuntimeMs": {
         "DISCOVER": {
@@ -215,5 +215,5 @@
     "sourceBuildCount": 1,
     "decisionBuildCount": 1
   },
-  "evidenceCeiling": "Bounded five-run measurement for the current snapshot-runtime candidate ran on Microsoft Windows NT 10.0.26200.0 / PowerShell 7.6.5 / X64 / 16 logical processors, using one warmup and five cold pwsh process runs for each of six fixtures and each DISCOVER/ADMIT_ACTION/FINALIZE_OUTPUT mode after fixture setup warmed the filesystem. The largest observed selected pack is worst_unknown at 32574 bytes, leaving 194 bytes below the unchanged 32768-byte default. The measurement script emitted only median and nearest-rank P95; individual run samples were not exported and are not claimed. This bounded run is not a statistical performance certification or model-benefit proof. Project/task facts, model attention, semantic correctness, cross-platform behavior, natural-value proof, and model/effort benefit are excluded; rule-pack bytes and resolver latency do not prove model benefit."
+  "evidenceCeiling": "Current selected bytes/counts bind this catalog. The worst UNKNOWN fixture is 36705 bytes under its existing 98304 ceiling, above the unchanged 32768 project default; ordinary fixtures remain under their configured ceiling. Baseline and observedRuntimeMs retain historical observations, not current-candidate performance claims. The current one-warmup/one-run replay ran concurrently with other tests; its raw timing includes values exceeding historical reference limits and is not latency qualification. Structural historical-bound checks do not prove current latency. Project/task facts are excluded from the framework-controlled context budget. No model natural compliance, semantic correctness, host permission, cross-platform behavior or cost benefit is claimed."
 }

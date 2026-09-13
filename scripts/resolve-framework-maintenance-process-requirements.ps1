@@ -4,7 +4,9 @@ param(
     [string]$AdmitInputPath,[string]$ExpectedAdmitInputIdentity,
     [string]$AdmitResultPath,[string]$ExpectedAdmitResultIdentity,
     [string]$AdoptionAuthorizationPackagePath,[string]$ExpectedAdoptionAuthorizationIdentity,
-    [string]$ExpectedAdoptionTransactionIdentity
+    [string]$ExpectedAdoptionTransactionIdentity,
+    [switch]$AdoptionProcessBoundary,
+    [string]$AdoptionPreparationPath,[string]$ExpectedAdoptionPreparationIdentity
 )
 
 $ErrorActionPreference = 'Stop'
@@ -232,6 +234,14 @@ try {
     $controlRoot = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Resolve-Path -LiteralPath $projectRoot)))
     $inputFramework = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Resolve-Path -LiteralPath $frameworkRoot)))
     if ($controlRoot -cne [string]$resolved.controlRoot) { throw 'MAINTENANCE_PROCESS_ROOT_DRIFT' }
+    if($AdoptionProcessBoundary){
+        if($null-eq$receipt-or[string]$input.mode-cnotin@('ADMIT_ACTION','FINALIZE_OUTPUT')){throw 'ADOPTION_PROCESS_BOUNDARY_MODE'}
+        Import-Module (Join-Path $PSScriptRoot 'ProjectAdoptionTransaction.psm1') -Force
+        $actor=if($receipt.schemaVersion-eq1){$receipt.actor}else{$receipt.binding.actor}
+        $result=Invoke-AiwAdoptionProcessBoundary -RepositoryRoot $controlRoot -InputPath $inputFull -ExpectedInputIdentity (Get-Identity $inputFull) -PreparationPath $AdoptionPreparationPath -ExpectedPreparationIdentity $ExpectedAdoptionPreparationIdentity -AdmitResultPath $AdmitResultPath -ExpectedAdmitResultIdentity $ExpectedAdmitResultIdentity -AuthorizationPackagePath $AdoptionAuthorizationPackagePath -ExpectedAuthorizationPackageIdentity $ExpectedAdoptionAuthorizationIdentity -ExpectedTransactionIdentity $ExpectedAdoptionTransactionIdentity -ObservedActor $actor -ExpectedMode $input.mode -DeleteInputOnExit:$DeleteInputOnExit
+        $result|ConvertTo-Json -Depth 100 -Compress
+        exit 0
+    }
     if ($inputFramework -cne [string]$resolved.runtimeRoot) {
         if([string]$input.mode-cne'FINALIZE_OUTPUT'-or$null-eq$receipt){throw 'MAINTENANCE_PROCESS_ROOT_DRIFT'}
         if($DeleteInputOnExit){Assert-SelfUpdateCleanupPath $receipt}

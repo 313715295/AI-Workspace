@@ -16,6 +16,8 @@ Project ID=`{{PROJECT_ID}}`；repo-local control plane=`.ai-workspace/`；pinned
 
 ## 2. Recovery 与规则加载
 
+同时读取项目根 AGENTS 的用户区，取得已确认的持续委托及后续收窄或撤回；不从模板或目录存在推断采用。具体动作仍须当前包授权。
+
 1. 轻读 `STATUS.md` 与 `tasks/README.md` 只为定位 assigned task；随后绑定 current header、Owner、authenticated Work route actor/role/phase、profile、objective/action/result、capabilities、exact scope 与 protection boundary。task card 是 authority，index 只是 projection。
 2. 先按已解析的 `<FW>/TOOL_CONTRACT.md` 中“IntentEnvelope 构造”唯一合同，由当前模型依据本次真实请求及仍有效上下文形成 DISCOVER 输入；再在加载 normative module 前运行 `PROCESS_REQUIREMENTS_RESOLVE/DISCOVER`，输入完整 sealed catalog、current corrections 与 project policy。存在任务时使用 task context；没有适用任务且仅做解释/方案/用户答复时使用 `PROJECT_READ_ONLY`，不得伪造 task。一次读取全部 returned exact complete Markdown blocks，后续只保留 compact receipt。
 3. 只读取 selected rules 与 current task 要求的 project facts、evidence、schemas、templates 或 action artifacts。`PROJECT.md` 与 `REVIEW_PROFILE.md` 是薄入口；`RELATIONSHIPS.md` 仅在项目确有稳定关系图时存在。不得要求用户补齐与当前项目无关的模板，也不得把普通 Markdown 链接自动升级为规则依赖。

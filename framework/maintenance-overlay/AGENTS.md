@@ -6,4 +6,6 @@
 在自然 prompt、context change、独立 action 与最终输出边界激活；bound context 未变化时复用，不按每次 tool call 调用。
 
 Skill 只负责 navigation。Maintenance authority 保持在 `.ai-workspace`；Framework target 是独立 repository 与 authorization boundary。项目 instruction 可写在 managed block 之外。
+
+恢复时同时读取本文件用户区的持续委托与后续明确决定；注册保存已确认的使用决定，升级保留用户区，不重新生成已撤回的委托。
 <!-- AI-WORKSPACE-FRAMEWORK:END -->

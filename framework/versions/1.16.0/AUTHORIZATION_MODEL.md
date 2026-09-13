@@ -1,7 +1,11 @@
 # 授权模型
 
 <!-- AIW-REQUIREMENT:PR_ACTION_AUTHORIZATION_INDEPENDENT:BEGIN -->
-授权必须显式、限域，并且只对当前 phase 有效。不得从 recovery、Review、任务分配或聊天意图中推断授权。
+受治理动作包必须显式、限域，并且只对当前 phase 或包内连续步骤有效。不得从 recovery、Review 或任务分配中推断动作包授权。用户明确采用 Framework 开展项目工作时，初始化将这一已作出的使用决定保存到项目 AGENTS 的用户区，不再要求单独确认持续委托。仅查看文件、目录存在、模板或未采纳建议不构成采用。
+
+持续委托正文为：用户持续委托AI，为完成本项目已授权目标，遵循当前采用的Framework、当前生效的项目纠正和永久规则，自主作出并执行其允许的工作决定。该委托持续有效，无须逐任务、逐步骤重复确认；用户后续明确决定优先，规则明确保留给用户的决定仍由用户作出。
+
+新会话读取项目 AGENTS 中的实际用户决定，并核对后续收窄、撤回及当前任务。该正文保存用户决定，不是 Framework 自授权限；通用规则、项目标准和用户决定仍各有真实来源。升级保留用户区原文，不补回已撤回的委托，不覆盖自定义限制。具体包继续绑定当前 userDecision、对象和动作；AGENTS 决定变化使旧过程收据失效，重新对齐用户决定后才可继续。
 
 `CONTROL_WRITE`、`SOURCE_WRITE`、`TEST_WRITE`、`TEST_RUN`、`BROWSER_RUN`、`DEVICE_RUN`、`REVIEW_ROUTE`、`REVIEW_EXECUTE`、`OWNER_ACCEPT`、`GIT_STAGE`、`GIT_COMMIT`、`PUSH`、`EXTERNAL`。
 

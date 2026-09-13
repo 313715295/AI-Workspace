@@ -92,6 +92,8 @@ platform support 由 evidence 限定。release 只声称 sealed Tool Contract �
 
 本流程不增加 release service、registry、queue、ledger、persistent receipt、第二 authority 或 automatic consumer operation。
 
+不同命名包的原 CONTROL_WRITE 采用过程收口，使用[项目接入的显式根边界](PROJECT_ADOPTION.md#原过程的跨命名包收口)。在真实 ADMIT 前通过既有升级投影取得并消费目标规则，成功结果保留原输入；采用后核对原准入、双方包和实际事务。原同包 state-only 迁址 helper 保留其严格包相同约束。此根级集成不改变 version resolver 或既有版本证据；没有原始准入材料的历史流程不能补造。根工具增量须经受影响测试及独立 Review 后以新分发号交付，不能覆盖旧包或已采用目录。
+
 ## Maintenance 根来源自更新
 
 当 Maintenance 已采用的候选需要把同一已审 Framework 根来源写回 configured target 时，先在旧的健康 pin 下安装本节所需的 root-only integration tool；首次安装仍使用普通 schema2 DISCOVER、ADMIT、exact SOURCE_WRITE 与 FINALIZE，不以待安装工具追认自身。版本 payload 与 manifest 均不因 root-only 修复而变化。

@@ -3,9 +3,9 @@
 <!-- AIW-REQUIREMENT:PR_TASK_LAUNCH_AND_ROUTE:BEGIN -->
 有效 implementation package 与当前 task/Owner/actor、Controller epoch、动作、路径/对象、决定及 repository/config 一致即完成 launch，无第二次 START；否则只读 RECOVERY_READY，writer=NONE。
 
-仅新分派或组织事实变化时判断：REUSE=同边界且现 actor 合格；MUST_NEW=同边界确需独立成果、上下文、生命周期、writer 隔离或当前会话不可用资源；BLOCKED=项目、Owner、authority、保护、外部路线或用户决定实变。Framework standing create authority 只覆盖已授权范围内的 MUST_NEW，仍服从宿主及用户创建限制。
+仅新分派或组织事实变化时判断：REUSE=同边界且现 actor 合格；MUST_NEW=同边界确需独立成果、上下文、生命周期、writer 隔离或当前会话不可用资源；BLOCKED=项目、Owner、authority、保护、外部路线或用户决定实变。复用项目 AGENTS 中用户已确认且仍有效的持续委托，不逐任务或逐步骤重复确认。委托来源、后续决定及保留事项遵循 AUTHORIZATION_MODEL；规则本身不制造用户授权。
 
-先满足质量、风险、独立性、隔离和持续时间，再比较直接执行与委派的执行、恢复、等待、交接、验证、集成和返工总成本。没有明确收益则 DIRECT_SELF；机械重复用既有脚本。持续独立成果/生命周期或正式 Review 使用 visible APPLICATION_TASK；短限域检查才考虑 INTERNAL_SUBAGENT，不能替代用户要求的可见任务或必要独立 Review。健康续作复用组织结论，不逐动作重评。
+先满足质量、风险、独立性、隔离和持续时间，再比较直接执行与委派的执行、恢复、等待、交接、验证、集成和返工总成本。没有明确收益则 DIRECT_SELF；机械重复用既有脚本。用户要求可见任务或需要持续独立成果/生命周期时使用 visible APPLICATION_TASK；限域工作可使用 INTERNAL_SUBAGENT。正式 Review 先按 REVIEW_AND_EVIDENCE 核对真实主体资格、当前材料和结果追溯，再选择满足可见性、持续时间及上下文要求的载体；内部载体不无条件替代必要独立 Review。健康续作复用组织结论，不逐动作重评。
 
 创建时用简短「职责｜主题」标题；职责/主题实变才更新显示。长期以项目/领域、临时以对象消歧，不逐轮附加状态或日期。标题不授权；存量仅在自然边界按已知职责整理，不扫描无关聊天。
 <!-- AIW-REQUIREMENT:PR_TASK_LAUNCH_AND_ROUTE:END -->

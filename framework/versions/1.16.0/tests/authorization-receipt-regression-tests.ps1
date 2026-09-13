@@ -99,6 +99,17 @@ try{
   $critical=Invoke-Check (New-Package 'CRITICAL' 'DOMAIN_OWNER' 'reviewer-fixture' 'REVIEW_EXECUTE' 'ROUTINE_LOCAL') 'reviewer-fixture' 'REVIEW_EXECUTE'
   Assert-True ($critical.Code-eq0) 'authorization-canonical-independent-critical-review-passes'
 
+  $internal=New-Package 'CRITICAL' 'DOMAIN_OWNER' 'internal-reviewer-fixture' 'REVIEW_EXECUTE' 'ROUTINE_LOCAL'
+  $internalCheck=Invoke-Check $internal 'internal-reviewer-fixture' 'REVIEW_EXECUTE'
+  Assert-True ($internalCheck.Code-eq0) 'review-authorization-accepts-distinct-internal-actor-without-carrier-name-gate'
+  foreach($excluded in @('owner-fixture','writer-fixture','contributor-fixture')){
+    $bad=New-Package 'CRITICAL' 'DOMAIN_OWNER' $excluded 'REVIEW_EXECUTE' 'ROUTINE_LOCAL';$bad.materialContributors=@('contributor-fixture')
+    $badCheck=Invoke-Check $bad $excluded 'REVIEW_EXECUTE'
+    Assert-True ($badCheck.Code-ne0) ('internal-carrier-does-not-waive-identity-exclusion-'+$excluded)
+  }
+  $unknownCheck=Invoke-Check $internal 'unknown-internal-actor' 'REVIEW_EXECUTE'
+  Assert-True ($unknownCheck.Code-ne0) 'review-authorization-rejects-unbound-actual-internal-identity'
+
   $lowerProfile=Invoke-Check (New-Package 'critical' 'DOMAIN_OWNER' 'owner-fixture' 'REVIEW_EXECUTE' 'ROUTINE_LOCAL') 'owner-fixture' 'REVIEW_EXECUTE'
   Assert-True ($lowerProfile.Code-ne0-and$lowerProfile.Text.Contains('PROFILE')) 'authorization-critical-profile-is-case-sensitive'
 

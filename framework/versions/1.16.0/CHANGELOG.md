@@ -1,5 +1,7 @@
 # Framework 1.16.0 变更记录
 
+本批候选：项目整体持续委托保存于注册后的 AGENTS 用户区，升级保留既有决定，自定义区决定漂移使旧过程收据失效；使用确认不增加第二次委托确认。TASK 复用授权，Review 资格与载体分离，内部载体须满足完整主体、材料、上下文与追溯要求且无用户可见/持续要求。仍需独立 Source Review，当前已运行 snapshot.3 不变；机械测试不证明自然遵循或真实宿主切档。
+
 当前开发批：首次意图目录取得、任务分派selector消歧、真实协议教学、方案验证依据、定向复审及正常状态/归档/送达责任收敛。仍为CANDIDATE/MINOR且不可采用；当前manifest保持真实未完成门，旧snapshot完整suite/Review不覆盖新字节，已运行快照不变。
 
 - 目录直接复用现有generated catalog和有效项目规则元数据，健康复用，composer仍选择完整索引；裸assignment/launch改为明确任务概念，旧schema1显式裸词不再保证命中任务规则，现有输入格式与matcher保持。协议样例覆盖schema3 TASK、schema2 boundary、根TARGET既有限制及严格LF/字段来源，不自动填完成证据。

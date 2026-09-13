@@ -423,6 +423,15 @@ function Get-AiwProjectCustomRegion {
     return [pscustomobject]@{ Identity=$identity; Text=$body; HasNormativeContent=(-not $defaultOnly); ManagedIdentity=$managedIdentity }
 }
 
+function Get-AiwProjectAgentsIdentity {
+    param([string]$ProjectRoot, [AllowEmptyCollection()][string[]]$ForbiddenPaths=@())
+    # User decisions stay separate from Bootstrap custom and project standards.
+    Assert-AiwProjectStandardReadAllowed -ProjectRoot $ProjectRoot -CandidatePath (Join-Path $ProjectRoot 'AGENTS.md') -ForbiddenPaths $ForbiddenPaths -Label 'PROJECT_AGENTS'
+    $agents = Resolve-AiwChildFile $ProjectRoot 'AGENTS.md' 'PROJECT_AGENTS' -AllowMissing
+    if ($null -eq $agents) { return 'MISSING' }
+    return Get-AiwFileIdentity $agents
+}
+
 function Get-AiwProcessBindingSnapshot {
     param(
         [Parameter(Mandatory)][string]$ProjectRoot,
@@ -481,7 +490,7 @@ function Get-AiwProcessBindingSnapshot {
         controllerIdentity=$(if($null-eq$controllerPath){'MISSING'}else{Get-AiwFileIdentity $controllerPath})
         correctionsIdentity=$(if($null-eq$correctionsPath){'MISSING'}else{Get-AiwFileIdentity $correctionsPath})
         policyIdentity=$policyIdentity
-        bootstrapManagedIdentity=$custom.ManagedIdentity;projectCustomIdentity=$custom.Identity
+        bootstrapManagedIdentity=$custom.ManagedIdentity;projectCustomIdentity=$custom.Identity;projectAgentsIdentity=(Get-AiwProjectAgentsIdentity $project $ForbiddenPaths)
         projectStandardsIdentity=$projectStandardsIdentity
         taskIdentity=$(if($null-eq$taskPath){'NOT_APPLICABLE'}else{Get-AiwFileIdentity $taskPath})
         frameworkVersionIdentity=Get-AiwFileIdentity $versionPath
@@ -970,6 +979,7 @@ function Invoke-ProcessRequirementComposition {
         "policy=$policyIdentity",
         "projectStandards=$($projectStandards.Identity)",
         "custom=$($custom.Identity)",
+        "agents=$(Get-AiwProjectAgentsIdentity $project $ForbiddenPaths)",
         "task=$TaskIdentity",
         "actor=$Actor", "role=$Role", "phase=$Phase", "profile=$Profile",
         "capabilities=$([string]::Join(',',@($Capabilities|Sort-Object)))"
@@ -983,7 +993,7 @@ function Invoke-ProcessRequirementComposition {
     if([bool]$projectStandards.Drift){$evidenceCeilings+='PROJECT_STANDARD_SOURCE_DRIFT_CONSERVATIVE_LOAD'}
     return [pscustomobject]@{
         status=$(if($candidateEvaluation){'EVALUATION_ONLY'}else{'PASS'}); projectId=$projectId; targetVersion=$TargetVersion; sourceCompositionIdentity=$sourceKey
-        projectConfigIdentity=$configDoc.Identity; controllerIdentity=$controllerIdentity; correctionsIdentity=$correctionsIdentity; policyIdentity=$policyIdentity; bootstrapManagedIdentity=$custom.ManagedIdentity;projectCustomIdentity=$custom.Identity; projectStandardsIdentity=$projectStandards.Identity
+        projectConfigIdentity=$configDoc.Identity; controllerIdentity=$controllerIdentity; correctionsIdentity=$correctionsIdentity; policyIdentity=$policyIdentity; bootstrapManagedIdentity=$custom.ManagedIdentity;projectCustomIdentity=$custom.Identity;projectAgentsIdentity=(Get-AiwProjectAgentsIdentity $project $ForbiddenPaths); projectStandardsIdentity=$projectStandards.Identity
         frameworkVersionIdentity=$versionDoc.Identity; releaseManifestIdentity=$releaseManifestIdentity; nativeCatalogIdentity=$catalogDoc.Identity; correctionCoverageIdentity=$coverageIdentity
         candidatePilotStateIdentity=$candidatePilotStateIdentity
         coverageStatus=$coverageStatus; incorporated=@($legacyIncorporated); stillEffective=@($legacyEffective); conflicts=@($legacyConflicts)

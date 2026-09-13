@@ -81,3 +81,13 @@ Maintenance 把已审根来源写回其 configured target 时，采用[Maintenan
 Maintenance 的开发 TARGET 保持 Git 源码职责；内部命名分发额外携带根适配器与维护 overlay，由 build-user-package.ps1 -InternalMaintenance 构建。普通用户包不携带这些维护专用入口。首次从旧开发来源接入固定包也使用显式 root upgrade；后续 TARGET 源码写入由固定 runtime 完成原动作 FINALIZE，不要求开发源码与运行绑定一起变化。
 
 BOOTSTRAP project-custom 迁移至 process-policy 是同一精确 CONTROL_WRITE 的来源迁移；managed 区域保持不变。若动作已实际准入后写到一半，ProjectRuleRecoveryPlanPath 指向绑定原 DISCOVER、原 ADMIT 输入/结果和两个载体原/目标字节的恢复材料。root upgrader 先复证原动作与所有 live 字节，再在恢复当下创建事务；第三方状态、缺失原准入、扩大范围均拒绝，最终仍由原 FINALIZE 收口。材料格式由 root helper 校验，不改变 compact receipt schema。
+# 原过程的跨命名包收口
+
+同版本不同命名 snapshot 的采用，使用已验证的新根工具显式接入原过程边界。此路线仅覆盖既有 fixed-runtime refresh 的 `CONTROL_WRITE`，精确写集为采用 state 及实际改变的 AGENTS / Bootstrap 管理投影；项目规则迁移另行完成。支持 schema2 DISCOVER / schema1 compact 与 schema3 DISCOVER / schema2 compact。普通项目的原 version resolver 命令保持 fail closed，不会透明追认跨包旧收据。
+
+1. 按既有 upgrader preview 取得写集，签原 schema2 过程包并在旧健康 runtime 执行真实 DISCOVER，读取完整规则。保存 schema2 ADMIT boundary input，尚不执行 ADMIT。
+2. 对同一个升级预览调用 `upgrade-project.ps1 -AdoptionProcessMode PREPARE -CurrentProcessInputPath <原ADMIT输入> -ExpectedCurrentProcessInputIdentity <identity>`，其余 project、目标 WorkspaceRoot、actor/task、LocalCandidatePilot 参数与真实 preview 相同，禁止 `-Apply`。保存返回的完整 JSON；它包含实际投影、目标命名包身份与同一动作的目标完整规则。读取其中 selectedRuleBlocks 的 fullText，完成原/目标准备义务，并把 `ADOPTION_TARGET_RULES_LOADED|<该JSON的文件identity>` 加入原 ADMIT input 的 preparationReceipts。
+3. 普通项目通过 `upgrade-project.ps1 -AdoptionProcessMode ADMIT_ACTION`，提供上述 CurrentProcessInputPath/当前 identity、`-AdoptionPreparationPath/-ExpectedAdoptionPreparationIdentity`、project/version/actor 参数及 `-DeleteProcessInputOnExit`。Maintenance 则使用根 process adapter 的 `-AdoptionProcessBoundary -AdoptionPreparationPath/-ExpectedAdoptionPreparationIdentity -DeleteInputOnExit`。根入口重验准备投影，原版本入口仅执行一次真实 ADMIT，成功 JSON 内保留原输入和目标准备证据；保存这个结果。正文读取与准备完成仍是 INSTRUCTION_BOUND，机械 PASS 不证明模型 attention。
+4. 使用独立 schema3 包执行原 upgrader Apply。实际事务 COMPLETE 后，普通项目以 `-AdoptionProcessMode FINALIZE_OUTPUT` 提供原 FINALIZE boundary、`-AdmitResultPath/-ExpectedAdmitResultIdentity`、原 schema3 `-AuthorizationPackagePath/-ExpectedAuthorizationPackageIdentity`、`-ExpectedAdoptionTransactionIdentity`。Maintenance 使用相同 adapter switch、原 AdmitResult 参数及 `-AdoptionAuthorizationPackagePath/-ExpectedAdoptionAuthorizationIdentity`。FINALIZE 输入保留原/目标 preparationReceipts，提供双方结果义务、每项 OBJECT_POSTIMAGE 与适用 deliveryReceipts。
+
+收口不执行 Apply、恢复或 live 写入。它核对原准入、双方固定包、实际采用事务、精确前后像及当前完整组合；第三方来源漂移、未完成事务、缺失原输入证据、缺准备或超预算均拒绝。正常清理仅删除有界 runtime 内的本次 boundary input。原 compact、成功 ADMIT 与准备材料留至最后消费者完成，不从 DISCOVER 或新的 ADMIT 补造历史。后续任务/项目规则变化应在原采用流程收口之后进行；历史采用成功与无法收口的旧过程分别记录，不重新采用以制造成功。
