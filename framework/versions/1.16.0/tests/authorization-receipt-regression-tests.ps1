@@ -115,6 +115,112 @@ try{
 
   $profileMismatch=Invoke-Check (New-Package 'STANDARD' 'DOMAIN_OWNER' 'owner-fixture' 'REVIEW_EXECUTE' 'ROUTINE_LOCAL') 'owner-fixture' 'REVIEW_EXECUTE'
   Assert-True ($profileMismatch.Code-ne0-and$profileMismatch.Text.Contains('TASK_PROFILE_DRIFT')) 'authorization-package-profile-matches-task-range-profile'
+  Write-Task 'CRITICAL' 'IMPLEMENT'
+  $parent=New-Package 'CRITICAL' 'DOMAIN_OWNER' 'writer-fixture' 'SOURCE_WRITE' 'ROUTINE_LOCAL'
+  $parent.repairReviewPlan=[ordered]@{writer='writer-fixture';reviewer='reviewer-fixture';maxCycles=2;materialContributors=@()}
+  $parentCheck=Invoke-Check $parent 'writer-fixture' 'SOURCE_WRITE'
+  Assert-True ($parentCheck.Code-eq0) 'owner-can-preauthorize-bounded-repair-review-without-changing-work-route'
+  $parentPath=Join-Path $control 'repair-parent.json';Write-Json $parentPath $parent
+  $verdict=[ordered]@{taskId='AUTH-REGRESSION-001';owner='owner-fixture';reviewer='reviewer-fixture';writer='writer-fixture';cycle=0;verdict='CHANGES_REQUESTED';exactPaths=@($objectRelative);objectIdentities=@($parent.objectIdentities);findingPaths=@($objectRelative);scopeChanged=$false;decisionChanged=$false}
+  $verdictPath=Join-Path $control 'repair-verdict.json';Write-Json $verdictPath $verdict
+  $binding=[ordered]@{parentPackagePath=$parentPath;parentPackageIdentity=(Get-Identity $parentPath);phase='REPAIR';cycle=1;verdictPath=$verdictPath;verdictIdentity=(Get-Identity $verdictPath);repairFinalizeInputPath='NOT_APPLICABLE';repairFinalizeInputIdentity='NOT_APPLICABLE';repairFinalizeResultPath='NOT_APPLICABLE';repairFinalizeResultIdentity='NOT_APPLICABLE'}
+  $routeInput=Join-Path $control 'repair-route.json';Write-Json $routeInput ([ordered]@{operation='REPAIR_REVIEW';repositoryRoot=$temp;binding=$binding})
+  $routeOutput=@(& pwsh -NoProfile -File (Join-Path $PSScriptRoot '../scripts/resolve-workflow-route.ps1') -InputPath $routeInput -AsJson)
+  $routeCode=$LASTEXITCODE;$prepared=($routeOutput-join "`n")|ConvertFrom-Json -Depth 64
+  Assert-True ($routeCode-eq0-and$prepared.status-ceq'PREPARED'-and-not$prepared.authorityGranted) 'repair-current-package-prepared-from-real-candidate-without-new-authority'
+  $child=$prepared.package
+  $childCheck=Invoke-Check $child 'writer-fixture' 'SOURCE_WRITE'
+  Assert-True ($childCheck.Code-eq0) 'prepared-repair-package-passes-real-checker'
+  $badChild=$child|ConvertTo-Json -Depth 64|ConvertFrom-Json -Depth 64;$badChild.repairReviewBinding.cycle=3
+  $badCheck=Invoke-Check $badChild 'writer-fixture' 'SOURCE_WRITE'
+  Assert-True ($badCheck.Code-ne0-and$badCheck.Text.Contains('REPAIR_REVIEW_CYCLE')) 'repair-cycle-exhaustion-requires-owner'
+  $badChild=$child|ConvertTo-Json -Depth 64|ConvertFrom-Json -Depth 64;$badChild.repairReviewBinding.verdictIdentity='1|'+('0'*64)
+  $badCheck=Invoke-Check $badChild 'writer-fixture' 'SOURCE_WRITE'
+  Assert-True ($badCheck.Code-ne0-and$badCheck.Text.Contains('REPAIR_REVIEW_EVIDENCE_DRIFT')) 'stale-verdict-cannot-authorize-repair'
+  $verdict.scopeChanged=$true;Write-Json $verdictPath $verdict
+  $badChild=$child|ConvertTo-Json -Depth 64|ConvertFrom-Json -Depth 64;$badChild.repairReviewBinding.verdictIdentity=Get-Identity $verdictPath
+  $badCheck=Invoke-Check $badChild 'writer-fixture' 'SOURCE_WRITE'
+  Assert-True ($badCheck.Code-ne0-and$badCheck.Text.Contains('REPAIR_REVIEW_VERDICT_BOUNDARY')) 'broadened-impact-does-not-use-focused-repair'
+  $badParent=$parent|ConvertTo-Json -Depth 64|ConvertFrom-Json -Depth 64;$badParent.repairReviewPlan.reviewer='writer-fixture'
+  $badCheck=Invoke-Check $badParent 'writer-fixture' 'SOURCE_WRITE'
+  Assert-True ($badCheck.Code-ne0-and$badCheck.Text.Contains('REPAIR_REVIEW_INDEPENDENCE')) 'bounded-plan-never-waives-reviewer-independence'
+
+  # Exercise actual DISCOVER -> ADMIT -> write -> FINALIZE -> independent rereview.
+  # Stable metadata below exists only inside the isolated test fixture.
+  $frameworkRoot=Join-Path $temp 'framework-root';$fixtureVersion=[IO.Path]::GetFullPath((Join-Path $frameworkRoot 'framework/versions/1.16.0'))
+  New-Item -ItemType Directory -Path (Split-Path -Parent $fixtureVersion) -Force|Out-Null
+  Copy-Item -LiteralPath (Split-Path -Parent $PSScriptRoot) -Destination $fixtureVersion -Recurse
+  $vpath=Join-Path $fixtureVersion 'VERSION.json';$v=Get-Content $vpath -Raw|ConvertFrom-Json;$v.lifecycle='STABLE';$v.consumable=$true;$v.projectPinEligible=$true;Write-Json $vpath $v
+  $mpath=[IO.Path]::GetFullPath((Join-Path $fixtureVersion 'RELEASE_MANIFEST.json'));$m=Get-Content $mpath -Raw|ConvertFrom-Json
+  [string[]]$paths=@(Get-ChildItem $fixtureVersion -Recurse -File|Where-Object{$_.FullName-cne$mpath}|ForEach-Object{$_.FullName.Substring($fixtureVersion.Length+1).Replace('\','/')});[Array]::Sort($paths,[StringComparer]::Ordinal)
+  $rows=@();[long]$total=0;foreach($p in $paths){$id=(Get-Identity (Join-Path $fixtureVersion $p)).Split('|');$total+=[long]$id[0];$rows+=($p+'|'+$id[0]+'|'+$id[1])}
+  $m.lifecycle='STABLE';$m.sourceReview='APPROVED';$m.fileCount=$paths.Count;$m.totalBytes=$total;$m.canonical=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($utf8.GetBytes(($rows-join"`n"))));Write-Json $mpath $m
+  Write-Json (Join-Path $control 'corrections.json') ([ordered]@{schemaVersion=2;contractVersion='1.16.0';projectId='authorization-receipt-fixture';corrections=@()})
+  Write-Utf8 (Join-Path $control 'BOOTSTRAP.md') "<!-- PROJECT-CUSTOM:BEGIN -->`n<!-- PROJECT-CUSTOM:END -->"
+  Write-Json (Join-Path $control 'process-policy.json') ([ordered]@{schemaVersion=1;contractVersion='1.16.0';projectId='authorization-receipt-fixture';selectedRulePackBytes=98304;rules=@()})
+  $cfg=Get-Content (Join-Path $control 'project.json') -Raw|ConvertFrom-Json;$cfg.schemaVersion=4;$cfg|Add-Member -NotePropertyName processPolicy -NotePropertyValue ([pscustomobject]@{schemaVersion=1;locator='.ai-workspace/process-policy.json'});Write-Json (Join-Path $control 'project.json') $cfg
+  Write-Task STANDARD IMPLEMENT
+  $parent=New-Package STANDARD DOMAIN_OWNER writer-fixture SOURCE_WRITE ROUTINE_LOCAL
+  $parent.actions=@('SOURCE_WRITE','TEST_RUN');$parent.continuationPlan=@('SOURCE_WRITE','TEST_RUN');$parent.invalidatesOn+=@('CONTINUATION_RESULT_DRIFT')
+  $parent.repairReviewPlan=[ordered]@{writer='writer-fixture';reviewer='reviewer-fixture';maxCycles=2;materialContributors=@()};Write-Json $parentPath $parent
+  $verdict.scopeChanged=$false;$verdict.objectIdentities=$parent.objectIdentities;Write-Json $verdictPath $verdict
+  $binding.parentPackageIdentity=Get-Identity $parentPath;$binding.verdictIdentity=Get-Identity $verdictPath
+  Write-Json $routeInput ([ordered]@{operation='REPAIR_REVIEW';repositoryRoot=$temp;binding=$binding})
+  $prepared=(& pwsh -NoProfile -File (Join-Path $PSScriptRoot '../scripts/resolve-workflow-route.ps1') -InputPath $routeInput -AsJson)|ConvertFrom-Json -Depth 100
+  $childPath=Join-Path $control 'repair-child.json';Write-Json $childPath $prepared.package
+  $resolver=Join-Path $fixtureVersion 'scripts/resolve-process-requirements.ps1'
+  function Run-Process($Value,[string]$Name){$p=Join-Path $control ($Name+'.json');Write-Json $p $Value;$out=@(& pwsh -NoProfile -File $resolver -InputPath $p -AsJson);if($LASTEXITCODE-ne0){throw ('REAL_PROCESS_FAILED|'+$Name+'|'+($out-join"`n"))};return ($out-join"`n")|ConvertFrom-Json -Depth 100}
+  $discover=[ordered]@{schemaVersion=3;mode='DISCOVER';contextType='TASK';readOnlyContext='NOT_APPLICABLE';projectRoot=$temp;frameworkRoot=$frameworkRoot;taskPath=$taskPath;expectedProjectConfigIdentity=Get-Identity (Join-Path $control 'project.json');expectedCorrectionsIdentity=Get-Identity (Join-Path $control 'corrections.json');expectedTaskIdentity=Get-Identity $taskPath;observedActor='writer-fixture';capabilities=@();exactPaths=@($objectRelative);forbiddenPaths=@('private/');protectedPaths=@();authorizationPackagePath=$childPath;expectedAuthorizationIdentity=Get-Identity $childPath;userDecision='NOT_REQUIRED';recoveryState='WARM';hostEnforcementGrade='INSTRUCTION_BOUND';invocationState='PROVEN_EXPLICIT';intentEnvelope=[ordered]@{schemaVersion=1;objective='Repair the accepted bounded finding and return its terminal result';requestedActionKind='SOURCE_WRITE';requestedResultKind='TERMINAL';semanticHints=@('repair');pathHints=@($objectRelative);capabilityHints=@();mutationHints=@('source');externalHints=@();ambiguityState='CLEAR'};evaluationOnly=$false}
+  $d=Run-Process $discover 'repair-discover';$receiptPath=Join-Path $control 'repair-compact.json';Write-Json $receiptPath $d.compactReceipt
+  $boundary=[ordered]@{schemaVersion=2;mode='ADMIT_ACTION';discoverReceiptPath=$receiptPath;expectedDiscoverReceiptIdentity=Get-Identity $receiptPath;preparationReceipts=@($d.compactReceipt.selectedObligations|ForEach-Object{$_.preparationRequirements}|Sort-Object -Unique);resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='NOT_APPLICABLE'}
+  $admitted=Run-Process $boundary 'repair-admit';Assert-True ($admitted.status-ceq'PASS') 'real-repair-admission-passes'
+  Write-Utf8 $objectPath 'Repaired candidate with real postimage'
+  $boundary.mode='FINALIZE_OUTPUT';$boundary.resultReceipts=@($d.compactReceipt.selectedObligations|ForEach-Object{$_.resultRequirements}|Sort-Object -Unique)+@('OBJECT_POSTIMAGE|'+$objectRelative+'|'+(Get-Identity $objectPath))
+  $legacyHostResult=Join-Path $temp 'legacy-fixture-host-result.txt';Write-Utf8 $legacyHostResult 'recipient=owner-fixture;outcome=SUCCESS;fixture-only'
+  $boundary.deliveryReceipts=@('FIXTURE_HOST_RESULT|'+(Get-Identity $legacyHostResult))
+  Assert-True ('DELIVERY_RECEIPT'-cin@($d.compactReceipt.selectedObligations|ForEach-Object{$_.resultRequirements})) 'repair-terminal-fixture-selects-actual-delivery-obligation'
+  $final=Run-Process $boundary 'repair-finalize';$finalResultPath=Join-Path $control 'repair-final-result.json';Write-Json $finalResultPath $final
+  Assert-True ($final.status-ceq'PASS') 'real-repair-finalize-binds-written-postimage'
+  $binding.phase='REREVIEW';$binding.repairFinalizeInputPath=Join-Path $control 'repair-finalize.json';$binding.repairFinalizeInputIdentity=Get-Identity $binding.repairFinalizeInputPath;$binding.repairFinalizeResultPath=$finalResultPath;$binding.repairFinalizeResultIdentity=Get-Identity $finalResultPath
+  Write-Json $routeInput ([ordered]@{operation='REPAIR_REVIEW';repositoryRoot=$temp;binding=$binding})
+  $reviewPrepared=(& pwsh -NoProfile -File (Join-Path $PSScriptRoot '../scripts/resolve-workflow-route.ps1') -InputPath $routeInput -AsJson)|ConvertFrom-Json -Depth 100
+  $reviewCheck=Invoke-Check $reviewPrepared.package reviewer-fixture REVIEW_EXECUTE
+  if($reviewCheck.Code-ne0){Write-Output ('DIAG|rereview|'+$reviewCheck.Text)}
+  Assert-True ($reviewCheck.Code-eq0) 'real-finalize-authorizes-prebound-independent-focused-rereview'
+  $hostResultPath=Join-Path $temp 'fixture-host-result.txt';Write-Utf8 $hostResultPath 'recipient=owner-fixture;outcome=SUCCESS;fixture-only'
+  foreach($deliveryCase in @('NATIVE_PREPARE','TASK_PREPARE','SUCCESS','FAILURE','UNKNOWN')){
+    $withDelivery=$boundary|ConvertTo-Json -Depth 100|ConvertFrom-Json -AsHashtable
+    $withDelivery.deliveryReceipts=@();$withDelivery.resultReceipts=@($withDelivery.resultReceipts|Where-Object{$_-cne'DELIVERY_RECEIPT'})
+    $prepare=$deliveryCase.EndsWith('PREPARE')
+    $withDelivery.deliveryContext=[ordered]@{channel=$(if($deliveryCase-ceq'NATIVE_PREPARE'){'NATIVE_RESPONSE'}else{'TASK_MESSAGE'});stage=$(if($prepare){'PREPARE'}else{'OBSERVE'});expectedRecipient='owner-fixture';observedRecipient=$(if($prepare){'NOT_APPLICABLE'}else{'owner-fixture'});outcome=$(if($prepare){'NOT_SENT'}else{$deliveryCase});evidence=$(if($prepare){'NOT_APPLICABLE'}else{'FIXTURE_HOST_RESULT|'+(Get-Identity $hostResultPath)})}
+    $name='repair-delivery-'+$deliveryCase
+    $observed=Run-Process $withDelivery $name;$observedPath=Join-Path $control ($name+'-result.json');Write-Json $observedPath $observed
+    $deliveryBinding=$binding|ConvertTo-Json -Depth 100|ConvertFrom-Json
+    $deliveryBinding.repairFinalizeInputPath=Join-Path $control ($name+'.json');$deliveryBinding.repairFinalizeInputIdentity=Get-Identity $deliveryBinding.repairFinalizeInputPath
+    $deliveryBinding.repairFinalizeResultPath=$observedPath;$deliveryBinding.repairFinalizeResultIdentity=Get-Identity $observedPath
+    Write-Json $routeInput ([ordered]@{operation='REPAIR_REVIEW';repositoryRoot=$temp;binding=$deliveryBinding})
+    $deliveryPackage=(& pwsh -NoProfile -File (Join-Path $PSScriptRoot '../scripts/resolve-workflow-route.ps1') -InputPath $routeInput -AsJson)|ConvertFrom-Json -Depth 100
+    $deliveryCheck=Invoke-Check $deliveryPackage.package reviewer-fixture REVIEW_EXECUTE
+    $expectedStatus=if($prepare){'READY_TO_SEND'}elseif($deliveryCase-ceq'SUCCESS'){'DELIVERED'}elseif($deliveryCase-ceq'FAILURE'){'NOT_DELIVERED'}else{'UNKNOWN'}
+    Assert-True ($deliveryCheck.Code-eq0-and$observed.delivery.status-ceq$expectedStatus-and$observed.delivery.delivered-eq($deliveryCase-ceq'SUCCESS')) ('rereview-consumes-real-finalize-'+$deliveryCase)
+    $tampered=$withDelivery|ConvertTo-Json -Depth 100|ConvertFrom-Json;$tampered.deliveryContext.expectedRecipient='another-recipient';Write-Json $deliveryBinding.repairFinalizeInputPath $tampered
+    $deliveryPackage.package.repairReviewBinding.repairFinalizeInputIdentity=Get-Identity $deliveryBinding.repairFinalizeInputPath
+    $tamperedCheck=Invoke-Check $deliveryPackage.package reviewer-fixture REVIEW_EXECUTE
+    Assert-True ($tamperedCheck.Code-ne0) ('rereview-rejects-context-tampering-'+$deliveryCase)
+    Write-Json $deliveryBinding.repairFinalizeInputPath $withDelivery;$deliveryPackage.package.repairReviewBinding.repairFinalizeInputIdentity=Get-Identity $deliveryBinding.repairFinalizeInputPath
+    $tamperedResult=$observed|ConvertTo-Json -Depth 100|ConvertFrom-Json;$tamperedResult.delivery.delivered=-not$observed.delivery.delivered;Write-Json $observedPath $tamperedResult
+    $deliveryPackage.package.repairReviewBinding.repairFinalizeResultIdentity=Get-Identity $observedPath
+    $tamperedCheck=Invoke-Check $deliveryPackage.package reviewer-fixture REVIEW_EXECUTE
+    Assert-True ($tamperedCheck.Code-ne0-and$tamperedCheck.Text.Contains('DELIVERY_RESULT_DRIFT')) ('rereview-rejects-delivery-result-tampering-'+$deliveryCase)
+  }
+  $forged=$final|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100;$forged.decisionIdentity='0'*64;Write-Json $finalResultPath $forged
+  $reviewPrepared.package.repairReviewBinding.repairFinalizeResultIdentity=Get-Identity $finalResultPath
+  $forgedCheck=Invoke-Check $reviewPrepared.package reviewer-fixture REVIEW_EXECUTE
+  Assert-True ($forgedCheck.Code-ne0-and$forgedCheck.Text.Contains('FINALIZE_DECISION_DRIFT')) 'rereview-rejects-self-declared-pass-without-real-decision'
+  Write-Json $finalResultPath $final;$reviewPrepared.package.repairReviewBinding.repairFinalizeResultIdentity=Get-Identity $finalResultPath
+  Write-Utf8 $objectPath 'Third party drift after repair finalization'
+  $driftCheck=Invoke-Check $reviewPrepared.package reviewer-fixture REVIEW_EXECUTE
+  Assert-True ($driftCheck.Code-ne0) 'rereview-rejects-current-candidate-drift'
 }finally{
   if(Test-Path -LiteralPath $temp){$tempRoot=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath([IO.Path]::GetTempPath()));$tempResolved=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($temp));$tempPrefix=$tempRoot+[IO.Path]::DirectorySeparatorChar;$tempLeaf=[IO.Path]::GetFileName($tempResolved);if(-not$tempResolved.StartsWith($tempPrefix,[StringComparison]::OrdinalIgnoreCase)-or$tempLeaf-cnotmatch'^aiw-authorization-receipt-[a-f0-9]{32}$'){throw 'TEMP_CLEANUP_BOUNDARY'};Get-ChildItem -LiteralPath $tempResolved -Recurse -Force -ErrorAction SilentlyContinue|ForEach-Object{try{$_.Attributes=[IO.FileAttributes]::Normal}catch{}};Remove-Item -LiteralPath $tempResolved -Recurse -Force -ErrorAction SilentlyContinue}
 }

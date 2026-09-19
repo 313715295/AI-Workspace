@@ -51,6 +51,7 @@ function Admission([string]$Name,[string[]]$Paths,[string]$FrameworkRoot=$script
         observedActor=$script:owner;capabilities=@();exactPaths=$Paths;forbiddenPaths=@('tools/','private/');protectedPaths=@('framework/','scripts/');authorizationPackagePath=$auth;expectedAuthorizationIdentity=Id $auth
         userDecision='NOT_REQUIRED';recoveryState='WARM';hostEnforcementGrade='INSTRUCTION_BOUND';invocationState='PROVEN_EXPLICIT'
         intentEnvelope=[ordered]@{schemaVersion=1;objective='Update the approved root source. Do not perform any new assignment or resource selection. Quoted history: formal review was cancelled.';requestedActionKind='SOURCE_WRITE';requestedResultKind='IMPLEMENTATION_RESULT';semanticHints=@('root source update');pathHints=@();capabilityHints=@();mutationHints=@('source');externalHints=@();ambiguityState='CLEAR'};evaluationOnly=$false}
+    if($Name-ceq'source'){$input.intentEnvelope.requestedResultKind='TERMINAL'}
     $ip=Join-Path $script:runtime ($Name+'-discover.json');Write-Json $ip $input
     $d=Json $script:adapter @{InputPath=$ip;AsJson=$true};Confirm ($d.status-ceq'PASS') ($Name+'-discover')
     $rp=Join-Path $script:runtime ($Name+'-receipt.json');Write-Json $rp $d.compactReceipt
@@ -216,7 +217,7 @@ try {
     $controlInput=($routeInput|ConvertTo-Json -Depth 100)|ConvertFrom-Json -AsHashtable
     $controlInput.authorizationPackagePath=$controlAuth;$controlInput.expectedAuthorizationIdentity=Id $controlAuth;$controlInput.exactPaths=@('AGENTS.md')
     $controlInput.intentEnvelope.objective='Verify the existing CONTROL schema3 process route without changing the managed object.'
-    $controlInput.intentEnvelope.requestedActionKind='CONTROL_WRITE';$controlInput.intentEnvelope.mutationHints=@('control')
+    $controlInput.intentEnvelope.requestedActionKind='CONTROL_WRITE';$controlInput.intentEnvelope.requestedResultKind='IMPLEMENTATION_RESULT';$controlInput.intentEnvelope.mutationHints=@('control')
     $controlInputPath=Join-Path $runtime 'r1-control-discover.json';Write-Json $controlInputPath $controlInput
     $controlDiscover=Json $adapter @{InputPath=$controlInputPath;AsJson=$true;DeleteInputOnExit=$true}
     Confirm ($controlDiscover.status-ceq'PASS'-and$controlDiscover.compactReceipt.schemaVersion-eq2-and[IO.Path]::GetFullPath($controlDiscover.compactReceipt.binding.projectRoot)-ceq[IO.Path]::GetFullPath($control)-and-not(Test-Path -LiteralPath $controlInputPath)) 'r1-control-schema3-discover-and-normal-cleanup'
@@ -379,6 +380,8 @@ try {
         $badComplete=Run $integrator @{Operation='COMPLETE';ControlRepositoryPath=$control;TransactionPath=$transaction;ExpectedTransactionIdentity=Id $transaction;FinalizeDecisionIdentity=('C'*64);AsJson=$true} -Reject
         Confirm ($badComplete.code-ne0-and$badComplete.text.Contains('CALLER_DECISION_NOT_ACCEPTED')) 'fake-finalize-hash-refused'
         $final=$source.boundary;$final.mode='FINALIZE_OUTPUT';$final.preparationReceipts=@($ready.preparationRequirements);$final.resultReceipts=@($ready.resultRequirements)+@($paths|ForEach-Object{'OBJECT_POSTIMAGE|'+$_+'|'+(Id (Join-Path $target $_))})+@('MAINTENANCE_SELF_UPDATE_TRANSITION|'+$transaction+'|'+(Id $transaction))
+        $fixtureHostPath=Join-Path $runtime 'self-update-fixture-host.txt';Write-Text $fixtureHostPath ('recipient='+$owner+';fixture-only delivery completed')
+        $final.deliveryReceipts=@('FIXTURE_HOST_RESULT|'+(Id $fixtureHostPath))
         $finalPath=Join-Path $runtime 'source-final.json';Write-Json $finalPath $final
         $current=Json $integrator @{Operation='FINALIZE_CHECK';ControlRepositoryPath=$control;TransactionPath=$transaction;ExpectedTransactionIdentity=Id $transaction;FinalizeInputPath=$finalPath;AsJson=$true}
         $currentIds=@($current.selectedRuleBlocks.requirementId)
@@ -403,6 +406,24 @@ try {
         $final.resultReceipts=@($fullReceipts|Where-Object{$_-cnotlike('OBJECT_POSTIMAGE|'+$paths[0]+'|*')});Write-Json $finalPath $final
         $missingPost=Run $adapter @{InputPath=$finalPath;AsJson=$true} -Reject;Confirm ($missingPost.code-ne0-and$missingPost.text.Contains('FINALIZE_POSTIMAGE')) 'missing-exact-postimage-refused'
         $final.resultReceipts=$fullReceipts;Write-Json $finalPath $final
+        Confirm ('DELIVERY_RECEIPT'-cin@($ready.resultRequirements)) 'self-update-terminal-selects-real-delivery-obligation'
+        $final.deliveryContext=[ordered]@{channel='NATIVE_RESPONSE';stage='PREPARE';expectedRecipient='USER';observedRecipient='NOT_APPLICABLE';outcome='NOT_SENT';evidence='NOT_APPLICABLE'}
+        $final.deliveryReceipts=@();$final.resultReceipts=@($final.resultReceipts|Where-Object{$_-cne'DELIVERY_RECEIPT'})
+        Write-Json $finalPath $final
+        $prepareCheck=Json $integrator @{Operation='FINALIZE_CHECK';ControlRepositoryPath=$control;TransactionPath=$transaction;ExpectedTransactionIdentity=Id $transaction;FinalizeInputPath=$finalPath;AsJson=$true}
+        Confirm ($prepareCheck.delivery.status-ceq'READY_TO_SEND'-and-not$prepareCheck.delivery.delivered-and$prepareCheck.finalizeInputIdentity-ceq(Id $finalPath)) 'self-update-inner-prepare-is-ready-without-future-receipt'
+        foreach($outcome in @('SUCCESS','FAILURE','UNKNOWN')){
+            $observe=$final|ConvertTo-Json -Depth 100|ConvertFrom-Json
+            $observe.deliveryContext.channel='TASK_MESSAGE';$observe.deliveryContext.stage='OBSERVE';$observe.deliveryContext.expectedRecipient=$owner;$observe.deliveryContext.observedRecipient=$owner;$observe.deliveryContext.outcome=$outcome;$observe.deliveryContext.evidence='FIXTURE_HOST_RESULT|'+(Id $fixtureHostPath)
+            Write-Json $finalPath $observe
+            $observed=Json $integrator @{Operation='FINALIZE_CHECK';ControlRepositoryPath=$control;TransactionPath=$transaction;ExpectedTransactionIdentity=Id $transaction;FinalizeInputPath=$finalPath;AsJson=$true}
+            $expected=if($outcome-ceq'SUCCESS'){'DELIVERED'}elseif($outcome-ceq'FAILURE'){'NOT_DELIVERED'}else{'UNKNOWN'}
+            Confirm ($observed.delivery.status-ceq$expected-and$observed.delivery.delivered-eq($outcome-ceq'SUCCESS')) ('self-update-inner-observe-'+$outcome)
+        }
+        $future=$final|ConvertTo-Json -Depth 100|ConvertFrom-Json;$future.deliveryReceipts=@('FUTURE_RECEIPT');Write-Json $finalPath $future
+        $badDelivery=Run $adapter @{InputPath=$finalPath;AsJson=$true} -Reject
+        Confirm ($badDelivery.code-ne0-and$badDelivery.text.Contains('DELIVERY_FUTURE_EVIDENCE')-and(Get-Content $transaction -Raw|ConvertFrom-Json).status-cne'COMPLETE') 'self-update-rejects-future-delivery-before-completion-write'
+        Write-Json $finalPath $final
         $wrongInput=Join-Path $control '.ai-workspace/runtime/SELF-UPDATE-001/wrong-actor/final.json';Write-Json $wrongInput $final
         $unsafeCleanup=Run $adapter @{InputPath=$wrongInput;AsJson=$true;DeleteInputOnExit=$true} -Reject
         Confirm ($unsafeCleanup.code-ne0-and$unsafeCleanup.text.Contains('MAINTENANCE_CLEANUP_SCOPE')-and(Test-Path -LiteralPath $wrongInput)) 'cleanup-refuses-another-actor-input-before-finalize'
@@ -410,6 +431,7 @@ try {
         Confirm (-not(Test-Path -LiteralPath $finalPath)) 'valid-finalize-input-cleaned-exactly'
         Confirm ($done.status-ceq'PASS'-and$done.originalDiscoverIdentity-ceq(Id $source.receipt)-and$done.currentSourceCompositionIdentity-match'^[A-F0-9]{64}$') 'original-source-write-finalizes-through-current-composer'
         $state=Get-Content -LiteralPath $transaction -Raw|ConvertFrom-Json;Confirm ($state.status-ceq'COMPLETE') 'complete-only-after-real-finalize'
+        Confirm ($done.delivery.status-ceq'READY_TO_SEND'-and-not$done.delivery.delivered-and$state.completion.delivery.status-ceq'READY_TO_SEND'-and$state.completion.inputIdentity-ceq$done.finalizeInputIdentity) 'self-update-adapter-and-saved-completion-bind-real-prepare-result'
         Write-Output ('PASS|EFF-01-real-coupled-transaction|status='+$state.status+'|original-finalize='+$done.status)
     }
     Confirm ((Id (Join-Path $target 'tools/resource-evaluation/independent.txt'))-ceq$sentinel-and(Id (Join-Path $target 'private/protected.txt'))-ceq$protected) 'unrelated-target-and-protected-files-preserved'
@@ -459,6 +481,7 @@ try {
     [IO.File]::WriteAllBytes($initialAgentsPath,$initialAgents)
     $initialCompleted=@(& (Join-Path $RepositoryRoot 'scripts/upgrade-project.ps1') @initialResume)
     Confirm (@($initialCompleted|Where-Object{$null-ne$_.PSObject.Properties['status']-and$_.status-ceq'COMPLETE'}).Count-eq1-and(Get-Content -LiteralPath $initialTxnPath -Raw|ConvertFrom-Json).transactionComplete) 'first-template-adoption-resumes-to-completion-through-real-CLI'
+    $runtimeLowPolicyPath=Join-Path $control '.ai-workspace/process-policy.json';$runtimeLowPolicy=Get-Content -Raw $runtimeLowPolicyPath|ConvertFrom-Json -Depth 100;$runtimeLowPolicy.selectedRulePackBytes=1;Write-Json $runtimeLowPolicyPath $runtimeLowPolicy
     # Evolve only the unsealed isolated fixture source before building the next
     # package. BOOTSTRAP plus adoption state give a real pending write after one
     # completed write; the already-built runtime and managed AGENTS stay intact.
@@ -548,11 +571,12 @@ try {
     $relocationInput.schemaVersion=3;$relocationInput['contextType']='TASK';$relocationInput['readOnlyContext']='NOT_APPLICABLE';$relocationInput.exactPaths=@($recovery+'/state.json')
     $relocationInput.authorizationPackagePath=$relocationProcessAuth;$relocationInput.expectedAuthorizationIdentity=Id $relocationProcessAuth
     $relocationInput.intentEnvelope.objective='Relocate the same adopted runtime under the original admitted state-only action.'
-    $relocationInput.intentEnvelope.requestedActionKind='CONTROL_WRITE';$relocationInput.intentEnvelope.mutationHints=@('control')
+    $relocationInput.intentEnvelope.requestedActionKind='CONTROL_WRITE';$relocationInput.intentEnvelope.requestedResultKind='TERMINAL';$relocationInput.intentEnvelope.mutationHints=@('control')
     $relocationDiscoverPath=Join-Path $runtime 'relocation-discover.json';Write-Json $relocationDiscoverPath $relocationInput
     $relocationDiscover=Json $adapter @{InputPath=$relocationDiscoverPath;AsJson=$true}
     $relocationReceiptPath=Join-Path $runtime 'relocation-receipt.json';Write-Json $relocationReceiptPath $relocationDiscover.compactReceipt
     $relocationBoundary=[ordered]@{schemaVersion=2;mode='ADMIT_ACTION';discoverReceiptPath=$relocationReceiptPath;expectedDiscoverReceiptIdentity=Id $relocationReceiptPath;preparationReceipts=@($relocationDiscover.compactReceipt.selectedObligations|ForEach-Object{$_.preparationRequirements}|Sort-Object -Unique);resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='BOUND'}
+    $relocationBoundary.deliveryContext=[ordered]@{channel='TASK_MESSAGE';stage='PREPARE';expectedRecipient=$owner;observedRecipient='NOT_APPLICABLE';outcome='NOT_SENT';evidence='NOT_APPLICABLE'}
     $relocationAdmitInput=Join-Path $runtime 'relocation-admit-input.json';Write-Json $relocationAdmitInput $relocationBoundary
     $relocationAdmit=Json $adapter @{InputPath=$relocationAdmitInput;AsJson=$true;DeleteInputOnExit=$true}
     Confirm (-not(Test-Path -LiteralPath $relocationAdmitInput)-and$null-ne$relocationAdmit.PSObject.Properties['originalAdmissionInput']-and$relocationAdmit.originalAdmissionInput.expectedDiscoverReceiptIdentity-ceq(Id $relocationReceiptPath)) 'relocation-original-admit-cleans-input-and-retains-bound-evidence-in-result'
@@ -561,6 +585,8 @@ try {
     $relocation=Runtime-Upgrade 'relocation' $relocatedRuntime
     $relocationBoundary.mode='FINALIZE_OUTPUT'
     $relocationBoundary.resultReceipts=@($relocationDiscover.compactReceipt.selectedObligations|ForEach-Object{$_.resultRequirements}|Sort-Object -Unique)+@('OBJECT_POSTIMAGE|'+$recovery+'/state.json|'+(Id $statePath))
+    Confirm ('DELIVERY_RECEIPT'-cin@($relocationBoundary.resultReceipts)) 'relocation-terminal-selects-delivery-obligation'
+    $relocationBoundary.resultReceipts=@($relocationBoundary.resultReceipts|Where-Object{$_-cne'DELIVERY_RECEIPT'})
     $relocationFinalInput=Join-Path $runtime 'relocation-final-input.json';Write-Json $relocationFinalInput $relocationBoundary
     $relocationArgs=@{InputPath=$relocationFinalInput;AsJson=$true;AdmitResultPath=$relocationAdmitResult;ExpectedAdmitResultIdentity=Id $relocationAdmitResult;AdoptionAuthorizationPackagePath=$relocation.auth;ExpectedAdoptionAuthorizationIdentity=Id $relocation.auth;ExpectedAdoptionTransactionIdentity=Id $txnPath}
     $retained=@($relocationReceiptPath,$relocationAdmitInput,$relocationAdmitResult,$relocationProcessAuth,$relocation.auth,$txnPath,$statePath)
@@ -588,6 +614,25 @@ try {
     }
     $relocationFinal=Json $adapter $relocationArgs
     Confirm ($relocationFinal.status-ceq'PASS'-and$relocationFinal.reason-ceq'ORIGINAL_RUNTIME_RELOCATION_FINALIZED'-and$relocationFinal.originalAdmitDecisionIdentity-ceq$relocationAdmit.decisionIdentity-and$relocationFinal.originalDiscoverReceiptIdentity-ceq(Id $relocationReceiptPath)-and$relocationFinal.runtimeRoot-ceq$relocatedRuntime-and-not$relocationFinal.authorityGranted) 'relocation-finalizes-original-admitted-action-with-bound-package-and-transaction'
+    Confirm ($relocationFinal.delivery.status-ceq'READY_TO_SEND'-and-not$relocationFinal.delivery.delivered-and$relocationFinal.finalizeInputIdentity-ceq(Id $relocationFinalInput)) 'relocation-prepare-is-bound-ready-not-delivered'
+    $relocationHostPath=Join-Path $runtime 'relocation-fixture-host.txt';Write-Text $relocationHostPath ('recipient='+$owner+';fixture-only delivery completed')
+    foreach($outcome in @('SUCCESS','FAILURE','UNKNOWN')){
+        $observed=$relocationBoundary|ConvertTo-Json -Depth 100|ConvertFrom-Json
+        $observed.deliveryContext.stage='OBSERVE';$observed.deliveryContext.outcome=$outcome;$observed.deliveryContext.observedRecipient=$owner;$observed.deliveryContext.evidence='FIXTURE_HOST_RESULT|'+(Id $relocationHostPath)
+        Write-Json $relocationFinalInput $observed;$observedResult=Json $adapter $relocationArgs
+        $expected=if($outcome-ceq'SUCCESS'){'DELIVERED'}elseif($outcome-ceq'FAILURE'){'NOT_DELIVERED'}else{'UNKNOWN'}
+        Confirm ($observedResult.delivery.status-ceq$expected-and$observedResult.delivery.delivered-eq($outcome-ceq'SUCCESS')-and$observedResult.finalizeInputIdentity-ceq(Id $relocationFinalInput)) ('relocation-observe-'+$outcome)
+        if($outcome-ceq'SUCCESS'){
+            $observed.deliveryContext.observedRecipient='wrong-recipient';Write-Json $relocationFinalInput $observed
+            $bad=Run $adapter $relocationArgs -Reject;Confirm ($bad.code-ne0-and$bad.text.Contains('DELIVERY_SUCCESS_UNBOUND')) 'relocation-rejects-wrong-observed-recipient'
+        }
+    }
+    $future=$relocationBoundary|ConvertTo-Json -Depth 100|ConvertFrom-Json;$future.deliveryReceipts=@('FUTURE_RECEIPT');Write-Json $relocationFinalInput $future
+    $bad=Run $adapter $relocationArgs -Reject;Confirm ($bad.code-ne0-and$bad.text.Contains('DELIVERY_FUTURE_EVIDENCE')) 'relocation-rejects-future-delivery-receipt'
+    $legacy=$relocationBoundary|ConvertTo-Json -Depth 100|ConvertFrom-Json;$legacy.PSObject.Properties.Remove('deliveryContext');$legacy.deliveryReceipts=@('FIXTURE_HOST_RESULT|'+(Id $relocationHostPath));$legacy.resultReceipts+=@('DELIVERY_RECEIPT');Write-Json $relocationFinalInput $legacy
+    $legacyResult=Json $adapter $relocationArgs;Confirm ($legacyResult.status-ceq'PASS'-and$null-eq$legacyResult.PSObject.Properties['delivery']) 'relocation-legacy-boundary-without-context-still-compatible'
+    Write-Json $relocationFinalInput $relocationBoundary
+    Confirm ((Get-Content -Raw $runtimeLowPolicyPath|ConvertFrom-Json).selectedRulePackBytes-eq1) 'runtime-adoption-and-relocation-do-not-raise-legacy-byte-metadata'
     Confirm ([string]::Join($lf,@($retained|ForEach-Object{$_+'='+(Id $_)}))-ceq$retainedBefore) 'relocation-checks-preserve-original-evidence-live-state-and-transaction'
     Confirm (-not(Test-Path -LiteralPath $relocationAdmitInput)) 'relocation-finalize-never-recreates-deleted-admit-input'
     if($CrossDistributionOnly){
@@ -603,7 +648,7 @@ try {
                 Confirm (@($crossOutput|Where-Object{$_-ceq$expected}).Count-eq1) ('cross-outer-marker-'+$schema+'-'+$stage)
             }
         }
-        Confirm (@($crossOutput|Where-Object{$_-ceq'PASS|cross-distribution-framework-maintenance-sibling|68/68'}).Count-eq1) 'cross-outer-complete-matrix-marker'
+        Confirm (@($crossOutput|Where-Object{$_-ceq'PASS|cross-distribution-framework-maintenance-sibling|75/75'}).Count-eq1) 'cross-outer-complete-matrix-marker'
         Write-Output 'PASS|maintenance-cross-distribution-outer|child-exit=0|markers=7'
     }
     if($RelocationOnly){Write-Output ('PASS|maintenance-runtime-relocation|'+$passes+'/'+$passes);return}

@@ -206,3 +206,5 @@ Framework 根部的 `skills/ai-workspace-router/SKILL.md` 是宿主安装或发�
 恢复和安全读取不授予写权限。写入、测试、Review、`OWNER_ACCEPT`、Git、推送、设备、浏览器和外部操作保持独立门禁。Framework 不维护消费者注册表、后台监控器、ACK/轮询链、授权消费 ledger 或第二套状态真相。
 
 当前候选范围和未来准入条件见 [`framework/ROADMAP.md`](framework/ROADMAP.md)；某个版本的准确能力与变化见其 `README.md`、`CHANGELOG.md`、`VERSION.json` 和 `RELEASE_MANIFEST.json`。
+
+纠正可以按整组安装效果暂停、恢复或卸载，范围包括它引入的委托、导航、配置与专属文件。工具保留后续独立修改，并把无法确定的混合改动定位到具体对象；历史记录保留但不继续作为当前规则。能力与实际项目采用分开，操作合同见[项目接入与升级](framework/PROJECT_ADOPTION.md#纠正整组生命周期)。

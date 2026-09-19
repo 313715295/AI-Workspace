@@ -1,1 +1,29 @@
-{"schemaVersion":2,"version":"1.16.0","lifecycle":"CANDIDATE","releaseClass":"MINOR","scope":"all release payload files except RELEASE_MANIFEST.json","algorithm":"Ordinal relative path; path|byteLength|UPPER_SHA256; UTF-8 LF join without trailing LF; SHA256 payload","fileCount":78,"totalBytes":1204006,"canonical":"F097F6A0EE95F9B37A83AD50F6235C894D3D3C5DD0BE40E5F3A480FEED52565B","baseline":"1.15.1","sourceReview":"APPROVED","sourceCandidate":"F097F6A0EE95F9B37A83AD50F6235C894D3D3C5DD0BE40E5F3A480FEED52565B","releaseIntegration":"PENDING","completeSuite":{"status":"PASS","passed":875,"total":875,"payloadCanonical":"F097F6A0EE95F9B37A83AD50F6235C894D3D3C5DD0BE40E5F3A480FEED52565B","evidenceIdentity":"55313|A20CE6B3F23CAD265AD5D4CA6360ED067E8B2D9638BAFF90226FC84A8A92A967"},"sourceReviewEvidence":{"status":"APPROVED","reviewer":"01a098eb-db6e-70c2-a6fb-897b51086919","packageIdentity":"9005|B62485586D500E9BD60FBDF1DAB3350A6919BF3AA37EEC0ECB5094551ED36B8D","reviewedPayloadCanonical":"F097F6A0EE95F9B37A83AD50F6235C894D3D3C5DD0BE40E5F3A480FEED52565B","reviewedManifestIdentity":"773|97B19631B84CC88FBB4E419EBBD0B886F44CCD4A77781A13A8A9641EEDFCDF24"}}
+{
+  "schemaVersion": 2,
+  "version": "1.16.0",
+  "lifecycle": "CANDIDATE",
+  "releaseClass": "MINOR",
+  "scope": "all release payload files except RELEASE_MANIFEST.json",
+  "algorithm": "Ordinal relative path; path|byteLength|UPPER_SHA256; UTF-8 LF join without trailing LF; SHA256 payload",
+  "fileCount": 78,
+  "totalBytes": 1255907,
+  "canonical": "1AD8F895C8FE1B929C0BA96B6F9662948ED54418DA30C5C4F745BAC54B1A4451",
+  "baseline": "1.15.1",
+  "sourceReview": "APPROVED",
+  "sourceCandidate": "1AD8F895C8FE1B929C0BA96B6F9662948ED54418DA30C5C4F745BAC54B1A4451",
+  "releaseIntegration": "PENDING",
+  "completeSuite": {
+    "status": "PASS",
+    "passed": 942,
+    "total": 942,
+    "payloadCanonical": "1AD8F895C8FE1B929C0BA96B6F9662948ED54418DA30C5C4F745BAC54B1A4451",
+    "evidenceIdentity": "60168|AB86ED90516021219ABAF21399CA4106CC300863073941943FF06F96C3FB89C3"
+  },
+  "sourceReviewEvidence": {
+    "status": "APPROVED",
+    "reviewer": "01a0b98d-f9ab-74f3-a4a5-217dbe514a79",
+    "packageIdentity": "1996|B5743BC66FA91D1F2C69052070E88E3C2CAD1172E8D78AEC35CA95EF46823851",
+    "reviewedPayloadCanonical": "1AD8F895C8FE1B929C0BA96B6F9662948ED54418DA30C5C4F745BAC54B1A4451",
+    "reviewedManifestIdentity": "706|D79AA646C4204199C510BD3DF39BBFD0F259ED03EE6F37C77DC854D79570DDFD"
+  }
+}

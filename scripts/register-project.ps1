@@ -18,7 +18,7 @@ param(
 
     [string]$ControllerId,
 
-    [ValidateRange(1, 98304)]
+    [ValidateRange(1, [int]::MaxValue)]
     [int]$SelectedRulePackBytes = 32768,
 
     [ValidateSet('repo-local','framework-maintenance-sibling')]
@@ -435,7 +435,7 @@ function Get-FrameworkAgentsProjection([string]$RepositoryRoot,[string]$Template
     Assert-ManagedRouterDestinations $RepositoryRoot
     $agentsTemplatePath=Join-ChildPath $TemplateRoot 'AGENTS.md'
     $manageSkill=$false
-    $targetBlock=Read-StrictUtf8Template $agentsTemplatePath
+    $targetBlock=Get-AiwAgentsTemplateBlock (Read-StrictUtf8Template $agentsTemplatePath)
     $targetSkill=$null
     $agentsPath=Join-Path $RepositoryRoot 'AGENTS.md'
     $skillPath=Join-Path $RepositoryRoot '.agents\skills\ai-workspace-router\SKILL.md'
@@ -805,7 +805,7 @@ function Assert-RepoLocalProject {
             if([regex]::Matches($configRaw,'"locator"\s*:').Count-ne1){throw 'Existing project.json processPolicy locator is duplicate or missing.'}
             $policyFields=if($profileTarget){@('schemaVersion','contractVersion','projectId','selectedRulePackBytes','rules')}else{@('schemaVersion','contractVersion','projectId','rules')}
             Assert-ExactObjectFields $policy $policyRaw $policyFields 'Existing process-policy.json'
-            if([int]$config.processPolicy.schemaVersion-ne1-or[string]$config.processPolicy.locator-cne'.ai-workspace/process-policy.json'-or[int]$policy.schemaVersion-ne1-or[string]$policy.contractVersion-cne$expectedProcessCarrierVersion-or[string]$policy.projectId-cne$ExpectedProjectId-or-not($policy.rules-is[System.Array])-or($profileTarget-and(-not(Test-JsonInteger $policy.selectedRulePackBytes)-or[int]$policy.selectedRulePackBytes-lt1-or[int]$policy.selectedRulePackBytes-gt[int]$script:ActiveAdoptionProfile.processBudget.absoluteSelectedRulePackBytes))){throw 'Existing structured process policy is invalid.'}
+            if([int]$config.processPolicy.schemaVersion-ne1-or[string]$config.processPolicy.locator-cne'.ai-workspace/process-policy.json'-or[int]$policy.schemaVersion-ne1-or[string]$policy.contractVersion-cne$expectedProcessCarrierVersion-or[string]$policy.projectId-cne$ExpectedProjectId-or-not($policy.rules-is[System.Array])-or($profileTarget-and(-not(Test-JsonInteger $policy.selectedRulePackBytes)-or[int]$policy.selectedRulePackBytes-lt1))){throw 'Existing structured process policy is invalid.'}
         }
         if($profileTarget){
             $correctionsFile=Join-Path $ControlRoot 'corrections.json'
@@ -861,7 +861,7 @@ $selectedFrameworkPath=Join-ChildPath $frameworkRoot ('versions/'+$FrameworkVers
 if(-not(Test-Path -LiteralPath $selectedFrameworkPath -PathType Container)){throw 'FRAMEWORK_VERSION_NOT_FOUND'}
 $script:ActiveAdoptionProfile=Get-AdoptionProfile $selectedFrameworkPath $FrameworkVersion
 if(-not[bool]$script:ActiveAdoptionProfile.registrationEligible){throw 'ADOPTION_PROFILE_REGISTRATION_NOT_ELIGIBLE'}
-if($SelectedRulePackBytes-gt[int]$script:ActiveAdoptionProfile.processBudget.absoluteSelectedRulePackBytes){throw 'SELECTED_RULE_PACK_BUDGET_ABSOLUTE_CAP'}
+# SelectedRulePackBytes is retained only as legacy metadata.
 $script:ActiveTargetCapabilityContract=Get-TargetFrameworkCapabilityContract $selectedFrameworkPath $ControlPlaneLayout
 
 if (-not (Test-Path -LiteralPath $RepositoryPath -PathType Container)) {
@@ -952,7 +952,7 @@ $templateRoot = $starter.TemplateRoot
 $managedTemplateRoot=if($ControlPlaneLayout-ceq'framework-maintenance-sibling'){[string]$maintenanceOverlay.Root}else{$templateRoot}
 $bootstrapTemplate=Read-StrictUtf8Template (Join-ChildPath $managedTemplateRoot 'BOOTSTRAP.md')
 $agentsProjection=Get-FrameworkAgentsProjection $repo $managedTemplateRoot $FrameworkVersion
-$agentsProjection.TargetAgents=Get-AiwStandingDelegationProjection -Text $agentsProjection.TargetAgents -AdoptionRequested $true
+$agentsProjection.TargetAgents=Get-AiwStandingDelegationProjection -Text $agentsProjection.TargetAgents -AdoptionRequested $true -TemplatePath (Join-Path $selectedFrameworkPath 'project-starter/AGENTS.md') -ExistingProject:(Test-Path -LiteralPath (Join-Path $repo '.ai-workspace/project.json'))
 
 $createdDate = Get-Date -Format 'yyyy-MM-dd'
 $markdownTokens = [ordered]@{

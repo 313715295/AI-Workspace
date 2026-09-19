@@ -446,22 +446,27 @@ function Invoke-FinalizeCheck([string]$Path,[string]$Expected,[bool]$CheckEviden
     }
     if('PROJECT_STANDARD_SOURCE_DRIFT_CONSERVATIVE_LOAD'-cin@($composition.evidenceCeilings)){throw 'SELF_UPDATE_STANDARD_DRIFT'}
     $pack=@($composition.selectedRequirements)|ConvertTo-Json -Depth 50 -Compress
-    if($utf8.GetByteCount($pack)-gt$composition.selectedRulePackBytes){throw 'SELF_UPDATE_CURRENT_PACK_BUDGET'}
+    # No byte quota substitutes for the current full source and acceptance checks.
     $all=@($receipt.selectedObligations)+@($composition.selectedRequirements)
     $prep=@($all|ForEach-Object{@($_.preparationRequirements)}|Sort-Object -Unique)
     $results=@($all|ForEach-Object{@($_.resultRequirements)}|Sort-Object -Unique)
-    $boundaryInput=$null
+    $boundaryInput=$null;$delivery=$null
     if($CheckEvidence){
         $boundaryInput=Read-StrictJson $FinalizeInputPath 'SELF_UPDATE_FINALIZE_INPUT'
         if($boundaryInput.mode-cne'FINALIZE_OUTPUT'-or$boundaryInput.expectedDiscoverReceiptIdentity-cne$s.discoverReceiptIdentity-or[IO.Path]::GetFullPath($boundaryInput.discoverReceiptPath)-cne[IO.Path]::GetFullPath($s.discoverReceiptPath)){throw 'SELF_UPDATE_FINALIZE_BINDING'}
         $originalBoundary=Read-StrictJson $s.admitInputPath 'SELF_UPDATE_ADMIT_INPUT'
         if($boundaryInput.publicDecisionIdentity-cne$originalBoundary.publicDecisionIdentity){throw 'SELF_UPDATE_FINALIZE_DECISION'}
         if($boundaryInput.protectionState-cne$originalBoundary.protectionState){throw 'SELF_UPDATE_FINALIZE_PROTECTION'}
+        $delivery=Get-AiwBoundaryDeliveryObservation $boundaryInput $s.targetRoot $s.frameworkVersion
+        if($null-ne$delivery){$results=@($results|Where-Object{$_-cne'DELIVERY_RECEIPT'})}
+        if($null-eq$delivery-and$view.resultKind-cin@('USER_RESPONSE','TERMINAL','HANDOFF','REVIEW_VERDICT','OWNER_ACCEPTANCE')-and@($boundaryInput.deliveryReceipts).Count-eq0){throw 'SELF_UPDATE_DELIVERY_INCOMPLETE'}
         if(@($prep|Where-Object{$_-cnotin$boundaryInput.preparationReceipts}).Count-or@($results|Where-Object{$_-cnotin$boundaryInput.resultReceipts}).Count){throw 'SELF_UPDATE_CURRENT_OBLIGATIONS_MISSING'}
         if(@($boundaryInput.resultReceipts|Where-Object{$_-clike'OBJECT_POSTIMAGE|*'}).Count-ne@($s.exactPaths).Count){throw 'SELF_UPDATE_FINALIZE_POSTIMAGE_COUNT'}
         foreach($e in $s.projection.objects){$expectedReceipt='OBJECT_POSTIMAGE|'+$e.path+'|'+$e.newIdentity;if(@($boundaryInput.resultReceipts|Where-Object{$_-ceq$expectedReceipt}).Count-ne1){throw ('SELF_UPDATE_FINALIZE_POSTIMAGE|'+$e.path)}}
     }
-    return [pscustomobject]@{status=$(if($CheckEvidence){'PASS'}else{'READY_FOR_FINALIZE'});mode=$(if($CheckEvidence){'FINALIZE_OUTPUT'}else{'VERIFY_REFRESH'});originalDiscoverIdentity=$s.discoverReceiptIdentity;originalAdmitDecisionIdentity=$s.admitDecisionIdentity;transactionIdentity=$Expected;currentSourceCompositionIdentity=$composition.sourceCompositionIdentity;currentBindings=$current;preparationRequirements=$prep;resultRequirements=$results;selectedRuleBlocks=@($composition.selectedRequirements);authorityGranted=$false;semanticCorrectnessProven=$false;evidenceGrade='INSTRUCTION_BOUND'}
+    $result=[pscustomobject]@{status=$(if($CheckEvidence){'PASS'}else{'READY_FOR_FINALIZE'});mode=$(if($CheckEvidence){'FINALIZE_OUTPUT'}else{'VERIFY_REFRESH'});originalDiscoverIdentity=$s.discoverReceiptIdentity;originalAdmitDecisionIdentity=$s.admitDecisionIdentity;transactionIdentity=$Expected;currentSourceCompositionIdentity=$composition.sourceCompositionIdentity;currentBindings=$current;preparationRequirements=$prep;resultRequirements=$results;selectedRuleBlocks=@($composition.selectedRequirements);authorityGranted=$false;semanticCorrectnessProven=$false;evidenceGrade='INSTRUCTION_BOUND'}
+    if($null-ne$delivery){$result|Add-Member delivery $delivery;$result|Add-Member finalizeInputIdentity (Get-Identity $FinalizeInputPath)}
+    return $result
 }
 try {
     $control=Resolve-AiwRepositoryRoot $ControlRepositoryPath;$transactionFull=Assert-TransactionPath $control $TransactionPath
@@ -478,6 +483,7 @@ try {
             $checked=Invoke-FinalizeCheck $transactionFull $ExpectedTransactionIdentity $true
             $s=Read-State $transactionFull $ExpectedTransactionIdentity
             $s.completion=[pscustomobject]@{inputIdentity=Get-Identity $FinalizeInputPath;sourceCompositionIdentity=$checked.currentSourceCompositionIdentity;originalDiscoverIdentity=$s.discoverReceiptIdentity;originalAdmitDecisionIdentity=$s.admitDecisionIdentity}
+            if($null-ne$checked.PSObject.Properties['delivery']){$s.completion|Add-Member delivery $checked.delivery}
             $s.status='COMPLETE';Write-State $transactionFull $s
             $checked | Add-Member -NotePropertyName completeTransactionIdentity -NotePropertyValue (Get-Identity $transactionFull)
             $checked

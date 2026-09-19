@@ -490,8 +490,16 @@ function Get-AiwAdoptedDistributionBinding {
 }
 Export-ModuleMember -Function Get-AiwAdoptedDistributionBinding
 
+function Get-AiwAgentsTemplateBlock {
+    param([string]$Text,[ValidateSet('FRAMEWORK','USER-DECISION')][string]$Block='FRAMEWORK')
+    $begin='<!-- AI-WORKSPACE-'+$Block+':BEGIN -->';$end='<!-- AI-WORKSPACE-'+$Block+':END -->'
+    $start=$Text.IndexOf($begin,[StringComparison]::Ordinal);$finish=$Text.IndexOf($end,[StringComparison]::Ordinal)
+    if($start-lt0-or$finish-lt$start-or[regex]::Matches($Text,[regex]::Escape($begin)).Count-ne1-or[regex]::Matches($Text,[regex]::Escape($end)).Count-ne1){throw 'AGENTS_TEMPLATE_BLOCK'}
+    return $Text.Substring($start,$finish+$end.Length-$start)+"`n"
+}
 function Get-AiwStandingDelegationProjection {
-    param([AllowEmptyString()][string]$Text, [bool]$AdoptionRequested = $false)
+    param([AllowEmptyString()][string]$Text, [bool]$AdoptionRequested = $false,
+          [string]$TemplatePath,[bool]$ExistingProject=$false)
     # Only the registration request supplies this fact. File presence is not adoption.
     if (-not $AdoptionRequested) { return $Text }
     $begin = '<!-- AI-WORKSPACE-USER-DECISION:BEGIN -->'
@@ -500,8 +508,11 @@ function Get-AiwStandingDelegationProjection {
     $ends = [regex]::Matches($Text, [regex]::Escape($end)).Count
     if ($starts -eq 1 -and $ends -eq 1 -and $Text.IndexOf($begin) -lt $Text.IndexOf($end)) { return $Text }
     if ($starts -ne 0 -or $ends -ne 0) { throw 'USER_DECISION_MARKERS_MALFORMED' }
+    if($ExistingProject){return $Text}
+    if([string]::IsNullOrWhiteSpace($TemplatePath)){throw 'DELEGATION_TEMPLATE_REQUIRED'}
+    $template=[Text.UTF8Encoding]::new($false,$true).GetString([IO.File]::ReadAllBytes($TemplatePath))
+    $decision=Get-AiwAgentsTemplateBlock $template 'USER-DECISION'
     $separator = if ($Text.Length -eq 0) { '' } elseif ($Text.EndsWith("`n")) { "`n" } else { "`n`n" }
-    return $Text + $separator + $begin + "`n" +
-        '用户持续委托AI，为完成本项目已授权目标，遵循当前采用的Framework、当前生效的项目纠正和永久规则，自主作出并执行其允许的工作决定。该委托持续有效，无须逐任务、逐步骤重复确认；用户后续明确决定优先，规则明确保留给用户的决定仍由用户作出。' + "`n" + $end + "`n"
+    return $Text + $separator + $decision
 }
-Export-ModuleMember -Function Get-AiwStandingDelegationProjection
+Export-ModuleMember -Function Get-AiwStandingDelegationProjection,Get-AiwAgentsTemplateBlock

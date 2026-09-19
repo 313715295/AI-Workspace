@@ -54,6 +54,42 @@ $operation = [string]$inputObject.operation
 $result = $null
 
 switch ($operation) {
+    'REPAIR_REVIEW' {
+        Assert-ExactFields $inputObject $inputMemberNames @('operation','repositoryRoot','binding')
+        $binding=$inputObject.binding
+        $parentDoc=Read-AiwStrictInputJson $binding.parentPackagePath
+        $bytes=[IO.File]::ReadAllBytes($binding.parentPackagePath)
+        $identity=$bytes.Length.ToString()+'|'+[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes))
+        if($identity-cne$binding.parentPackageIdentity){throw 'REPAIR_REVIEW_PARENT_DRIFT'}
+        $candidate=$parentDoc.Value
+        if($null-eq$candidate.PSObject.Properties['repairReviewPlan']-or$binding.phase-cnotin@('REPAIR','REREVIEW')){throw 'REPAIR_REVIEW_PLAN_REQUIRED'}
+        $plan=$candidate.repairReviewPlan
+        $candidate.PSObject.Properties.Remove('repairReviewPlan')
+        $candidate.grantee=if($binding.phase-ceq'REPAIR'){$plan.writer}else{$plan.reviewer}
+        if($binding.phase-ceq'REREVIEW'){
+            $candidate.PSObject.Properties.Remove('continuationPlan')
+            $candidate.actions=@('REVIEW_EXECUTE');$candidate.reviewIndependence='INDEPENDENT'
+            if('CONTRIBUTOR_SET_CHANGE'-cnotin$candidate.invalidatesOn){$candidate.invalidatesOn+=@('CONTRIBUTOR_SET_CHANGE')}
+            $candidate|Add-Member candidateWriter $plan.writer
+            $candidate|Add-Member materialContributors @($plan.materialContributors)
+        }
+        $root=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($inputObject.repositoryRoot))
+        $candidate.objectIdentities=@(foreach($path in $candidate.exactPaths){
+            if([IO.Path]::IsPathRooted($path)-or$path.Contains(':')-or$path.Contains('\')-or@($path.Split('/')|Where-Object{$_-in@('','..','.')}).Count){throw 'REPAIR_REVIEW_PATH'}
+            $full=Join-Path $root $path;$cursor=$root
+            foreach($part in $path.Split('/')){$cursor=Join-Path $cursor $part;if((Test-Path -LiteralPath $cursor)-and((Get-Item -LiteralPath $cursor -Force).Attributes-band[IO.FileAttributes]::ReparsePoint)){throw 'REPAIR_REVIEW_REPARSE'}}
+            $value='NEW'
+            if(Test-Path -LiteralPath $full -PathType Leaf){$data=[IO.File]::ReadAllBytes($full);$value=$data.Length.ToString()+'|'+[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($data))}
+            [pscustomobject]@{path=$path;identity=$value}
+        })
+        $candidate|Add-Member repairReviewBinding $binding
+        $result=[ordered]@{status='PREPARED';authorityGranted=$false;requiresCurrentAdmission=$true;package=$candidate}
+    }
+    'DELIVERY' {
+        Assert-ExactFields $inputObject $inputMemberNames @('operation','deliveryContext')
+        Import-Module (Join-Path $PSScriptRoot 'ProcessRequirementComposition.psm1') -Force
+        $result=Get-AiwDeliveryObservation $inputObject.deliveryContext
+    }
     'LAUNCH' {
         Assert-ExactFields $inputObject $inputMemberNames @('operation','recoveryComplete','packageValid','bindingsMatch')
         Assert-Bool $inputObject.recoveryComplete 'recoveryComplete'

@@ -69,3 +69,15 @@ function ConvertTo-ExampleInputJson($Value) {
 ## Framework maintenance
 
 从 Maintenance control repo 开始，只修改授权的新 final-version candidate 与 root integration paths。不得改 stable release、discover consumer 或改 project pin。实现期只跑 affected checks；freeze 时只跑一次完整 current-version suite，然后依次独立完成 Source Review、`OWNER_ACCEPT`、seal 与 deterministic post-seal verification。Git/push 是后续独立 gate。
+
+## 连续动作与发送返回
+
+当前意图由模型提供；路径身份与固定字段可在原脚本一次取得。保存 DISCOVER compact 后，当前模型先读完整命中正文并判断准备是否实际完成，再传真实 preparationReceipts 调用 ADMIT；不能把 selected obligations 数组直接当作完成证明。有依赖的步骤检查上一返回 status 后连续运行，失败停止依赖链，日志保留各门原结果；保存的新 continuation 供下一 DISCOVER 使用，原证据留到最后消费者完成。健康复用不要求重复输出整个机器收据。
+
+原生回复发送前使用 deliveryContext：
+```json
+{"channel":"NATIVE_RESPONSE","stage":"PREPARE","expectedRecipient":"USER","observedRecipient":"NOT_APPLICABLE","outcome":"NOT_SENT","evidence":"NOT_APPLICABLE"}
+```
+任务间发送前把 channel 改为 TASK_MESSAGE、expectedRecipient 设为真实绑定任务。实际发送后，在同一工具编排按宿主返回填 OBSERVE：仅确定成功且接收人吻合时 SUCCESS，明确失败为 FAILURE，否则 UNKNOWN；evidence 绑定真实宿主结果。调用 WORKFLOW_ROUTE_RESOLVE 的 DELIVERY，直接消费返回，不开启 ACK/轮询/记账模型回合。普通后续实质成果由责任方判断。
+
+有界修复使用 Owner 预授予的 repairReviewPlan；调用 REPAIR_REVIEW 准备当前候选包，保存后重新 checker/DISCOVER/ADMIT，不能将 PREPARED 当授权。实例验证覆盖错主体、越界、原 verdict 漂移、后像错误和超轮数；手写 hint fixture 只证明选择器，不证明模型归一化准确率。

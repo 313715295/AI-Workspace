@@ -160,6 +160,7 @@ $fixedMappings = @(
     [pscustomobject]@{ source = 'scripts/MaintenanceOverlay.psm1'; target = 'scripts/MaintenanceOverlay.psm1'; template = $false },
     [pscustomobject]@{ source = 'scripts/ProjectAdoptionProjection.psm1'; target = 'scripts/ProjectAdoptionProjection.psm1'; template = $false },
     [pscustomobject]@{ source = 'scripts/ProjectAdoptionState.psm1'; target = 'scripts/ProjectAdoptionState.psm1'; template = $false },
+    [pscustomobject]@{ source = 'scripts/ProjectCorrectionLifecycle.psm1'; target = 'scripts/ProjectCorrectionLifecycle.psm1'; template = $false },
     [pscustomobject]@{ source = 'scripts/ProjectAdoptionTransaction.psm1'; target = 'scripts/ProjectAdoptionTransaction.psm1'; template = $false },
     [pscustomobject]@{ source = 'scripts/register-project.ps1'; target = 'scripts/register-project.ps1'; template = $false },
     [pscustomobject]@{ source = 'scripts/upgrade-project.ps1'; target = 'scripts/upgrade-project.ps1'; template = $false },

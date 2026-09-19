@@ -360,8 +360,8 @@ try{
     $budgetContract=Get-ProcessBudgetContract
     $packJson=@($composition.selectedRequirements)|ConvertTo-Json -Depth 50 -Compress;$packBytes=$utf8.GetByteCount($packJson)
     $selectedRulePackBytes=[int]$composition.selectedRulePackBytes;$absoluteSelectedRulePackBytes=[int]$budgetContract.absoluteSelectedRulePackBytes
-    if($selectedRulePackBytes-lt1-or$selectedRulePackBytes-gt$absoluteSelectedRulePackBytes-or[int]$composition.absoluteSelectedRulePackBytes-ne$absoluteSelectedRulePackBytes){throw 'PROJECT_SELECTED_RULE_PACK_BUDGET_INVALID'}
-    if($packBytes-gt$selectedRulePackBytes){throw ('SELECTED_RULE_PACK_BUDGET_EXCEEDED|bytes='+$packBytes+'|ceiling='+$selectedRulePackBytes)}
+    # Legacy budget fields remain identity-bound compatibility data, not quotas.
+    # Return every selected complete rule regardless of its measured byte count.
     $contextMaterial=(($authority|ConvertTo-Json -Depth 30 -Compress)+"`n"+($intent|ConvertTo-Json -Depth 30 -Compress));$contextIdentity=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($utf8.GetBytes($contextMaterial)))
     $ceilings=@($composition.evidenceCeilings);if([string]$input.hostEnforcementGrade-ceq'INSTRUCTION_BOUND'-or$invocationState-ceq'UNPROVEN'){$ceilings+='INVOCATION_UNPROVEN'};if([bool]$input.evaluationOnly){$ceilings+='NON_AUTHORITY_EVALUATION_ONLY'};if([string]$intent.ambiguityState-cne'CLEAR'){$ceilings+='INTENT_AMBIGUITY_CONSERVATIVE_LOAD'};if($intentFactMismatches.Count-gt0){$ceilings+='INTENT_FACT_MISMATCH_CONSERVATIVE_LOAD'};if($authority.repositoryGitTop-ceq'UNPROVEN'){$ceilings+='REPOSITORY_GIT_TOP_UNPROVEN'};if($artifactStorage-ceq'SYSTEM_TEMP_FALLBACK'){$ceilings+='SYSTEM_TEMP_FALLBACK'}
     $selectedObligations=@($composition.selectedRequirements|ForEach-Object{[ordered]@{requirementId=[string]$_.requirementId;preparationRequirements=@($_.preparationRequirements);resultRequirements=@($_.resultRequirements)}})
@@ -379,6 +379,11 @@ try{
     if(-not(Test-JsonInteger $input.schemaVersion)-or[int]$input.schemaVersion-notin@(1,2)){throw 'INPUT_SCHEMA_VERSION'}
     $boundaryContract=[int]$input.schemaVersion
     $fields=if($boundaryContract-eq1){@('schemaVersion','mode','discoverReceiptPath','expectedDiscoverReceiptIdentity','objective','actionKind','resultKind','exactPaths','authorizationIdentity','preparationReceipts','resultReceipts','deliveryReceipts','publicDecisionIdentity','protectionState')}else{@('schemaVersion','mode','discoverReceiptPath','expectedDiscoverReceiptIdentity','preparationReceipts','resultReceipts','deliveryReceipts','publicDecisionIdentity','protectionState')}
+    $deliveryObservation=$null
+    if($null-ne$input.PSObject.Properties['deliveryContext']){
+      $fields+='deliveryContext';$deliveryObservation=Get-AiwDeliveryObservation $input.deliveryContext
+      if($input.deliveryContext.stage-ceq'PREPARE'-and@($input.deliveryReceipts).Count){throw 'DELIVERY_FUTURE_EVIDENCE'}
+    }
     Assert-Fields $input $fields
     foreach($n in @('discoverReceiptPath','expectedDiscoverReceiptIdentity','publicDecisionIdentity','protectionState')){Assert-InputString $input.$n $n}
     if([string]$input.expectedDiscoverReceiptIdentity-cnotmatch'^\d+\|[A-F0-9]{64}$'){throw 'INPUT_IDENTITY|expectedDiscoverReceiptIdentity'}
@@ -472,8 +477,8 @@ try{
       if('PROJECT_STANDARD_SOURCE_DRIFT_CONSERVATIVE_LOAD'-cin@($transitionComposition.evidenceCeilings)){throw 'SOURCE_POSTIMAGE_PROJECT_STANDARD_DRIFT'}
       $transitionPackJson=@($transitionComposition.selectedRequirements)|ConvertTo-Json -Depth 50 -Compress
       $transitionPackBytes=$utf8.GetByteCount($transitionPackJson)
-      if($transitionPackBytes-gt[int]$transitionComposition.selectedRulePackBytes-or[int]$transitionComposition.selectedRulePackBytes-gt[int]$transitionComposition.absoluteSelectedRulePackBytes){throw ('SOURCE_POSTIMAGE_SELECTED_RULE_PACK_BUDGET_EXCEEDED|bytes='+$transitionPackBytes+'|ceiling='+[int]$transitionComposition.selectedRulePackBytes)}
-      $sourcePostimageTransition=[ordered]@{status='PASS';previousSourceCompositionIdentity=[string]$receipt.sourceCompositionIdentity;currentSourceCompositionIdentity=[string]$transitionComposition.sourceCompositionIdentity;changedBindings=@($sourceBindings|Sort-Object)}
+      # Source identity, complete composition and obligations still gate the transition.
+      $sourcePostimageTransition=[ordered]@{status='PASS';previousSourceCompositionIdentity=[string]$receipt.sourceCompositionIdentity;currentSourceCompositionIdentity=[string]$transitionComposition.sourceCompositionIdentity;changedBindings=@($sourceBindings|Sort-Object);selectedPackBytes=$transitionPackBytes;selectedRequirementCount=@($transitionComposition.selectedRequirements).Count}
     }
     if([string]$input.objective-cne[string]$receipt.objective-or[string]$input.actionKind-cne[string]$receipt.actionKind-or[string]$input.resultKind-cne[string]$receipt.resultKind-or[string]::Join("`n",@($input.exactPaths))-cne[string]::Join("`n",@($receipt.exactPaths))){throw 'DISCOVER_CONTEXT_DRIFT'}
     $requiredPrep=@($receipt.selectedObligations|ForEach-Object{@($_.preparationRequirements)}|Sort-Object -Unique)
@@ -490,13 +495,18 @@ try{
     if([int]$receipt.inputContractVersion-ge2-and[string]$receipt.intentEnvelope.ambiguityState-cne'CLEAR'){$missingPrep+='INTENT_AMBIGUOUS'}
     if([int]$receipt.inputContractVersion-ge2-and[string]$receipt.authorityContext.repositoryGitTop-ceq'UNPROVEN'-and[string]$receipt.actionKind-in$categoricalActions){$missingPrep+='REPOSITORY_GIT_TOP_UNPROVEN'}
     $missingResult=@()
-    if($mode-ceq'FINALIZE_OUTPUT'){$missingResult=@($requiredResult|Where-Object{$_-cnotin$providedResult})}
-    if($mode-ceq'FINALIZE_OUTPUT'-and[string]$input.resultKind-in@('USER_RESPONSE','TERMINAL','HANDOFF','REVIEW_VERDICT','OWNER_ACCEPTANCE')-and@($input.deliveryReceipts).Count-eq0){$missingResult+=@('DELIVERY_RECEIPT')}
+    if($mode-ceq'FINALIZE_OUTPUT'){
+      if($null-ne$deliveryObservation){$requiredResult=@($requiredResult|Where-Object{$_-cne'DELIVERY_RECEIPT'})}
+      $missingResult=@($requiredResult|Where-Object{$_-cnotin$providedResult})
+    }
+    if($mode-ceq'FINALIZE_OUTPUT'-and$null-eq$deliveryObservation-and[string]$input.resultKind-in@('USER_RESPONSE','TERMINAL','HANDOFF','REVIEW_VERDICT','OWNER_ACCEPTANCE')-and@($input.deliveryReceipts).Count-eq0){$missingResult+=@('DELIVERY_RECEIPT')}
     $status=if($missingPrep.Count-gt0-or$missingResult.Count-gt0){'BLOCKED'}else{'PASS'}
     $reason=if($missingPrep.Count-gt0){'PREPARATION_INCOMPLETE'}elseif($missingResult.Count-gt0){'RESULT_INCOMPLETE'}else{'STRUCTURAL_REQUIREMENTS_COMPLETE'}
     $material=@($receipt.sourceCompositionIdentity,$receipt.selectionIdentity,$receipt.contextIdentity,$mode,[string]$input.objective,[string]$input.actionKind,[string]$input.resultKind,[string]::Join(',',@($input.exactPaths)),[string]$input.authorizationIdentity,[string]::Join(',',@($input.preparationReceipts)),[string]::Join(',',@($input.resultReceipts)),[string]::Join(',',@($input.deliveryReceipts)),[string]$input.publicDecisionIdentity,[string]$input.protectionState,$(if($null-eq$sourcePostimageTransition){'NO_SOURCE_POSTIMAGE_TRANSITION'}else{[string]$sourcePostimageTransition.currentSourceCompositionIdentity}),[string]::Join(',',@($changedBindings|Sort-Object)))-join"`n"
     $decision=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($utf8.GetBytes($material)))
+    if($null-ne$deliveryObservation){$decision=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($utf8.GetBytes($material+($input.deliveryContext|ConvertTo-Json -Compress))))}
     $result=[ordered]@{status=$status;mode=$mode;reason=$reason;artifactStorage=$artifactStorage;selectionIdentity=$receipt.selectionIdentity;decisionIdentity=$decision;sourceBuildCount=[int]$receipt.sourceBuildCount;decisionBuildCount=1;missingPreparation=@($missingPrep);missingResult=@($missingResult);authorityGranted=$false;semanticCorrectnessProven=$false;hostInvocationProven=$false}
+    if($null-ne$deliveryObservation){$result['delivery']=$deliveryObservation}
     if($null-ne$sourcePostimageTransition){$result['sourcePostimageTransition']=$sourcePostimageTransition;$result.sourceBuildCount=[int]$receipt.sourceBuildCount+[int]$transitionComposition.sourceBuildCount}
     if($mode-ceq'FINALIZE_OUTPUT'-and$status-ceq'PASS'){
       $continuationReceipt=New-AuthorizationContinuationReceipt ([string]$receipt.sourceLocators.authorizationPackagePath) ([string]$receipt.sourceLocators.projectRoot) $receipt ([string]$input.discoverReceiptPath) $receiptIdentity ([string]$input.protectionState)

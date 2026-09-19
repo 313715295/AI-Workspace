@@ -148,6 +148,10 @@ try{New-Item -ItemType Directory -Path $temp|Out-Null
     Assert-True ([string]$hotStateInvalid.Value.status -ceq 'REJECT' -and -not [bool]$hotStateInvalid.Value.taskCardUpdate -and -not [bool]$hotStateInvalid.Value.taskIndexUpdate -and -not [bool]$hotStateInvalid.Value.statusUpdate) 'workflow-hot-state-rejects-active-archive-layer-violation'
 
 
+    foreach($outcome in @('SUCCESS','FAILURE','UNKNOWN')){
+        $delivery=Invoke-WorkflowCase $workflowResolver $temp ('delivery-'+$outcome) ([ordered]@{operation='DELIVERY';deliveryContext=[ordered]@{channel='TASK_MESSAGE';stage='OBSERVE';expectedRecipient='owner';observedRecipient='owner';outcome=$outcome;evidence='fixture:host-result'}})
+        Assert-True ($delivery.Run.Code-eq0-and[bool]$delivery.Value.delivered-eq($outcome-ceq'SUCCESS')-and-not$delivery.Value.retryAllowed) ('workflow-consumes-actual-send-'+$outcome)
+    }
  Write-Output ('RESULT|'+$script:passed+'/'+$script:passed+' passed|scope=workflow-route')
 }finally{
  $full=[IO.Path]::GetFullPath($temp);$parent=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetTempPath())

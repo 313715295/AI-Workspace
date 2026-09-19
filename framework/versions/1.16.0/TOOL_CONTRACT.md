@@ -15,7 +15,7 @@ Framework operation 是 language-independent contract。backend 是 adopting pro
 
 UNKNOWN semantic applicability 保守加载规则。schema1 free-text correction 与 legacy PROJECT-CUSTOM 使用 full-source compatibility loading 和 unchanged-context reuse，并报告 `LEGACY_PROGRESSIVE_SELECTION_UNPROVEN`。
 
-runtime selected-pack ceiling 只来自 `.ai-workspace/process-policy.json.selectedRulePackBytes`。该值必须是 `1..98304` 的 integer；Framework absolute cap 固定为 `98304`。pack 超过项目值即 `SELECTED_RULE_PACK_BUDGET_EXCEEDED`。不再设置 ordinary/absolute/legacy runtime tier 或 correction exception。
+规则包bytes和estimatedTokens是测量，不是用户配额。policy、ADOPTION_PROFILE、旧compact的budget／ceiling字段仅作历史兼容；32/64/96KiB均不作为DISCOVER、后像、纠正、采用或自更新的运行门槛。始终返回完整必要规则；精简依靠精确选择与去重，保留来源、身份、授权和无效组合校验。统计用于定位无关加载、重复及异常增长，不新增软硬阈值、容差、调额、人工确认或虚构外部技术限制。
 
 source composition、progressive selection 与 boundary decision identity 分离，并拥有各自 invalidators。selection 绑定完整 intent envelope，boundary decision 也绑定 discovered context identity。backend 可以重读 unchanged bytes，但 host 未观察时不得声称 physical cache hit。receipt 是 ephemeral、non-authoritative artifact，不是 repository ledger。
 
@@ -37,11 +37,19 @@ PROCESS_REQUIREMENTS_RESOLVE 可显式指定 `-CompactReceiptPath <absolute-path
 
 schema3 DISCOVER 产生 schema2 compact receipt：authority/context 只保留在一个 `binding`，intent 只保留在一个 `intentEnvelope`，来源、义务、预算、证据与计数各自只有一个结构。schema2 ADMIT/FINALIZE input 只提交 receipt locator/identity 与新增 preparation/result/delivery evidence，不再复制 objective、action、scope 或 authorization identity。schema1/2 DISCOVER 与 schema1 boundary 只作为兼容输入保留。
 
-project policy rule 的正文可以继续内联为 `effectiveRule`，也可以二选一声明 `source={rootSourceId,documents}`。每个 source document 绑定可选 `locatorKind`、locator、whole-file identity、`FULL_FILE` 或唯一 marked section、直接 dependency IDs 与 decision locator；省略 kind 保持旧 `PROJECT_RELATIVE` 语义，`ABSOLUTE_FILE` 只接受显式、本机、非 reparse 的绝对文件路径。dependency graph 必须闭合、无重复、无孤儿、无环。composer 在正文读取或 identity 计算前消费当前明确的 `forbiddenPaths`，对 project-relative locator 及指向同一项目文件的 absolute alias 使用同一拒绝语义；`routineExcludedPaths` 与只约束写入的 `protectedPaths` 不自动成为标准来源禁读边界，项目外已显式指定的共享来源继续可读。composer 在 selector 前验证全部显式 source bindings，模型只接收命中的当前正文；不扫描目录、不跟随普通超链接、不抓取网络，也不获得来源写权限。路径/kind/identity/section/dependency 漂移会使旧 receipt 失效；正文 identity 漂移时旧 selector/section 不再用于排除，当前全文保守加载并公开 `PROJECT_STANDARD_SOURCE_DRIFT_CONSERVATIVE_LOAD`。同一选中响应内，物理来源、当前身份和完整正文相同的块只返回一次；后续规则引用同响应中的首个完整块，原规则ID、preparation/result义务、来源及依赖身份全部保留。不同来源的相似文本不能合并；普通加载与UNKNOWN/漂移预算分别观测，不提高cap或预留阈值。
+project policy rule 的正文可以继续内联为 `effectiveRule`，也可以二选一声明 `source={rootSourceId,documents}`。每个 source document 绑定可选 `locatorKind`、locator、whole-file identity、`FULL_FILE` 或唯一 marked section、直接 dependency IDs 与 decision locator；省略 kind 保持旧 `PROJECT_RELATIVE` 语义，`ABSOLUTE_FILE` 只接受显式、本机、非 reparse 的绝对文件路径。dependency graph 必须闭合、无重复、无孤儿、无环。composer 在正文读取或 identity 计算前消费当前明确的 `forbiddenPaths`，对 project-relative locator 及指向同一项目文件的 absolute alias 使用同一拒绝语义；`routineExcludedPaths` 与只约束写入的 `protectedPaths` 不自动成为标准来源禁读边界，项目外已显式指定的共享来源继续可读。composer 在 selector 前验证全部显式 source bindings，模型只接收命中的当前正文；不扫描目录、不跟随普通超链接、不抓取网络，也不获得来源写权限。路径/kind/identity/section/dependency 漂移会使旧 receipt 失效；正文 identity 漂移时旧 selector/section 不再用于排除，当前全文保守加载并公开 `PROJECT_STANDARD_SOURCE_DRIFT_CONSERVATIVE_LOAD`。同一选中响应内，物理来源、当前身份和完整正文相同的块只返回一次；后续规则引用同响应中的首个完整块，原规则ID、preparation/result义务、来源及依赖身份全部保留。不同来源的相似文本不能合并；普通加载与UNKNOWN/漂移分别观测真实大小；不以数字截断正文或阻断准入。
 
 来源位置和组织方式由使用者决定。多个项目引用同一个 `ABSOLUTE_FILE` 即共享同一来源，各项目仍可通过自己的 rule/dependency 补充本地要求。target-before-pin 预检只把 `PROJECT_RELATIVE` 来源快照复制到隔离投影；`ABSOLUTE_FILE` 始终从原只读路径复核，不搬迁、不写入临时项目，也不把它纳入采用写集。
 
 `requirements/fragments/*.json` 拥有 native requirement ID、deterministic selectors、exact Markdown locator 与 preparation/result gates。marked Markdown block 是唯一 native rule body。`PROCESS_REQUIREMENTS.json` 是 deterministic sealed metadata projection，不独立编辑；首次构造可读取其 id/title/description/selectors 元数据，正文仍只消费 DISCOVER 返回的 selected complete rules。元数据不成为第二权威或预先筛选器，composer 始终校验完整规则集合。
+
+### 输出时序与有界修复复审
+
+输出边界可选 `deliveryContext={channel,stage,expectedRecipient,observedRecipient,outcome,evidence}`。channel 为 NATIVE_RESPONSE/TASK_MESSAGE；发送前 stage=PREPARE、outcome=NOT_SENT，observedRecipient/evidence=NOT_APPLICABLE，返回 READY_TO_SEND 而非 DELIVERED。这一步校验真实已完成的结果和发送准备，不索取未来送达证据。TASK_MESSAGE 的 OBSERVE 只消费同次宿主调用实际 SUCCESS/FAILURE/UNKNOWN；成功须接收人吻合且有宿主证据，失败/未知分别返回 NOT_DELIVERED/UNKNOWN，均不自动重试。native response 没有发送后回调证明，不伪造 OBSERVE。旧无该字段的 boundary 保留旧输入兼容和证据上限，不能借兼容格式伪造成功。
+
+WORKFLOW_ROUTE_RESOLVE 的 DELIVERY 使用相同 deliveryContext 校验器，调用宿主发送并得到结果后可在同一确定性编排消费，不再唤起模型只做记账。FINALIZE 的 PASS 只表示相应阶段结构完整，delivery.delivered 单独说明是否送达；准备通过不是用户成果已送达。普通后续成果仍由 Owner 判断。
+
+有界修复复审使用原包的 repairReviewPlan 和新包 repairReviewBinding。后者精确引用 parentPackagePath/parentPackageIdentity、phase=REPAIR/REREVIEW、cycle、verdictPath/verdictIdentity，以及复审时的 repairFinalizeInputPath/repairFinalizeInputIdentity、repairFinalizeResultPath/repairFinalizeResultIdentity（修复阶段这些字段为 NOT_APPLICABLE）。verdict 保存 taskId、owner、reviewer、writer、cycle、CHANGES_REQUESTED、exactPaths/objectIdentities、findingPaths、scopeChanged/decisionChanged；后两者只能为 false 才可沿计划续作。WORKFLOW_ROUTE_RESOLVE 的 REPAIR_REVIEW 接收 repositoryRoot/binding，读取当前候选生成标准新包数据；checker 验计划、关系独立性、原 verdict/修复后像、当前任务和当前候选，原 DISCOVER/ADMIT 继续不可省略。证据仍为 INSTRUCTION_BOUND，不声称签名、语义证明、单次消费或物理撤权。
 
 ### IntentEnvelope 构造
 
@@ -87,7 +95,7 @@ legacy schema1 process input 只用于 discovery/evaluation compatibility。它�
 
 ## Target-before-pin adoption preflight
 
-root project upgrade 从 `ADOPTION_PROFILE.json` 取得 Project Format/capability 兼容声明与 target behavior，不按旧发行号列表放行。1.16作为新基线不声明跨pin direct source；新项目安装和同pin幂等修复仍可用。未来版本只有显式声明兼容结构时，才可创建隔离target projection，写入 target project、Bootstrap、corrections、process policy、project-selected budget 与 migrated current task route，再调用 target `PROCESS_REQUIREMENTS_RESOLVE/DISCOVER`。只有 complete selected pack 在项目 ceiling 内 PASS 才可准备 actual transaction。
+root project upgrade 从 `ADOPTION_PROFILE.json` 取得 Project Format/capability 兼容声明与 target behavior，不按旧发行号列表放行。1.16作为新基线不声明跨pin direct source；新项目安装和同pin幂等修复仍可用。未来版本只有显式声明兼容结构时，才可创建隔离target projection，写入 target project、Bootstrap、corrections、process policy、project-selected budget 与 migrated current task route，再调用 target `PROCESS_REQUIREMENTS_RESOLVE/DISCOVER`。完整三源、身份及授权校验PASS后才可准备actual transaction，旧预算数字不阻断。
 
 旧 current-process input 若提供，只作为 exact-bound user decision 来源，不执行 current-pin resolver；因此旧 budget 或 1.11/1.12 two-field task schema 不会形成 target-before-pin deadlock。
 

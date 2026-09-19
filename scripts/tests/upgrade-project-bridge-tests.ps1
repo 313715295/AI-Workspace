@@ -198,6 +198,9 @@ function Test-CrossDistributionAdoption {
         }
         # First fixed package is an ordinary real refresh from that completed pilot.
         for($iteration=0;$iteration-lt3;$iteration++){
+            # Preserve the upgrader's JSON layout so the legacy-value probe does
+            # not introduce an unrelated policy-formatting write into adoption.
+            if($iteration-eq1){$legacyPolicyPath=Join-Path $project '.ai-workspace/process-policy.json';$legacyPolicy=Get-Content -Raw $legacyPolicyPath|ConvertFrom-Json -Depth 100;$legacyPolicy.selectedRulePackBytes=1;Write-TestUtf8 $legacyPolicyPath (($legacyPolicy|ConvertTo-Json -Depth 100)+"`n")}
             if($iteration-gt0){
                 if($iteration-eq1){
                     $catalogPath=Join-Path $version 'PROCESS_REQUIREMENTS.json';$catalog=Get-Content -Raw $catalogPath|ConvertFrom-Json -Depth 100
@@ -221,11 +224,13 @@ function Test-CrossDistributionAdoption {
                 $input.schemaVersion=$schema;if($schema-eq3){$input.contextType='TASK';$input.readOnlyContext='NOT_APPLICABLE'}
                 $input.frameworkRoot=$oldRuntime;$input.expectedProjectConfigIdentity=Identity "$project/.ai-workspace/project.json";$input.expectedCorrectionsIdentity=Identity "$project/.ai-workspace/corrections.json";$input.expectedTaskIdentity=Identity $task;$input.exactPaths=@($plan.paths);$input.authorizationPackagePath=$processAuth;$input.expectedAuthorizationIdentity=Identity $processAuth;$input.evaluationOnly=$false
                 $input.intentEnvelope.requestedActionKind='CONTROL_WRITE';$input.intentEnvelope.requestedResultKind='IMPLEMENTATION_RESULT';$input.intentEnvelope.mutationHints=@('control')
+                if($iteration-eq2){$input.intentEnvelope.requestedResultKind='TERMINAL'}
                 Save "$runtime/discover-$iteration.json" $input
                 $resolver=if($internal){Join-Path $source 'scripts/resolve-framework-maintenance-process-requirements.ps1'}else{Join-Path $oldRuntime 'framework/versions/1.16.0/scripts/resolve-process-requirements.ps1'}
                 $discover=Json-Tool $resolver @{InputPath="$runtime/discover-$iteration.json";AsJson=$true}
                 $rp="$runtime/receipt-$iteration.json";Save $rp $discover.compactReceipt
                 $boundary=[ordered]@{schemaVersion=2;mode='ADMIT_ACTION';discoverReceiptPath=$rp;expectedDiscoverReceiptIdentity=(Identity $rp);preparationReceipts=@($discover.compactReceipt.selectedObligations|ForEach-Object{$_.preparationRequirements}|Sort-Object -Unique);resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='BOUND'}
+                if($iteration-eq2){$boundary.deliveryContext=[ordered]@{channel='TASK_MESSAGE';stage='PREPARE';expectedRecipient=$actor;observedRecipient='NOT_APPLICABLE';outcome='NOT_SENT';evidence='NOT_APPLICABLE'}}
                 $bp="$runtime/admit-$iteration.json";Save $bp $boundary
                 $prepareArgs=$base.Clone();$prepareArgs.AdoptionProcessMode='PREPARE';$prepareArgs.CurrentProcessInputPath=$bp;$prepareArgs.ExpectedCurrentProcessInputIdentity=Identity $bp
                 $prepared=Json-Tool $upgrade $prepareArgs;$pp="$runtime/prepared-$iteration.json";Save $pp $prepared
@@ -247,18 +252,42 @@ function Test-CrossDistributionAdoption {
             if($iteration-gt0){
                 $txn="$project/.ai-workspace/runtime/project-adoption/upgrade/state.json"
                 $boundary.mode='FINALIZE_OUTPUT';$boundary.resultReceipts=@(@($discover.compactReceipt.selectedObligations|ForEach-Object{$_.resultRequirements})+@($prepared.selectedRuleBlocks|ForEach-Object{$_.resultRequirements})|Sort-Object -Unique)+@($plan.paths|ForEach-Object{'OBJECT_POSTIMAGE|'+$_+'|'+(Identity (Join-Path $project $_))})
+                if($iteration-eq2){
+                    Confirm ('DELIVERY_RECEIPT'-cin@($boundary.resultReceipts)) ($CrossLayout+'-terminal-selects-delivery-obligation')
+                    $boundary.resultReceipts=@($boundary.resultReceipts|Where-Object{$_-cne'DELIVERY_RECEIPT'})
+                }
                 $fp="$runtime/final-$iteration.json";Save $fp $boundary
                 $finalArgs=if($internal){@{InputPath=$fp;AsJson=$true;AdoptionProcessBoundary=$true;AdmitResultPath=$ap;ExpectedAdmitResultIdentity=(Identity $ap);AdoptionAuthorizationPackagePath=$authPath;ExpectedAdoptionAuthorizationIdentity=(Identity $authPath);ExpectedAdoptionTransactionIdentity=(Identity $txn)}}else{@{ProjectId=$projectId;ToVersion='1.16.0';RepositoryPath=$project;ActorRouteActor=$actor;AdoptionProcessMode='FINALIZE_OUTPUT';CurrentProcessInputPath=$fp;ExpectedCurrentProcessInputIdentity=(Identity $fp);AdmitResultPath=$ap;ExpectedAdmitResultIdentity=(Identity $ap);AuthorizationPackagePath=$authPath;ExpectedAuthorizationPackageIdentity=(Identity $authPath);ExpectedAdoptionTransactionIdentity=(Identity $txn)}}
                 $final=Json-Tool $entry $finalArgs
                 Confirm ($final.status-ceq'PASS'-and$final.originalAdmitDecisionIdentity-ceq$admit.decisionIdentity-and$final.reason-ceq'ORIGINAL_CROSS_DISTRIBUTION_ADOPTION_FINALIZED'-and-not(Test-Path $bp)) ($CrossLayout+'-schema'+$schema+'-original-cross-package-finalize')
                 Write-Output ('CROSS_CASE|layout='+$CrossLayout+'|schema='+$schema+'|FINALIZE=PASS')
+                if($iteration-eq2){
+                    Confirm ($final.delivery.status-ceq'READY_TO_SEND'-and-not$final.delivery.delivered-and$final.finalizeInputIdentity-ceq(Identity $fp)) ($CrossLayout+'-prepare-is-bound-ready-not-delivered')
+                    $hostResultPath=Join-Path $runtime 'fixture-host-delivery.txt';Write-TestUtf8 $hostResultPath ('recipient='+$actor+';fixture-only delivery completed')
+                    foreach($outcome in @('SUCCESS','FAILURE','UNKNOWN')){
+                        $observed=$boundary|ConvertTo-Json -Depth 100|ConvertFrom-Json
+                        $observed.deliveryContext.stage='OBSERVE';$observed.deliveryContext.outcome=$outcome;$observed.deliveryContext.observedRecipient=$actor;$observed.deliveryContext.evidence='FIXTURE_HOST_RESULT|'+(Identity $hostResultPath)
+                        Save $fp $observed;$observeArgs=$finalArgs.Clone();if(-not$internal){$observeArgs.ExpectedCurrentProcessInputIdentity=Identity $fp}
+                        $observedResult=Json-Tool $entry $observeArgs
+                        $expected=if($outcome-ceq'SUCCESS'){'DELIVERED'}elseif($outcome-ceq'FAILURE'){'NOT_DELIVERED'}else{'UNKNOWN'}
+                        Confirm ($observedResult.delivery.status-ceq$expected-and$observedResult.delivery.delivered-eq($outcome-ceq'SUCCESS')-and$observedResult.finalizeInputIdentity-ceq(Identity $fp)) ($CrossLayout+'-observe-'+$outcome)
+                        if($outcome-ceq'SUCCESS'){
+                            $observed.deliveryContext.observedRecipient='wrong-recipient';Save $fp $observed;if(-not$internal){$observeArgs.ExpectedCurrentProcessInputIdentity=Identity $fp}
+                            $bad=Invoke-Tool $entry $observeArgs -Reject;Confirm ($bad.code-ne0-and$bad.text.Contains('DELIVERY_SUCCESS_UNBOUND')) ($CrossLayout+'-reject-wrong-observed-recipient')
+                        }
+                    }
+                    $future=$boundary|ConvertTo-Json -Depth 100|ConvertFrom-Json;$future.deliveryReceipts=@('FUTURE_DELIVERY');Save $fp $future
+                    $futureArgs=$finalArgs.Clone();if(-not$internal){$futureArgs.ExpectedCurrentProcessInputIdentity=Identity $fp}
+                    $bad=Invoke-Tool $entry $futureArgs -Reject;Confirm ($bad.code-ne0-and$bad.text.Contains('DELIVERY_FUTURE_EVIDENCE')) ($CrossLayout+'-reject-future-delivery-receipt')
+                    Save $fp $boundary
+                }
                 foreach($fault in @('original-input','decision','actor','process-package','adoption-package','task','controller','config','corrections','policy','postimage','pending','package','receipt','budget')){
                     $path=switch($fault){'original-input'{$ap};'decision'{$ap};'actor'{$processAuth};'process-package'{$processAuth};'adoption-package'{$authPath};'task'{$task};'controller'{"$project/.ai-workspace/controller.json"};'config'{"$project/.ai-workspace/project.json"};'corrections'{"$project/.ai-workspace/corrections.json"};'policy'{"$project/.ai-workspace/process-policy.json"};'postimage'{Join-Path $project $plan.paths[0]};'pending'{$txn};'package'{Join-Path $newRuntime 'README.md'};'receipt'{$rp};'budget'{"$project/.ai-workspace/process-policy.json"}}
                     $bytes=[IO.File]::ReadAllBytes($path);$probe=$finalArgs.Clone()
                     if($fault-cin@('original-input','decision')){$v=Get-Content -Raw $ap|ConvertFrom-Json -Depth 100;if($fault-ceq'original-input'){$v.PSObject.Properties.Remove('originalAdmissionInput')}else{$v.decisionIdentity='0'*64};Save $ap $v;$probe.ExpectedAdmitResultIdentity=Identity $ap}
                     elseif($fault-ceq'actor'){$v=Get-Content -Raw $processAuth|ConvertFrom-Json -Depth 100;$v.grantee='unrelated-fixture-actor';Save $processAuth $v}
                     elseif($fault-ceq'pending'){$v=Get-Content -Raw $txn|ConvertFrom-Json -Depth 100;$v.transactionComplete=$false;$v.state='APPLYING';Save $txn $v;$probe.ExpectedAdoptionTransactionIdentity=Identity $txn}
-                    elseif($fault-ceq'budget'){$v=Get-Content -Raw $path|ConvertFrom-Json -Depth 100;$v.selectedRulePackBytes=1;Save $path $v}
+                    elseif($fault-ceq'budget'){$v=Get-Content -Raw $path|ConvertFrom-Json -Depth 100;$v.selectedRulePackBytes=2;Save $path $v}
                     else{[IO.File]::AppendAllText($path,"`n",[Text.UTF8Encoding]::new($false))}
                     $before=@($plan.paths|ForEach-Object{Identity (Join-Path $project $_)})+(Identity $txn)
                     try{$bad=Invoke-Tool $entry $probe -Reject;Confirm ($bad.code-ne0) ($CrossLayout+'-schema'+$schema+'-reject-'+$fault);Confirm (($before-join';')-ceq((@($plan.paths|ForEach-Object{Identity (Join-Path $project $_)})+(Identity $txn))-join';')) ($CrossLayout+'-rejection-zero-live-write-'+$fault)}finally{[IO.File]::WriteAllBytes($path,$bytes)}
@@ -359,7 +388,7 @@ Confirm ($registerManagedValidation.Contains('foreach ($relativeDirectory in $Re
 Confirm ($registerText.Contains('EXISTING_REGISTRATION_PROJECTION_DRIFT|AGENTS.md')-and$registerText.Contains('EXISTING_REGISTRATION_PROJECTION_DRIFT|.gitignore')-and$registerText.Contains('existingAgentsProjection.GitIgnore.Changed')) 'already-registered-result-requires-current-root-projection'
 Confirm ($currentTaskBinding.Contains("Task schema:")-and$currentTaskBinding.Contains('CURRENT_TASK_DRIFT')-and$currentTaskBinding.Contains('CURRENT_TASK_BINDING_REQUIRED')) 'same-version-corrections-migration-binds-current-task'
 Confirm ($correctionsCandidateValidator.Contains('PROJECT_CORRECTIONS_MIGRATION_HISTORICAL_DRIFT')-and$correctionsMigration.Contains('schemaVersion-ne1')-and$correctionsCandidateValidator.Contains('schemaVersion-ne2')-and$correctionsMigration.Contains('same-version project-control migration')) 'same-version-corrections-migration-preserves-history-and-binds-intent'
-Confirm ($correctionsMigration.Contains('resolve-process-requirements.ps1')-and$correctionsMigration.Contains('SELECTED_RULE_PACK_BUDGET_EXCEEDED')-and$correctionsProjectedDiscover.Contains('legacyCorrectionsFullReadCount-ne0')-and$correctionsProjectedDiscover.Contains('defaultSelectedRulePackBytes')-and$correctionsProjectedDiscover.Contains('selectedPackBytes-gt$ordinaryCeiling')) 'same-version-corrections-migration-proves-current-and-projected-discover'
+Confirm ($correctionsMigration.Contains('resolve-process-requirements.ps1')-and$correctionsMigration.Contains('SELECTED_RULE_PACK_BUDGET_EXCEEDED')-and$correctionsProjectedDiscover.Contains('legacyCorrectionsFullReadCount-ne0')-and$correctionsProjectedDiscover.Contains('defaultSelectedRulePackBytes')-and-not$correctionsProjectedDiscover.Contains('selectedPackBytes-gt$ordinaryCeiling')) 'same-version-corrections-migration-proves-current-and-projected-discover'
 Confirm ($invokeCorrectionsMigration.Contains('Assert-ActorBoundProjectUpgradeAuthorization')-and$invokeCorrectionsMigration.Contains('[IO.File]::Move')-and$invokeCorrectionsMigration.Contains('PROJECT_CONTROL_MIGRATION_APPLIED')-and-not$invokeCorrectionsMigration.Contains('framework/versions/')) 'same-version-corrections-migration-is-authorized-atomic-root-tooling'
 Confirm ($invokeCorrectionsMigration.Contains('targetReleaseCanonical=[string]$script:ActiveTargetSnapshot.Canonical')-and$invokeCorrectionsMigration.Contains('targetReleaseManifestIdentity=[string]$script:ActiveTargetSnapshot.ManifestIdentity')) 'same-version-corrections-migration-binds-active-target-snapshot'
 Confirm (-not$upgradeText.Contains('PROJECT_CORRECTIONS_MIGRATION_REVIEW_TASK_BINDING_ADMISSION')-and-not$upgradeText.Contains('PROJECT_CORRECTIONS_MIGRATION_REVIEW_TERMINAL_RETURN_ADMISSION')-and-not$upgradeText.Contains('Get-ProjectCorrectionsReviewTaskProjection')-and-not$upgradeText.Contains('Get-ProjectCorrectionsReviewReturnTaskProjection')) 'same-version-corrections-review-does-not-rebind-or-return-the-main-task'
@@ -709,10 +738,10 @@ try{
     $budgetInputPath=Join-Path $budgetControl 'tmp/budget-repair-preview.json';Write-TestUtf8 $budgetInputPath (($budgetInput|ConvertTo-Json -Depth 30)+"`n")
     $budgetPreview=@(& pwsh -NoProfile -NonInteractive -File $upgradePath -ProjectId 'budget-repair-fixture' -ToVersion '1.16.0' -RepositoryPath $budgetProject -ControllerId 'controller-fixture' -ActorRouteTaskPath $budgetTaskRelative -ExpectedActorRouteTaskIdentity $budgetTaskIdentity -ActorRouteActor 'controller-fixture' -CurrentProcessInputPath $budgetInputPath -ExpectedCurrentProcessInputIdentity (Get-TestIdentity $budgetInputPath) -RepairSelectedRulePackBudget -SelectedRulePackBytes 98304 -WorkspaceRoot $budgetWorkspace 2>&1|ForEach-Object{[string]$_});$budgetPreviewCode=$LASTEXITCODE
     if($budgetPreviewCode-ne0){Write-Output ('DIAG|budget-repair-preview|code='+$budgetPreviewCode+'|'+($budgetPreview-join"`n"))}
-    Confirm ($budgetRegisterCode-eq0-and$budgetPreviewCode-eq0-and($budgetPreview-join"`n").Contains('RULE_PACK_BUDGET_REPAIR|configured=1|')-and($budgetPreview-join"`n").Contains('|proposed=98304|absolute=98304|projected=PASS')-and(Get-TestIdentity $budgetPolicyPath)-ceq$budgetPolicyPreimage) 'selected-rule-pack-budget-repair-preview-reports-required-and-proves-projection-with-zero-write'
+    Confirm ($budgetRegisterCode-eq0-and$budgetPreviewCode-eq0-and($budgetPreview-join"`n").Contains('NO_CHANGE|rule-pack-bytes=')-and($budgetPreview-join"`n").Contains('legacy-budget=observational|objects=0|transaction=none')-and(Get-TestIdentity $budgetPolicyPath)-ceq$budgetPolicyPreimage) 'legacy-budget-repair-preview-is-observational-with-zero-write'
     $budgetInvalid=@(& pwsh -NoProfile -NonInteractive -File $upgradePath -ProjectId 'budget-repair-fixture' -ToVersion '1.16.0' -RepositoryPath $budgetProject -ControllerId 'controller-fixture' -ActorRouteTaskPath $budgetTaskRelative -ExpectedActorRouteTaskIdentity $budgetTaskIdentity -ActorRouteActor 'controller-fixture' -CurrentProcessInputPath $budgetInputPath -ExpectedCurrentProcessInputIdentity (Get-TestIdentity $budgetInputPath) -RepairSelectedRulePackBudget -SelectedRulePackBytes 1 -WorkspaceRoot $budgetWorkspace 2>&1|ForEach-Object{[string]$_});$budgetInvalidCode=$LASTEXITCODE
-    if($budgetInvalidCode-eq0-or-not($budgetInvalid-join"`n").Contains('RULE_PACK_BUDGET_REPAIR_PROPOSED_INVALID')){Write-Output ('DIAG|budget-repair-invalid|code='+$budgetInvalidCode+'|'+($budgetInvalid-join"`n"))}
-    Confirm ($budgetInvalidCode-ne0-and($budgetInvalid-join"`n").Contains('RULE_PACK_BUDGET_REPAIR_PROPOSED_INVALID')-and(Get-TestIdentity $budgetPolicyPath)-ceq$budgetPolicyPreimage) 'selected-rule-pack-budget-repair-invalid-proposal-fails-with-zero-write'
+    if($budgetInvalidCode-ne0-or-not($budgetInvalid-join"`n").Contains('NO_CHANGE|')){Write-Output ('DIAG|budget-repair-invalid|code='+$budgetInvalidCode+'|'+($budgetInvalid-join"`n"))}
+    Confirm ($budgetInvalidCode-eq0-and($budgetInvalid-join"`n").Contains('NO_CHANGE|')-and(Get-TestIdentity $budgetPolicyPath)-ceq$budgetPolicyPreimage) 'legacy-budget-one-byte-value-needs-no-repair'
     $budgetControllerPath=Join-Path $budgetControl 'controller.json';$budgetAuthPath=Join-Path $budgetControl 'tmp/budget-repair-authorization.json'
     $budgetPackage=[ordered]@{schemaVersion=1;frameworkVersion='1.16.0';taskId='BUDGET-REPAIR-001';profile='CRITICAL';lifecycle='ACTIVE';owner='controller-fixture';issuer='controller-fixture';issuerRole='PROJECT_CONTROLLER';grantee='controller-fixture';bundle='PLAN_LOCAL';decisionClass='MAJOR_ARCHITECTURE';userConfirmation='USER_FIXTURE_APPROVED_RULE_PACK_BUDGET_REPAIR';reviewIndependence='NOT_APPLICABLE';delegatedGitCloser=$false;taskIdentity=$budgetTaskIdentity;actions=@('CONTROL_WRITE');exactPaths=@('.ai-workspace/process-policy.json');objectIdentities=@([ordered]@{path='.ai-workspace/process-policy.json';identity=$budgetPolicyPreimage});invalidatesOn=@('TASK_CHANGE','OWNER_CHANGE','GRANTEE_CHANGE','ACTION_CHANGE','PATHSET_CHANGE','OBJECT_DRIFT','USER_DECISION_CHANGE','PROJECT_CONFIG_DRIFT','CONTROLLER_EPOCH_CHANGE');projectConfigIdentity=Get-TestIdentity $budgetProjectPath;issuerControllerId='controller-fixture';issuerControllerEpoch=1;controllerControlIdentity=Get-TestIdentity $budgetControllerPath}
     Write-TestUtf8 $budgetAuthPath (($budgetPackage|ConvertTo-Json -Depth 30)+"`n")
@@ -722,7 +751,7 @@ try{
     $budgetApply=@(& pwsh -NoProfile -NonInteractive -File $upgradePath -ProjectId 'budget-repair-fixture' -ToVersion '1.16.0' -RepositoryPath $budgetProject -ControllerId 'controller-fixture' -ActorRouteTaskPath $budgetTaskRelative -ExpectedActorRouteTaskIdentity $budgetTaskIdentity -ActorRouteActor 'controller-fixture' -CurrentProcessInputPath $budgetApplyInputPath -ExpectedCurrentProcessInputIdentity (Get-TestIdentity $budgetApplyInputPath) -AuthorizationPackagePath $budgetAuthPath -ExpectedAuthorizationPackageIdentity (Get-TestIdentity $budgetAuthPath) -RepairSelectedRulePackBudget -SelectedRulePackBytes 98304 -Apply -WorkspaceRoot $budgetWorkspace 2>&1|ForEach-Object{[string]$_});$budgetApplyCode=$LASTEXITCODE
     if($budgetApplyCode-ne0){Write-Output ('DIAG|budget-repair-apply|code='+$budgetApplyCode+'|'+($budgetApply-join"`n"))}
     $unchangedAfter=@((Get-TestIdentity $budgetProjectPath),(Get-TestIdentity $budgetCorrectionsPath),(Get-TestIdentity $budgetControllerPath),(Get-TestIdentity $budgetTaskPath));$budgetPolicyAfter=Get-Content -Raw -Encoding utf8 -LiteralPath $budgetPolicyPath|ConvertFrom-Json
-    Confirm ($budgetApplyCode-eq0-and($budgetApply-join"`n").Contains('RULE_PACK_BUDGET_REPAIRED|configured=1|')-and[int]$budgetPolicyAfter.selectedRulePackBytes-eq98304-and[string]::Join("`n",$unchangedBefore)-ceq[string]::Join("`n",$unchangedAfter)) 'selected-rule-pack-budget-repair-apply-changes-only-policy-field-under-exact-package'
+    Confirm ($budgetApplyCode-eq0-and($budgetApply-join"`n").Contains('NO_CHANGE|')-and[int]$budgetPolicyAfter.selectedRulePackBytes-eq1-and(Get-TestIdentity $budgetPolicyPath)-ceq$budgetPolicyPreimage-and[string]::Join("`n",$unchangedBefore)-ceq[string]::Join("`n",$unchangedAfter)) 'legacy-budget-repair-apply-does-not-adjust-numbers-or-create-a-transaction'
 }finally{Remove-TestTreeBound $budgetWorkspace ([IO.Path]::GetTempPath()) 'aiw-root-budget-repair-'}
 
 $maintenanceRegistrationRoot=Join-Path ([IO.Path]::GetTempPath()) ('aiw-maintenance-registration-'+[guid]::NewGuid().ToString('N'))

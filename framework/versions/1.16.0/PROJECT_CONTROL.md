@@ -15,7 +15,7 @@ root `scripts/register-project.ps1` 要求显式 exact version 与 Controller ID
 - destination Git top、path 与既有 control-plane condition 安全；
 - selected version 的 `TOOLCHAIN.json` 精确，`pwsh` 满足唯一 official `powershell7` backend，且该 backend 声明当前 host platform。
 
-工具只物化 selected version 的 `project-starter`。对 `1.16.0`，starter 写入 `frameworkToolBackend=powershell7`、空 `.ai-workspace/process-policy.json`、单一 project-config locator，以及项目选择的 `selectedRulePackBytes`；缺省值为 `32768`，不得超过 Framework absolute cap `98304`。starter 是可复用 project process，registration 不发明第二套流程。
+工具只物化 selected version 的 `project-starter`。对 `1.16.0`，starter 写入 `frameworkToolBackend=powershell7`、空 `.ai-workspace/process-policy.json`、单一 project-config locator，以及兼容字段 `selectedRulePackBytes`；旧默认数字保留历史格式，不是用户配额或运行上限。starter 是可复用 project process，registration 不发明第二套流程。
 
 registration 还对 repository root `.gitignore` 做幂等投影：复用已有等价 `.ai-workspace/runtime` rule；不存在时只追加 `/.ai-workspace/runtime/`；相反 negation 必须 fail closed。该写入与 control-plane material 同属可恢复 transaction，并保留原 newline style。
 <!-- AIW-REQUIREMENT:PR_PROJECT_REGISTRATION_EXPLICIT_VERSION:END -->
@@ -33,7 +33,7 @@ root `scripts/upgrade-project.ps1` 要求 caller 提供 `RepositoryPath`、`Cont
 
 升级到 `1.16.0` 时，还投影 target starter 的项目级 backend、`selectedRulePackBytes` 与 runtime ignore rule，并在 recovery 或 project mutation 前要求 PowerShell 7 与 declared platform。backend 由所有任务继承，不复制进 authorization package；既有 `projectConfigIdentity` binding 会在该字段变化时使 package 失效。
 
-对支持的 direct source，升级不得先让 current-pin resolver 决定成败。工具在 system temp 中创建隔离 Git projection，先写入 target project、Bootstrap、corrections、process policy、已迁移的 task `actor + role + phase` route 与项目预算，再调用 target `PROCESS_REQUIREMENTS_RESOLVE/DISCOVER`。只有完整 target selected pack 在项目选择预算内 PASS 时，才可准备实际 transaction。这样 1.11/1.12 两字段任务卡或旧 pin 的较低预算不会形成 target-before-pin deadlock。projection 只产生机械证据，不授予 write，也不替代 actor-bound package、exact object check、protected path、user decision、transaction recovery 或 task-last live-object stop。
+对支持的 direct source，升级不得先让 current-pin resolver 决定成败。工具在 system temp 中创建隔离 Git projection，先写入 target project、Bootstrap、corrections、process policy、已迁移的 task `actor + role + phase` route 与项目预算，再调用 target `PROCESS_REQUIREMENTS_RESOLVE/DISCOVER`。完整 target source composition、身份和授权校验 PASS 后，才可准备实际 transaction；正文大小不构成准入门。这样 1.11/1.12 两字段任务卡或旧 pin 的较低预算不会形成 target-before-pin deadlock。projection 只产生机械证据，不授予 write，也不替代 actor-bound package、exact object check、protected path、user decision、transaction recovery 或 task-last live-object stop。
 
 只有声明的 managed objects 会改变。工具不搜索 consumers，不修改 source/product file，不 stage/commit/push，也不更新其他项目。
 
@@ -43,13 +43,13 @@ local candidate pilot 在任何 project preflight 前重算 candidate payload，
 
 实际 project mutation 的 schema3 authorization 必须额外绑定当次 `canonical + manifestIdentity`；candidate 或 manifest 任一字节变化都会拒绝旧 package。
 
-已经 pin 到当前版本的项目若因 `.ai-workspace/process-policy.json.selectedRulePackBytes` 过小而在 `DISCOVER` 自锁，可使用 root upgrader 的 `-RepairSelectedRulePackBudget`。preview 只报告 configured/required/proposed 并在隔离投影中证明新 policy 可通过；apply 只接受当前 Controller task、精确单一路径 `CONTROL_WRITE` package、实际超限原因和 `<=98304` 的项目选择值，且只替换该字段。正常 resolver 可工作、对象漂移或投影不通过时不得进入该窄通道。
+当前runtime不再因规则包字节数自锁。旧 `-RepairSelectedRulePackBudget` 对正常可运行来源返回NO_CHANGE，不调额或创建事务；仅真实旧runtime预算失败可沿原限域授权桥接，旧失败不能冒称PASS。旧包不热改，采用仍核对真实来源和原授权。
 <!-- AIW-REQUIREMENT:PR_PROJECT_UPGRADE_ACTOR_BOUND:END -->
 
 <!-- AIW-REQUIREMENT:PR_PROCESS_REQUIREMENTS_THREE_SOURCE_COMPOSITION:BEGIN -->
 PROCESS_REQUIREMENTS_RESOLVE是受治理工作的唯一过程入口。DISCOVER组合sealed原生规则、仍有效纠正和永久项目规则，各自保留authority；动作与输出分别ADMIT_ACTION/FINALIZE_OUTPUT，receipt临时且非权威。调用/选择语义、严格来源校验、预算与临时生命周期只由TOOL_CONTRACT定义。
 
-新项目以`.ai-workspace/process-policy.json`承载规则，selectedRulePackBytes由项目在1..98304内选择；运行只用该项目值，98304是上界，不保留旧分档豁免。legacy PROJECT-CUSTOM在独立Review的原子迁移同时建立structured carrier并退役已迁移正文前仍是bound source；empty-source与双载体同规则均拒绝。
+新项目以`.ai-workspace/process-policy.json`承载规则，selectedRulePackBytes仅保留历史／兼容数据，不限制完整规则包。真实bytes、规则数及选择结果用于查明无关加载、重复和异常增长，不新增阈值、调额或确认门。legacy PROJECT-CUSTOM在独立Review的原子迁移同时建立structured carrier并退役已迁移正文前仍是bound source；empty-source与双载体同规则均拒绝。
 
 项目规则可内联或引用使用者维护的完整标准/唯一marked section及直接依赖。PROJECT_RELATIVE相对项目Git根；ABSOLUTE_FILE为显式本机非reparse绝对文件，可在项目外或独立checkout；省略kind保持PROJECT_RELATIVE。项目自行选择位置，多个项目绑定同一文件即可共享；不设全局注册或强制复制。policy保留selector、kind/locator、whole identity、section、dependency和decision evidence，原使用者拥有正文，读取不授予写权限。
 
@@ -87,6 +87,10 @@ project adoption 加载 `1.16.0` starter 与 task contract，但不批量重写 
 
 <!-- AIW-REQUIREMENT:PR_CORRECTIONS_V2_COMPATIBILITY:BEGIN -->
 ## Project corrections
+
+纠正的安装、停用、恢复、卸载涵盖其全部生效改动，包括 AGENTS 委托、导航、policy、配置和专属文件。schema2 record 可带 lifecycle（state、installation 的 locator/identity、decisionLocator）；缺字段保持旧语义。ACTIVE 才选择，PAUSED/UNINSTALLED 保留不生效历史；用户撤回与框架吸收分开，不用永不匹配的 selector 假装停用，未扩展旧记录的 canonical identity 不变。
+
+沿原安装前后像/事务保存归属，在当前字节上精确撤销新增、恢复替换、保留未改和后续独立内容。暂停可恢复；卸载撤下整组效果且升级不复活。历史归属从原任务/Git/安装证据恢复，缺口、共享、重叠及依赖冲突只定位受影响对象，不猜前像、不全项目阻塞。能确定的直接处理，真实混合取舍才交用户。操作一次说明撤下/独立义务、在途影响及恢复；工具检查显式引用，模型判断隐含语义，不声称穷尽。格式与事务见 TOOL_CONTRACT/根接入合同；不新增长期台账、不自动卸载 live 纠正。
 
 `.ai-workspace/corrections.json` 是独立 project authority object；它既不是 task card，也不是 permanent PROJECT-CUSTOM region。task 可以发现或更新 correction，但 task lifecycle 与 chat history 不控制其保留。
 

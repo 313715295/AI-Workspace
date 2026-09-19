@@ -62,7 +62,9 @@ function Get-TransitionReceipt([string[]]$ResultReceipts) {
 }
 
 function Invoke-SelfUpdateFinalize($BoundaryInput, $Receipt, $Resolved, $Package, $Transition) {
-    Assert-Fields $BoundaryInput @('schemaVersion','mode','discoverReceiptPath','expectedDiscoverReceiptIdentity','preparationReceipts','resultReceipts','deliveryReceipts','publicDecisionIdentity','protectionState') 'INPUT'
+    $fields=@('schemaVersion','mode','discoverReceiptPath','expectedDiscoverReceiptIdentity','preparationReceipts','resultReceipts','deliveryReceipts','publicDecisionIdentity','protectionState')
+    if($null-ne$BoundaryInput.PSObject.Properties['deliveryContext']){$fields+='deliveryContext'}
+    Assert-Fields $BoundaryInput $fields 'INPUT'
     foreach($name in @('preparationReceipts','resultReceipts','deliveryReceipts')){Assert-StringArray $BoundaryInput.$name $name}
     if([string]$Package.repositoryId-cne[string]$Resolved.targetRepositoryId){throw 'MAINTENANCE_SELF_UPDATE_REPOSITORY'}
     # The existing transaction validates the original admission, exact transition and
@@ -91,13 +93,14 @@ function Invoke-RuntimeRelocationFinalize($Boundary, $Receipt, $Resolved) {
     # replaced by a new DISCOVER/ADMIT. No live state or retained evidence is written.
     Import-Module (Join-Path $PSScriptRoot 'ProjectAdoptionState.psm1') -ErrorAction Stop
     Import-Module (Join-Path $PSScriptRoot 'ProjectAdoptionTransaction.psm1') -ErrorAction Stop
-    $Boundary=(Read-AiwProjectJson $inputFull 'RUNTIME_RELOCATION_INPUT').Value
+    $boundaryDoc=Read-AiwProjectJson $inputFull 'RUNTIME_RELOCATION_INPUT';$Boundary=$boundaryDoc.Value
     $receiptDoc=Read-AiwProjectJson ([string]$Boundary.discoverReceiptPath) 'RUNTIME_RELOCATION_RECEIPT'
     if($receiptDoc.Identity-cne[string]$Boundary.expectedDiscoverReceiptIdentity){throw 'DISCOVER_RECEIPT_DRIFT'}
     $Receipt=$receiptDoc.Value
     Assert-Fields $Receipt @('schemaVersion','receiptType','status','mode','inputContractVersion','sourceCompositionIdentity','selectionIdentity','contextIdentity','binding','intentEnvelope','selectedObligations','pack','sourceLocators','sourceBindings','evidence','counts','authorityGranted','semanticCorrectnessProven') 'RUNTIME_RELOCATION_RECEIPT'
     $fields=@('schemaVersion','mode','discoverReceiptPath','expectedDiscoverReceiptIdentity','preparationReceipts','resultReceipts','deliveryReceipts','publicDecisionIdentity','protectionState')
-    Assert-Fields $Boundary $fields 'INPUT'
+    $boundaryFields=@($fields);if($null-ne$Boundary.PSObject.Properties['deliveryContext']){$boundaryFields+='deliveryContext'}
+    Assert-Fields $Boundary $boundaryFields 'INPUT'
     if($Boundary.schemaVersion-ne2-or$Receipt.schemaVersion-ne2-or$Receipt.inputContractVersion-ne3-or
        [string]$Receipt.status-cne'PASS'-or[string]$Receipt.mode-cne'DISCOVER'-or
        [string]$Receipt.receiptType-cne'PROCESS_REQUIREMENTS_DISCOVER'-or
@@ -135,7 +138,8 @@ function Invoke-RuntimeRelocationFinalize($Boundary, $Receipt, $Resolved) {
         if($admitDoc.Identity-cne$ExpectedAdmitInputIdentity){throw 'RUNTIME_RELOCATION_EVIDENCE_DRIFT|admitInput'}
         $admit=$admitDoc.Value
     }
-    Assert-Fields $admit $fields 'RUNTIME_RELOCATION_ADMIT'
+    $admitFields=@($fields);if($null-ne$admit.PSObject.Properties['deliveryContext']){$admitFields+='deliveryContext'}
+    Assert-Fields $admit $admitFields 'RUNTIME_RELOCATION_ADMIT'
     foreach($name in @('preparationReceipts','resultReceipts','deliveryReceipts')){Assert-StringArray $admit.$name ('RUNTIME_RELOCATION_ADMIT_'+$name)}
     if($admit.schemaVersion-ne2-or[string]$admit.mode-cne'ADMIT_ACTION'-or
        [IO.Path]::GetFullPath([string]$admit.discoverReceiptPath)-cne[IO.Path]::GetFullPath([string]$Boundary.discoverReceiptPath)-or
@@ -145,6 +149,7 @@ function Invoke-RuntimeRelocationFinalize($Boundary, $Receipt, $Resolved) {
        [string]$admitted.selectionIdentity-cne[string]$Receipt.selectionIdentity-or
        @($admitted.missingPreparation).Count-ne0-or@($admitted.missingResult).Count-ne0){throw 'RUNTIME_RELOCATION_ORIGINAL_ADMISSION_REQUIRED'}
     $material=@($Receipt.sourceCompositionIdentity,$Receipt.selectionIdentity,$Receipt.contextIdentity,'ADMIT_ACTION',$intent.objective,$intent.requestedActionKind,$intent.requestedResultKind,[string]::Join(',',@($context.exactScope)),$context.authorizationIdentity,[string]::Join(',',@($admit.preparationReceipts)),[string]::Join(',',@($admit.resultReceipts)),[string]::Join(',',@($admit.deliveryReceipts)),$admit.publicDecisionIdentity,$admit.protectionState,'NO_SOURCE_POSTIMAGE_TRANSITION','')-join"`n"
+    if($null-ne$admit.PSObject.Properties['deliveryContext']){$material+=($admit.deliveryContext|ConvertTo-Json -Compress)}
     $decision=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($utf8.GetBytes($material)))
     if($decision-cne[string]$admitted.decisionIdentity){throw 'RUNTIME_RELOCATION_ORIGINAL_ADMISSION_DECISION'}
     $packageDoc=Read-AiwProjectJson ([string]$Receipt.sourceLocators.authorizationPackagePath) 'RUNTIME_RELOCATION_PROCESS_AUTHORIZATION';$package=$packageDoc.Value
@@ -173,6 +178,11 @@ function Invoke-RuntimeRelocationFinalize($Boundary, $Receipt, $Resolved) {
     if($old.schemaVersion-ne6-or$live.schemaVersion-ne6-or$liveDoc.Identity-cne[string]$entry.newIdentity){throw 'RUNTIME_RELOCATION_ADOPTION_STATE'}
     $oldBinding=Assert-AiwDistributionBinding $old.distributionBinding ([string]$Receipt.sourceLocators.frameworkRoot) $version
     $newBinding=Assert-AiwDistributionBinding $live.distributionBinding ([string]$Resolved.runtimeRoot) $version
+    $admitDelivery=Get-AiwBoundaryDeliveryObservation $admit $oldBinding.runtimeRoot $version
+    if($null-ne$admitDelivery){
+        if($null-eq$admitted.PSObject.Properties['delivery']-or($admitDelivery|ConvertTo-Json -Compress)-cne($admitted.delivery|ConvertTo-Json -Compress)){throw 'RUNTIME_RELOCATION_ADMIT_DELIVERY_RESULT'}
+    }elseif($null-ne$admitted.PSObject.Properties['delivery']){throw 'RUNTIME_RELOCATION_ADMIT_DELIVERY_RESULT'}
+    $delivery=Get-AiwBoundaryDeliveryObservation $Boundary $newBinding.runtimeRoot $version
     foreach($name in @('distributionId','contentIdentity','manifestIdentity')){
         if([string]$oldBinding.$name-cne[string]$newBinding.$name-or[string]$transaction.metadata.distributionBinding.$name-cne[string]$newBinding.$name){throw ('RUNTIME_RELOCATION_PACKAGE_CHANGED|'+$name)}
     }
@@ -191,16 +201,19 @@ function Invoke-RuntimeRelocationFinalize($Boundary, $Receipt, $Resolved) {
     $obligations=@($composition.selectedRequirements|ForEach-Object{[ordered]@{requirementId=[string]$_.requirementId;preparationRequirements=@($_.preparationRequirements);resultRequirements=@($_.resultRequirements)}})
     if(($obligations|ConvertTo-Json -Depth 50 -Compress)-cne($Receipt.selectedObligations|ConvertTo-Json -Depth 50 -Compress)){throw 'RUNTIME_RELOCATION_OBLIGATION_DRIFT'}
     $packBytes=$utf8.GetByteCount((@($composition.selectedRequirements)|ConvertTo-Json -Depth 50 -Compress))
-    if($packBytes-ne$Receipt.pack.bytes-or$composition.selectedRulePackBytes-ne$Receipt.pack.ceilingBytes-or$packBytes-gt$composition.selectedRulePackBytes-or$composition.selectedRulePackBytes-gt$composition.absoluteSelectedRulePackBytes){throw 'RUNTIME_RELOCATION_PACK_DRIFT'}
+    if($packBytes-ne$Receipt.pack.bytes-or$composition.selectedRulePackBytes-ne$Receipt.pack.ceilingBytes){throw 'RUNTIME_RELOCATION_PACK_DRIFT'}
     $requiredPrep=@($obligations|ForEach-Object{$_.preparationRequirements}|Sort-Object -Unique)
     $requiredResult=@($obligations|ForEach-Object{$_.resultRequirements}|Sort-Object -Unique)
+    if($null-ne$delivery){$requiredResult=@($requiredResult|Where-Object{$_-cne'DELIVERY_RECEIPT'})}
     if(@($requiredPrep|Where-Object{$_-cnotin@($admit.preparationReceipts)-or$_-cnotin@($Boundary.preparationReceipts)}).Count-ne0){throw 'RUNTIME_RELOCATION_PREPARATION_INCOMPLETE'}
     if(@($requiredResult|Where-Object{$_-cnotin@($Boundary.resultReceipts)}).Count-ne0){throw 'RUNTIME_RELOCATION_RESULT_INCOMPLETE'}
     $postimages=@($Boundary.resultReceipts|Where-Object{$_-clike'OBJECT_POSTIMAGE|*'})
     if($postimages.Count-ne1-or[string]$postimages[0]-cne('OBJECT_POSTIMAGE|'+$relative+'|'+$liveDoc.Identity)){throw 'RUNTIME_RELOCATION_POSTIMAGE_RECEIPT'}
-    if([string]$intent.requestedResultKind-cin@('USER_RESPONSE','TERMINAL','HANDOFF','REVIEW_VERDICT','OWNER_ACCEPTANCE')-and@($Boundary.deliveryReceipts).Count-eq0){throw 'RUNTIME_RELOCATION_DELIVERY_INCOMPLETE'}
+    if($null-eq$delivery-and[string]$intent.requestedResultKind-cin@('USER_RESPONSE','TERMINAL','HANDOFF','REVIEW_VERDICT','OWNER_ACCEPTANCE')-and@($Boundary.deliveryReceipts).Count-eq0){throw 'RUNTIME_RELOCATION_DELIVERY_INCOMPLETE'}
     if((Get-Identity $transactionPath)-cne$transactionDoc.Identity-or(Get-Identity $liveDoc.Path)-cne$liveDoc.Identity-or(Get-Identity $receiptDoc.Path)-cne$receiptDoc.Identity){throw 'RUNTIME_RELOCATION_EVIDENCE_CHANGED_DURING_CHECK'}
-    return [ordered]@{status='PASS';mode='FINALIZE_OUTPUT';reason='ORIGINAL_RUNTIME_RELOCATION_FINALIZED';selectionIdentity=[string]$Receipt.selectionIdentity;originalAdmitDecisionIdentity=[string]$admitted.decisionIdentity;originalDiscoverReceiptIdentity=[string]$Boundary.expectedDiscoverReceiptIdentity;adoptionTransactionIdentity=$transactionDoc.Identity;previousSourceCompositionIdentity=[string]$Receipt.sourceCompositionIdentity;currentSourceCompositionIdentity=[string]$composition.sourceCompositionIdentity;changedBindings=@('candidatePilotStateIdentity');previousRuntimeRoot=[string]$oldBinding.runtimeRoot;runtimeRoot=[string]$newBinding.runtimeRoot;missingPreparation=@();missingResult=@();authorityGranted=$false;semanticCorrectnessProven=$false;hostInvocationProven=$false;evidenceGrade='INSTRUCTION_BOUND'}
+    $result=[ordered]@{status='PASS';mode='FINALIZE_OUTPUT';reason='ORIGINAL_RUNTIME_RELOCATION_FINALIZED';selectionIdentity=[string]$Receipt.selectionIdentity;originalAdmitDecisionIdentity=[string]$admitted.decisionIdentity;originalDiscoverReceiptIdentity=[string]$Boundary.expectedDiscoverReceiptIdentity;adoptionTransactionIdentity=$transactionDoc.Identity;previousSourceCompositionIdentity=[string]$Receipt.sourceCompositionIdentity;currentSourceCompositionIdentity=[string]$composition.sourceCompositionIdentity;changedBindings=@('candidatePilotStateIdentity');previousRuntimeRoot=[string]$oldBinding.runtimeRoot;runtimeRoot=[string]$newBinding.runtimeRoot;missingPreparation=@();missingResult=@();authorityGranted=$false;semanticCorrectnessProven=$false;hostInvocationProven=$false;evidenceGrade='INSTRUCTION_BOUND'}
+    if($null-ne$delivery){$result.delivery=$delivery;$result.finalizeInputIdentity=$boundaryDoc.Identity}
+    return $result
 }
 
 try {

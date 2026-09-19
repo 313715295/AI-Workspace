@@ -45,6 +45,19 @@ try{
   $discoverPath=Join-Path $temp 'discover.json';Write-Json $discoverPath $discover;$run=Invoke-Resolver $resolver $discoverPath
   $selected=@($run.Value.selectedRuleBlocks|Where-Object{[string]$_.requirementId-ceq'project:process-v2-fixture:SOURCE_BOUND_STANDARD'})
   Assert-True ($run.Code-eq0-and[int]$run.Value.compactReceipt.schemaVersion-eq2-and$selected.Count-eq1-and[string]$selected[0].fullText-clike'*Base project rule dependency*Selected project standard rule body*') 'source-bound-project-standard-loads-selected-section-and-dependency'
+  $originalPolicyText=[IO.File]::ReadAllText($policyPath);$standardPath=Join-Path $temp 'docs/standard.md';$originalStandardText=[IO.File]::ReadAllText($standardPath)
+  $largeBody='Necessary fixture content. '*5000
+  Write-Utf8 $standardPath ("<!-- RULE:BEGIN -->`n"+$largeBody+"`n<!-- RULE:END -->")
+  $largePolicy=$sourcePolicy|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100;$largePolicy.selectedRulePackBytes=1;$largePolicy.rules[0].source.documents[1].identity=Get-Identity $standardPath;Write-Json $policyPath $largePolicy
+  Write-Json $discoverPath $discover;$largeRun=Invoke-Resolver $resolver $discoverPath
+  Assert-True ($largeRun.Code-eq0-and$largeRun.Value.compactReceipt.pack.bytes-gt98304-and$largeRun.Text.Contains($largeBody)) 'one-byte-legacy-metadata-does-not-truncate-or-block-over-96k-rule-pack'
+  $largeReceiptPath=Join-Path $temp 'large-receipt.json';Write-Json $largeReceiptPath $largeRun.Value.compactReceipt
+  $largeBoundary=[ordered]@{schemaVersion=2;mode='ADMIT_ACTION';discoverReceiptPath=$largeReceiptPath;expectedDiscoverReceiptIdentity=Get-Identity $largeReceiptPath;preparationReceipts=@($largeRun.Value.compactReceipt.selectedObligations|ForEach-Object{$_.preparationRequirements}|Sort-Object -Unique);resultReceipts=@($largeRun.Value.compactReceipt.selectedObligations|ForEach-Object{$_.resultRequirements}|Sort-Object -Unique);deliveryReceipts=@('FIXTURE_DELIVERY');publicDecisionIdentity='NOT_REQUIRED';protectionState='BOUND'}
+  $largeBoundaryPath=Join-Path $temp 'large-boundary.json'
+  foreach($mode in @('ADMIT_ACTION','FINALIZE_OUTPUT')){$largeBoundary.mode=$mode;Write-Json $largeBoundaryPath $largeBoundary;$largeBoundaryRun=Invoke-Resolver $resolver $largeBoundaryPath;Assert-True ($largeBoundaryRun.Code-eq0-and$largeBoundaryRun.Value.status-ceq'PASS') ('complete-large-pack-keeps-real-boundary-'+$mode)}
+  Write-Utf8 $standardPath 'Independent source drift';Write-Json $largeBoundaryPath $largeBoundary;$largeDrift=Invoke-Resolver $resolver $largeBoundaryPath
+  Assert-True ($largeDrift.Code-ne0-and$largeDrift.Text.Contains('DISCOVER_SOURCE_DRIFT')) 'removing-byte-quota-does-not-waive-source-drift'
+  [IO.File]::WriteAllText($standardPath,$originalStandardText,$utf8);[IO.File]::WriteAllText($policyPath,$originalPolicyText,$utf8)
   $protectedReadAllowed=$discover|ConvertTo-Json -Depth 100|ConvertFrom-Json;$protectedReadAllowed.protectedPaths=@('docs/');Write-Json $discoverPath $protectedReadAllowed;$protectedReadAllowedRun=Invoke-Resolver $resolver $discoverPath
   Assert-True ($protectedReadAllowedRun.Code-eq0) 'write-protected-path-does-not-become-standard-source-read-forbidden'
   $allowedSourceRule=$sourcePolicy.rules[0]|ConvertTo-Json -Depth 30|ConvertFrom-Json
@@ -237,6 +250,21 @@ try{
   Write-Json $discoverPath $taskless;$tasklessRun=Invoke-Resolver $resolver $discoverPath
   if($tasklessRun.Code-ne0){Write-Output ('DIAG|taskless|'+$tasklessRun.Text)}
   Assert-True ($tasklessRun.Code-eq0-and[string]$tasklessRun.Value.compactReceipt.binding.contextType-ceq'PROJECT_READ_ONLY'-and[string]$tasklessRun.Value.compactReceipt.binding.taskIdentity-ceq'NOT_APPLICABLE'-and[string]$tasklessRun.Value.compactReceipt.binding.authorizationIdentity-ceq'NOT_REQUIRED') 'taskless-project-read-only-context-does-not-invent-task-or-authority'
+  $deliveryReceipt=Join-Path $temp 'delivery-receipt.json';Write-Json $deliveryReceipt $tasklessRun.Value.compactReceipt
+  $deliveryBoundary=[ordered]@{schemaVersion=2;mode='FINALIZE_OUTPUT';discoverReceiptPath=$deliveryReceipt;expectedDiscoverReceiptIdentity=(Get-Identity $deliveryReceipt);preparationReceipts=@($tasklessRun.Value.compactReceipt.selectedObligations|ForEach-Object{$_.preparationRequirements}|Sort-Object -Unique);resultReceipts=@($tasklessRun.Value.compactReceipt.selectedObligations|ForEach-Object{$_.resultRequirements}|Where-Object{$_-cne'DELIVERY_RECEIPT'}|Sort-Object -Unique);deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='BOUND';deliveryContext=[ordered]@{channel='NATIVE_RESPONSE';stage='PREPARE';expectedRecipient='USER';observedRecipient='NOT_APPLICABLE';outcome='NOT_SENT';evidence='NOT_APPLICABLE'}}
+  Write-Json $discoverPath $deliveryBoundary;$nativeReady=Invoke-Resolver $resolver $discoverPath
+  Assert-True ($nativeReady.Code-eq0-and$nativeReady.Value.status-ceq'PASS'-and$nativeReady.Value.delivery.status-ceq'READY_TO_SEND'-and-not$nativeReady.Value.delivery.delivered) 'native-final-prepares-without-future-delivery-receipt'
+  $deliveryBoundary.deliveryContext.outcome='SUCCESS';Write-Json $discoverPath $deliveryBoundary;$future=Invoke-Resolver $resolver $discoverPath
+  Assert-True ($future.Code-ne0-and$future.Text.Contains('DELIVERY_FUTURE_EVIDENCE')) 'native-final-rejects-prefilled-send-success'
+  $deliveryBoundary.deliveryContext=[ordered]@{channel='TASK_MESSAGE';stage='OBSERVE';expectedRecipient='owner';observedRecipient='owner';outcome='SUCCESS';evidence='fixture:actual-host-return'}
+  Write-Json $discoverPath $deliveryBoundary;$sent=Invoke-Resolver $resolver $discoverPath
+  Assert-True ($sent.Code-eq0-and$sent.Value.delivery.delivered) 'observed-task-send-success-is-separate-from-preparation'
+  foreach($outcome in @('FAILURE','UNKNOWN')){
+    $deliveryBoundary.deliveryContext.outcome=$outcome;Write-Json $discoverPath $deliveryBoundary;$notSent=Invoke-Resolver $resolver $discoverPath
+    Assert-True ($notSent.Code-eq0-and-not$notSent.Value.delivery.delivered-and-not$notSent.Value.delivery.retryAllowed) ('send-'+$outcome+'-does-not-become-delivered-or-retry')
+  }
+  $deliveryBoundary.deliveryContext.outcome='SUCCESS';$deliveryBoundary.deliveryContext.observedRecipient='wrong';Write-Json $discoverPath $deliveryBoundary;$wrong=Invoke-Resolver $resolver $discoverPath
+  Assert-True ($wrong.Code-ne0-and$wrong.Text.Contains('DELIVERY_SUCCESS_UNBOUND')) 'send-success-to-wrong-consumer-rejected'
   $taskless.intentEnvelope.requestedActionKind='SOURCE_WRITE';$taskless.intentEnvelope.requestedResultKind='IMPLEMENTATION_RESULT';Write-Json $discoverPath $taskless;$tasklessDenied=Invoke-Resolver $resolver $discoverPath
   Assert-True ($tasklessDenied.Code-ne0-and$tasklessDenied.Text.Contains('PROJECT_READ_ONLY_BOUNDARY')) 'taskless-context-cannot-admit-governed-action'
 

@@ -89,7 +89,7 @@ try {
     [IO.File]::Copy((Join-Path $workspace 'INITIALIZATION.md'), (Join-Path $fixture 'compatibility-navigation.md'), $false)
     Assert-True (-not [IO.File]::ReadAllText((Join-Path $fixture 'compatibility-navigation.md')).Contains('之后零写入')) 'self-update-required-navigation-copy-has-no-obsolete-transaction-rule'
     $packageWorkspace = Join-Path $fixture 'workspace'
-    foreach ($relative in @('LICENSE','framework/user-package/README.md','framework/user-package/AGENTS.md','scripts/MaintenanceOverlay.psm1','scripts/ProjectAdoptionProjection.psm1','scripts/ProjectAdoptionState.psm1','scripts/ProjectAdoptionTransaction.psm1','scripts/register-project.ps1','scripts/upgrade-project.ps1','skills/ai-workspace-router/SKILL.md')) {
+    foreach ($relative in @('LICENSE','framework/user-package/README.md','framework/user-package/AGENTS.md','scripts/MaintenanceOverlay.psm1','scripts/ProjectAdoptionProjection.psm1','scripts/ProjectAdoptionState.psm1','scripts/ProjectAdoptionTransaction.psm1','scripts/ProjectCorrectionLifecycle.psm1','scripts/register-project.ps1','scripts/upgrade-project.ps1','skills/ai-workspace-router/SKILL.md')) {
         $destination = Join-Path $packageWorkspace $relative
         $parent = Split-Path -Parent $destination
         if (-not (Test-Path -LiteralPath $parent)) { $null = New-Item -ItemType Directory -Path $parent -Force }
@@ -112,6 +112,7 @@ try {
     $fixtureManifest.totalBytes = $facts.TotalBytes
     $fixtureManifest.canonical = $facts.Canonical
     $fixtureManifest.sourceReview = 'APPROVED'
+    $fixtureManifest.sourceCandidate = 'SYNTHETIC_TEST_FIXTURE_ONLY'
     $fixtureManifest.completeSuite.status = 'PASS'
     $fixtureManifest.completeSuite.passed = 1
     $fixtureManifest.completeSuite.total = 1
@@ -282,7 +283,7 @@ try {
     }
     Assert-True $allLinksResolve 'package-root-relative-links-resolve'
     $payloadCount=@(Get-ChildItem -LiteralPath (Join-Path $packageWorkspace 'framework/versions/1.16.0') -Recurse -File).Count
-    Assert-True (@($manifest.files).Count -eq ($payloadCount+10)) 'package-complete-version-plus-ten-root-files'
+    Assert-True (@($manifest.files).Count -eq ($payloadCount+11)) 'package-complete-version-plus-eleven-root-files'
 
     $null = New-Item -ItemType Directory -Path $candidateConsumer
     & git -C $candidateConsumer init -q
@@ -327,12 +328,19 @@ try {
     Assert-True ($LASTEXITCODE -eq 0) 'stable-consumer-git-initialized'
     $stablePreview = & (Join-Path $stableExtract 'scripts/register-project.ps1') -ProjectId 'stable-package-consumer' -DisplayName 'Stable Package Consumer' -FrameworkVersion '1.16.0' -RepositoryPath $stableConsumer -ControllerId 'controller-fixture' -WorkspaceRoot $stableExtract
     Assert-True (@(Get-StatusResult $stablePreview 'WHAT_IF').Count -eq 1 -and -not (Test-Path -LiteralPath (Join-Path $stableConsumer '.ai-workspace'))) 'stable-distribution-registration-preview-zero-write'
-    $stableApply = & (Join-Path $stableExtract 'scripts/register-project.ps1') -ProjectId 'stable-package-consumer' -DisplayName 'Stable Package Consumer' -FrameworkVersion '1.16.0' -RepositoryPath $stableConsumer -ControllerId 'controller-fixture' -WorkspaceRoot $stableExtract -Apply -Confirm:$false
+    $stableApply = & (Join-Path $stableExtract 'scripts/register-project.ps1') -ProjectId 'stable-package-consumer' -DisplayName 'Stable Package Consumer' -FrameworkVersion '1.16.0' -RepositoryPath $stableConsumer -ControllerId 'controller-fixture' -WorkspaceRoot $stableExtract -SelectedRulePackBytes 1 -Apply -Confirm:$false
     Assert-True (@(Get-StatusResult $stableApply 'CREATED').Count -eq 1 -and (Test-Path -LiteralPath (Join-Path $stableConsumer '.ai-workspace/BOOTSTRAP.md'))) 'stable-distribution-registration-apply'
     $stableRepeat = & (Join-Path $stableExtract 'scripts/register-project.ps1') -ProjectId 'stable-package-consumer' -DisplayName 'Stable Package Consumer' -FrameworkVersion '1.16.0' -RepositoryPath $stableConsumer -ControllerId 'controller-fixture' -WorkspaceRoot $stableExtract
     Assert-True (@(Get-StatusResult $stableRepeat 'ALREADY_REGISTERED').Count -eq 1) 'stable-distribution-registration-reread'
+    $agentsPath=Join-Path $stableConsumer 'AGENTS.md'
+    $withoutDelegation=[regex]::Replace([IO.File]::ReadAllText($agentsPath),'(?s)<!-- AI-WORKSPACE-USER-DECISION:BEGIN -->.*?<!-- AI-WORKSPACE-USER-DECISION:END -->\s*','')
+    [IO.File]::WriteAllText($agentsPath,$withoutDelegation,[Text.UTF8Encoding]::new($false))
+    $null=& (Join-Path $stableExtract 'scripts/register-project.ps1') -ProjectId 'stable-package-consumer' -DisplayName 'Stable Package Consumer' -FrameworkVersion '1.16.0' -RepositoryPath $stableConsumer -ControllerId 'controller-fixture' -WorkspaceRoot $stableExtract -Apply -Confirm:$false
+    Assert-True ([IO.File]::ReadAllText($agentsPath)-ceq$withoutDelegation) 'real-registration-does-not-resurrect-removed-delegation'
     $stableRecovery = @(& (Join-Path $stableExtract 'scripts/upgrade-project.ps1') -ProjectId 'stable-package-consumer' -ToVersion '1.16.0' -RepositoryPath $stableConsumer -ControllerId 'controller-fixture' -WorkspaceRoot $stableExtract | ForEach-Object { [string]$_ })
     Assert-True (($stableRecovery -join "`n").Contains('WHAT_IF|from=1.16.0|to=1.16.0|objects=0|transaction=none')) 'stable-distribution-same-pin-recovery-preview'
+    Assert-True ([IO.File]::ReadAllText($agentsPath)-ceq$withoutDelegation) 'real-same-pin-upgrade-preserves-removed-delegation'
+    Assert-True ((Get-Content (Join-Path $stableConsumer '.ai-workspace/process-policy.json') -Raw|ConvertFrom-Json).selectedRulePackBytes-eq1) 'registration-and-same-pin-upgrade-preserve-observational-legacy-value'
 
     Write-Output ('PASS|user-package-tests|' + $passed + '/' + $passed)
 }

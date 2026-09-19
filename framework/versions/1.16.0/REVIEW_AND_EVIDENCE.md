@@ -21,7 +21,7 @@ Review 不授予 write、Git、push 或 external capability。
 
 stable candidate 标识 repository、parent/baseline、exact files、byte identities、canonical payload、known dirty/index state、writer release 与 evidence ceiling。canonical immutable evidence 只存一次并由其他对象引用；不要在 mutable card 之间复制，也不要增加 field-level manifest。
 
-finding 不授权 repair。same-scope repair 使用新 writer package，更新 affected freeze，并由同一个仍保持独立的 Reviewer 做 focused rereview。复验实际修复、直接消费者及必要相邻回归；未受影响的原完整 Review 和验证证据保留，不因候选整文件身份变化重跑无关范围，也不复用旧授权或 stale receipt。contract、path 或 impact set 扩大时，需要新的 full Review。独立性按实质贡献和当前可重绑上下文判断；单纯看过材料或提出 finding 不自动成为 writer/contributor，未准入结论不得冒充正式审核。测试通过不能取消有效的架构或代码质量 finding。
+finding 本身不授权 repair；原 Owner 已明确预授予 repairReviewPlan 时，依 TOOL_CONTRACT 机械准备当前包并由各主体实际准入，无须 Owner 纯中转。same-scope repair 使用新 writer package，更新 affected freeze，并由同一个仍保持独立的 Reviewer 做 focused rereview。复验实际修复、直接消费者及必要相邻回归；未受影响的原完整 Review 和验证证据保留，不因候选整文件身份变化重跑无关范围，也不复用旧授权或 stale receipt。contract、path 或 impact set 扩大时，需要新的 full Review。独立性按实质贡献和当前可重绑上下文判断；单纯看过材料或提出 finding 不自动成为 writer/contributor，未准入结论不得冒充正式审核。测试通过不能取消有效的架构或代码质量 finding。
 
 release 声明已吸收某条 project correction 时，Review 必须把原始 correction reason、effective rule 与 applicability boundary 对照实际 normative modules 与 behavior tests。coverage ID、changelog 声明或近似措辞本身不是 acceptance evidence。
 <!-- AIW-REQUIREMENT:PR_CRITICAL_REVIEW_INDEPENDENCE:END -->

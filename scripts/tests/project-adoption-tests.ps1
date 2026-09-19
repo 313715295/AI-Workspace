@@ -79,7 +79,11 @@ function Reset-TestProject {
 try {
     $custom = "# User decisions`nOnly the approved project goal is delegated.`n"
     Assert-True ((Get-AiwStandingDelegationProjection -Text $custom) -ceq $custom) 'viewing-or-template-presence-does-not-create-user-delegation'
-    $delegated = Get-AiwStandingDelegationProjection -Text $custom -AdoptionRequested $true
+    $templatePath=Join-Path (Split-Path -Parent $scriptsRoot) 'framework/versions/1.16.0/project-starter/AGENTS.md'
+    $delegated = Get-AiwStandingDelegationProjection -Text $custom -AdoptionRequested $true -TemplatePath $templatePath
+    Assert-True ((Get-AiwStandingDelegationProjection -Text $custom -AdoptionRequested $true -TemplatePath $templatePath -ExistingProject $true) -ceq $custom) 'deleted-delegation-not-reintroduced-on-existing-project'
+    $templateText=[IO.File]::ReadAllText($templatePath)
+    Assert-True (-not(Get-AiwAgentsTemplateBlock $templateText).Contains('用户持续委托AI')) 'navigation-consumer-excludes-decision-section'
     Assert-True ($delegated.StartsWith($custom) -and $delegated.Contains('用户持续委托AI，为完成本项目已授权目标') -and $delegated.Contains('规则明确保留给用户的决定仍由用户作出。')) 'explicit-adoption-projects-whole-project-delegation-and-preserves-custom-text'
     Assert-True ((Get-AiwStandingDelegationProjection -Text $delegated -AdoptionRequested $true) -ceq $delegated) 'registration-delegation-projection-is-idempotent'
     foreach ($decision in @('用户撤回持续委托。','用户将委托收窄为只读分析。')) {

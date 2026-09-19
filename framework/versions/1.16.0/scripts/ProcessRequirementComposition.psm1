@@ -391,6 +391,16 @@ function Get-AiwCanonicalCorrectionRecordIdentityV1 {
 function Get-AiwCanonicalCorrectionRecordIdentityV2 {
     param([Parameter(Mandatory)]$Record)
     $fields = @('correctionId','introducedAgainstFramework','requirementReason','effectiveRule','applicability','decisionLocator','selectors','preparationRequirements','resultRequirements','requiredFacts','mechanicalCheckRefs')
+    if($null-ne$Record.PSObject.Properties['lifecycle']){
+        $fields+='lifecycle'
+        Assert-AiwExactFields $Record.lifecycle @('state','installation','decisionLocator') 'CORRECTION_LIFECYCLE'
+        Assert-AiwExactFields $Record.lifecycle.installation @('locator','identity') 'CORRECTION_INSTALLATION'
+        if($Record.lifecycle.state-cnotin@('ACTIVE','PAUSED','UNINSTALLED')-or
+           $Record.lifecycle.installation.identity-cnotmatch'^\d+\|[A-F0-9]{64}$'-or
+           [string]::IsNullOrWhiteSpace($Record.lifecycle.decisionLocator)){throw 'CORRECTION_LIFECYCLE_VALUES'}
+        $locator=ConvertTo-AiwSafeRelativePath $Record.lifecycle.installation.locator 'CORRECTION_INSTALLATION'
+        if(-not$locator.StartsWith('.ai-workspace/upgrade-recovery/corrections/',[StringComparison]::Ordinal)){throw 'CORRECTION_INSTALLATION_LOCATOR'}
+    }
     Assert-AiwExactFields $Record $fields 'CORRECTION_RECORD_V2'
     $ordered = [ordered]@{}
     foreach ($field in $fields) { $ordered[$field] = $Record.$field }
@@ -814,7 +824,7 @@ function Invoke-ProcessRequirementComposition {
             if ([string]$record.correctionId -cnotmatch '^[A-Z][A-Z0-9_]*$' -or -not $seenCorrection.Add([string]$record.correctionId)) { throw 'CORRECTION_ID' }
             $v2Identity = 'NOT_APPLICABLE'
             if ([int]$corrections.schemaVersion -eq 2) {
-                Assert-AiwExactFields $record @('correctionId','introducedAgainstFramework','requirementReason','effectiveRule','applicability','decisionLocator','selectors','preparationRequirements','resultRequirements','requiredFacts','mechanicalCheckRefs') 'CORRECTION_RECORD_V2'
+                $null=Get-AiwCanonicalCorrectionRecordIdentityV2 $record
                 Assert-AiwSelectorContract $record.selectors 'CORRECTION_V2_SELECTORS'
                 foreach ($name in @('preparationRequirements','resultRequirements','requiredFacts','mechanicalCheckRefs')) { Assert-AiwStringArray $record.$name ('CORRECTION_V2_' + $name) }
                 $registeredChecks=@('CURRENT_AUTHORITY_BOUND','ACTION_PACKAGE_VALID','EXACT_SCOPE_BOUND','TASK_SCOPE_CURRENT','PROTECTION_BOUNDARY_PROVEN','REVIEWER_INDEPENDENCE_PROVEN','SAFE_GIT_STATE_PROVEN','EXTERNAL_BOUNDARY_AUTHORIZED','DOMAIN_EXTERNAL_PACKAGE_VALID','EXTERNAL_PAYLOAD_IDENTITIES_BOUND','USER_EXTERNAL_DECISION_BOUND')
@@ -860,9 +870,13 @@ function Invoke-ProcessRequirementComposition {
         $coverageStatus = 'INVALID_RETAINED'
     }
 
-    $legacyEffective = @(); $legacyIncorporated = @(); $legacyConflicts = @()
+    $legacyEffective = @(); $legacyIncorporated = @(); $legacyConflicts = @(); $inactiveCorrections=@()
     $sourceIdentityMismatch = @()
     foreach ($item in $records) {
+        if($null-ne$item.Record.PSObject.Properties['lifecycle']-and$item.Record.lifecycle.state-cne'ACTIVE'){
+            $inactiveCorrections+=[pscustomobject]@{correctionId=$item.Record.correctionId;state=$item.Record.lifecycle.state;decisionLocator=$item.Record.lifecycle.decisionLocator}
+            continue
+        }
         $view = [ordered]@{correctionId=[string]$item.Record.correctionId;requirementReason=[string]$item.Record.requirementReason;effectiveRule=[string]$item.Record.effectiveRule;applicability=[string]$item.Record.applicability;decisionLocator=[string]$item.Record.decisionLocator;sourceSchemaVersion=[int]$item.SchemaVersion;legacyRequirementId=[string]$item.Alias;legacySourceRecordIdentity=[string]$item.SourceRecordIdentity;v2WholeRecordIdentity=[string]$item.V2WholeRecordIdentity}
         if ($conflicting.Contains([string]$item.Record.correctionId)) { $legacyConflicts += [pscustomobject]$view }
         elseif ($mappedByAlias.ContainsKey([string]$item.Alias)) {
@@ -893,7 +907,7 @@ function Invoke-ProcessRequirementComposition {
         $policyIdentity = $policyDoc.Identity
         $policy = $policyDoc.Value
         Assert-AiwExactFields $policy @('schemaVersion','contractVersion','projectId','selectedRulePackBytes','rules') 'PROCESS_POLICY'
-        if ([int]$policy.schemaVersion -ne 1 -or [string]$policy.contractVersion -cne $script:ProcessCarrierContractVersion -or [string]$policy.projectId -cne $projectId -or -not (Test-AiwJsonInteger $policy.selectedRulePackBytes) -or [int]$policy.selectedRulePackBytes -lt 1 -or [int]$policy.selectedRulePackBytes -gt $script:AbsoluteSelectedRulePackBytes -or -not ($policy.rules -is [Array])) { throw 'PROCESS_POLICY_VALUES' }
+        if ([int]$policy.schemaVersion -ne 1 -or [string]$policy.contractVersion -cne $script:ProcessCarrierContractVersion -or [string]$policy.projectId -cne $projectId -or -not (Test-AiwJsonInteger $policy.selectedRulePackBytes) -or [int]$policy.selectedRulePackBytes -lt 1 -or -not ($policy.rules -is [Array])) { throw 'PROCESS_POLICY_VALUES' }
         $selectedRulePackBytes=[int]$policy.selectedRulePackBytes
         $policyRules = @($policy.rules)
     }
@@ -996,10 +1010,29 @@ function Invoke-ProcessRequirementComposition {
         projectConfigIdentity=$configDoc.Identity; controllerIdentity=$controllerIdentity; correctionsIdentity=$correctionsIdentity; policyIdentity=$policyIdentity; bootstrapManagedIdentity=$custom.ManagedIdentity;projectCustomIdentity=$custom.Identity;projectAgentsIdentity=(Get-AiwProjectAgentsIdentity $project $ForbiddenPaths); projectStandardsIdentity=$projectStandards.Identity
         frameworkVersionIdentity=$versionDoc.Identity; releaseManifestIdentity=$releaseManifestIdentity; nativeCatalogIdentity=$catalogDoc.Identity; correctionCoverageIdentity=$coverageIdentity
         candidatePilotStateIdentity=$candidatePilotStateIdentity
-        coverageStatus=$coverageStatus; incorporated=@($legacyIncorporated); stillEffective=@($legacyEffective); conflicts=@($legacyConflicts)
+        coverageStatus=$coverageStatus; incorporated=@($legacyIncorporated); stillEffective=@($legacyEffective); conflicts=@($legacyConflicts); inactive=@($inactiveCorrections)
         selectedRequirements=@($selected); selectedRulePackBytes=$selectedRulePackBytes; absoluteSelectedRulePackBytes=$script:AbsoluteSelectedRulePackBytes; evidenceCeilings=@($evidenceCeilings)
         sourceBuildCount=1; legacyCorrectionsFullReadCount=$(if(@($legacyEffective|Where-Object{[int]$_.sourceSchemaVersion-eq1}).Count-gt0){1}else{0}); legacyProjectCustomFullReadCount=$(if($custom.HasNormativeContent){1}else{0})
     }
 }
 
 Export-ModuleMember -Function Get-AiwProcessSemanticText,Get-AiwProjectCustomRegion,Invoke-ProcessRequirementComposition,Get-AiwCanonicalCorrectionRecordIdentityV1,Get-AiwCanonicalCorrectionRecordIdentityV2,Get-AiwFileIdentity,Get-AiwProcessBindingSnapshot,Get-AiwProjectPolicySourceClosure,Get-AiwLocalCandidateSupportBinding
+function Get-AiwDeliveryObservation {
+    param([Parameter(Mandatory)]$Context)
+    Assert-AiwExactFields $Context @('channel','stage','expectedRecipient','observedRecipient','outcome','evidence') 'DELIVERY_CONTEXT'
+    foreach($name in @('channel','stage','expectedRecipient','observedRecipient','outcome','evidence')){
+        if($Context.$name-isnot[string]-or[string]::IsNullOrWhiteSpace($Context.$name)){throw 'DELIVERY_CONTEXT_TYPE'}
+    }
+    if($Context.channel-cnotin@('NATIVE_RESPONSE','TASK_MESSAGE')-or$Context.stage-cnotin@('PREPARE','OBSERVE')){throw 'DELIVERY_CONTEXT_VALUES'}
+    if($Context.stage-ceq'PREPARE'){
+        if($Context.outcome-cne'NOT_SENT'-or$Context.observedRecipient-cne'NOT_APPLICABLE'-or$Context.evidence-cne'NOT_APPLICABLE'){throw 'DELIVERY_FUTURE_EVIDENCE'}
+        return [pscustomobject]@{status='READY_TO_SEND';delivered=$false;retryAllowed=$false;evidenceCeiling='PRE_SEND_ONLY'}
+    }
+    if($Context.channel-cne'TASK_MESSAGE'-or$Context.outcome-cnotin@('SUCCESS','FAILURE','UNKNOWN')){throw 'DELIVERY_OBSERVATION_VALUES'}
+    if($Context.outcome-ceq'SUCCESS'){
+        if($Context.expectedRecipient-cne$Context.observedRecipient-or$Context.evidence-ceq'NOT_APPLICABLE'){throw 'DELIVERY_SUCCESS_UNBOUND'}
+        return [pscustomobject]@{status='DELIVERED';delivered=$true;retryAllowed=$false;evidenceCeiling='HOST_RESULT_CALLER_BOUND'}
+    }
+    return [pscustomobject]@{status=$(if($Context.outcome-ceq'FAILURE'){'NOT_DELIVERED'}else{'UNKNOWN'});delivered=$false;retryAllowed=$false;evidenceCeiling='HOST_RESULT_CALLER_BOUND'}
+}
+Export-ModuleMember -Function Get-AiwDeliveryObservation

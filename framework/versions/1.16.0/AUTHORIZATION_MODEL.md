@@ -3,7 +3,7 @@
 <!-- AIW-REQUIREMENT:PR_ACTION_AUTHORIZATION_INDEPENDENT:BEGIN -->
 受治理动作包必须显式、限域，并且只对当前 phase 或包内连续步骤有效。不得从 recovery、Review 或任务分配中推断动作包授权。用户明确采用 Framework 开展项目工作时，初始化将这一已作出的使用决定保存到项目 AGENTS 的用户区，不再要求单独确认持续委托。仅查看文件、目录存在、模板或未采纳建议不构成采用。
 
-持续委托正文为：用户持续委托AI，为完成本项目已授权目标，遵循当前采用的Framework、当前生效的项目纠正和永久规则，自主作出并执行其允许的工作决定。该委托持续有效，无须逐任务、逐步骤重复确认；用户后续明确决定优先，规则明确保留给用户的决定仍由用户作出。
+默认委托正文只在 `project-starter/AGENTS.md` 的 USER-DECISION 区块。其语义是完成已授权项目目标时自主执行当前规则允许的工作决定，既有授权持续复用，后续用户决定与保留门仍优先。函数按区块合并；模板不构成采用或授权。
 
 新会话读取项目 AGENTS 中的实际用户决定，并核对后续收窄、撤回及当前任务。该正文保存用户决定，不是 Framework 自授权限；通用规则、项目标准和用户决定仍各有真实来源。升级保留用户区原文，不补回已撤回的委托，不覆盖自定义限制。具体包继续绑定当前 userDecision、对象和动作；AGENTS 决定变化使旧过程收据失效，重新对齐用户决定后才可继续。
 
@@ -15,13 +15,15 @@
 
 `FINALIZE_OUTPUT` 逐 path 核对 `OBJECT_POSTIMAGE` 后才生成 caller-managed `AUTHORIZED_ACTION_CONTINUATION`。checker 将该 receipt 精确绑定原 package、source Discover identity及其实际 action/`continuationStepIndex`、task/Owner/taskActor/action actor、repository/config/Controller/decision/protection、下一步骤和当前整组 postimage；旧包、错链、自报错误 hash 或 stale postimage 不能续权。Review、`OWNER_ACCEPT`、Git、browser/device、external、publication 与 adoption 始终另走独立 gate。
 
-FINALIZE_OUTPUT 可接 exact CONTROL_WRITE 的 corrections/process-policy/BOOTSTRAP custom 后像：验原包与全量 postimage，同一 composer 重组 source，满足原/新 obligations。managed 区不变；旧 receipt 由原授权整文件 preimage 补证，不改收据；其他 drift、无效来源、超预算拒绝。root helper 仅复证原 ADMIT 与 live old/new 后恢复中断迁移，原动作收口；第三方状态拒绝。
+FINALIZE_OUTPUT 可接 exact CONTROL_WRITE 的 corrections/process-policy/BOOTSTRAP custom 后像：验原包与全量 postimage，同一 composer 重组 source，满足原/新 obligations。managed 区不变；旧 receipt 由原授权整文件 preimage 补证，不改收据；其他 drift、无效来源拒绝。root helper 仅复证原 ADMIT 与 live old/new 后恢复中断迁移，原动作收口；第三方状态拒绝。
 
 schema3 project-upgrade package 可包含 `targetFrameworkSnapshot={canonical,manifestIdentity}`。stable adoption 保持向后兼容；local candidate pilot 则必须由 root upgrader 要求该字段，并与当次重算 payload 及最终 manifest identity 精确一致。它只是逐次使用的候选绑定，不创建发布 ledger 或第二份 release truth。
 
 `PROCESS_REQUIREMENTS_RESOLVE/ADMIT_ACTION` 消费当前 task/source decision 并校验 preparation，但始终返回 `authorityGranted=false`。process decision 与独立 action checker 必须分别 PASS，彼此不能替代。
 
 continuation receipt 是 `INSTRUCTION_BOUND` 的短生命周期结果载体，不是签名、host enforcement、authority 或消费 ledger；下一边界完成、失效或 abort 后删除。它只证明上述可复验关联，不声称 single consumption 或抗恶意伪造。
+
+Owner 可在本地写测包预授予 `repairReviewPlan`，限定原范围、决定、主体和最多八轮。按 TOOL_CONTRACT 由真实 finding 准备当前修复包，再以修复 FINALIZE 后像准备独立复审包；两者各过 checker/DISCOVER/ADMIT，不沿用旧对象授权。Reviewer 排除 Owner、issuer、writer 和贡献者。超轮、扩面、决定／主体变化或缺证据回 Owner；最终接受、Git、发布及采用仍独立。
 <!-- AIW-REQUIREMENT:PR_ACTION_AUTHORIZATION_INDEPENDENT:END -->
 
 <!-- AIW-REQUIREMENT:PR_PROTECTED_PATH_FAIL_CLOSED:BEGIN -->

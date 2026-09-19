@@ -90,4 +90,18 @@ BOOTSTRAP project-custom 迁移至 process-policy 是同一精确 CONTROL_WRITE 
 3. 普通项目通过 `upgrade-project.ps1 -AdoptionProcessMode ADMIT_ACTION`，提供上述 CurrentProcessInputPath/当前 identity、`-AdoptionPreparationPath/-ExpectedAdoptionPreparationIdentity`、project/version/actor 参数及 `-DeleteProcessInputOnExit`。Maintenance 则使用根 process adapter 的 `-AdoptionProcessBoundary -AdoptionPreparationPath/-ExpectedAdoptionPreparationIdentity -DeleteInputOnExit`。根入口重验准备投影，原版本入口仅执行一次真实 ADMIT，成功 JSON 内保留原输入和目标准备证据；保存这个结果。正文读取与准备完成仍是 INSTRUCTION_BOUND，机械 PASS 不证明模型 attention。
 4. 使用独立 schema3 包执行原 upgrader Apply。实际事务 COMPLETE 后，普通项目以 `-AdoptionProcessMode FINALIZE_OUTPUT` 提供原 FINALIZE boundary、`-AdmitResultPath/-ExpectedAdmitResultIdentity`、原 schema3 `-AuthorizationPackagePath/-ExpectedAuthorizationPackageIdentity`、`-ExpectedAdoptionTransactionIdentity`。Maintenance 使用相同 adapter switch、原 AdmitResult 参数及 `-AdoptionAuthorizationPackagePath/-ExpectedAdoptionAuthorizationIdentity`。FINALIZE 输入保留原/目标 preparationReceipts，提供双方结果义务、每项 OBJECT_POSTIMAGE 与适用 deliveryReceipts。
 
-收口不执行 Apply、恢复或 live 写入。它核对原准入、双方固定包、实际采用事务、精确前后像及当前完整组合；第三方来源漂移、未完成事务、缺失原输入证据、缺准备或超预算均拒绝。正常清理仅删除有界 runtime 内的本次 boundary input。原 compact、成功 ADMIT 与准备材料留至最后消费者完成，不从 DISCOVER 或新的 ADMIT 补造历史。后续任务/项目规则变化应在原采用流程收口之后进行；历史采用成功与无法收口的旧过程分别记录，不重新采用以制造成功。
+收口不执行 Apply、恢复或 live 写入。它核对原准入、双方固定包、实际采用事务、精确前后像及当前完整组合；第三方来源漂移、未完成事务、缺失原输入证据、缺准备或无效来源组合均拒绝。正常清理仅删除有界 runtime 内的本次 boundary input。原 compact、成功 ADMIT 与准备材料留至最后消费者完成，不从 DISCOVER 或新的 ADMIT 补造历史。后续任务/项目规则变化应在原采用流程收口之后进行；历史采用成功与无法收口的旧过程分别记录，不重新采用以制造成功。
+
+## 纠正整组生命周期
+
+在现有 upgrade-project 入口使用 -ProjectCorrectionLifecyclePath 与 -ExpectedProjectCorrectionLifecycleIdentity；默认仅生成预览。-Apply 还须给 CurrentProcessInputPath/ExpectedCurrentProcessInputIdentity，引用当前 CONTROL_WRITE 的 ADMIT 输入；入口重新准入后才调用原投影事务。预览不是授权。新能力须由实际采用的 runtime 支持，旧版本未知生命周期字段时拒绝转换，不能删除字段后偷偷复活。
+
+计划 schemaVersion=1，operation 为 INSTALL/REGISTER_HISTORY/PAUSE/RESUME/UNINSTALL；绑定 correctionId、expectedCorrectionsIdentity、decisionLocator、forbiddenPaths、record、installation、installationRelativePath、transactionRelativePath 和 impact。INSTALL 提供完整 schema2 record；REGISTER_HISTORY 保持旧 record 不改（record=NOT_APPLICABLE）。其余操作的 record/installation/installationRelativePath 均为 NOT_APPLICABLE，并精确读取原安装证据。历史归属由原证据重建，缺证据只报告相应对象。
+
+installation 保存 schemaVersion=1、correctionId、decisionLocator、dependsOn、changes。每项改动可为 FILE（path、beforeExists/afterExists、beforeBase64/afterBase64）或 TEXT（path、before/after、prefix/suffix）。FILE 只适合专属对象或整文件精确前像；共享文档/JSON属性/AGENTS 用带唯一上下文的 TEXT 区块，不整文件回滚。不得把未经证实的旧内容填进 before。先按当前全部对象计算投影，任何冲突都不写；报告具体路径并允许调用者先解决不相关对象的其他任务。
+
+安装证据位于 .ai-workspace/upgrade-recovery/corrections/<ID>/<batch>/installation.json，事务沿原 recovery state.json，均进入当前 exact 写集。事务记录完整前后像，写后验证完整三源组合，记录实际大小；无效组合整组回滚。进程中断保留原事务，责任主体按当前授权绑定该事务及全组对象后调用既有 Resume-AiwProjectProjectionRollback；它是事务原语，不自行授予恢复权限，第三方改动仍拒绝。恢复后重新准入原操作，不另造恢复台账。impact 在原操作内保存 stoppedObligations、independentObligations、inFlightEffects 数组及 recovery/semanticAssessment 说明；工具不证明隐含语义影响。
+
+AGENTS 模板按 FRAMEWORK 和 USER-DECISION 区块消费。默认委托正文仅在版本模板，普通和 Maintenance 新注册均从它提取，升级只替换 FRAMEWORK 区；用户区及撤回保持原样，重复注册不重建缺失的用户委托。纠正引入的委托由其归属安装逆向撤销；以后独立作出的用户决定不属于该前像。
+
+规则包旧budget字段仅为兼容数据，不是用户配额。新注册、重复注册、same-pin、跨包采用和后像核验不因所选正文超过32/64/96KiB而拒绝，也不自动调额；旧字段保留不等于保留硬门。原预算repair参数对当前正常runtime为NO_CHANGE。旧runtime真实失败只沿既有限域授权过渡，不伪造旧收据或热改发行包。完整选择、去重、来源／身份／授权和回滚义务保持，真实大小供当前工作分析。

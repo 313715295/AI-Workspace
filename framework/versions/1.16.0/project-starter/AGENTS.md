@@ -11,3 +11,7 @@ Skill 只负责 navigation，不能授予 write、test、Review、OWNER_ACCEPT�
 
 同时读取本文件管理段之外的用户决定及后续明确收窄或撤回。注册会保存用户已作出的 Framework 使用决定；此模板导航自身不是持续委托。具体动作继续使用当前授权包。
 <!-- AI-WORKSPACE-FRAMEWORK:END -->
+
+<!-- AI-WORKSPACE-USER-DECISION:BEGIN -->
+用户持续委托AI，为完成本项目已授权目标，遵循当前采用的Framework、当前生效的项目纠正和永久规则，自主作出并执行其允许的工作决定。该委托持续有效，无须逐任务、逐步骤重复确认；用户后续明确决定优先，规则明确保留给用户的决定仍由用户作出。
+<!-- AI-WORKSPACE-USER-DECISION:END -->

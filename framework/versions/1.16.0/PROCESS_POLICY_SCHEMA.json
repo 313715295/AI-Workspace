@@ -24,7 +24,7 @@
     "selectedRulePackBytes": {
       "type": "integer",
       "minimum": 1,
-      "maximum": 98304
+      "description": "Legacy compatibility metadata, not a rule-pack quota or runtime admission limit."
     },
     "rules": {
       "type": "array",

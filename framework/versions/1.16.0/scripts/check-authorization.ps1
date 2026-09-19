@@ -208,13 +208,16 @@ $continuationPlanFields = @('continuationPlan')
 $upgradePostimageFields = @('postObjectIdentities')
 $upgradeSnapshotFields = @('targetFrameworkSnapshot')
 $criticalReviewFields = @('candidateWriter','materialContributors')
-$criticalReviewPackage = [string]$package.profile -ceq 'CRITICAL' -and 'REVIEW_EXECUTE' -in @($package.actions)
+$boundedRereview=$null-ne$package.PSObject.Properties['repairReviewBinding']-and[string]$package.repairReviewBinding.phase-ceq'REREVIEW'
+$criticalReviewPackage = ([string]$package.profile -ceq 'CRITICAL' -and 'REVIEW_EXECUTE' -in @($package.actions)) -or $boundedRereview
 $domainExternalPackage = [string]$package.issuerRole -ceq 'DOMAIN_OWNER' -and 'EXTERNAL' -in @($package.actions)
 $actualFields = @($package.PSObject.Properties.Name)
 $expectedFields = @($baseFields) + @('projectConfigIdentity')
 if ([string]$package.issuerRole -ceq 'PROJECT_CONTROLLER') { $expectedFields += $controllerFields }
 if ((Test-JsonInteger $package.schemaVersion) -and [int]$package.schemaVersion -eq 2) { $expectedFields += $repositoryFields }
 if ($null -ne $package.PSObject.Properties['continuationPlan']) { $expectedFields += $continuationPlanFields }
+if ($null -ne $package.PSObject.Properties['repairReviewPlan']) { $expectedFields += 'repairReviewPlan' }
+if ($null -ne $package.PSObject.Properties['repairReviewBinding']) { $expectedFields += 'repairReviewBinding' }
 if ((Test-JsonInteger $package.schemaVersion) -and [int]$package.schemaVersion -eq 3) {
     $expectedFields += $upgradePostimageFields
     if ($null -ne $package.PSObject.Properties['targetFrameworkSnapshot']) { $expectedFields += $upgradeSnapshotFields }
@@ -225,6 +228,87 @@ if ($actualFields.Count -ne $expectedFields.Count -or @($expectedFields | Where-
     Add-Reason $reasons 'PACKAGE_FIELD_SET'
 }
 
+function Assert-RepairFields($Value,[string[]]$Fields) {
+    if($Value-isnot[pscustomobject]-or@($Value.PSObject.Properties).Count-ne$Fields.Count-or@($Fields|Where-Object{$_-cnotin@($Value.PSObject.Properties.Name)}).Count){throw 'REPAIR_REVIEW_FIELDS'}
+}
+function Read-RepairEvidence([string]$Path,[string]$Identity) {
+    if($Identity-cnotmatch'^\d+\|[A-F0-9]{64}$'-or(Get-FileIdentity $Path)-cne$Identity){throw 'REPAIR_REVIEW_EVIDENCE_DRIFT'}
+    $text=Read-StrictUtf8 $Path;Assert-StrictJsonMembers $text;return $text|ConvertFrom-Json -Depth 64
+}
+function Assert-RepairPlan($Parent) {
+    $plan=$Parent.repairReviewPlan
+    Assert-RepairFields $plan @('writer','reviewer','maxCycles','materialContributors')
+    if($plan.writer-isnot[string]-or$plan.reviewer-isnot[string]-or[string]::IsNullOrWhiteSpace($plan.writer)-or[string]::IsNullOrWhiteSpace($plan.reviewer)-or
+       -not(Test-JsonInteger $plan.maxCycles)-or$plan.maxCycles-lt1-or$plan.maxCycles-gt8-or$plan.materialContributors-isnot[array]){throw 'REPAIR_REVIEW_PLAN_VALUES'}
+    if($plan.writer-cne$Parent.grantee-or$plan.reviewer-cin@($Parent.owner,$Parent.issuer,$plan.writer)-or$plan.reviewer-cin@($plan.materialContributors)){throw 'REPAIR_REVIEW_INDEPENDENCE'}
+    if(@($Parent.actions|Where-Object{$_-cnotin@('SOURCE_WRITE','TEST_WRITE','TEST_RUN','CONTROL_WRITE')}).Count){throw 'REPAIR_REVIEW_PARENT_ACTION'}
+}
+try {
+    if($null-ne$package.PSObject.Properties['repairReviewPlan']){Assert-RepairPlan $package}
+    if($null-ne$package.PSObject.Properties['repairReviewBinding']){
+        if($null-ne$package.PSObject.Properties['repairReviewPlan']){throw 'REPAIR_REVIEW_NESTED_PLAN'}
+        $b=$package.repairReviewBinding
+        Assert-RepairFields $b @('parentPackagePath','parentPackageIdentity','phase','cycle','verdictPath','verdictIdentity','repairFinalizeInputPath','repairFinalizeInputIdentity','repairFinalizeResultPath','repairFinalizeResultIdentity')
+        $parent=Read-RepairEvidence $b.parentPackagePath $b.parentPackageIdentity
+        if($null-ne$parent.PSObject.Properties['repairReviewBinding']){throw 'REPAIR_REVIEW_NESTED_PARENT'}
+        Assert-RepairPlan $parent
+        $plan=$parent.repairReviewPlan
+        if($b.phase-cnotin@('REPAIR','REREVIEW')-or-not(Test-JsonInteger $b.cycle)-or$b.cycle-lt1-or$b.cycle-gt$plan.maxCycles){throw 'REPAIR_REVIEW_CYCLE'}
+        foreach($name in @('schemaVersion','frameworkVersion','taskId','taskIdentity','owner','issuer','issuerRole','profile','projectConfigIdentity','userConfirmation')){
+            if($package.$name-cne$parent.$name){throw ('REPAIR_REVIEW_PARENT_DRIFT|'+$name)}
+        }
+        foreach($name in @('repositoryId','issuerControllerId','issuerControllerEpoch','controllerControlIdentity')){
+            if($null-ne$parent.PSObject.Properties[$name]-and($null-eq$package.PSObject.Properties[$name]-or$package.$name-cne$parent.$name)){throw ('REPAIR_REVIEW_PARENT_DRIFT|'+$name)}
+        }
+        if((@($package.exactPaths|Sort-Object)-join"`n")-cne(@($parent.exactPaths|Sort-Object)-join"`n")){throw 'REPAIR_REVIEW_SCOPE_CHANGED'}
+        $verdict=Read-RepairEvidence $b.verdictPath $b.verdictIdentity
+        Assert-RepairFields $verdict @('taskId','owner','reviewer','writer','cycle','verdict','exactPaths','objectIdentities','findingPaths','scopeChanged','decisionChanged')
+        if($verdict.taskId-cne$parent.taskId-or$verdict.owner-cne$parent.owner-or$verdict.reviewer-cne$plan.reviewer-or$verdict.writer-cne$plan.writer-or
+           $verdict.cycle-ne($b.cycle-1)-or$verdict.verdict-cne'CHANGES_REQUESTED'-or$verdict.scopeChanged-isnot[bool]-or$verdict.scopeChanged-or$verdict.decisionChanged-isnot[bool]-or$verdict.decisionChanged){throw 'REPAIR_REVIEW_VERDICT_BOUNDARY'}
+        if($verdict.findingPaths-isnot[array]-or$verdict.findingPaths.Count-eq0-or@($verdict.findingPaths|Where-Object{$_-cnotin$parent.exactPaths}).Count-or
+           (@($verdict.exactPaths|Sort-Object)-join"`n")-cne(@($parent.exactPaths|Sort-Object)-join"`n")){throw 'REPAIR_REVIEW_FINDING_SCOPE'}
+        if($b.phase-ceq'REPAIR'){
+            if($package.grantee-cne$plan.writer-or@($package.actions|Where-Object{$_-cnotin$parent.actions}).Count){throw 'REPAIR_REVIEW_WRITER_ACTION'}
+            foreach($name in @('repairFinalizeInputPath','repairFinalizeInputIdentity','repairFinalizeResultPath','repairFinalizeResultIdentity')){if($b.$name-cne'NOT_APPLICABLE'){throw 'REPAIR_REVIEW_FUTURE_RESULT'}}
+            $candidateRows=@($verdict.objectIdentities|ForEach-Object{$_.path+'='+$_.identity}|Sort-Object)
+            if(($candidateRows-join"`n")-cne(@($package.objectIdentities|ForEach-Object{$_.path+'='+$_.identity}|Sort-Object)-join"`n")){throw 'REPAIR_REVIEW_CANDIDATE_DRIFT'}
+        }else{
+            if($package.grantee-cne$plan.reviewer-or@($package.actions).Count-ne1-or$package.actions[0]-cne'REVIEW_EXECUTE'-or$package.candidateWriter-cne$plan.writer-or
+               (@($package.materialContributors|Sort-Object)-join"`n")-cne(@($plan.materialContributors|Sort-Object)-join"`n")){throw 'REPAIR_REVIEW_REVIEWER_ACTION'}
+            $finalInput=Read-RepairEvidence $b.repairFinalizeInputPath $b.repairFinalizeInputIdentity
+            $finalResult=Read-RepairEvidence $b.repairFinalizeResultPath $b.repairFinalizeResultIdentity
+            if($finalInput.mode-cne'FINALIZE_OUTPUT'-or$finalResult.mode-cne'FINALIZE_OUTPUT'-or$finalResult.status-cne'PASS'-or$finalResult.decisionIdentity-cnotmatch'^[A-F0-9]{64}$'){throw 'REPAIR_REVIEW_FINALIZE_REQUIRED'}
+            $discover=Read-RepairEvidence $finalInput.discoverReceiptPath $finalInput.expectedDiscoverReceiptIdentity
+            if($null-ne$finalResult.PSObject.Properties['sourcePostimageTransition']){throw 'REPAIR_REVIEW_AUTHORITY_CHANGE_REQUIRES_OWNER'}
+            $context=if($discover.schemaVersion-eq2){$discover.binding}else{$discover.authorityContext}
+            $intent=if($discover.schemaVersion-eq2){$discover.intentEnvelope}else{[pscustomobject]@{objective=$discover.objective;requestedActionKind=$discover.actionKind;requestedResultKind=$discover.resultKind}}
+            $exact=if($discover.schemaVersion-eq2){$context.exactScope}else{$discover.exactPaths}
+            $finalDelivery=$null
+            if($null-ne$finalInput.PSObject.Properties['deliveryContext']){
+                Import-Module (Join-Path $PSScriptRoot 'ProcessRequirementComposition.psm1') -Force
+                $finalDelivery=Get-AiwDeliveryObservation $finalInput.deliveryContext
+                if($finalInput.deliveryContext.stage-ceq'PREPARE'-and@($finalInput.deliveryReceipts).Count){throw 'DELIVERY_FUTURE_EVIDENCE'}
+                if($null-eq$finalResult.PSObject.Properties['delivery']-or($finalResult.delivery|ConvertTo-Json -Compress)-cne($finalDelivery|ConvertTo-Json -Compress)){throw 'REPAIR_REVIEW_DELIVERY_RESULT_DRIFT'}
+            }elseif($null-ne$finalResult.PSObject.Properties['delivery']){throw 'REPAIR_REVIEW_DELIVERY_RESULT_DRIFT'}
+            $material=@($discover.sourceCompositionIdentity,$discover.selectionIdentity,$discover.contextIdentity,'FINALIZE_OUTPUT',$intent.objective,$intent.requestedActionKind,$intent.requestedResultKind,[string]::Join(',',@($exact)),$context.authorizationIdentity,[string]::Join(',',@($finalInput.preparationReceipts)),[string]::Join(',',@($finalInput.resultReceipts)),[string]::Join(',',@($finalInput.deliveryReceipts)),$finalInput.publicDecisionIdentity,$finalInput.protectionState,'NO_SOURCE_POSTIMAGE_TRANSITION','')-join"`n"
+            if($null-ne$finalDelivery){$material+=($finalInput.deliveryContext|ConvertTo-Json -Compress)}
+            $expectedDecision=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.UTF8Encoding]::new($false).GetBytes($material)))
+            if($expectedDecision-cne$finalResult.decisionIdentity-or$finalResult.selectionIdentity-cne$discover.selectionIdentity-or@($finalResult.missingPreparation).Count-or@($finalResult.missingResult).Count){throw 'REPAIR_REVIEW_FINALIZE_DECISION_DRIFT'}
+            foreach($obligation in $discover.selectedObligations){
+                $requiredResults=@($obligation.resultRequirements|Where-Object{$null-eq$finalDelivery-or$_-cne'DELIVERY_RECEIPT'})
+                if(@($obligation.preparationRequirements|Where-Object{$_-cnotin$finalInput.preparationReceipts}).Count-or@($requiredResults|Where-Object{$_-cnotin$finalInput.resultReceipts}).Count){throw 'REPAIR_REVIEW_FINALIZE_INCOMPLETE'}
+            }
+            if($null-eq$finalDelivery-and$intent.requestedResultKind-cin@('USER_RESPONSE','TERMINAL','HANDOFF','REVIEW_VERDICT','OWNER_ACCEPTANCE')-and@($finalInput.deliveryReceipts).Count-eq0){throw 'REPAIR_REVIEW_FINALIZE_INCOMPLETE'}
+            $repairPackage=Read-RepairEvidence $discover.sourceLocators.authorizationPackagePath $context.authorizationIdentity
+            if($repairPackage.grantee-cne$plan.writer-or$repairPackage.taskIdentity-cne$package.taskIdentity-or
+               $repairPackage.repairReviewBinding.phase-cne'REPAIR'-or$repairPackage.repairReviewBinding.parentPackageIdentity-cne$b.parentPackageIdentity-or
+               $repairPackage.repairReviewBinding.verdictIdentity-cne$b.verdictIdentity-or$repairPackage.repairReviewBinding.cycle-ne$b.cycle){throw 'REPAIR_REVIEW_REPAIR_SOURCE'}
+            $rows=@($finalInput.resultReceipts|Where-Object{$_-clike'OBJECT_POSTIMAGE|*'}|Sort-Object)
+            $expected=@($package.objectIdentities|ForEach-Object{'OBJECT_POSTIMAGE|'+$_.path+'|'+$_.identity}|Sort-Object)
+            if(($rows-join"`n")-cne($expected-join"`n")){throw 'REPAIR_REVIEW_POSTIMAGE_DRIFT'}
+        }
+    }
+}catch{Add-Reason $reasons ([string]$_.Exception.Message)}
 $stringFields = @('frameworkVersion','taskId','profile','lifecycle','owner','issuer','issuerRole','grantee','bundle','decisionClass','userConfirmation','reviewIndependence','taskIdentity','projectConfigIdentity')
 foreach ($field in $stringFields) {
     if (-not ($package.$field -is [string])) { Add-Reason $reasons "FIELD_TYPE_${field}_STRING" }

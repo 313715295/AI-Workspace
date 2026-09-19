@@ -321,6 +321,46 @@
                     "USER_EXTERNAL_DECISION_BOUND"
                   ]
                 }
+              },
+              "lifecycle": {
+                "required": [
+                  "state",
+                  "installation",
+                  "decisionLocator"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "state": {
+                    "enum": [
+                      "ACTIVE",
+                      "PAUSED",
+                      "UNINSTALLED"
+                    ]
+                  },
+                  "installation": {
+                    "required": [
+                      "locator",
+                      "identity"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "identity": {
+                        "pattern": "^\\d+\\|[A-F0-9]{64}$",
+                        "type": "string"
+                      },
+                      "locator": {
+                        "pattern": "^\\.ai-workspace/upgrade-recovery/corrections/",
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "decisionLocator": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "type": "object"
               }
             }
           }

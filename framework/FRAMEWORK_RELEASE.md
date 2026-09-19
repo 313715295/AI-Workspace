@@ -117,3 +117,5 @@ platform support 由 evidence 限定。release 只声称 sealed Tool Contract �
 固定包 same-pin 刷新复用 ProjectAdoptionTransaction 的升级事务，管理对象与原 state 最后写入；进程中断后，使用仍健康的接入工具执行 upgrade-project -RecoverRuntimeAdoption，并提供原包身份、实际事务身份及原 actor。COMPLETE 先验证目标包身份，ROLLBACK 只用已绑定前像；未知第三方对象拒绝且不发生部分恢复。原项目版本 state 是唯一采用记录，runtime/project-adoption 中的文件只保存本次事务与恢复材料。
 
 项目 Bootstrap custom 到 process-policy 的来源迁移由原 CONTROL_WRITE FINALIZE 处理；旧 receipt 可提供原包绑定的 Bootstrap 前像，仍须证明管理区未变。已授权动作中断时，upgrade-project 的 ProjectRuleRecoveryPlanPath 入口消费原 DISCOVER、原 ADMIT 输入与结果、原授权包及精确前后像。恢复事务明确在现在创建，不声称历史上已存在；COMPLETE 与 ROLLBACK 均复核所有对象和未授权来源后执行，并以原动作 FINALIZE 收口。缺失原 admission、前像或未知混合字节时拒绝，fresh DISCOVER 不替代原 action。
+
+本批整组纠正与调用减负的新增根 helper 属于接入工具；包构建清单必须包含其真实依赖，测试只在隔离 fixture 构包。新 capability 的开发验证不得更改已有 snapshot、ZIP、live corrections 或采用状态。默认委托正文只取版本 AGENTS 模板的 USER-DECISION，封存前检验所有全文模板消费者改为所需区块。纠正吸收仍需完整来源语义、行为和独立 Review，生命周期安装证据不能替代吸收依据。

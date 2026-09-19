@@ -40,10 +40,13 @@ param(
     [string]$ExpectedAdmitResultIdentity,
     [switch]$DeleteProcessInputOnExit,
 
-    [ValidateRange(1, 98304)]
+    [ValidateRange(1, [int]::MaxValue)]
     [int]$SelectedRulePackBytes = 32768,
 
     [string]$ProjectCorrectionsMigrationPath,
+
+    [string]$ProjectCorrectionLifecyclePath,
+    [string]$ExpectedProjectCorrectionLifecycleIdentity,
 
     [string]$ExpectedProjectCorrectionsMigrationIdentity,
 
@@ -92,6 +95,12 @@ foreach($modulePath in @($adoptionStateModulePath,$adoptionProjectionModulePath,
     Import-Module $modulePath -Force
 }
 
+if($ProjectCorrectionLifecyclePath){
+    if($AdoptionProcessMode-or$ProjectRuleRecoveryPlanPath-or$RecoverRuntimeAdoption-or$ProjectCorrectionsMigrationPath){throw 'CORRECTION_OPERATION_EXCLUSIVE'}
+    Import-Module (Join-Path $PSScriptRoot 'ProjectCorrectionLifecycle.psm1') -Force
+    Invoke-AiwCorrectionLifecycle -RepositoryRoot $RepositoryPath -PlanPath $ProjectCorrectionLifecyclePath -ExpectedPlanIdentity $ExpectedProjectCorrectionLifecycleIdentity -ProjectId $ProjectId -Version $ToVersion -Apply:$Apply -AdmitInputPath $CurrentProcessInputPath -ExpectedAdmitInputIdentity $ExpectedCurrentProcessInputIdentity -InterruptAfterWrite $InterruptAfterAdoptionWrite
+    return
+}
 if($AdoptionProcessMode-and($Apply-or$RecoverRuntimeAdoption-or$ProjectRuleRecoveryPlanPath)){throw 'ADOPTION_PROCESS_READ_ONLY_BOUNDARY'}
 if($AdoptionProcessMode){
     $processProject=(Read-AiwProjectJson (Get-AiwContainedPath (Resolve-AiwRepositoryRoot $RepositoryPath) '.ai-workspace/project.json') 'ADOPTION_PROCESS_PROJECT').Value
@@ -640,7 +649,7 @@ function Assert-LocalCandidateSamePinProjectProjection([string]$RepositoryRoot,[
     if($currentBlock.Text-cne$expectedBlock.Text){throw 'LOCAL_CANDIDATE_SAME_PIN_BOOTSTRAP_PROJECTION_DRIFT'}
     $policyPath=Join-ChildPath (Split-Path -Parent $ProjectFile) 'process-policy.json';$policyRaw=Read-StrictUtf8NoBom $policyPath;try{$policy=$policyRaw|ConvertFrom-Json}catch{throw 'LOCAL_CANDIDATE_SAME_PIN_POLICY_JSON'}
     Assert-MinimalExactFields $policy $policyRaw @('schemaVersion','contractVersion','projectId','selectedRulePackBytes','rules') 'local-candidate same-pin process policy'
-    if(-not(Test-MinimalJsonInteger $policy.schemaVersion)-or[int]$policy.schemaVersion-ne1-or[string]$policy.contractVersion-cne(Get-ProcessCarrierContractVersion $TargetVersion $script:ActiveAdoptionProfile)-or[string]$policy.projectId-cne$ProjectId-or-not(Test-MinimalJsonInteger $policy.selectedRulePackBytes)-or[int]$policy.selectedRulePackBytes-lt1-or[int]$policy.selectedRulePackBytes-gt[int]$script:ActiveAdoptionProfile.processBudget.absoluteSelectedRulePackBytes-or-not($policy.rules-is[Array])){throw 'LOCAL_CANDIDATE_SAME_PIN_POLICY_BINDING'}
+    if(-not(Test-MinimalJsonInteger $policy.schemaVersion)-or[int]$policy.schemaVersion-ne1-or[string]$policy.contractVersion-cne(Get-ProcessCarrierContractVersion $TargetVersion $script:ActiveAdoptionProfile)-or[string]$policy.projectId-cne$ProjectId-or-not(Test-MinimalJsonInteger $policy.selectedRulePackBytes)-or[int]$policy.selectedRulePackBytes-lt1-or-not($policy.rules-is[Array])){throw 'LOCAL_CANDIDATE_SAME_PIN_POLICY_BINDING'}
     if($Layout-ceq'framework-maintenance-sibling'){
         $overlay=Get-AiwMaintenanceOverlay $FrameworkWorkspace;$overlayRaw=Read-StrictUtf8NoBom ([string]$overlay.ProcessPolicyPath);$overlayRaw=$overlayRaw.Replace('{{PROCESS_CONTRACT_VERSION_JSON}}',((Get-ProcessCarrierContractVersion $TargetVersion $script:ActiveAdoptionProfile)|ConvertTo-Json -Compress)).Replace('{{PROJECT_ID_JSON}}',($ProjectId|ConvertTo-Json -Compress)).Replace('{{SELECTED_RULE_PACK_BYTES}}',[string]$policy.selectedRulePackBytes)
         try{$overlayPolicy=$overlayRaw|ConvertFrom-Json}catch{throw 'LOCAL_CANDIDATE_SAME_PIN_OVERLAY_POLICY_JSON'}
@@ -688,7 +697,7 @@ function Get-LocalCandidateSamePinProjectionRefreshPlan([string]$RepositoryRoot,
     $policyPath=Join-ChildPath (Split-Path -Parent $ProjectFile) 'process-policy.json';$policyRaw=Read-StrictUtf8NoBom $policyPath;try{$policy=$policyRaw|ConvertFrom-Json}catch{throw 'LOCAL_CANDIDATE_SAME_PIN_POLICY_JSON'}
     $policyFields=@($policy.PSObject.Properties.Name);$targetContract=Get-ProcessCarrierContractVersion $TargetVersion $script:ActiveAdoptionProfile;$sourceContract=[string]$state.fromVersion
     if($policyFields.Count-eq4-and@(@('schemaVersion','contractVersion','projectId','rules')|Where-Object{$_-cnotin$policyFields}).Count-eq0){if(-not(Test-MinimalJsonInteger $policy.schemaVersion)-or[int]$policy.schemaVersion-ne1-or[string]$policy.contractVersion-cne$sourceContract-or[string]$policy.projectId-cne$ProjectId-or-not($policy.rules-is[Array])){throw 'LOCAL_CANDIDATE_SAME_PIN_POLICY_BINDING'};$policyBudget=$SelectedRulePackBytes}
-    elseif($policyFields.Count-eq5-and@(@('schemaVersion','contractVersion','projectId','selectedRulePackBytes','rules')|Where-Object{$_-cnotin$policyFields}).Count-eq0){if(-not(Test-MinimalJsonInteger $policy.schemaVersion)-or[int]$policy.schemaVersion-ne1-or[string]$policy.contractVersion-cne$targetContract-or[string]$policy.projectId-cne$ProjectId-or-not(Test-MinimalJsonInteger $policy.selectedRulePackBytes)-or[int]$policy.selectedRulePackBytes-lt1-or[int]$policy.selectedRulePackBytes-gt[int]$script:ActiveAdoptionProfile.processBudget.absoluteSelectedRulePackBytes-or-not($policy.rules-is[Array])){throw 'LOCAL_CANDIDATE_SAME_PIN_POLICY_BINDING'};$policyBudget=[int]$policy.selectedRulePackBytes}
+    elseif($policyFields.Count-eq5-and@(@('schemaVersion','contractVersion','projectId','selectedRulePackBytes','rules')|Where-Object{$_-cnotin$policyFields}).Count-eq0){if(-not(Test-MinimalJsonInteger $policy.schemaVersion)-or[int]$policy.schemaVersion-ne1-or[string]$policy.contractVersion-cne$targetContract-or[string]$policy.projectId-cne$ProjectId-or-not(Test-MinimalJsonInteger $policy.selectedRulePackBytes)-or[int]$policy.selectedRulePackBytes-lt1-or-not($policy.rules-is[Array])){throw 'LOCAL_CANDIDATE_SAME_PIN_POLICY_BINDING'};$policyBudget=[int]$policy.selectedRulePackBytes}
     else{throw 'LOCAL_CANDIDATE_SAME_PIN_POLICY_FIELDS'}
     $targetPolicyObject=[ordered]@{schemaVersion=1;contractVersion=$targetContract;projectId=$ProjectId;selectedRulePackBytes=$policyBudget;rules=@($policy.rules)}
     if($Layout-ceq'framework-maintenance-sibling'){$overlay=Get-AiwMaintenanceOverlay $FrameworkWorkspace;$overlayRaw=Read-StrictUtf8NoBom ([string]$overlay.ProcessPolicyPath);$overlayRaw=$overlayRaw.Replace('{{PROCESS_CONTRACT_VERSION_JSON}}',($targetContract|ConvertTo-Json -Compress)).Replace('{{PROJECT_ID_JSON}}',($ProjectId|ConvertTo-Json -Compress)).Replace('{{SELECTED_RULE_PACK_BYTES}}',[string]$policyBudget);try{$overlayPolicy=$overlayRaw|ConvertFrom-Json}catch{throw 'LOCAL_CANDIDATE_SAME_PIN_OVERLAY_POLICY_JSON'};foreach($overlayRule in @($overlayPolicy.rules)){$same=@($targetPolicyObject.rules|Where-Object{[string]$_.ruleId-ceq[string]$overlayRule.ruleId});if($same.Count-gt1-or($same.Count-eq1-and($same[0]|ConvertTo-Json -Depth 100 -Compress)-cne($overlayRule|ConvertTo-Json -Depth 100 -Compress))){throw ('LOCAL_CANDIDATE_SAME_PIN_OVERLAY_POLICY_DRIFT|'+[string]$overlayRule.ruleId)};if($same.Count-eq0){$targetPolicyObject.rules=@($targetPolicyObject.rules)+@($overlayRule)}}}
@@ -699,7 +708,7 @@ function Get-LocalCandidateSamePinProjectionRefreshPlan([string]$RepositoryRoot,
     $correctionsContractValid=((Test-MinimalJsonInteger $corrections.schemaVersion)-and[int]$corrections.schemaVersion-eq1-and[string]$corrections.contractVersion-ceq'1.10.0')-or((Test-MinimalJsonInteger $corrections.schemaVersion)-and[int]$corrections.schemaVersion-eq2-and[string]$corrections.contractVersion-ceq$targetContract)
     if(-not$correctionsContractValid-or[string]$corrections.projectId-cne$ProjectId-or-not($corrections.corrections-is[Array])){throw 'LOCAL_CANDIDATE_SAME_PIN_CORRECTIONS_BINDING'}
 
-    $agentsPath=Join-Path $RepositoryRoot 'AGENTS.md';$agentsRaw=Read-StrictUtf8NoBom $agentsPath;$targetAgentsBlock=(Read-StrictUtf8NoBom (Join-ChildPath $templateRoot 'AGENTS.md')).TrimEnd("`n");$begin='<!-- AI-WORKSPACE-FRAMEWORK:BEGIN -->';$end='<!-- AI-WORKSPACE-FRAMEWORK:END -->';$start=$agentsRaw.IndexOf($begin,[StringComparison]::Ordinal);$finish=$agentsRaw.IndexOf($end,[StringComparison]::Ordinal)
+    $agentsPath=Join-Path $RepositoryRoot 'AGENTS.md';$agentsRaw=Read-StrictUtf8NoBom $agentsPath;$targetAgentsBlock=(Get-AiwAgentsTemplateBlock (Read-StrictUtf8NoBom (Join-ChildPath $templateRoot 'AGENTS.md'))).TrimEnd("`n");$begin='<!-- AI-WORKSPACE-FRAMEWORK:BEGIN -->';$end='<!-- AI-WORKSPACE-FRAMEWORK:END -->';$start=$agentsRaw.IndexOf($begin,[StringComparison]::Ordinal);$finish=$agentsRaw.IndexOf($end,[StringComparison]::Ordinal)
     if($start-lt0-or$finish-lt$start-or[regex]::Matches($agentsRaw,[regex]::Escape($begin)).Count-ne1-or[regex]::Matches($agentsRaw,[regex]::Escape($end)).Count-ne1){throw 'AGENTS_MANAGED_MARKERS_MALFORMED'};$finish+=$end.Length;$targetAgents=Normalize-Text ($agentsRaw.Substring(0,$start)+$targetAgentsBlock+$agentsRaw.Substring($finish));& $addProjection 'AGENTS.md' $agentsPath $targetAgents $true
     $skillRelative='.agents/skills/ai-workspace-router/SKILL.md';$skillPath=Join-ChildPath $RepositoryRoot $skillRelative;if(Test-Path -LiteralPath $skillPath -PathType Leaf){& $addProjection $skillRelative $skillPath $null $true}
     $gitIgnore=Get-RuntimeGitIgnoreProjection $RepositoryRoot ([string]$script:ActiveAdoptionProfile.projectControl.runtimeGitIgnoreRule);if([bool]$gitIgnore.Changed){& $addProjection '.gitignore' ([string]$gitIgnore.Path) ([string]$gitIgnore.Content) ([bool]$stateEntries.ContainsKey('.gitignore'))}
@@ -873,9 +882,9 @@ function Get-ManagedAgentsTransition([string]$RepositoryRoot,[string]$SourceFram
     if($finish-lt$start){throw 'AGENTS_MANAGED_BLOCK_ORDER'}
     $finish+=$end.Length
     $currentBlock=$current.Substring($start,$finish-$start)
-    $sourceBlock=(Read-StrictUtf8NoBom (Join-ChildPath $SourceFramework 'project-starter/AGENTS.md')).TrimEnd("`n")
+    $sourceBlock=(Get-AiwAgentsTemplateBlock (Read-StrictUtf8NoBom (Join-ChildPath $SourceFramework 'project-starter/AGENTS.md'))).TrimEnd("`n")
     if($currentBlock-cne$sourceBlock){throw 'AGENTS_MANAGED_BLOCK_CONFLICT'}
-    $targetBlock=(Read-StrictUtf8NoBom (Join-ChildPath $TargetFramework 'project-starter/AGENTS.md')).TrimEnd("`n")
+    $targetBlock=(Get-AiwAgentsTemplateBlock (Read-StrictUtf8NoBom (Join-ChildPath $TargetFramework 'project-starter/AGENTS.md'))).TrimEnd("`n")
     $newAgents=Normalize-Text ($current.Substring(0,$start)+$targetBlock+$current.Substring($finish))
     return [pscustomobject]@{AgentsPath=$agentsPath;SkillPath=$skillPath;AgentsContent=$newAgents;SkillContent=$null}
 }
@@ -1417,8 +1426,15 @@ function Get-SelectedRulePackBudgetRepair([string]$RepositoryRoot,[string]$Frame
     }elseif([string]$input.authorizationPackagePath-cne'NOT_REQUIRED'-or[string]$input.expectedAuthorizationIdentity-cne'NOT_REQUIRED') { throw 'RULE_PACK_BUDGET_REPAIR_PREVIEW_AUTHORITY' }
     $resolver=Join-ChildPath $TargetFramework 'scripts/resolve-process-requirements.ps1';$pwsh=[Environment]::ProcessPath;$oldPreference=$ErrorActionPreference;$ErrorActionPreference='Continue'
     try{$currentOutput=@(& $pwsh -NoProfile -NonInteractive -File $resolver -InputPath $CurrentProcessInputPath -AsJson 2>&1|ForEach-Object{[string]$_});$currentCode=$LASTEXITCODE}finally{$ErrorActionPreference=$oldPreference}
-    if($currentCode-ne2-or$currentOutput.Count-ne1){throw ('RULE_PACK_BUDGET_REPAIR_CURRENT_DISCOVER_NOT_BLOCKED|'+($currentOutput-join';'))}
+    if($currentOutput.Count-ne1){throw ('RULE_PACK_BUDGET_REPAIR_CURRENT_DISCOVER_INVALID|'+($currentOutput-join';'))}
     try{$currentResult=$currentOutput[0]|ConvertFrom-Json}catch{throw 'RULE_PACK_BUDGET_REPAIR_CURRENT_DISCOVER_JSON'}
+    if($currentCode-eq0-and$currentResult.status-cin@('PASS','EVALUATION_ONLY')){
+        $currentReceipt=if($null-ne$currentResult.PSObject.Properties['compactReceipt']){$currentResult.compactReceipt}else{$currentResult}
+        $observed=if($currentReceipt.schemaVersion-eq2){$currentReceipt.pack.bytes}else{$currentReceipt.selectedPackBytes}
+        return [pscustomobject]@{NoChange=$true;ObservedPackBytes=$observed}
+    }
+    # Only an actually observed old-runtime failure may enter the legacy bridge.
+    if($currentCode-ne2){throw ('RULE_PACK_BUDGET_REPAIR_CURRENT_DISCOVER_INVALID|'+($currentOutput-join';'))}
     $match=[regex]::Match([string]$currentResult.reason,'^SELECTED_RULE_PACK_BUDGET_EXCEEDED\|bytes=(?<required>\d+)\|ceiling=(?<configured>\d+)$')
     if(-not$match.Success){throw 'RULE_PACK_BUDGET_REPAIR_CURRENT_DISCOVER_REASON'}
     $required=[int]$match.Groups['required'].Value;$configured=[int]$match.Groups['configured'].Value;$absolute=[int]$script:ActiveAdoptionProfile.processBudget.absoluteSelectedRulePackBytes
@@ -1457,6 +1473,7 @@ function Get-SelectedRulePackBudgetRepair([string]$RepositoryRoot,[string]$Frame
 }
 
 function Invoke-SelectedRulePackBudgetRepair($Repair,[bool]$ApplyChange) {
+    if($null-ne$Repair.PSObject.Properties['NoChange']-and$Repair.NoChange){Write-Output ('NO_CHANGE|rule-pack-bytes='+$Repair.ObservedPackBytes+'|legacy-budget=observational|objects=0|transaction=none');return}
     Write-Output ('RULE_PACK_BUDGET_REPAIR|configured='+$Repair.Configured+'|required='+$Repair.Required+'|proposed='+$Repair.Proposed+'|absolute='+$Repair.Absolute+'|projected=PASS')
     Write-Output ('RULE_PACK_BUDGET_REPAIR_PREIMAGE|.ai-workspace/process-policy.json='+$Repair.OldIdentity)
     Write-Output ('RULE_PACK_BUDGET_REPAIR_POSTIMAGE|.ai-workspace/process-policy.json='+$Repair.NewIdentity)
@@ -1515,7 +1532,7 @@ function Get-ProjectCorrectionsProjectedDiscover([string]$RepositoryRoot,[string
         try{$projectedResult=$projectedOutput[0]|ConvertFrom-Json}catch{throw 'PROJECT_CORRECTIONS_MIGRATION_PROJECTED_DISCOVER_JSON'}
         $receipt=if($null-ne$projectedResult.PSObject.Properties['compactReceipt']){$projectedResult.compactReceipt}else{$projectedResult}
         $ordinaryCeiling=[int]$script:ActiveAdoptionProfile.processBudget.defaultSelectedRulePackBytes
-        if([string]$receipt.status-cnotin@('PASS','EVALUATION_ONLY')-or[int]$receipt.sourceBuildCount-ne1-or[int]$receipt.legacyCorrectionsFullReadCount-ne0-or[int]$receipt.selectedPackBytes-gt$ordinaryCeiling-or[string]$receipt.sourceBindings.correctionsIdentity-cne$CandidateIdentity){throw 'PROJECT_CORRECTIONS_MIGRATION_PROJECTED_DISCOVER_INCOMPLETE'}
+        if([string]$receipt.status-cnotin@('PASS','EVALUATION_ONLY')-or[int]$receipt.sourceBuildCount-ne1-or[int]$receipt.legacyCorrectionsFullReadCount-ne0-or[string]$receipt.sourceBindings.correctionsIdentity-cne$CandidateIdentity){throw 'PROJECT_CORRECTIONS_MIGRATION_PROJECTED_DISCOVER_INCOMPLETE'}
         return $receipt
     }finally{if(Test-Path -LiteralPath $projectionRoot){Remove-Item -LiteralPath $projectionRoot -Recurse -Force}}
 }
@@ -1607,7 +1624,7 @@ function Get-SameVersionCorrectionsMigration([string]$RepositoryRoot,[string]$Fr
         $currentPackJson=@($currentComposition.selectedRequirements)|ConvertTo-Json -Depth 50 -Compress;$currentSelectedPackBytes=$utf8NoBom.GetByteCount($currentPackJson)
         $ordinaryCeiling=[int]$script:ActiveAdoptionProfile.processBudget.defaultSelectedRulePackBytes
         $reviewBridgeCeiling=[int]$currentComposition.selectedRulePackBytes
-        if($currentSelectedPackBytes-le$ordinaryCeiling-or$currentSelectedPackBytes-gt$reviewBridgeCeiling-or($projectSelectedBudgetProfile-and$reviewBridgeCeiling-gt[int]$script:ActiveAdoptionProfile.processBudget.absoluteSelectedRulePackBytes)){throw 'PROJECT_CORRECTIONS_MIGRATION_REVIEW_BRIDGE_BUDGET'}
+        # Candidate repair remains bound to the original task and exact authority, not pack size.
         $currentSelectedRequirements=@($currentComposition.selectedRequirements);$currentSelectedPackIdentity=Get-UpperSha256Bytes ($utf8NoBom.GetBytes($currentPackJson));$currentSourceCompositionIdentity=[string]$currentComposition.sourceCompositionIdentity
     }
     $projectedReceipt=Get-ProjectCorrectionsProjectedDiscover $RepositoryRoot $FrameworkWorkspace $TargetFramework $TargetVersion $ProjectFile $BootstrapFile $ControllerFile $TaskBinding $input $effectiveCandidateRaw $effectiveCandidateIdentity $RepairAdmission
@@ -1876,7 +1893,7 @@ $targetFramework=Join-ChildPath $frameworkRoot "versions/$ToVersion"
 if(-not(Test-Path -LiteralPath $targetFramework -PathType Container)){throw "Framework version does not exist: $ToVersion"}
 $script:ActiveDistributionBinding=Get-AiwDistributionBinding $workspace $ToVersion
 $script:ActiveAdoptionProfile=Get-AdoptionProfile $targetFramework $ToVersion
-if($SelectedRulePackBytes-gt[int]$script:ActiveAdoptionProfile.processBudget.absoluteSelectedRulePackBytes){throw 'SELECTED_RULE_PACK_BUDGET_ABSOLUTE_CAP'}
+# SelectedRulePackBytes is retained only as legacy metadata.
 if($LocalCandidatePilot){
     $script:ActiveTargetSnapshot=Get-LocalCandidateFrameworkSnapshot $targetFramework $ToVersion $script:ActiveAdoptionProfile
 }else{

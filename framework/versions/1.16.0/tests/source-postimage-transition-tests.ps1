@@ -100,7 +100,7 @@ try{
   Write-Utf8 $policyPath $validPolicyRaw;$policy=Get-Content -Raw -Encoding utf8 -LiteralPath $policyPath|ConvertFrom-Json
 
   $budgetPackage=New-Package 'invalid-policy-budget' $policyPaths;$budgetAction=Start-Action 'invalid-policy-budget' $policyPaths $budgetPackage;$policy.selectedRulePackBytes=1;Write-Json $policyPath $policy;$budgetRun=Invoke-Finalize $budgetAction (@($budgetAction.Results)+(Get-Postimages $policyPaths))
-  Assert-True ($budgetRun.Code-ne0-and$budgetRun.Text.Contains('SOURCE_POSTIMAGE_SELECTED_RULE_PACK_BUDGET_EXCEEDED')) 'invalid-new-policy-budget-rejected'
+  Assert-True ($budgetRun.Code-eq0-and$budgetRun.Value.sourcePostimageTransition.status-ceq'PASS'-and$budgetRun.Value.sourcePostimageTransition.selectedPackBytes-gt1-and$budgetRun.Value.sourcePostimageTransition.selectedRequirementCount-gt0) 'small-legacy-budget-does-not-block-valid-policy-postimage'
   $policy.selectedRulePackBytes=90000;Write-Json $policyPath $policy
 
   $policy.rules=@();Write-Json $policyPath $policy
@@ -205,6 +205,43 @@ try{
   Assert-True ($LASTEXITCODE-eq0-and(($safeOutput-join[char]10)|ConvertFrom-Json).status-ceq'VERIFIED') 'safe-git-context-added-deleted-path-mentions-unicode-space-allowed'
   $retroPackage=New-Package 'retroactive-authority' $policyPaths @('TEST_RUN');$retroAction=Start-Action 'retroactive-authority' $policyPaths $retroPackage 'CONTROL_WRITE'
   Assert-True ($retroAction.Discover.Code-ne0-and$retroAction.Discover.Text.Contains('ACTION_NOT_GRANTED')) 'new-rules-cannot-retroactively-authorize-old-action'
+
+  # Real root lifecycle consumer, with a sealed runtime only inside this fixture.
+  $rootScripts=Join-Path $frameworkRoot 'scripts';New-Item -ItemType Directory -Path $rootScripts -Force|Out-Null
+  foreach($name in @('ProjectCorrectionLifecycle.psm1','ProjectAdoptionState.psm1','ProjectAdoptionProjection.psm1','ProjectAdoptionTransaction.psm1','MaintenanceOverlay.psm1','upgrade-project.ps1')){Copy-Item -LiteralPath (Join-Path $sourceFrameworkRoot ('scripts/'+$name)) -Destination (Join-Path $rootScripts $name)}
+  Import-Module (Join-Path $rootScripts 'ProjectCorrectionLifecycle.psm1') -Force
+  $observationalPolicy=Get-Content $policyPath -Raw|ConvertFrom-Json -Depth 100;$observationalPolicy.selectedRulePackBytes=1;Write-Json $policyPath $observationalPolicy
+  Write-Utf8 (Join-Path $project 'AGENTS.md') "# Independent base`n<!-- correction slot -->`n"
+  Write-Utf8 (Join-Path $project 'settings.json') '{"owned":1,"independent":1}'
+  $installation=[ordered]@{schemaVersion=1;correctionId='GROUP';decisionLocator='fixture:original-install';dependsOn=@();changes=@(
+    [ordered]@{kind='TEXT';path='AGENTS.md';before='';after="Correction-owned delegation`n";prefix="# Independent base`n";suffix="<!-- correction slot -->"},
+    [ordered]@{kind='TEXT';path='settings.json';before='1';after='2';prefix='"owned":';suffix=','},
+    [ordered]@{kind='FILE';path='owned-helper.txt';beforeExists=$false;afterExists=$true;beforeBase64='';afterBase64=[Convert]::ToBase64String($utf8.GetBytes('owned helper'))})}
+  $lifePlan=[ordered]@{schemaVersion=1;operation='INSTALL';correctionId='GROUP';expectedCorrectionsIdentity=Get-Identity $correctionsPath;decisionLocator='fixture:install';forbiddenPaths=@('private/');record=(New-Correction GROUP 'Unique lifecycle group rule.' @('CONTROL_WRITE') @());installation=$installation;installationRelativePath='.ai-workspace/upgrade-recovery/corrections/GROUP/install/installation.json';transactionRelativePath='.ai-workspace/upgrade-recovery/corrections/GROUP/install/state.json';impact=[ordered]@{stoppedObligations=@();independentObligations=@('independent base');inFlightEffects=@();recovery='existing transaction rollback';semanticAssessment='isolated fixture with complete explicit ownership'}}
+  $lifePlanPath=Join-Path $control 'lifecycle-plan.json';Write-Json $lifePlanPath $lifePlan
+  function Invoke-LifecycleAction($Plan,[string]$Name){
+    Write-Json $lifePlanPath $Plan
+    $preview=Invoke-AiwCorrectionLifecycle $project $lifePlanPath (Get-Identity $lifePlanPath) 'source-postimage-fixture' '1.16.0'
+    $paths=@($preview.projection.objects.path|Sort-Object)
+    $pkg=New-Package $Name $paths;$action=Start-Action $Name $paths $pkg
+    if($null-eq$action.Admit-or$action.Admit.Code-ne0){throw ('LIFECYCLE_ADMISSION|'+$action.Discover.Text)}
+    $applied=@(& (Join-Path $rootScripts 'upgrade-project.ps1') -ProjectId 'source-postimage-fixture' -ToVersion '1.16.0' -RepositoryPath $project -ProjectCorrectionLifecyclePath $lifePlanPath -ExpectedProjectCorrectionLifecycleIdentity (Get-Identity $lifePlanPath) -CurrentProcessInputPath $boundaryPath -ExpectedCurrentProcessInputIdentity (Get-Identity $boundaryPath) -Apply)
+    $final=Invoke-Finalize $action (@($action.Results)+(Get-Postimages $paths))
+    if($final.Code-ne0){throw ('LIFECYCLE_FINALIZE|'+$final.Text)}
+    return [pscustomobject]@{Apply=$applied[-1];Final=$final;Paths=$paths}
+  }
+  $installed=Invoke-LifecycleAction $lifePlan 'lifecycle-install'
+  Assert-True ($installed.Apply.status-ceq'COMPLETE'-and$installed.Final.Value.status-ceq'PASS'-and'projectAgentsIdentity'-cin@($installed.Final.Value.sourcePostimageTransition.changedBindings)) 'root-lifecycle-installs-complete-group-and-finalizes-agents-authority-change'
+  Write-Utf8 (Join-Path $project 'AGENTS.md') (([IO.File]::ReadAllText((Join-Path $project 'AGENTS.md')))+"Later independent user decision`n")
+  Write-Utf8 (Join-Path $project 'settings.json') '{"owned":2,"independent":9}'
+  $lifePlan.operation='UNINSTALL';$lifePlan.expectedCorrectionsIdentity=Get-Identity $correctionsPath;$lifePlan.record='NOT_APPLICABLE';$lifePlan.installation='NOT_APPLICABLE';$lifePlan.installationRelativePath='NOT_APPLICABLE';$lifePlan.transactionRelativePath='.ai-workspace/upgrade-recovery/corrections/GROUP/uninstall/state.json'
+  $uninstalled=Invoke-LifecycleAction $lifePlan 'lifecycle-uninstall'
+  Assert-True ($uninstalled.Apply.status-ceq'COMPLETE'-and-not(Test-Path (Join-Path $project 'owned-helper.txt'))-and([IO.File]::ReadAllText((Join-Path $project 'AGENTS.md'))).Contains('Later independent user decision')-and-not([IO.File]::ReadAllText((Join-Path $project 'AGENTS.md'))).Contains('Correction-owned delegation')-and([IO.File]::ReadAllText((Join-Path $project 'settings.json'))).Contains('"owned":1,"independent":9')) 'root-lifecycle-uninstall-removes-owned-delegation-and-preserves-independent-user-config'
+  $badPlan=$lifePlan|ConvertTo-Json -Depth 64|ConvertFrom-Json -Depth 64;$badPlan.operation='INSTALL';$badPlan.correctionId='INVALID_GROUP';$badPlan.expectedCorrectionsIdentity=Get-Identity $correctionsPath;$badPlan.record=New-Correction INVALID_GROUP 'Invalid duplicate body.' @('CONTROL_WRITE') @()
+  $currentCarrier=Get-Content $correctionsPath -Raw|ConvertFrom-Json;$activeRecord=@($currentCarrier.corrections|Where-Object{$null-eq$_.PSObject.Properties['lifecycle']})[0];$badPlan.record.effectiveRule=$activeRecord.effectiveRule
+  $badPlan.installation=[pscustomobject]@{schemaVersion=1;correctionId='INVALID_GROUP';decisionLocator='fixture:bad';dependsOn=@();changes=@()};$badPlan.installationRelativePath='.ai-workspace/upgrade-recovery/corrections/INVALID_GROUP/install/installation.json';$badPlan.transactionRelativePath='.ai-workspace/upgrade-recovery/corrections/INVALID_GROUP/install/state.json'
+  $beforeBad=Get-Identity $correctionsPath;$reason='';try{Invoke-LifecycleAction $badPlan 'lifecycle-invalid'|Out-Null}catch{$reason=$_.Exception.Message}
+  Assert-True ($reason.Contains('CONFLICT_PROJECT_RULE_DUPLICATE_EFFECTIVE_RULE')-and(Get-Identity $correctionsPath)-ceq$beforeBad-and-not(Test-Path (Join-Path $project $badPlan.installationRelativePath))) 'root-lifecycle-invalid-composed-rules-roll-back-entire-installation'
 }finally{
   if(Test-Path -LiteralPath $temp){$tempRoot=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath([IO.Path]::GetTempPath()));$full=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($temp));if(-not$full.StartsWith($tempRoot+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)-or[IO.Path]::GetFileName($full)-cnotmatch'^aiw-source-postimage-[a-f0-9]{32}$'){throw 'TEMP_CLEANUP_BOUNDARY'};Get-ChildItem -LiteralPath $full -Recurse -Force -ErrorAction SilentlyContinue|ForEach-Object{try{$_.Attributes=[IO.FileAttributes]::Normal}catch{}};Remove-Item -LiteralPath $full -Recurse -Force}
 }

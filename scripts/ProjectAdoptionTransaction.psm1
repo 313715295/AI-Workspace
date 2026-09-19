@@ -475,6 +475,7 @@ function Invoke-AiwProjectRuleActionRecovery {
     if(@($required|Where-Object{$_-cnotin@($admit.preparationReceipts)}).Count-ne0){throw 'RULE_RECOVERY_ORIGINAL_PREPARATION'}
     if([int]$admit.schemaVersion-eq1-and([string]$admit.objective-cne[string]$context.objective-or[string]$admit.actionKind-cne'CONTROL_WRITE'-or[string]$admit.resultKind-cne[string]$context.result-or[string]$admit.authorizationIdentity-cne[string]$context.authorizationIdentity-or[string]::Join('|',@($admit.exactPaths))-cne[string]::Join('|',@($context.paths)))){throw 'RULE_RECOVERY_ORIGINAL_ADMISSION_CONTEXT'}
     $material=@($receipt.sourceCompositionIdentity,$receipt.selectionIdentity,$receipt.contextIdentity,'ADMIT_ACTION',$context.objective,$context.action,$context.result,[string]::Join(',',@($context.paths)),$context.authorizationIdentity,[string]::Join(',',@($admit.preparationReceipts)),[string]::Join(',',@($admit.resultReceipts)),[string]::Join(',',@($admit.deliveryReceipts)),$admit.publicDecisionIdentity,$admit.protectionState,'NO_SOURCE_POSTIMAGE_TRANSITION','')-join[string][char]10
+    if($null-ne$admit.PSObject.Properties['deliveryContext']){$material+=($admit.deliveryContext|ConvertTo-Json -Compress)}
     $decision=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($material)))
     if($decision-cne[string]$result.decisionIdentity){throw 'RULE_RECOVERY_ORIGINAL_ADMISSION_DECISION'}
     $framework=[IO.Path]::GetFullPath([string]$receipt.sourceLocators.frameworkRoot)
@@ -494,6 +495,11 @@ function Invoke-AiwProjectRuleActionRecovery {
         $actual=Get-AiwCurrentIdentity ([string]$static[$name])
         if($actual-cne[string]$receipt.sourceBindings.$name){throw ('RULE_RECOVERY_UNAUTHORIZED_SOURCE_DRIFT|'+$name)}
     }
+    $originalDelivery=Get-AiwBoundaryDeliveryObservation $admit $framework $version
+    if($null-ne$originalDelivery){
+        if($null-eq$result.PSObject.Properties['delivery']){throw 'RULE_RECOVERY_ADMIT_DELIVERY_RESULT'}
+        Assert-AiwAdoptionSame $originalDelivery $result.delivery 'RULE_RECOVERY_ADMIT_DELIVERY_RESULT'
+    }elseif($null-ne$result.PSObject.Properties['delivery']){throw 'RULE_RECOVERY_ADMIT_DELIVERY_RESULT'}
     $entries=@{};$oldObjects=@{};$desired=@();$bootstrapPreimage=$null
     if($plan.objects.Count-ne2){throw 'RULE_RECOVERY_OBJECT_COUNT'}
     foreach($entry in $plan.objects){
@@ -725,6 +731,14 @@ Export-ModuleMember -Function Resume-AiwRuntimeAdoption
 function Assert-AiwAdoptionSame($Left,$Right,[string]$Label) {
     if(($Left|ConvertTo-Json -Depth 100 -Compress)-cne($Right|ConvertTo-Json -Depth 100 -Compress)){throw ('ADOPTION_PROCESS_'+$Label)}
 }
+function Get-AiwBoundaryDeliveryObservation($Boundary,[string]$FrameworkRoot,[string]$Version='1.16.0') {
+    if($null-eq$Boundary.PSObject.Properties['deliveryContext']){return $null}
+    Import-Module (Join-Path $FrameworkRoot ('framework/versions/'+$Version+'/scripts/ProcessRequirementComposition.psm1')) -Force
+    $observation=Get-AiwDeliveryObservation $Boundary.deliveryContext
+    if($Boundary.deliveryContext.stage-ceq'PREPARE'-and@($Boundary.deliveryReceipts).Count){throw 'DELIVERY_FUTURE_EVIDENCE'}
+    return $observation
+}
+Export-ModuleMember -Function Get-AiwBoundaryDeliveryObservation
 function Read-AiwAdoptionEvidence([string]$Path,[string]$Identity,[string]$Label) {
     if([string]::IsNullOrWhiteSpace($Path)-or$Identity-cnotmatch'^\d+\|[A-F0-9]{64}$'){throw ('ADOPTION_PROCESS_EVIDENCE_REQUIRED|'+$Label)}
     $doc=Read-AiwProjectJson $Path $Label
@@ -755,7 +769,7 @@ function Get-AiwAdoptionComposition([string]$Root,[string]$Runtime,$Receipt,[swi
     Import-Module (Join-Path $Runtime 'framework/versions/1.16.0/scripts/ProcessRequirementComposition.psm1') -Force
     $result=Invoke-ProcessRequirementComposition -ProjectRoot $Root -FrameworkRoot $Runtime -TargetVersion '1.16.0' -ExpectedProjectConfigIdentity (Get-AiwCurrentIdentity (Get-AiwContainedPath $Root '.ai-workspace/project.json')) -ExpectedCorrectionsIdentity (Get-AiwCurrentIdentity (Get-AiwContainedPath $Root '.ai-workspace/corrections.json')) -Profile $c.profile -Role $c.role -Phase $c.phase -Actor $c.actor -TaskIdentity $c.taskIdentity -Capabilities @($c.observedCapabilities) -Objective (Get-AiwProcessSemanticText $Receipt.intentEnvelope) -ActionKind 'CONTROL_WRITE' -ResultKind $Receipt.intentEnvelope.requestedResultKind -ExactPaths @($c.exactScope) -ForbiddenPaths @($c.forbiddenScope) -EvaluationOnly:$EvaluationOnly
     $size=$script:Utf8NoBom.GetByteCount((@($result.selectedRequirements)|ConvertTo-Json -Depth 50 -Compress))
-    if($size-gt$result.selectedRulePackBytes-or$result.selectedRulePackBytes-gt$result.absoluteSelectedRulePackBytes){throw 'ADOPTION_PROCESS_PACK_BUDGET'}
+    # Measured bytes are observational; source and adoption proofs remain mandatory.
     return $result
 }
 function New-AiwAdoptionProcessPreparation {
@@ -804,7 +818,8 @@ function Invoke-AiwAdoptionProcessBoundary {
     $root=Resolve-AiwRepositoryRoot $RepositoryRoot
     $inputDoc=Read-AiwAdoptionEvidence $InputPath $ExpectedInputIdentity 'BOUNDARY';$b=$inputDoc.Value
     $fields=@('schemaVersion','mode','discoverReceiptPath','expectedDiscoverReceiptIdentity','preparationReceipts','resultReceipts','deliveryReceipts','publicDecisionIdentity','protectionState')
-    Assert-AiwAdoptionSame @($b.PSObject.Properties.Name|Sort-Object) @($fields|Sort-Object) 'BOUNDARY_FIELDS'
+    $boundaryFields=@($fields);if($null-ne$b.PSObject.Properties['deliveryContext']){$boundaryFields+='deliveryContext'}
+    Assert-AiwAdoptionSame @($b.PSObject.Properties.Name|Sort-Object) @($boundaryFields|Sort-Object) 'BOUNDARY_FIELDS'
     if($b.schemaVersion-ne2-or$b.mode-cne$ExpectedMode-or$b.mode-cnotin@('ADMIT_ACTION','FINALIZE_OUTPUT')-or$b.protectionState-cne'BOUND'){throw 'ADOPTION_PROCESS_BOUNDARY_CONTRACT'}
     $receiptDoc=Read-AiwAdoptionEvidence $b.discoverReceiptPath $b.expectedDiscoverReceiptIdentity 'DISCOVER';$r=$receiptDoc.Value;$c=Get-AiwAdoptionProcessContext $r
     if((Resolve-AiwRepositoryRoot $c.projectRoot)-cne$root-or$c.actor-cne$ObservedActor){throw 'ADOPTION_PROCESS_ACTOR_ROOT'}
@@ -846,10 +861,12 @@ function Invoke-AiwAdoptionProcessBoundary {
         if((Get-AiwByteIdentity $preparationBytes)-cne$ad.adoptionPreparationIdentity){throw 'ADOPTION_PROCESS_PREPARATION_IDENTITY'}
         Assert-AiwAdoptionSame ($script:Utf8NoBom.GetString($preparationBytes)|ConvertFrom-Json -Depth 100) $p 'PREPARATION_CONTENT'
         foreach($field in $r.sourceBindings.PSObject.Properties){if($null-eq$p.oldSourceBindings.PSObject.Properties[$field.Name]-or[string]$p.oldSourceBindings.($field.Name)-cne[string]$field.Value){throw ('ADOPTION_PROCESS_OLD_SOURCE_DRIFT|'+$field.Name)}}
-        Assert-AiwAdoptionSame @($a.PSObject.Properties.Name|Sort-Object) @($fields|Sort-Object) 'ADMIT_FIELDS'
+        $admitFields=@($fields);if($null-ne$a.PSObject.Properties['deliveryContext']){$admitFields+='deliveryContext'}
+        Assert-AiwAdoptionSame @($a.PSObject.Properties.Name|Sort-Object) @($admitFields|Sort-Object) 'ADMIT_FIELDS'
         foreach($field in @('preparationReceipts','resultReceipts','deliveryReceipts')){if($a.$field-isnot[array]-or@($a.$field|Where-Object{$_-isnot[string]-or[string]::IsNullOrWhiteSpace($_)}).Count){throw 'ADOPTION_PROCESS_ADMIT_ARRAY'}}
         if($ad.status-cne'PASS'-or$ad.mode-cne'ADMIT_ACTION'-or$a.mode-cne'ADMIT_ACTION'-or$a.schemaVersion-ne2-or$ad.selectionIdentity-cne$r.selectionIdentity-or$a.expectedDiscoverReceiptIdentity-cne$receiptDoc.Identity-or$a.discoverReceiptPath-cne$b.discoverReceiptPath-or$a.protectionState-cne$b.protectionState-or$a.publicDecisionIdentity-cne$b.publicDecisionIdentity-or@($ad.missingPreparation).Count-or@($ad.missingResult).Count-or$p.discoverReceiptIdentity-cne$receiptDoc.Identity){throw 'ADOPTION_PROCESS_ORIGINAL_ADMISSION'}
         $material=@($r.sourceCompositionIdentity,$r.selectionIdentity,$r.contextIdentity,'ADMIT_ACTION',$r.intentEnvelope.objective,'CONTROL_WRITE',$r.intentEnvelope.requestedResultKind,[string]::Join(',',@($c.exactScope)),$c.authorizationIdentity,[string]::Join(',',@($a.preparationReceipts)),[string]::Join(',',@($a.resultReceipts)),[string]::Join(',',@($a.deliveryReceipts)),$a.publicDecisionIdentity,$a.protectionState,'NO_SOURCE_POSTIMAGE_TRANSITION','')-join"`n"
+        if($null-ne$a.PSObject.Properties['deliveryContext']){$material+=($a.deliveryContext|ConvertTo-Json -Compress)}
         if((Get-AiwByteIdentity ($script:Utf8NoBom.GetBytes($material))).Split('|')[1]-cne$ad.decisionIdentity){throw 'ADOPTION_PROCESS_ORIGINAL_DECISION'}
         if(('ADOPTION_TARGET_RULES_LOADED|'+$ad.adoptionPreparationIdentity)-cnotin@($a.preparationReceipts)){throw 'ADOPTION_PROCESS_TARGET_PREPARATION_INCOMPLETE'}
         $pkgDoc=Read-AiwAdoptionEvidence $r.sourceLocators.authorizationPackagePath $c.authorizationIdentity 'PROCESS_PACKAGE';$pkg=$pkgDoc.Value
@@ -876,6 +893,12 @@ function Invoke-AiwAdoptionProcessBoundary {
         Assert-AiwAdoptionSame $oldState.distributionBinding $p.previousDistribution 'OLD_DISTRIBUTION'
         if($stateEntry.oldIdentity-cne$r.sourceBindings.candidatePilotStateIdentity){throw 'ADOPTION_PROCESS_OLD_STATE'}
         $composition=Get-AiwAdoptionComposition $root $p.targetDistribution.runtimeRoot $r
+        $admitDelivery=Get-AiwBoundaryDeliveryObservation $a $p.previousDistribution.runtimeRoot
+        if($null-ne$admitDelivery){
+            if($null-eq$ad.PSObject.Properties['delivery']){throw 'ADOPTION_PROCESS_ADMIT_DELIVERY_RESULT'}
+            Assert-AiwAdoptionSame $admitDelivery $ad.delivery 'ADMIT_DELIVERY_RESULT'
+        }elseif($null-ne$ad.PSObject.Properties['delivery']){throw 'ADOPTION_PROCESS_ADMIT_DELIVERY_RESULT'}
+        $delivery=Get-AiwBoundaryDeliveryObservation $b $p.targetDistribution.runtimeRoot
         Assert-AiwAdoptionSame @($composition.selectedRequirements) @($p.selectedRuleBlocks) 'TARGET_RULE_DRIFT'
         if($composition.selectedRulePackBytes-ne$p.selectedPackCeilingBytes){throw 'ADOPTION_PROCESS_PACK_BUDGET'}
         foreach($field in $p.projectedSourceBindings.PSObject.Properties){if([string]$composition.($field.Name)-cne[string]$field.Value){throw ('ADOPTION_PROCESS_SOURCE_DRIFT|'+$field.Name)}}
@@ -899,10 +922,13 @@ function Invoke-AiwAdoptionProcessBoundary {
         $prep=@(@($r.selectedObligations|ForEach-Object{$_.preparationRequirements})+@($p.selectedRuleBlocks|ForEach-Object{$_.preparationRequirements})|Sort-Object -Unique)
         if(@($prep|Where-Object{$_-cnotin@($a.preparationReceipts)-or$_-cnotin@($b.preparationReceipts)}).Count){throw 'ADOPTION_PROCESS_PREPARATION_INCOMPLETE'}
         $results=@(@($r.selectedObligations|ForEach-Object{$_.resultRequirements})+@($p.selectedRuleBlocks|ForEach-Object{$_.resultRequirements})|Sort-Object -Unique)
+        if($null-ne$delivery){$results=@($results|Where-Object{$_-cne'DELIVERY_RECEIPT'})}
         if(@($results|Where-Object{$_-cnotin@($b.resultReceipts)}).Count){throw 'ADOPTION_PROCESS_RESULT_INCOMPLETE'}
-        if($r.intentEnvelope.requestedResultKind-cin@('USER_RESPONSE','TERMINAL','HANDOFF','REVIEW_VERDICT','OWNER_ACCEPTANCE')-and@($b.deliveryReceipts).Count-eq0){throw 'ADOPTION_PROCESS_DELIVERY_INCOMPLETE'}
+        if($null-eq$delivery-and$r.intentEnvelope.requestedResultKind-cin@('USER_RESPONSE','TERMINAL','HANDOFF','REVIEW_VERDICT','OWNER_ACCEPTANCE')-and@($b.deliveryReceipts).Count-eq0){throw 'ADOPTION_PROCESS_DELIVERY_INCOMPLETE'}
         foreach($doc in @($inputDoc,$receiptDoc,$adDoc,$pkgDoc,$txnDoc)){if((Get-AiwCurrentIdentity $doc.Path)-cne$doc.Identity){throw 'ADOPTION_PROCESS_EVIDENCE_CHANGED_DURING_CHECK'}}
-        return [ordered]@{status='PASS';mode='FINALIZE_OUTPUT';reason='ORIGINAL_CROSS_DISTRIBUTION_ADOPTION_FINALIZED';originalDiscoverReceiptIdentity=$receiptDoc.Identity;originalAdmitDecisionIdentity=$ad.decisionIdentity;adoptionTransactionIdentity=$txnDoc.Identity;previousSourceCompositionIdentity=$r.sourceCompositionIdentity;currentSourceCompositionIdentity=$composition.sourceCompositionIdentity;runtimeRoot=$p.targetDistribution.runtimeRoot;missingPreparation=@();missingResult=@();authorityGranted=$false;semanticCorrectnessProven=$false;hostInvocationProven=$false;evidenceGrade='INSTRUCTION_BOUND'}
+        $result=[ordered]@{status='PASS';mode='FINALIZE_OUTPUT';reason='ORIGINAL_CROSS_DISTRIBUTION_ADOPTION_FINALIZED';originalDiscoverReceiptIdentity=$receiptDoc.Identity;originalAdmitDecisionIdentity=$ad.decisionIdentity;adoptionTransactionIdentity=$txnDoc.Identity;previousSourceCompositionIdentity=$r.sourceCompositionIdentity;currentSourceCompositionIdentity=$composition.sourceCompositionIdentity;runtimeRoot=$p.targetDistribution.runtimeRoot;missingPreparation=@();missingResult=@();authorityGranted=$false;semanticCorrectnessProven=$false;hostInvocationProven=$false;evidenceGrade='INSTRUCTION_BOUND'}
+        if($null-ne$delivery){$result.delivery=$delivery;$result.finalizeInputIdentity=$inputDoc.Identity}
+        return $result
     }finally{if($cleanup-and(Test-Path -LiteralPath $inputDoc.Path -PathType Leaf)){[IO.File]::Delete($inputDoc.Path)}}
 }
 Export-ModuleMember -Function New-AiwAdoptionProcessPreparation,Invoke-AiwAdoptionProcessBoundary

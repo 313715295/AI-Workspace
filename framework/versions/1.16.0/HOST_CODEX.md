@@ -18,6 +18,8 @@ Codex 遵循 `PR_FINAL_OUTPUT_CURRENT_RESULT` 通用合同：终态、routing id
 temporary actor/Reviewer 一次 terminal 后即无写职责；不向 Owner 索要反向 task 写权、package 删除或释放确认。Owner 更新唯一 task facts；STATUS/index 仅随 lifecycle/routing 变化投影。
 
 宿主实际成功/拒绝/未知/明确可重试信号按 PR_FINAL_OUTPUT_CURRENT_RESULT 消费；没有送达证明不称 DELIVERED，不能把未知结果当作可重试。
+
+原生 final 在发送前按 TOOL_CONTRACT 的 PREPARE 核定，只报告 READY_TO_SEND。任务间发送完成后，在原工具编排把真实返回映射为 OBSERVE 并连续调用同一 DELIVERY 校验；未知和失败停止依赖发送。宿主无法提供细分状态时保留 UNKNOWN，不生成未来证据、ACK 或额外记账回合。
 <!-- AIW-REQUIREMENT:PR_COMPACT_NON_INTERRUPT_DELIVERY:END -->
 
 <!-- AIW-REQUIREMENT:PR_CODEX_TOOL_OPERATION_RESOLUTION:BEGIN -->
