@@ -22,6 +22,6 @@ baseline：immutable stable Framework `1.15.1`。release class：`MINOR`。
 
 resolver 不授予 authority，也不证明 semantic correctness。`SOURCE_WRITE`、TEST、REVIEW、`OWNER_ACCEPT`、Git、push、browser/device、external 与 protection gate 保持独立。project corrections 与 project-specific process rules 仍是独立 project authority。
 
-host-global Skill 不可用、不兼容或无法证明已运行时，先读 `RECOVERY_CORE.md`；通过 `TOOLCHAIN.json` 解析 executable operation。`1.16.0` 唯一 official backend 是 Windows 上的 `powershell7`。
+Router 缺失、不可发现或不兼容时，按[接入说明的宿主接入收尾](../../PROJECT_ADOPTION.md#宿主接入收尾)修复后继续。`1.16.0` 唯一 official backend 是 Windows 上的 `powershell7`。
 
 当前开发候选取消中央项目纠正映射：项目当前显式生命周期决定生效；旧包采用处置由根 PROJECT_ADOPTION 说明，保留完整历史。实现期间 RELEASE_MANIFEST 的验证/审核保持 PENDING，不沿用旧 Snapshot 的通过结果。

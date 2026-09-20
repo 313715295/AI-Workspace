@@ -1,11 +1,9 @@
 <!-- AI-WORKSPACE-FRAMEWORK:BEGIN -->
-# AI Workspace Framework Maintenance 导航
+# AI Workspace Framework Maintenance
 
-对受本仓库 `.ai-workspace` 管理的非简单 Framework maintenance，仅在 pinned release 满足 sealed compatibility predicate 时使用 root canonical `ai-workspace-router` Skill。缺失、未发现或不兼容时直接执行 `.ai-workspace/BOOTSTRAP.md`。不需要 repo-local Skill copy。
+本项目采用 AI Workspace Framework，使用已接入的 `ai-workspace-router` Skill 按需开展维护治理；开发源码位于独立的 Framework target。
 
-在自然 prompt、context change、独立 action 与最终输出边界激活；bound context 未变化时复用，不按每次 tool call 调用。
+用户持续委托AI，为完成本项目已授权目标，遵循当前采用的Framework、当前生效的项目纠正和永久规则，自主作出并执行其允许的工作决定。该委托持续有效，无须逐任务、逐步骤重复确认；用户后续明确决定优先，规则明确保留给用户的决定仍由用户作出。
 
-Skill 只负责 navigation。Maintenance authority 保持在 `.ai-workspace`；Framework target 是独立 repository 与 authorization boundary。项目 instruction 可写在 managed block 之外。
-
-恢复时同时读取本文件用户区的持续委托与后续明确决定；注册保存已确认的使用决定，升级保留用户区，不重新生成已撤回的委托。
+本管理区随框架模板更新；项目约定、额外限制及撤回写在区外并保留。
 <!-- AI-WORKSPACE-FRAMEWORK:END -->

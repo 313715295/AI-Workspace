@@ -224,7 +224,7 @@ try {
     $null=Assert-AiwDistributionBinding $binding $snapshotExtract '1.16.0'
     $snapshotReadme = [IO.File]::ReadAllText((Join-Path $snapshotExtract 'README.md'))
     Assert-True ($snapshotManifest.schemaVersion -eq 2 -and $snapshotManifest.distributionId -ceq '1.16.0-snapshot.7' -and $snapshotManifest.frameworkVersion -ceq '1.16.0' -and $snapshotManifest.provisional -and $snapshotReadme.Contains('# AI Workspace 1.16.0-snapshot.7 用户发行包') -and $snapshotReadme.Contains('仍不可普通注册或采用')) 'snapshot-manifest-readme-and-eligibility-agree'
-    Assert-True ($snapshotReadme.Contains('项目标准由用户选择保存位置') -and $snapshotReadme.Contains('提取规则、精炼或改造文档均为可选') -and $snapshotReadme.Contains('scripts/register-project.ps1') -and $snapshotReadme.Contains('.ai-workspace/BOOTSTRAP.md')) 'user-entry-preserves-standard-choice-and-registration-to-bootstrap-route'
+    Assert-True ($snapshotReadme.Contains('项目标准由用户选择保存位置') -and $snapshotReadme.Contains('提取规则、精炼或改造文档均为可选') -and $snapshotReadme.Contains('](framework/PROJECT_ADOPTION.md)') -and (Test-Path -LiteralPath (Join-Path $snapshotExtract 'framework/PROJECT_ADOPTION.md')) -and ([IO.File]::ReadAllText((Join-Path $snapshotExtract 'framework/PROJECT_ADOPTION.md'))).Contains('../scripts/register-project.ps1') -and ([IO.File]::ReadAllText((Join-Path $snapshotExtract 'framework/PROJECT_ADOPTION.md'))).Contains('宿主接入收尾')) 'user-entry-preserves-standard-choice-and-resolves-single-adoption-route'
     $payloadUnchanged = $true
     foreach ($file in @(Get-ChildItem -LiteralPath $fixtureVersionRoot -Recurse -File -Force)) {
         $relative = [IO.Path]::GetRelativePath($fixtureVersionRoot, $file.FullName)
@@ -341,13 +341,14 @@ try {
     $stableRepeat = & (Join-Path $stableExtract 'scripts/register-project.ps1') -ProjectId 'stable-package-consumer' -DisplayName 'Stable Package Consumer' -FrameworkVersion '1.16.0' -RepositoryPath $stableConsumer -ControllerId 'controller-fixture' -WorkspaceRoot $stableExtract
     Assert-True (@(Get-StatusResult $stableRepeat 'ALREADY_REGISTERED').Count -eq 1) 'stable-distribution-registration-reread'
     $agentsPath=Join-Path $stableConsumer 'AGENTS.md'
-    $withoutDelegation=[regex]::Replace([IO.File]::ReadAllText($agentsPath),'(?s)<!-- AI-WORKSPACE-USER-DECISION:BEGIN -->.*?<!-- AI-WORKSPACE-USER-DECISION:END -->\s*','')
-    [IO.File]::WriteAllText($agentsPath,$withoutDelegation,[Text.UTF8Encoding]::new($false))
+    $outsideRestriction="`n用户撤回持续委托。`n"
+    $withRestriction=[IO.File]::ReadAllText($agentsPath)+$outsideRestriction
+    [IO.File]::WriteAllText($agentsPath,$withRestriction,[Text.UTF8Encoding]::new($false))
     $null=& (Join-Path $stableExtract 'scripts/register-project.ps1') -ProjectId 'stable-package-consumer' -DisplayName 'Stable Package Consumer' -FrameworkVersion '1.16.0' -RepositoryPath $stableConsumer -ControllerId 'controller-fixture' -WorkspaceRoot $stableExtract -Apply -Confirm:$false
-    Assert-True ([IO.File]::ReadAllText($agentsPath)-ceq$withoutDelegation) 'real-registration-does-not-resurrect-removed-delegation'
+    Assert-True ([IO.File]::ReadAllText($agentsPath)-ceq$withRestriction) 'real-registration-preserves-outside-revocation'
     $stableRecovery = @(& (Join-Path $stableExtract 'scripts/upgrade-project.ps1') -ProjectId 'stable-package-consumer' -ToVersion '1.16.0' -RepositoryPath $stableConsumer -ControllerId 'controller-fixture' -WorkspaceRoot $stableExtract | ForEach-Object { [string]$_ })
     Assert-True (($stableRecovery -join "`n").Contains('WHAT_IF|from=1.16.0|to=1.16.0|objects=0|transaction=none')) 'stable-distribution-same-pin-recovery-preview'
-    Assert-True ([IO.File]::ReadAllText($agentsPath)-ceq$withoutDelegation) 'real-same-pin-upgrade-preserves-removed-delegation'
+    Assert-True ([IO.File]::ReadAllText($agentsPath)-ceq$withRestriction) 'real-same-pin-upgrade-preserves-outside-revocation'
     Assert-True ((Get-Content (Join-Path $stableConsumer '.ai-workspace/process-policy.json') -Raw|ConvertFrom-Json).selectedRulePackBytes-eq1) 'registration-and-same-pin-upgrade-preserve-observational-legacy-value'
 
     Write-Output ('PASS|user-package-tests|' + $passed + '/' + $passed)

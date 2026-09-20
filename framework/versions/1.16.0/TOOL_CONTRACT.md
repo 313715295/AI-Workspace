@@ -19,7 +19,7 @@ UNKNOWN semantic applicability 保守加载规则。schema1 free-text correction
 
 source composition、progressive selection 与 boundary decision identity 分离，并拥有各自 invalidators。selection 绑定完整 intent envelope，boundary decision 也绑定 discovered context identity。backend 可以重读 unchanged bytes，但 host 未观察时不得声称 physical cache hit。receipt 是 ephemeral、non-authoritative artifact，不是 repository ledger。
 
-项目 AGENTS 中的用户决定由当前模型读取、理解并与后续用户指令对齐；不从固定正文自动推断授权。source binding 的 projectAgentsIdentity 单独绑定 AGENTS 全文件 identity，缺文件为 MISSING；projectCustomIdentity 仍只绑定 Bootstrap custom。决定收窄、撤回或其他字节漂移使旧收据失效；已授权 CONTROL_WRITE 的 AGENTS 后像可沿现有来源转换 FINALIZE，必须匹配包内精确路径及 OBJECT_POSTIMAGE，第三方改动不豁免。旧收据缺此字段且当前也无 AGENTS 时保持兼容；已有 AGENTS 却未绑定则重新 DISCOVER，不增加用户确认或强制创建文件。该字段不把用户决定变成项目标准或授权台账。Review 的载体/材料 preparation 由调用者提交已核对事实，checker 的主体关系排除与候选对象校验继续独立执行，机械 PASS 不证明调用者的语义判断。
+项目 AGENTS 中的框架管理内容、区外项目决定由当前模型读取并与后续用户指令对齐；不从固定正文自动推断授权。source binding 的 projectAgentsIdentity 单独绑定 AGENTS 全文件 identity，缺文件为 MISSING；projectCustomIdentity 仍只绑定 Bootstrap custom。决定收窄、撤回或其他字节漂移使旧收据失效；已授权 CONTROL_WRITE 的 AGENTS 后像可沿现有来源转换 FINALIZE，必须匹配包内精确路径及 OBJECT_POSTIMAGE，第三方改动不豁免。旧收据缺此字段且当前也无 AGENTS 时保持兼容；已有 AGENTS 却未绑定则重新 DISCOVER，不增加用户确认或强制创建文件。该字段不把用户决定变成项目标准或授权台账。Review 的载体/材料 preparation 由调用者提交已核对事实，checker 的主体关系排除与候选对象校验继续独立执行，机械 PASS 不证明调用者的语义判断。
 
 `-DeleteInputOnExit` 只删除经过安全验证的 exact input：
 
@@ -117,7 +117,7 @@ host 先读 project pin，再读 pinned `TOOLCHAIN.json`。backend ID、`OFFICIA
 
 唯一 canonical `ai-workspace-router` Skill 位于 repository root `skills/ai-workspace-router/SKILL.md`，只负责 navigation。`TOOLCHAIN.json.routerCompatibility.canonicalSkillPath` 绑定该路径，`versionContractPath` 指向 version 内的 `REFERENCE_ONLY / VERSION_CONTRACT / NON_INSTALLABLE` history file。
 
-当前受支持版本通过 sealed `TOOLCHAIN.json` 声明 exact operations、process-catalog schema/version 与 native rule-body source。Router 不按发行号内置兼容白名单；declaration 缺失、冲突或 unknown 时，回到 pinned project Bootstrap 并报告 `INCOMPATIBLE_OR_UNKNOWN`。
+当前受支持版本通过 sealed `TOOLCHAIN.json` 声明 exact operations、process-catalog schema/version 与 native rule-body source。Router 不按发行号内置兼容白名单；安装、宿主发现及 declaration 缺失或不兼容的处理统一见随包 PROJECT_ADOPTION 的宿主接入收尾。
 
 install/update host-global Skill 是独立 explicit host-write action。registration/upgrade 不执行安装，也不创建 installation registry/ledger。
 

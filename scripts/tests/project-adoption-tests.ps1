@@ -5,6 +5,7 @@ param(
     [string]$SeedTransactionPath,
     [string]$ExpectedSeedTransactionIdentity,
     [switch]$ActorStorageOnly,
+    [switch]$EntryTemplatesOnly,
     [string]$LegacyRuntimeRoot
 )
 
@@ -160,19 +161,25 @@ try {
         Write-Output ('PASS|actor-storage-root-consumers|'+$passed+'/'+$passed)
         return
     }
-    $custom = "# User decisions`nOnly the approved project goal is delegated.`n"
-    Assert-True ((Get-AiwStandingDelegationProjection -Text $custom) -ceq $custom) 'viewing-or-template-presence-does-not-create-user-delegation'
-    $templatePath=Join-Path (Split-Path -Parent $scriptsRoot) 'framework/versions/1.16.0/project-starter/AGENTS.md'
-    $delegated = Get-AiwStandingDelegationProjection -Text $custom -AdoptionRequested $true -TemplatePath $templatePath
-    Assert-True ((Get-AiwStandingDelegationProjection -Text $custom -AdoptionRequested $true -TemplatePath $templatePath -ExistingProject $true) -ceq $custom) 'deleted-delegation-not-reintroduced-on-existing-project'
-    $templateText=[IO.File]::ReadAllText($templatePath)
-    Assert-True (-not(Get-AiwAgentsTemplateBlock $templateText).Contains('用户持续委托AI')) 'navigation-consumer-excludes-decision-section'
-    Assert-True ($delegated.StartsWith($custom) -and $delegated.Contains('用户持续委托AI，为完成本项目已授权目标') -and $delegated.Contains('规则明确保留给用户的决定仍由用户作出。')) 'explicit-adoption-projects-whole-project-delegation-and-preserves-custom-text'
-    Assert-True ((Get-AiwStandingDelegationProjection -Text $delegated -AdoptionRequested $true) -ceq $delegated) 'registration-delegation-projection-is-idempotent'
-    foreach ($decision in @('用户撤回持续委托。','用户将委托收窄为只读分析。')) {
-        $existing = "<!-- AI-WORKSPACE-USER-DECISION:BEGIN -->`n$decision`n<!-- AI-WORKSPACE-USER-DECISION:END -->`n"
-        Assert-True ((Get-AiwStandingDelegationProjection -Text $existing -AdoptionRequested $true) -ceq $existing) 'existing-revoked-or-narrowed-decision-is-not-overwritten'
+    $custom = "# Project conventions`nOnly the approved project goal is delegated.`n"
+    Assert-True ((Get-AiwStandingDelegationProjection -Text $custom) -ceq $custom) 'viewing-does-not-create-adoption'
+    foreach($templatePath in @((Join-Path (Split-Path -Parent $scriptsRoot) 'framework/versions/1.16.0/project-starter/AGENTS.md'),(Join-Path (Split-Path -Parent $scriptsRoot) 'framework/maintenance-overlay/AGENTS.md'))){
+        $delegated=Get-AiwStandingDelegationProjection -Text $custom -AdoptionRequested $true -TemplatePath $templatePath
+        $block=Get-AiwAgentsTemplateBlock $delegated
+        Assert-True ($delegated.StartsWith($custom)-and$block.Contains('用户持续委托AI')-and-not$block.Contains('BOOTSTRAP.md')-and-not$delegated.Contains('AI-WORKSPACE-USER-DECISION')) 'registration-managed-delegation-preserves-outside'
+        Assert-True ((Get-AiwStandingDelegationProjection -Text $delegated -AdoptionRequested $true -TemplatePath $templatePath)-ceq$delegated) 'template-projection-idempotent'
+        $changed=$delegated.Replace('用户持续委托AI','HAND_EDITED_MANAGED')+"`n用户撤回持续委托。`n"
+        $updated=Get-AiwStandingDelegationProjection -Text $changed -AdoptionRequested $true -TemplatePath $templatePath
+        Assert-True (-not$updated.Contains('HAND_EDITED_MANAGED')-and$updated.EndsWith("`n用户撤回持续委托。`n")-and$updated.StartsWith($custom)) 'managed-hand-edit-overwritten-outside-revocation-retained'
+        $default=@($block-split"`n"|Where-Object{$_-like'用户持续委托AI*'})[0]
+        $legacy=$custom+"<!-- AI-WORKSPACE-FRAMEWORK:BEGIN -->`nold template`n<!-- AI-WORKSPACE-FRAMEWORK:END -->`n<!-- AI-WORKSPACE-USER-DECISION:BEGIN -->`n$default`n用户将委托收窄为只读分析。`n<!-- AI-WORKSPACE-USER-DECISION:END -->`n"
+        $migrated=Get-AiwStandingDelegationProjection -Text $legacy -AdoptionRequested $true -TemplatePath $templatePath
+        Assert-True (-not$migrated.Contains('AI-WORKSPACE-USER-DECISION')-and[regex]::Matches($migrated,'用户持续委托AI').Count-eq1-and$migrated.IndexOf('用户将委托收窄为只读分析。')-gt$migrated.IndexOf('<!-- AI-WORKSPACE-FRAMEWORK:END -->')) 'legacy-default-migrates-once-and-project-restriction-remains-outside'
+        Assert-True ((Get-AiwStandingDelegationProjection -Text $migrated -AdoptionRequested $true -TemplatePath $templatePath)-ceq$migrated) 'legacy-migration-idempotent'
+        $rejected=$false;try{$null=Get-AiwStandingDelegationProjection -Text ($custom+'<!-- AI-WORKSPACE-FRAMEWORK:BEGIN -->') -AdoptionRequested $true -TemplatePath $templatePath}catch{$rejected=$_.ToString().Contains('AGENTS_MANAGED_MARKERS_MALFORMED')}
+        Assert-True $rejected 'malformed-managed-markers-rejected'
     }
+    if($EntryTemplatesOnly){Write-Output ('PASS|entry-template-projections|'+$passed+'/'+$passed);return}
     Reset-TestProject
     $format = Get-AiwProjectFormat $fixtureRoot
     Assert-True (

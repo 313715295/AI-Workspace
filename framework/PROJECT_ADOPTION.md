@@ -4,7 +4,7 @@
 
 ## 从用户入口开始
 
-用户包从包内 README/AGENTS 导航，开发仓从 [README](../README.md) 导航。已有项目先读取自己的 Bootstrap；首次注册尚无 Bootstrap 时，先检查所选版本的 VERSION、RELEASE_MANIFEST、ADOPTION_PROFILE 和 TOOLCHAIN，再运行 [register-project.ps1](../scripts/register-project.ps1) 预览。注册必须显式给出内部 `FrameworkVersion`、项目 `RepositoryPath`、项目 ID 与 `ControllerId`，在已有项目写授权范围内应用后进入生成的 Bootstrap。用户包目录无需 Git，目标项目必须是 Git 仓库。
+用户包从包内 README/AGENTS 导航，开发仓从 [README](../README.md) 导航。接入和升级由用户需求或已授权任务启动；已有项目按已接入 Router 导航当前治理事实。首次注册尚无 Bootstrap 时，先检查所选版本的 VERSION、RELEASE_MANIFEST、ADOPTION_PROFILE 和 TOOLCHAIN，再运行 [register-project.ps1](../scripts/register-project.ps1) 预览。注册必须显式给出内部 `FrameworkVersion`、项目 `RepositoryPath`、项目 ID 与 `ControllerId`，在已有项目写授权范围内应用并完成下面的宿主接入收尾。用户包目录无需 Git，目标项目必须是 Git 仓库。
 
 升级使用 [upgrade-project.ps1](../scripts/upgrade-project.ps1) 预览及目标版本声明的兼容范围；目标未声明支持当前 Project Format/capability 时停止，不按发行名称推断兼容。普通项目使用版本通用 starter。恢复和动作门禁只由当前项目 Bootstrap 与其 pin 对应的 runtime 合同维护，本入口不复制。
 
@@ -57,9 +57,9 @@ process-policy 可以显式引用项目内文件或当前受支持宿主上的�
 
 接入、升级或根级 Skill 变更交付时，由该次 Owner 或已指定的宿主接入执行者核对实际安装的 Router 与本次已接受、兼容所用项目 pin 的仓库 canonical Skill。当前宿主已使用 Router 时，相同则不写；有差异就在已有宿主写授权内同步，并回读字节身份。仓库 Skill 已更新、项目采用成功或 Root Tool Revision 匹配，都不能代替实际安装副本的核对。
 
-同一宿主供多个项目使用时只收尾一次，不逐项目重复安装。未安装或未配置 Router 的宿主继续使用项目 Bootstrap；首次安装由用户选择。注册和升级脚本本身不安装全局 Skill，也不从项目写授权推导宿主写权限。
+同一宿主供多个项目使用时只收尾一次，不逐项目重复安装。Router 安装、宿主可发现及与采用版本兼容均属于接入收尾。缺失、不可发现或不兼容时，在宿主写授权内安装或修复兼容副本，按宿主支持的方式使其可发现后继续；不转为无 Skill 的正常 Bootstrap 路线。注册和升级脚本本身不安装全局 Skill，也不从项目写授权推导宿主写权限。
 
-同步后按宿主支持的发现与加载方式使用，并在既有交付结果中简记安装位置、来源身份及一致／已同步／未使用／待处理状态；磁盘副本一致不等于运行中会话已重载正文。只有宿主接入未完成时保留该项，不重开已完成的项目采用事务，不新增同步服务或台账。
+同步后按宿主支持的发现与加载方式使用，并在既有交付结果中简记安装位置、来源身份及兼容可发现／已同步／待处理状态；磁盘副本一致不等于运行中会话已重载正文。只有宿主接入未完成时保留该项，不重开已完成的项目采用事务，不新增同步服务或台账。
 
 ## 试点与发布
 
@@ -96,7 +96,7 @@ installation 保存 schemaVersion=1、correctionId、decisionLocator、dependsOn
 
 安装证据位于 .ai-workspace/upgrade-recovery/corrections/<ID>/<batch>/installation.json，事务必须是同 ID 下尚不存在的 <batch>/state.json，预览即核验此静态路径及 reparse 边界；已有事务走原恢复。每次变更同时保存完整 priorRecord/决定到同批 history.json，当前 record 只引用其 locator/identity，完整历史与安装效果归属各自独立；均进入当前 exact 写集。事务记录完整前后像，写后验证完整三源组合，记录实际大小；无效组合整组回滚。进程中断保留原事务，责任主体按当前授权绑定该事务及全组对象后调用既有 Resume-AiwProjectProjectionRollback；它是事务原语，不自行授予恢复权限，第三方改动仍拒绝。恢复后重新准入原操作，不另造恢复台账。impact 在原操作内保存 stoppedObligations、independentObligations、inFlightEffects 数组及 recovery/semanticAssessment 说明；工具不证明隐含语义影响。
 
-AGENTS 模板按 FRAMEWORK 和 USER-DECISION 区块消费。默认委托正文仅在版本模板，普通和 Maintenance 新注册均从它提取，升级只替换 FRAMEWORK 区；用户区及撤回保持原样，重复注册不重建缺失的用户委托。纠正引入的委托由其归属安装逆向撤销；以后独立作出的用户决定不属于该前像。
+AGENTS 的 FRAMEWORK 区包含默认持续委托，注册生成、升级按目标模板覆盖；区外项目约定、额外限制及撤回保留。旧 USER-DECISION 默认声明在本次升级中迁入管理区，其余项目正文保留在区外。已知项目若把必要扩展放进原管理区，在本次升级准备中移到区外；后续不把管理区手工修改作为独立项目内容保留。
 
 规则包旧budget字段仅为兼容数据，不是用户配额。新注册、重复注册、same-pin、跨包采用和后像核验不因所选正文超过32/64/96KiB而拒绝，也不自动调额；旧字段保留不等于保留硬门。原预算repair参数对当前正常runtime为NO_CHANGE。旧runtime真实失败只沿既有限域授权过渡，不伪造旧收据或热改发行包。完整选择、去重、来源／身份／授权和回滚义务保持，真实大小供当前工作分析。
 
@@ -109,3 +109,7 @@ historyRelativePath 使用 `.ai-workspace/upgrade-recovery/corrections/<ID>/<bat
 ## 材料与收尾
 
 统一存放、保留和清理条件见所采用版本 TOOL_CONTRACT；本入口按需导航，不要求日常恢复加载整个历史。升级恢复、在用包及原过程收口证据留至最后消费者释放；正式结果不能长期只依赖可清理 runtime 内唯一材料。原任务自然收尾处理证据持久归属、有效引用和已知临时集合，不按目录大小或任务关闭推定可删。
+
+## 采用与过程材料
+
+upgrade-recovery 中仍有效的采用 state/distributionBinding 用于定位当前运行来源；未完成事务的前像、授权和恢复材料保留到原事务收口。已完成事务、纠正 history/installation 和原验证证据保留为历史，不再充当当前任务权限。runtime 中也可能保存仍有消费者的收据或证据；只清理已完成用途且无有效引用的临时输入，不按目录名称批量删除。

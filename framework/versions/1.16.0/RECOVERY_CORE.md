@@ -3,6 +3,8 @@
 <!-- AIW-REQUIREMENT:PR_RECOVERY_CURRENT_AUTHORITY:BEGIN -->
 Recovery 只证明 authority 与 current facts；它不授予 write、test、Review、Git、browser/device 或 external capability。
 
+恢复由已加载 Router 按当前请求和既有上下文导航；健康工作只补来源、边界或正文实际缺失的部分。
+
 ## 必需顺序
 
 1. 不信任 chat 或 memory，先证明实际 cwd 与 Git top。

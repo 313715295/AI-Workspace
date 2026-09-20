@@ -32,13 +32,9 @@ TASK定义的workflow transition使用fresh repo-local authority、cwd/Git top�
 <!-- AIW-REQUIREMENT:PR_CODEX_TOOL_OPERATION_RESOLUTION:END -->
 
 <!-- AIW-REQUIREMENT:PR_CODEX_ROUTER_REACTIVATION:BEGIN -->
-非简单受治理工作在 pinned release 兼容时使用仓库根唯一 canonical `ai-workspace-router` Skill：绑定 explicit/current project、调用 `PROCESS_REQUIREMENTS_RESOLVE/DISCOVER`、加载 selected complete blocks，并引导 `ADMIT_ACTION`/`FINALIZE_OUTPUT`。它不授权；registration/upgrade 不安装；version host 文件仅为 `VERSION_CONTRACT / REFERENCE_ONLY`。
+项目通过已接入且兼容采用版本的 `ai-workspace-router` Skill 导航治理工作。适用条件由根 canonical Skill 统一维护；接入收尾及异常处理见根 PROJECT_ADOPTION，version host 文件只保存兼容合同。
 
-激活、复用、重建及 compaction 后正文恢复只遵循 `RECOVERY_CORE.md`；本 host profile 不复制失效清单。`LOAD_PLAN_RESOLVE` 仅作 support/fallback，action/final boundary call 不自行推导全文重载。
+加载、复用和重建遵循 `RECOVERY_CORE.md`。健康上下文继续使用已加载 Skill 与有效规则；使用 Skill 不等于 FULL_COLD，action/final boundary call 不自行推导全文重载。
 
-输入、compact 保存与清理仅遵循 TOOL_CONTRACT 的调用和生命周期合同；此处不复制步骤。终态文本不能替代当前动作的 DISCOVER。
-
-Skill 缺失/不兼容/调用不可证时走 repo-local `BOOTSTRAP.md` 并报告 `INVOCATION_UNPROVEN`；不得声称机械证明 current `fullText` 已读、attention/memory retention 或物理免重读。
-
-`INSTRUCTION_BOUND` 无法机械阻止漏调，须暴露 `INVOCATION_UNPROVEN`。只有直接测试才可称 `HOST_ENFORCED/FRAMEWORK_GATED`；tool preflight/message authentication 都不等于 OS enforcement，Framework 不安装/模拟 per-tool hook 或 host adapter。
+输入、compact 保存与清理遵循 TOOL_CONTRACT；当前动作仍完成 DISCOVER、ADMIT_ACTION 与 FINALIZE_OUTPUT。
 <!-- AIW-REQUIREMENT:PR_CODEX_ROUTER_REACTIVATION:END -->

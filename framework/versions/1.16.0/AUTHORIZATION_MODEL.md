@@ -1,11 +1,11 @@
 # 授权模型
 
 <!-- AIW-REQUIREMENT:PR_ACTION_AUTHORIZATION_INDEPENDENT:BEGIN -->
-受治理动作包必须显式、限域，并且只对当前 phase 或包内连续步骤有效。不得从 recovery、Review 或任务分配中推断动作包授权。用户明确采用 Framework 开展项目工作时，初始化将这一已作出的使用决定保存到项目 AGENTS 的用户区，不再要求单独确认持续委托。仅查看文件、目录存在、模板或未采纳建议不构成采用。
+受治理动作包必须显式、限域，并且只对当前 phase 或包内连续步骤有效。不得从 recovery、Review 或任务分配中推断动作包授权。用户明确采用 Framework 开展项目工作时，初始化按目标模板生成项目 AGENTS 的框架管理内容及持续委托，不再要求单独确认持续委托。仅查看文件、目录存在、模板或未采纳建议不构成采用。
 
-默认委托正文只在 `project-starter/AGENTS.md` 的 USER-DECISION 区块。其语义是完成已授权项目目标时自主执行当前规则允许的工作决定，既有授权持续复用，后续用户决定与保留门仍优先。函数按区块合并；模板不构成采用或授权。
+持续委托属于 AGENTS 的 FRAMEWORK 管理区，注册生成、升级按目标模板覆盖更新，无须再次确认。项目约定、额外限制及撤回放在区外并保留；后续明确用户决定与保留门仍优先。
 
-新会话读取项目 AGENTS 中的实际用户决定，并核对后续收窄、撤回及当前任务。该正文保存用户决定，不是 Framework 自授权限；通用规则、项目标准和用户决定仍各有真实来源。升级保留用户区原文，不补回已撤回的委托，不覆盖自定义限制。具体包继续绑定当前 userDecision、对象和动作；AGENTS 决定变化使旧过程收据失效，重新对齐用户决定后才可继续。
+新会话读取项目 AGENTS 中的实际用户决定，并核对后续收窄、撤回及当前任务。该正文保存用户决定，不是 Framework 自授权限；通用规则、项目标准和用户决定仍各有真实来源。升级保留管理区外正文及其中的限制；管理区内容随模板更新。具体包继续绑定当前 userDecision、对象和动作；AGENTS 决定变化使旧过程收据失效，重新对齐用户决定后才可继续。
 
 `CONTROL_WRITE`、`SOURCE_WRITE`、`TEST_WRITE`、`TEST_RUN`、`BROWSER_RUN`、`DEVICE_RUN`、`REVIEW_ROUTE`、`REVIEW_EXECUTE`、`OWNER_ACCEPT`、`GIT_STAGE`、`GIT_COMMIT`、`PUSH`、`EXTERNAL`。
 

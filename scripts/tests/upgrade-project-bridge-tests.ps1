@@ -2,6 +2,7 @@
 [CmdletBinding()]
 param([string]$RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path,
     [switch]$CrossDistributionOnly,
+    [switch]$ManagedTemplateOnly,
     [ValidateSet('repo-local','framework-maintenance-sibling')][string]$CrossLayout='repo-local',
     [string]$CrossProjectRoot,[string]$CrossSourceRoot,[string]$LegacyRuntimeRoot,[string]$CrossActor)
 
@@ -115,6 +116,7 @@ function New-TestCorrectionsRepairSource([string]$RepositoryRoot,[string]$Text){
 }
 
 function Test-CrossDistributionAdoption {
+    if($ManagedTemplateOnly-and(-not$LegacyRuntimeRoot-or$CrossProjectRoot-or$CrossLayout-cne'repo-local')){throw 'MANAGED_TEMPLATE_REQUIRES_OWN_LEGACY_FIXTURE'}
     $actor=if($CrossActor){$CrossActor}else{'controller-fixture'};$projectId='cross-fixture';$epoch=1
     $temp=Join-Path ([IO.Path]::GetTempPath()) ('aiw-cross-adoption-'+[guid]::NewGuid().ToString('N'))
     $oldLocation=Get-Location;$oldDirectory=[Environment]::CurrentDirectory
@@ -257,7 +259,28 @@ function Test-CrossDistributionAdoption {
                 $rejected=Invoke-Tool $upgrade $missing -Reject
                 Confirm ($rejected.code-ne0-and$rejected.text.Contains('ADOPTION_CORRECTIONS_DISPOSITION_REQUIRED')) ($CrossLayout+'-old-suppressed-rules-require-explicit-project-disposition')
             }
+            if($iteration-eq1-and-not$CrossProjectRoot){
+                $entryPath=Join-Path $project 'AGENTS.md';$entryText=[IO.File]::ReadAllText($entryPath)
+                if(-not$entryText.Contains('AI-WORKSPACE-USER-DECISION')){$entryText+="`n<!-- AI-WORKSPACE-USER-DECISION:BEGIN -->`n用户持续委托AI，为完成本项目已授权目标，遵循当前采用的Framework、当前生效的项目纠正和永久规则，自主作出并执行其允许的工作决定。该委托持续有效，无须逐任务、逐步骤重复确认；用户后续明确决定优先，规则明确保留给用户的决定仍由用户作出。`n<!-- AI-WORKSPACE-USER-DECISION:END -->`n"}
+                $entryText+="`nPROJECT_OUTSIDE_RESTRICTION: read-only unless explicitly authorized.`n"
+                if($ManagedTemplateOnly){
+                    $entryText=$entryText.Replace('<!-- AI-WORKSPACE-FRAMEWORK:END -->',"MANAGED_HAND_EDIT_TO_REPLACE`n<!-- AI-WORKSPACE-FRAMEWORK:END -->")
+                }
+                Write-TestUtf8 $entryPath $entryText
+            }
             $plan=Upgrade-Plan $base;$authPath="$runtime/adoption-$iteration.json";Save $authPath (Auth $plan 3)
+            if($ManagedTemplateOnly-and$iteration-eq1){
+                Confirm ((@($plan.pre|Where-Object path -CEQ 'AGENTS.md')[0].identity)-ceq(Identity $entryPath)) 'managed-refresh-binds-current-whole-agents-preimage'
+                # The old daily resolver must still reject managed drift. The
+                # separately authorized root template transaction repairs it.
+                $probe=$initialInput|ConvertTo-Json -Depth 100|ConvertFrom-Json -AsHashtable
+                $probe.evaluationOnly=$false
+                $probe.frameworkRoot=$oldRuntime;$probe.expectedProjectConfigIdentity=Identity "$project/.ai-workspace/project.json";$probe.expectedCorrectionsIdentity=Identity "$project/.ai-workspace/corrections.json";$probe.expectedTaskIdentity=Identity $task
+                Save "$runtime/managed-daily-discover.json" $probe
+                $rejected=Invoke-Tool (Join-Path $oldRuntime 'framework/versions/1.16.0/scripts/resolve-process-requirements.ps1') @{InputPath="$runtime/managed-daily-discover.json";AsJson=$true} -Reject
+                if($rejected.code-eq0-or-not$rejected.text.Contains('LOCAL_CANDIDATE_PILOT_PROJECTION_DRIFT|AGENTS.md')){throw ('MANAGED_DAILY_REJECTION_NOT_REACHED|'+$rejected.text)}
+                Confirm ($rejected.code-ne0-and$rejected.text.Contains('LOCAL_CANDIDATE_PILOT_PROJECTION_DRIFT|AGENTS.md')) 'old-daily-recovery-still-rejects-managed-drift'
+            }
             if($internal-and$LegacyRuntimeRoot-and$iteration-eq1){
                 $guard=Join-Path $source 'scripts/check-framework-maintenance-authorization.ps1'
                 $guardArgs=@{ControlRepositoryPath=$project;PackagePath=$authPath;ObservedActor=$actor;ObservedTaskId='CROSS-001';ObservedOwner=$actor;ObservedAction='CONTROL_WRITE';ObservedPath=@($plan.paths);ObservedIdentity=@($plan.pre|ForEach-Object{$_.path+'='+$_.identity});ObservedRepositoryId='CONTROL';ExpectedProjectConfigIdentity=(Identity "$project/.ai-workspace/project.json");TaskPath='.ai-workspace/tasks/active/CROSS-001.md';ExpectedTaskIdentity=(Identity $task)}
@@ -279,7 +302,7 @@ function Test-CrossDistributionAdoption {
                 }
                 Save $authPath (Auth $plan 3)
             }
-            if($iteration-gt0){
+            if($iteration-gt0-and-not$ManagedTemplateOnly){
                 $schema=$iteration+1;$processAuth="$runtime/process-$iteration.json";Save $processAuth (Auth $plan 2)
                 $rootModule=@(Import-Module (Join-Path $source 'scripts/ProjectAdoptionTransaction.psm1') -Force -PassThru)[0]
                 $actorStorage=& $rootModule.ExportedFunctions['Get-AiwBoundRuntimeActorStorageKey'] -FrameworkRoot $oldRuntime -Version '1.16.0' -Actor $actor
@@ -313,10 +336,21 @@ function Test-CrossDistributionAdoption {
                 Write-Output ('CROSS_CASE|layout='+$CrossLayout+'|schema='+$schema+'|ADMIT=PASS|input=DELETED')
             }
             $apply=$base.Clone();$apply.AuthorizationPackagePath=$authPath;$apply.ExpectedAuthorizationPackageIdentity=Identity $authPath;$apply.Apply=$true
+            if($ManagedTemplateOnly-and$iteration-eq1){
+                foreach($fault in @('wrong-actor','stale-agents-preimage')){
+                    $bad=(Auth $plan 3)|ConvertTo-Json -Depth 100|ConvertFrom-Json -AsHashtable
+                    if($fault-ceq'wrong-actor'){$bad.grantee='unrelated-fixture-actor'}else{(@($bad.objectIdentities|Where-Object path -CEQ 'AGENTS.md')[0]).identity='1|'+('A'*64)}
+                    $badPath="$runtime/managed-$fault.json";Save $badPath $bad
+                    $attempt=$apply.Clone();$attempt.AuthorizationPackagePath=$badPath;$attempt.ExpectedAuthorizationPackageIdentity=Identity $badPath
+                    $beforeIdentity=Identity $entryPath;$rejected=Invoke-Tool $upgrade $attempt -Reject
+                    Confirm ($rejected.code-ne0-and(Identity $entryPath)-ceq$beforeIdentity) ('managed-refresh-rejects-'+$fault)
+                }
+            }
             if($LegacyRuntimeRoot-and$iteration-eq1){
                 $before=@($plan.paths|ForEach-Object{$f=Join-Path $project $_;if(Test-Path -LiteralPath $f){Identity $f}else{'MISSING'}})
-                $interrupted=$apply.Clone();$interrupted.InterruptAfterAdoptionWrite=1;$interruptResult=Invoke-Tool $upgrade $interrupted -Reject
+                $interrupted=$apply.Clone();$interrupted.InterruptAfterAdoptionWrite=if($ManagedTemplateOnly){[Array]::IndexOf([string[]]$plan.paths,'AGENTS.md')+1}else{1};$interruptResult=Invoke-Tool $upgrade $interrupted -Reject
                 if($interruptResult.code-ne0-or-not$interruptResult.text.Contains('RUNTIME_ADOPTION_INTERRUPTED')){throw ('CROSS_INTERRUPTION_NOT_REACHED|'+$interruptResult.text)}
+                if($ManagedTemplateOnly){Confirm (-not[IO.File]::ReadAllText($entryPath).Contains('MANAGED_HAND_EDIT_TO_REPLACE')) 'managed-template-was-written-before-interruption'}
                 $transaction="$project/.ai-workspace/runtime/project-adoption/upgrade/state.json"
                 $null=Invoke-Tool $upgrade @{ProjectId=$projectId;ToVersion='1.16.0';RepositoryPath=$project;ActorRouteActor=$actor;RecoverRuntimeAdoption=$true;AdoptionRecoveryDirection='ROLLBACK';Apply=$true;ExpectedAdoptionTransactionIdentity=(Identity $transaction);AuthorizationPackagePath=$authPath;ExpectedAuthorizationPackageIdentity=(Identity $authPath);WorkspaceRoot=$newRuntime}
                 $rolledBack=Get-Content -Raw $transaction|ConvertFrom-Json -Depth 100
@@ -325,6 +359,21 @@ function Test-CrossDistributionAdoption {
                 Confirm (($before-join';')-ceq($after-join';')) ($CrossLayout+'-correction-adoption-interruption-restores-whole-group')
             }
             $null=Invoke-Tool $upgrade $apply
+            if($iteration-eq1-and-not$CrossProjectRoot){
+                $entryAfter=[IO.File]::ReadAllText((Join-Path $project 'AGENTS.md'))
+                Confirm (-not$entryAfter.Contains('AI-WORKSPACE-USER-DECISION')-and$entryAfter.Contains('PROJECT_OUTSIDE_RESTRICTION: read-only unless explicitly authorized.')-and[regex]::Matches($entryAfter,'用户持续委托AI').Count-eq1) ($CrossLayout+'-real-upgrade-replaces-managed-template-migrates-legacy-default-preserves-outside')
+            }
+            if($ManagedTemplateOnly-and$iteration-eq1){
+                $blockPattern='(?s)<!-- AI-WORKSPACE-FRAMEWORK:BEGIN -->.*?<!-- AI-WORKSPACE-FRAMEWORK:END -->'
+                $expectedTemplate=[IO.File]::ReadAllText((Join-Path $newRuntime 'framework/versions/1.16.0/project-starter/AGENTS.md'))
+                Confirm ([regex]::Match($entryAfter,$blockPattern).Value-ceq[regex]::Match($expectedTemplate,$blockPattern).Value-and-not$entryAfter.Contains('MANAGED_HAND_EDIT_TO_REPLACE')) 'real-old-snapshot-refresh-replaces-managed-block-exactly'
+                $probe.frameworkRoot=$newRuntime;$probe.expectedProjectConfigIdentity=Identity "$project/.ai-workspace/project.json";$probe.expectedCorrectionsIdentity=Identity "$project/.ai-workspace/corrections.json";$probe.expectedTaskIdentity=Identity $task
+                Save "$runtime/managed-target-discover.json" $probe
+                $healthy=Json-Tool (Join-Path $newRuntime 'framework/versions/1.16.0/scripts/resolve-process-requirements.ps1') @{InputPath="$runtime/managed-target-discover.json";AsJson=$true}
+                Confirm ($healthy.status-cin@('PASS','EVALUATION_ONLY')) 'target-daily-recovery-accepts-completed-template-refresh'
+                Write-Output 'CROSS_CASE|managed-template|old-daily=REJECTED|exact-upgrade=PASS|whole-preimage-rollback=PASS|target-daily=PASS'
+                break
+            }
             if($iteration-gt0){
                 $txn="$project/.ai-workspace/runtime/project-adoption/upgrade/state.json"
                 $boundary.mode='FINALIZE_OUTPUT';$boundary.resultReceipts=@(@($discover.compactReceipt.selectedObligations|ForEach-Object{$_.resultRequirements})+@($prepared.selectedRuleBlocks|ForEach-Object{$_.resultRequirements})|Sort-Object -Unique)+@($plan.paths|ForEach-Object{'OBJECT_POSTIMAGE|'+$_+'|'+(Identity (Join-Path $project $_))})
@@ -386,7 +435,7 @@ function Test-CrossDistributionAdoption {
         }
     }finally{Set-Location $oldLocation;[Environment]::CurrentDirectory=$oldDirectory;Remove-TestTreeBound $temp ([IO.Path]::GetTempPath()) 'aiw-cross-adoption-'}
 }
-if($CrossDistributionOnly){Test-CrossDistributionAdoption;if($failures.Count){throw ('FAIL|'+($failures-join';'))};Write-Output ('PASS|cross-distribution-'+$CrossLayout+'|'+$passes+'/'+$passes);exit 0}
+if($CrossDistributionOnly-or$ManagedTemplateOnly){Test-CrossDistributionAdoption;if($failures.Count){throw ('FAIL|'+($failures-join';'))};Write-Output ('PASS|cross-distribution-'+$CrossLayout+'|'+$passes+'/'+$passes);exit 0}
 
 $tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile($upgradePath,[ref]$tokens,[ref]$errors)
@@ -680,7 +729,7 @@ try{
     $refreshApply=@(& pwsh -NoProfile -NonInteractive -File $upgradePath -ProjectId 'candidate-pilot-fixture' -ToVersion '1.17.0' -RepositoryPath $pilotProject -ControllerId 'controller-fixture' -ActorRouteTaskPath $pilotTaskRelative -ExpectedActorRouteTaskIdentity $pilotCurrentTaskIdentity -ActorRouteActor 'controller-fixture' -AuthorizationPackagePath $pilotAuthorizationPath -ExpectedAuthorizationPackageIdentity (Get-TestIdentity $pilotAuthorizationPath) -LocalCandidatePilot -Apply -WorkspaceRoot $candidateWorkspace 2>&1|ForEach-Object{[string]$_});$refreshApplyCode=$LASTEXITCODE;$refreshApplyText=$refreshApply-join"`n";$refreshStateAfter=Get-Content -Raw -Encoding utf8 -LiteralPath $pilotRecoveryStatePath|ConvertFrom-Json;$refreshPolicyAfter=Get-Content -Raw -Encoding utf8 -LiteralPath $pilotPolicyPath|ConvertFrom-Json
     if($refreshApplyCode-ne0){Write-Output ('DIAG|same-pin-project-projection-refresh-apply|code='+$refreshApplyCode+'|'+$refreshApplyText)}
     $refreshedAgents=Get-Content -Raw -Encoding utf8 -LiteralPath $pilotAgentsPath
-    Confirm ($refreshApplyCode-eq0-and$refreshedAgents.Contains($retainedUserDecision)-and[regex]::Matches($refreshedAgents,'<!-- AI-WORKSPACE-USER-DECISION:BEGIN -->').Count-eq1) 'same-pin-upgrade-preserves-revocation-and-custom-decision-without-duplicate'
+    Confirm ($refreshApplyCode-eq0-and$refreshedAgents.Contains('用户撤回持续委托；自定义审核轮换规则继续保留。')-and-not$refreshedAgents.Contains('AI-WORKSPACE-USER-DECISION')) 'same-pin-upgrade-preserves-revocation-and-custom-decision-without-duplicate'
     Confirm ($refreshApplyCode-eq0-and$refreshApplyText.Contains('LOCAL_CANDIDATE_PROJECT_PROJECTION_REFRESHED|version=1.17.0')-and[int]$refreshStateAfter.schemaVersion-eq5-and[string]$refreshStateAfter.rootToolRevision-cmatch'^[A-F0-9]{64}$'-and[string]$refreshStateAfter.projectionMode-ceq'LOCAL_CANDIDATE_MANAGED'-and[string]$refreshStateAfter.targetReleaseCanonical-ceq$refreshCanonical-and[string]$refreshPolicyAfter.contractVersion-ceq'1.17.0'-and[int]$refreshPolicyAfter.selectedRulePackBytes-eq32768-and@($refreshStateAfter.objects|Where-Object{[string]$_.relative-ceq$pilotRouterRelative-and[string]$_.newIdentity-ceq'ABSENT'}).Count-eq1-and[string]@($refreshStateAfter.objects)[-1].relative-ceq$pilotTaskRelative-and@($refreshStateAfter.projectionObjects|Where-Object{[string]$_.relative-ceq$pilotRouterRelative-and[string]$_.identity-ceq'MISSING'}).Count-eq1-and[string]@($refreshStateAfter.projectionObjects)[-1].relative-ceq$pilotTaskRelative-and(Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $pilotControl 'BOOTSTRAP.md')).Contains('Candidate refresh fixture.')-and(Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $pilotProject 'AGENTS.md')).Contains('Candidate refresh fixture.')-and(Get-Content -Raw -Encoding utf8 -LiteralPath $pilotIgnorePath).Contains('/.ai-workspace/runtime/')-and(Get-TestIdentity $pilotProjectPath)-ceq$pilotCurrentProjectIdentity-and(Get-TestIdentity $pilotTaskPath)-ceq$pilotCurrentTaskIdentity) 'same-pin-local-candidate-apply-refreshes-only-managed-projection-and-snapshot'
     $refreshRecoveryCheck=@(& pwsh -NoProfile -NonInteractive -File $upgradePath -ProjectId 'candidate-pilot-fixture' -ToVersion '1.17.0' -RepositoryPath $pilotProject -ControllerId 'controller-fixture' -ActorRouteTaskPath $pilotTaskRelative -ExpectedActorRouteTaskIdentity $pilotCurrentTaskIdentity -ActorRouteActor 'controller-fixture' -LocalCandidatePilot -WorkspaceRoot $candidateWorkspace 2>&1|ForEach-Object{[string]$_});$refreshRecoveryCode=$LASTEXITCODE
     if($refreshRecoveryCode-ne0){Write-Output ('DIAG|same-pin-local-candidate-refresh-recovery-read|code='+$refreshRecoveryCode+'|'+($refreshRecoveryCheck-join"`n"))}
@@ -855,7 +904,7 @@ try{
     $registeredConfigPath=Join-Path $registrationControl '.ai-workspace\project.json';$registeredConfig=if(Test-Path -LiteralPath $registeredConfigPath){Get-Content -Raw -Encoding utf8 -LiteralPath $registeredConfigPath|ConvertFrom-Json}else{$null}
     $registeredRelationshipsPath=Join-Path $registrationControl '.ai-workspace\RELATIONSHIPS.md'
     $registrationDecision=Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $registrationControl 'AGENTS.md')
-    Confirm ($registrationCode-eq0-and$registrationDecision.Contains('用户持续委托AI，为完成本项目已授权目标')-and$registrationDecision.IndexOf('<!-- AI-WORKSPACE-USER-DECISION:BEGIN -->')-gt$registrationDecision.IndexOf('<!-- AI-WORKSPACE-FRAMEWORK:END -->')) 'real-registration-saves-adoption-decision-outside-managed-navigation-without-second-confirmation'
+    Confirm ($registrationCode-eq0-and$registrationDecision.Contains('用户持续委托AI，为完成本项目已授权目标')-and$registrationDecision.IndexOf('用户持续委托AI')-lt$registrationDecision.IndexOf('<!-- AI-WORKSPACE-FRAMEWORK:END -->')-and-not$registrationDecision.Contains('AI-WORKSPACE-USER-DECISION')) 'real-registration-generates-managed-delegation-without-second-confirmation'
     Confirm ($registrationCode-eq0-and[string]$registeredConfig.controlPlaneLayout-ceq'framework-maintenance-sibling'-and[string]$registeredConfig.frameworkTarget.repositoryId-ceq'ai-workspace-framework'-and[string]$registeredConfig.frameworkTarget.siblingDirectory-ceq'AI-Workspace'-and[string]::Join('|',@($registeredConfig.frameworkTarget.routineExcludedPaths))-ceq'private/target.txt'-and@($registeredConfig.frameworkCapabilities.PSObject.Properties).Count-eq0-and(Test-Path -LiteralPath (Join-Path $registrationControl 'AGENTS.md') -PathType Leaf)-and-not(Test-Path -LiteralPath (Join-Path $registrationControl '.ai-workspace\AGENTS.md'))-and-not(Test-Path -LiteralPath $registeredRelationshipsPath)-and(Get-TestTreeIdentity (Join-Path $registrationTarget 'framework'))-ceq$registrationTargetPreimage) 'maintenance-registration-projects-thin-default-with-optional-relationships-and-without-target-write'
     $registeredControlRoot=Join-Path $registrationControl '.ai-workspace';$activeRecord=Join-Path $registeredControlRoot 'tasks/active/NORMAL-001.md';$archiveRecord=Join-Path $registeredControlRoot 'tasks/archive/CLOSED-001.md';$projectRecord=Join-Path $registeredControlRoot 'records/accepted.json'
     $registeredProjectDoc=Join-Path $registeredControlRoot 'PROJECT.md';$registeredReviewDoc=Join-Path $registeredControlRoot 'REVIEW_PROFILE.md';Write-TestUtf8 $registeredProjectDoc "# Project facts`n`nUser-maintained project navigation.`n";Write-TestUtf8 $registeredReviewDoc "# Review supplement`n`nUser-maintained review specialization.`n";Write-TestUtf8 $registeredRelationshipsPath "# Relationships`n`nOptional user-maintained semantic relationship.`n";$customDocumentationIdentities=@(@($registeredProjectDoc,$registeredReviewDoc,$registeredRelationshipsPath)|ForEach-Object{Get-TestIdentity $_})
@@ -868,7 +917,7 @@ try{
     $missingAgentsRegistration=Invoke-TestExpectedRejection {& $registerPath -ProjectId 'maintenance-registration-fixture' -DisplayName 'Maintenance Registration Fixture' -FrameworkVersion '1.16.0' -RepositoryPath $registrationControl -ControllerId 'controller-fixture' -ControlPlaneLayout 'framework-maintenance-sibling' -FrameworkTargetRepositoryId 'ai-workspace-framework' -FrameworkTargetSiblingDirectory 'AI-Workspace' -FrameworkTargetRoutineExcludedPath 'private/target.txt' -WorkspaceRoot $registrationTarget};[IO.File]::WriteAllBytes($registeredAgentsPath,$registeredAgentsBytes)
     $registeredAgentsText=[Text.UTF8Encoding]::new($false,$true).GetString($registeredAgentsBytes);Write-TestUtf8 $registeredAgentsPath ($registeredAgentsText.Replace('<!-- AI-WORKSPACE-FRAMEWORK:END -->',"Managed projection drift.`n<!-- AI-WORKSPACE-FRAMEWORK:END -->"))
     $driftedAgentsRegistration=Invoke-TestExpectedRejection {& $registerPath -ProjectId 'maintenance-registration-fixture' -DisplayName 'Maintenance Registration Fixture' -FrameworkVersion '1.16.0' -RepositoryPath $registrationControl -ControllerId 'controller-fixture' -ControlPlaneLayout 'framework-maintenance-sibling' -FrameworkTargetRepositoryId 'ai-workspace-framework' -FrameworkTargetSiblingDirectory 'AI-Workspace' -FrameworkTargetRoutineExcludedPath 'private/target.txt' -WorkspaceRoot $registrationTarget};[IO.File]::WriteAllBytes($registeredAgentsPath,$registeredAgentsBytes)
-    Confirm ($missingAgentsRegistration.Code-ne0-and@($missingAgentsRegistration.Output).Count-eq1-and[string](@($missingAgentsRegistration.Output)[0])-ceq'EXISTING_REGISTRATION_PROJECTION_DRIFT|AGENTS.md'-and$driftedAgentsRegistration.Code-ne0-and@($driftedAgentsRegistration.Output).Count-eq1-and[string](@($driftedAgentsRegistration.Output)[0])-ceq'AGENTS_MANAGED_BLOCK_CONFLICT') 'already-registered-validation-rejects-missing-or-drifted-managed-agents-projection'
+    Confirm ($missingAgentsRegistration.Code-ne0-and@($missingAgentsRegistration.Output).Count-eq1-and[string](@($missingAgentsRegistration.Output)[0])-ceq'EXISTING_REGISTRATION_PROJECTION_DRIFT|AGENTS.md'-and$driftedAgentsRegistration.Code-ne0-and@($driftedAgentsRegistration.Output).Count-eq1-and[string](@($driftedAgentsRegistration.Output)[0])-ceq'EXISTING_REGISTRATION_PROJECTION_DRIFT|AGENTS.md') 'already-registered-validation-rejects-missing-or-drifted-managed-agents-projection'
     $registeredIgnorePath=Join-Path $registrationControl '.gitignore';$registeredIgnoreBytes=[IO.File]::ReadAllBytes($registeredIgnorePath);$registeredIgnoreText=[Text.UTF8Encoding]::new($false,$true).GetString($registeredIgnoreBytes);Write-TestUtf8 $registeredIgnorePath ($registeredIgnoreText.Replace("/.ai-workspace/runtime/`n",''))
     $missingIgnoreRegistration=Invoke-TestExpectedRejection {& $registerPath -ProjectId 'maintenance-registration-fixture' -DisplayName 'Maintenance Registration Fixture' -FrameworkVersion '1.16.0' -RepositoryPath $registrationControl -ControllerId 'controller-fixture' -ControlPlaneLayout 'framework-maintenance-sibling' -FrameworkTargetRepositoryId 'ai-workspace-framework' -FrameworkTargetSiblingDirectory 'AI-Workspace' -FrameworkTargetRoutineExcludedPath 'private/target.txt' -WorkspaceRoot $registrationTarget}
     Write-TestUtf8 $registeredIgnorePath ($registeredIgnoreText.Replace('/.ai-workspace/runtime/','!/.ai-workspace/runtime/'))

@@ -439,25 +439,9 @@ function Get-FrameworkAgentsProjection([string]$RepositoryRoot,[string]$Template
     $targetSkill=$null
     $agentsPath=Join-Path $RepositoryRoot 'AGENTS.md'
     $skillPath=Join-Path $RepositoryRoot '.agents\skills\ai-workspace-router\SKILL.md'
-    $begin='<!-- AI-WORKSPACE-FRAMEWORK:BEGIN -->';$end='<!-- AI-WORKSPACE-FRAMEWORK:END -->'
     $oldAgentsIdentity=Get-OptionalFileIdentity $agentsPath;$oldSkillIdentity='MISSING'
-    if($oldAgentsIdentity-ceq'MISSING'){$targetAgents=$targetBlock}
-    else{
-        $bytes=[IO.File]::ReadAllBytes($agentsPath)
-        if($bytes.Length-ge3-and$bytes[0]-eq239-and$bytes[1]-eq187-and$bytes[2]-eq191){throw 'AGENTS_MANAGED_BLOCK_BOM'}
-        try{$current=[Text.UTF8Encoding]::new($false,$true).GetString($bytes)}catch{throw 'AGENTS_MANAGED_BLOCK_UTF8'}
-        if($current.Contains("`r")-or-not$current.EndsWith("`n")){throw 'AGENTS_MANAGED_BLOCK_TEXT_FORMAT'}
-        $beginCount=[regex]::Matches($current,[regex]::Escape($begin)).Count;$endCount=[regex]::Matches($current,[regex]::Escape($end)).Count
-        if($beginCount-eq0-and$endCount-eq0){$separator=if($current.Length-eq0){''}elseif($current.EndsWith("`n")){"`n"}else{"`n`n"};$targetAgents=$current+$separator+$targetBlock}
-        elseif($beginCount-eq1-and$endCount-eq1){
-            $start=$current.IndexOf($begin,[StringComparison]::Ordinal);$finish=$current.IndexOf($end,[StringComparison]::Ordinal)
-            if($finish-lt$start){throw 'AGENTS_MANAGED_BLOCK_ORDER'}
-            $finish+=$end.Length;$existing=$current.Substring($start,$finish-$start)
-            $targetExact=$targetBlock.TrimEnd("`n")
-            if($existing-cne$targetExact){throw 'AGENTS_MANAGED_BLOCK_CONFLICT'}
-            $targetAgents=$current
-        }else{throw 'AGENTS_MANAGED_MARKERS_MALFORMED'}
-    }
+    $current=if($oldAgentsIdentity-ceq'MISSING'){''}else{Read-StrictUtf8Template $agentsPath}
+    $targetAgents=Get-AiwStandingDelegationProjection -Text $current -AdoptionRequested $true -TemplatePath $agentsTemplatePath
     $gitIgnore=Get-RuntimeGitIgnoreProjection $RepositoryRoot ([string]$script:ActiveAdoptionProfile.projectControl.runtimeGitIgnoreRule)
     return [pscustomobject]@{AgentsPath=$agentsPath;SkillPath=$skillPath;OldAgentsIdentity=$oldAgentsIdentity;OldSkillIdentity=$oldSkillIdentity;TargetAgents=$targetAgents;TargetSkill=$targetSkill;ManageSkill=$manageSkill;GitIgnore=$gitIgnore}
 }
@@ -952,7 +936,6 @@ $templateRoot = $starter.TemplateRoot
 $managedTemplateRoot=if($ControlPlaneLayout-ceq'framework-maintenance-sibling'){[string]$maintenanceOverlay.Root}else{$templateRoot}
 $bootstrapTemplate=Read-StrictUtf8Template (Join-ChildPath $managedTemplateRoot 'BOOTSTRAP.md')
 $agentsProjection=Get-FrameworkAgentsProjection $repo $managedTemplateRoot $FrameworkVersion
-$agentsProjection.TargetAgents=Get-AiwStandingDelegationProjection -Text $agentsProjection.TargetAgents -AdoptionRequested $true -TemplatePath (Join-Path $selectedFrameworkPath 'project-starter/AGENTS.md') -ExistingProject:(Test-Path -LiteralPath (Join-Path $repo '.ai-workspace/project.json'))
 
 $createdDate = Get-Date -Format 'yyyy-MM-dd'
 $markdownTokens = [ordered]@{

@@ -146,7 +146,7 @@
       "requirementId": "PR_CODEX_ROUTER_REACTIVATION",
       "legacyAliases": [],
       "title": "Prompt-bound router reactivation",
-      "description": "Use the host-global navigation Skill at natural boundaries with Bootstrap fallback and honest host ceiling.",
+      "description": "Use the compatible host-global navigation Skill at natural boundaries, reuse healthy context, and resolve host onboarding failures through PROJECT_ADOPTION.",
       "ownerModule": "HOST_CODEX.md",
       "selectors": {
         "profiles": [

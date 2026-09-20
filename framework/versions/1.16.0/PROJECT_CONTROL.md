@@ -7,7 +7,7 @@
 
 root `scripts/register-project.ps1` 要求显式 exact version 与 Controller ID。任何项目写入前必须校验：
 
-用户明确要求采用 Framework 开展项目工作即确认使用。注册预览将该决定投影到 AGENTS 管理导航段之外的用户区，实际注册一并保存持续委托；不增加独立的委托确认门。纯只读评估不执行注册，不把模板存在当采用。已有用户决定与自定义正文保留，升级只替换管理导航段，不重新生成用户委托；后续明确限制优先。正文和边界取 AUTHORIZATION_MODEL。
+用户明确要求采用 Framework 开展项目工作即确认使用。注册生成 AGENTS 的框架管理内容及持续委托，升级按目标模板替换；区外项目约定、额外限制和撤回保留。正常模板更新不重复确认委托，纯只读评估不执行注册。正文和边界取 AUTHORIZATION_MODEL。
 
 - target `VERSION.json` 为 `STABLE`、consumable 且 pin-eligible；
 - target `RELEASE_MANIFEST.json` 匹配 canonical payload，且 source Review 为 approved；

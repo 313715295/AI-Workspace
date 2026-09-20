@@ -123,7 +123,7 @@ Framework 不存在全局默认版本，也不存在全局 `CURRENT`：
 
 ## 用 AI 会话开始使用
 
-明确要求采用 Framework 开展项目工作即确认使用。初始化在项目 AGENTS 用户区保存持续委托，不逐任务、逐步骤重复确认，也不增加单独的委托确认。委托以已授权项目目标、当前 Framework、有效纠正和永久规则为边界；后续明确用户决定优先，规则保留给用户的决定仍由用户作出。升级保留已有用户决定和自定义内容；只读查看发行包不构成采用。具体受治理动作继续使用原有授权包与质量门。
+明确要求采用 Framework 开展项目工作即确认使用。初始化在项目 AGENTS 框架管理区生成持续委托，不逐任务、逐步骤重复确认，也不增加单独的委托确认。委托以已授权项目目标、当前 Framework、有效纠正和永久规则为边界；后续明确用户决定优先，规则保留给用户的决定仍由用户作出。升级按目标模板更新管理区，保留区外项目约定、额外限制及撤回；只读查看发行包不构成采用。具体受治理动作继续使用原有授权包与质量门。
 
 新用户下载并解压单版本用户包后，从包内 README/AGENTS 开始；包内 README 链接注册工具与版本元数据，生成项目入口后转到项目自己的 `.ai-workspace/BOOTSTRAP.md`。开发仓的注册/升级说明统一见 [项目接入与升级](framework/PROJECT_ADOPTION.md)。
 
@@ -205,10 +205,10 @@ AGENTS.md
   corrections.json
   process-policy.json
   tasks/
-  runtime/            # 临时过程产物；由项目根 .gitignore 排除
+  runtime/            # 过程材料；按用途与有效引用保留或清理
 ```
 
-Framework 根部的 `skills/ai-workspace-router/SKILL.md` 是宿主安装或发现的规范副本。它只负责在自然边界导航当前项目所选版本的恢复和规则解析，不成为新的规则 authority，也不在每次工具调用时重载。Skill 不可用时，项目仍可从自己的 `BOOTSTRAP.md` 安全回退。
+Framework 根部的 `skills/ai-workspace-router/SKILL.md` 是宿主安装或发现的规范副本。它只负责在自然边界导航当前项目所选版本的恢复和规则解析，不成为新的规则 authority，也不在每次工具调用时重载。Router 的安装、宿主发现和兼容性纳入[接入收尾](framework/PROJECT_ADOPTION.md)，同宿主复用兼容安装。
 
 ## 兼容性和证据边界
 

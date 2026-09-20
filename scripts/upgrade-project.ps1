@@ -680,7 +680,16 @@ function Get-LocalCandidateSamePinProjectionRefreshPlan([string]$RepositoryRoot,
     $stateEntries=@{};foreach($entry in @($contract.ProjectionRecords)){if($stateEntries.ContainsKey([string]$entry.relative)){throw 'LOCAL_CANDIDATE_PROJECTION_OBJECT'};$stateEntries[[string]$entry.relative]=$entry}
     $historicalTaskRelative=[string]$contract.HistoricalTaskRelative
     if(-not$stateEntries.ContainsKey('.ai-workspace/project.json')-or-not$stateEntries.ContainsKey($historicalTaskRelative)-or(Get-OptionalIdentity $Migration.Path)-cne$Migration.OldIdentity){throw 'LOCAL_CANDIDATE_SAME_PIN_RECOVERY_CLOSURE'}
-    foreach($entry in @($contract.ProjectionRecords|Where-Object{[string]$_.relative-cne$historicalTaskRelative})){Assert-PilotProjectionCurrent $RepositoryRoot $entry $contract.SchemaVersion 'LOCAL_CANDIDATE_SAME_PIN_PROJECT_DRIFT'}
+    # A template refresh owns the managed AGENTS block. Bind its current whole
+    # file as the transaction preimage, including edits made while moving project
+    # extensions outside that block. Daily recovery still uses the strict check.
+    $assertRefreshEntry={param($Entry)
+        if([string]$Entry.relative-ceq'AGENTS.md'){
+            Assert-ActorBoundLivePath $RepositoryRoot 'AGENTS.md'
+            $null=Get-AiwAgentsTemplateBlock (Read-StrictUtf8NoBom (Join-ChildPath $RepositoryRoot 'AGENTS.md'))
+        }else{Assert-PilotProjectionCurrent $RepositoryRoot $Entry $contract.SchemaVersion 'LOCAL_CANDIDATE_SAME_PIN_PROJECT_DRIFT'}
+    }
+    foreach($entry in @($contract.ProjectionRecords|Where-Object{[string]$_.relative-cne$historicalTaskRelative})){& $assertRefreshEntry $entry}
 
     $projectRaw=Read-StrictUtf8NoBom $ProjectFile;try{$project=$projectRaw|ConvertFrom-Json}catch{throw 'LOCAL_CANDIDATE_SAME_PIN_PROJECT_JSON'}
     if([string]$project.id-cne$ProjectId-or[string]$project.frameworkVersion-cne$TargetVersion-or[string]$project.controlPlaneLayout-cne$Layout-or(Get-MinimalFileIdentity $ProjectFile)-cne[string]$stateEntries['.ai-workspace/project.json'].identity){throw 'LOCAL_CANDIDATE_SAME_PIN_PROJECT_BINDING'}
@@ -689,7 +698,7 @@ function Get-LocalCandidateSamePinProjectionRefreshPlan([string]$RepositoryRoot,
     $addProjection={param([string]$Relative,[string]$Path,$Content,[bool]$RequirePriorState)
         $oldIdentity=Get-OptionalIdentity $Path;$newIdentity=if($null-eq$Content){'ABSENT'}else{Get-MinimalBytesIdentity ($utf8NoBom.GetBytes([string]$Content))}
         $terminal=if($newIdentity-ceq'ABSENT'){'MISSING'}else{$newIdentity};if($oldIdentity-ceq$terminal){return}
-        if($RequirePriorState){if(-not$stateEntries.ContainsKey($Relative)){throw ('LOCAL_CANDIDATE_SAME_PIN_PROJECT_DRIFT|'+$Relative)};Assert-PilotProjectionCurrent $RepositoryRoot $stateEntries[$Relative] $contract.SchemaVersion 'LOCAL_CANDIDATE_SAME_PIN_PROJECT_DRIFT'}
+        if($RequirePriorState){if(-not$stateEntries.ContainsKey($Relative)){throw ('LOCAL_CANDIDATE_SAME_PIN_PROJECT_DRIFT|'+$Relative)};& $assertRefreshEntry $stateEntries[$Relative]}
         $oldBytes=if($oldIdentity-ceq'MISSING'){$null}else{[Convert]::ToBase64String([IO.File]::ReadAllBytes($Path))}
         $records.Add([pscustomobject]@{relative=$Relative;path=$Path;content=$Content;oldIdentity=$oldIdentity;newIdentity=$newIdentity;oldBytes=$oldBytes})
     }
@@ -736,8 +745,10 @@ function Get-LocalCandidateSamePinProjectionRefreshPlan([string]$RepositoryRoot,
         }
     }elseif($requiredDispositions.Count){throw 'ADOPTION_CORRECTIONS_DISPOSITION_REQUIRED'}
 
-    $agentsPath=Join-Path $RepositoryRoot 'AGENTS.md';$agentsRaw=Read-StrictUtf8NoBom $agentsPath;$targetAgentsBlock=(Get-AiwAgentsTemplateBlock (Read-StrictUtf8NoBom (Join-ChildPath $templateRoot 'AGENTS.md'))).TrimEnd("`n");$begin='<!-- AI-WORKSPACE-FRAMEWORK:BEGIN -->';$end='<!-- AI-WORKSPACE-FRAMEWORK:END -->';$start=$agentsRaw.IndexOf($begin,[StringComparison]::Ordinal);$finish=$agentsRaw.IndexOf($end,[StringComparison]::Ordinal)
-    if($start-lt0-or$finish-lt$start-or[regex]::Matches($agentsRaw,[regex]::Escape($begin)).Count-ne1-or[regex]::Matches($agentsRaw,[regex]::Escape($end)).Count-ne1){throw 'AGENTS_MANAGED_MARKERS_MALFORMED'};$finish+=$end.Length;$targetAgents=Normalize-Text ($agentsRaw.Substring(0,$start)+$targetAgentsBlock+$agentsRaw.Substring($finish));& $addProjection 'AGENTS.md' $agentsPath $targetAgents $true
+    $agentsPath=Join-Path $RepositoryRoot 'AGENTS.md';$agentsRaw=Read-StrictUtf8NoBom $agentsPath
+    $null=Get-AiwAgentsTemplateBlock $agentsRaw
+    $targetAgents=Get-AiwStandingDelegationProjection -Text $agentsRaw -AdoptionRequested $true -TemplatePath (Join-ChildPath $templateRoot 'AGENTS.md')
+    & $addProjection 'AGENTS.md' $agentsPath (Normalize-Text $targetAgents) $true
     $skillRelative='.agents/skills/ai-workspace-router/SKILL.md';$skillPath=Join-ChildPath $RepositoryRoot $skillRelative;if(Test-Path -LiteralPath $skillPath -PathType Leaf){& $addProjection $skillRelative $skillPath $null $true}
     $gitIgnore=Get-RuntimeGitIgnoreProjection $RepositoryRoot ([string]$script:ActiveAdoptionProfile.projectControl.runtimeGitIgnoreRule);if([bool]$gitIgnore.Changed){& $addProjection '.gitignore' ([string]$gitIgnore.Path) ([string]$gitIgnore.Content) ([bool]$stateEntries.ContainsKey('.gitignore'))}
 
@@ -903,17 +914,8 @@ function Get-ManagedAgentsTransition([string]$RepositoryRoot,[string]$SourceFram
         $text
     }else{''}
 
-    $begin='<!-- AI-WORKSPACE-FRAMEWORK:BEGIN -->';$end='<!-- AI-WORKSPACE-FRAMEWORK:END -->'
-    $beginCount=[regex]::Matches($current,[regex]::Escape($begin)).Count;$endCount=[regex]::Matches($current,[regex]::Escape($end)).Count
-    if($beginCount-ne1-or$endCount-ne1){throw 'AGENTS_MANAGED_BLOCK_REQUIRED'}
-    $start=$current.IndexOf($begin,[StringComparison]::Ordinal);$finish=$current.IndexOf($end,[StringComparison]::Ordinal)
-    if($finish-lt$start){throw 'AGENTS_MANAGED_BLOCK_ORDER'}
-    $finish+=$end.Length
-    $currentBlock=$current.Substring($start,$finish-$start)
-    $sourceBlock=(Get-AiwAgentsTemplateBlock (Read-StrictUtf8NoBom (Join-ChildPath $SourceFramework 'project-starter/AGENTS.md'))).TrimEnd("`n")
-    if($currentBlock-cne$sourceBlock){throw 'AGENTS_MANAGED_BLOCK_CONFLICT'}
-    $targetBlock=(Get-AiwAgentsTemplateBlock (Read-StrictUtf8NoBom (Join-ChildPath $TargetFramework 'project-starter/AGENTS.md'))).TrimEnd("`n")
-    $newAgents=Normalize-Text ($current.Substring(0,$start)+$targetBlock+$current.Substring($finish))
+    $null=Get-AiwAgentsTemplateBlock $current
+    $newAgents=Normalize-Text (Get-AiwStandingDelegationProjection -Text $current -AdoptionRequested $true -TemplatePath (Join-ChildPath $TargetFramework 'project-starter/AGENTS.md'))
     return [pscustomobject]@{AgentsPath=$agentsPath;SkillPath=$skillPath;AgentsContent=$newAgents;SkillContent=$null}
 }
 

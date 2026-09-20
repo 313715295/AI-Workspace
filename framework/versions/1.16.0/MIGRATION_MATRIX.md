@@ -6,7 +6,8 @@
 | 任何旧 pin | 1.16.0 | 当前新基线不声明跨 pin direct source；不得因仓库中仍存在历史目录而自动进入旧版专属迁移分支 |
 | root Maintenance 旧 control project | 1.16.0 | 没有旧来源白名单。已完成的1.16/schema4项目使用同 pin 幂等修复；更早结构如未来确需取回，使用Git历史中的专用迁移证据单独处理，不进入日常overlay |
 | healthy schema4 1.16.0 | 1.16.0 | 通过 pinned release 校验 backend、project-selected budget、Bootstrap、Controller、corrections、runtime ignore 与 managed AGENTS；返回 already upgraded |
-| managed AGENTS 或 repo-local Skill bytes 冲突 | 1.16.0 | preparation 前停止；不得 normalize、delete 或 replace project-owned/unknown bytes |
+| 显式授权的 managed AGENTS 模板升级 | 1.16.0 | 以当前 AGENTS 整文件绑定前像，替换管理区为目标模板，保留区外项目扩展；中断按事务精确回滚。管理区手工修改不阻止生成升级投影；日常恢复的漂移检查保持 |
+| repo-local Skill 或其他 project-owned/unknown bytes 冲突 | 1.16.0 | preparation 前停止；不得 normalize、delete 或 replace 未授权对象 |
 | 缺少 current actor-bound active task | 1.16.0 | 返回 `ACTOR_BOUND_PROJECT_UPGRADE_ROUTE_REQUIRED`；不得推断 actor 或批量重写 tasks |
 | target profile 未声明兼容的 Project Format/capability | 1.16.0 | direct route blocked；不得按发行号猜测兼容性。1.16新基线的兼容集合为空 |
 | normative `PROJECT-CUSTOM` | 1.16.0 | 在单独 Review 的 atomic migration 建立唯一 structured carrier 前继续保留其 authority；不得声称 legacy free text 已 compact selection |
