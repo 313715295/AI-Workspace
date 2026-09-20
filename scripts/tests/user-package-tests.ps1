@@ -75,6 +75,14 @@ function Remove-TestFixture([string]$Path) {
 }
 
 try {
+    Assert-True (-not(Test-Path (Join-Path $workspace 'AGENTS.md'))-and-not(Test-Path (Join-Path $workspace 'CLAUDE.md'))) 'development-root-host-entries-retired'
+    $readmeText=Get-Content -Raw -LiteralPath (Join-Path $workspace 'README.md')
+    foreach($match in [regex]::Matches($readmeText,'\[[^\]]+\]\(([^)]+)\)')){
+        $target=$match.Groups[1].Value.Split('#')[0]
+        if($target-and$target-cnotmatch'^[a-zA-Z]+://'){Assert-True (Test-Path -LiteralPath (Join-Path $workspace $target)) ('source-readme-link-resolves|'+$target)}
+    }
+    $overlayText=Get-Content -Raw -LiteralPath (Join-Path $workspace 'framework/maintenance-overlay/BOOTSTRAP.md')
+    Assert-True (-not$overlayText.Contains('<TARGET>/AGENTS.md')-and$overlayText.Contains('<TARGET>/README.md')-and$overlayText.Contains('<TARGET>/framework/FRAMEWORK_RELEASE.md')) 'maintenance-template-uses-source-contract-navigation'
     $null = New-Item -ItemType Directory -Path $fixture
     $rootLinksValid = $true
     foreach ($relative in @('INITIALIZATION.md','README.md','framework/PROJECT_ADOPTION.md','framework/FRAMEWORK_RELEASE.md')) {
@@ -89,7 +97,7 @@ try {
     [IO.File]::Copy((Join-Path $workspace 'INITIALIZATION.md'), (Join-Path $fixture 'compatibility-navigation.md'), $false)
     Assert-True (-not [IO.File]::ReadAllText((Join-Path $fixture 'compatibility-navigation.md')).Contains('之后零写入')) 'self-update-required-navigation-copy-has-no-obsolete-transaction-rule'
     $packageWorkspace = Join-Path $fixture 'workspace'
-    foreach ($relative in @('LICENSE','framework/user-package/README.md','framework/user-package/AGENTS.md','scripts/MaintenanceOverlay.psm1','scripts/ProjectAdoptionProjection.psm1','scripts/ProjectAdoptionState.psm1','scripts/ProjectAdoptionTransaction.psm1','scripts/ProjectCorrectionLifecycle.psm1','scripts/register-project.ps1','scripts/upgrade-project.ps1','skills/ai-workspace-router/SKILL.md')) {
+    foreach ($relative in @('LICENSE','framework/PROJECT_ADOPTION.md','framework/user-package/README.md','framework/user-package/AGENTS.md','scripts/MaintenanceOverlay.psm1','scripts/ProjectAdoptionProjection.psm1','scripts/ProjectAdoptionState.psm1','scripts/ProjectAdoptionTransaction.psm1','scripts/ProjectCorrectionLifecycle.psm1','scripts/register-project.ps1','scripts/upgrade-project.ps1','skills/ai-workspace-router/SKILL.md')) {
         $destination = Join-Path $packageWorkspace $relative
         $parent = Split-Path -Parent $destination
         if (-not (Test-Path -LiteralPath $parent)) { $null = New-Item -ItemType Directory -Path $parent -Force }
@@ -269,21 +277,21 @@ try {
     ) 'package-root-entrypoints-render-user-templates'
     Assert-True (
         -not (Test-Path -LiteralPath (Join-Path $extract 'INITIALIZATION.md')) -and
-        -not (Test-Path -LiteralPath (Join-Path $extract 'framework/PROJECT_ADOPTION.md')) -and
+        (Test-Path -LiteralPath (Join-Path $extract 'framework/PROJECT_ADOPTION.md')) -and
         -not (Test-Path -LiteralPath (Join-Path $extract 'framework/user-package'))
     ) 'package-excludes-development-and-maintenance-entrypoints'
     $allLinksResolve = $true
-    foreach ($document in @($packageReadmePath, $packageAgentsPath)) {
+    foreach ($document in @($packageReadmePath, $packageAgentsPath, (Join-Path $extract 'framework/PROJECT_ADOPTION.md'))) {
         $documentText = [IO.File]::ReadAllText($document, [Text.UTF8Encoding]::new($false, $true))
         foreach ($match in [regex]::Matches($documentText, '\]\((?<target>[^)#]+)(?:#[^)]*)?\)')) {
             $target = [string]$match.Groups['target'].Value
             if ($target -match '^[a-z]+:') { continue }
-            if (-not (Test-Path -LiteralPath (Join-Path $extract $target) -PathType Leaf)) { $allLinksResolve = $false; break }
+            if (-not (Test-Path -LiteralPath (Join-Path (Split-Path -Parent $document) $target) -PathType Leaf)) { $allLinksResolve = $false; break }
         }
     }
     Assert-True $allLinksResolve 'package-root-relative-links-resolve'
     $payloadCount=@(Get-ChildItem -LiteralPath (Join-Path $packageWorkspace 'framework/versions/1.16.0') -Recurse -File).Count
-    Assert-True (@($manifest.files).Count -eq ($payloadCount+11)) 'package-complete-version-plus-eleven-root-files'
+    Assert-True (@($manifest.files).Count -eq ($payloadCount+12)) 'package-complete-version-plus-twelve-root-files'
 
     $null = New-Item -ItemType Directory -Path $candidateConsumer
     & git -C $candidateConsumer init -q

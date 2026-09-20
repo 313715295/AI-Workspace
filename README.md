@@ -2,7 +2,25 @@
 
 AI Workspace Framework 面向用户与 AI 共同参与的长期软件项目，围绕交付质量、多会话协作和总交付成本，提供可恢复、可审查、可持续演进的工作机制。
 
+它定位为宿主无关的项目治理与协作合同层，复用现有模块承载任务、行动、证据、协作、上下文/材料与资源合同。具体宿主接入映射参数、入口和实际接受事实；模型调用循环、压缩、缓存、工具调度、并发、通知及计费由宿主提供，业务标准和产物归项目。当前实现和验证主要针对 PowerShell 7 / Windows 与 Codex 接入，定位不代表已验证多宿主、平台强制执行或模型成本收益。
+
+治理机制按质量目的、真实消费者、现有能力、完整交付成本和补偿退出条件取舍，沿已有设计及验证处理，不新增必填表或检查阶段。责任、授权、独立性与证据边界保留；宿主能力缺口只限制实际受影响动作，已可继续的工作不因此整体停止。
+
 它把项目事实、任务责任、规则来源和交付证据保存在项目中，让后续会话有据接续工作，也让用户能核对当前进度、结果和剩余事项。
+
+## 从开发仓阅读合同
+
+本仓库是源码与通用合同交付对象；实际维护项目负责当前任务、身份、授权和证据。开发根不设置 AGENTS/CLAUDE 宿主入口。只有此 checkout 时，也可以按下表理解合同，无需聊天记录、个人 Skill 或原维护项目。
+
+| 要了解的内容 | 唯一正文与实现/验证入口 |
+|---|---|
+| 目标版本及可采用资格 | [1.16.0 说明](framework/versions/1.16.0/README.md)、[版本元数据](framework/versions/1.16.0/VERSION.json)、[发布资格](framework/versions/1.16.0/RELEASE_MANIFEST.json)；当前开发候选的 PENDING 不代表已审快照失效，也不能借旧快照证明新字节 |
+| 任务、授权、证据及恢复合同 | [任务与范围](framework/versions/1.16.0/TASK_AND_SCOPE.md)、[授权](framework/versions/1.16.0/AUTHORIZATION_MODEL.md)、[审核与证据](framework/versions/1.16.0/REVIEW_AND_EVIDENCE.md)、[恢复](framework/versions/1.16.0/RECOVERY_CORE.md) |
+| 规则组合、纠正历史、材料与宿主边界 | [工具合同](framework/versions/1.16.0/TOOL_CONTRACT.md)、[项目控制](framework/versions/1.16.0/PROJECT_CONTROL.md)、[宿主接入](framework/versions/1.16.0/HOST_CODEX.md)；[组合实现](framework/versions/1.16.0/scripts/ProcessRequirementComposition.psm1)、[纠正生命周期](scripts/ProjectCorrectionLifecycle.psm1) |
+| 关键取舍与行为验证 | [版本变更说明](framework/versions/1.16.0/CHANGELOG.md)、[运行合同测试](framework/versions/1.16.0/tests/process-runtime-v2-tests.ps1)、[选择与存储回归](framework/versions/1.16.0/tests/efficiency-regression-tests.ps1)、[纠正测试](scripts/tests/project-correction-lifecycle-tests.ps1)、[采用与恢复测试](scripts/tests/upgrade-project-bridge-tests.ps1)；测试源码说明验证场景，实际通过结论取对应执行证据 |
+| 使用或维护 | 消费者见[接入与升级](framework/PROJECT_ADOPTION.md)；开发、候选和发行见[维护与发布合同](framework/FRAMEWORK_RELEASE.md) |
+
+理解合同属于只读工作；继续原维护任务需要恢复原 Maintenance 的真实状态，不能从源码或旧聊天推断授权。在另一个环境开展维护，应建立自己的维护治理项目，不继承本机身份。包内与消费者项目的 AGENTS 分别由专用模板生成，和开发根文件无关。合同可读不等于已验证所有操作系统或宿主均能执行。
 
 ## 它解决什么问题
 
@@ -36,7 +54,7 @@ Framework 不是产品运行时、业务代码框架或中心化项目管理平�
 运行时组合三类彼此独立的规则来源：
 
 1. 项目所选 Framework 版本中的通用规则；
-2. 该版本尚未吸收的项目纠正；
+2. 项目当前显式生效的纠正；
 3. 项目自己的永久流程规则。
 
 规则正文仍由原始 Markdown 或项目真实来源持有。选择器只负责找到当前需要的规则，不复制第二份正文。自然任务、上下文或 authority 边界发生变化时重新选择；连续工作复用既有完整规则；动作和交付边界只前置紧凑义务；绑定不确定或来源漂移时重新读取。

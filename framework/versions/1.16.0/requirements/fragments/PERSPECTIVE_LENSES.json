@@ -78,15 +78,14 @@
           "CRITICAL"
         ],
         "roles": [
-          "CONTROLLER",
-          "DOMAIN_OWNER",
-          "FRAMEWORK_MAINTAINER"
+          "*"
         ],
         "phases": [
           "PLAN"
         ],
         "actionKinds": [
-          "NONE"
+          "NONE",
+          "CONTROL_WRITE"
         ],
         "resultKinds": [
           "PLAN",

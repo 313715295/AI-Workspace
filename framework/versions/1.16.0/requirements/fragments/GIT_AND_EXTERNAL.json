@@ -16,7 +16,7 @@
           "*"
         ],
         "phases": [
-          "GIT"
+          "*"
         ],
         "actionKinds": [
           "GIT_STAGE",
@@ -52,7 +52,7 @@
           "*"
         ],
         "phases": [
-          "EXTERNAL"
+          "*"
         ],
         "actionKinds": [
           "BROWSER_RUN",
@@ -109,6 +109,45 @@
       "resultRequirements": [
         "DOMAIN_EXTERNAL_BATCH_RESULT_OBSERVED"
       ]
+    },
+    {
+      "requirementId": "PR_GIT_PLANNING_BOUNDARY",
+      "legacyAliases": [],
+      "title": "Git planning and disposition boundary",
+      "description": "Discussing Git or handing off changed artifacts never grants stage, commit or push authority.",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "PLAN",
+          "IMPLEMENT",
+          "VERIFY",
+          "REVIEW"
+        ],
+        "actionKinds": [
+          "NONE",
+          "CONTROL_WRITE"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": [
+          "git",
+          "commit",
+          "push",
+          "提交",
+          "推送"
+        ]
+      },
+      "exactBlockLocator": "AIW-REQUIREMENT:PR_GIT_PLANNING_BOUNDARY",
+      "preparationRequirements": [],
+      "resultRequirements": []
     }
   ]
 }

@@ -77,8 +77,10 @@ function Invoke-SelfUpdateFinalize($BoundaryInput, $Receipt, $Resolved, $Package
 
 function Assert-SelfUpdateCleanupPath($Receipt) {
     $context=if([int]$Receipt.schemaVersion-eq1){$Receipt}else{$Receipt.binding}
-    foreach($value in @([string]$context.taskId,[string]$context.actor)){if($value-cnotmatch'^[0-9A-Za-z][0-9A-Za-z._-]*$'){throw 'MAINTENANCE_CLEANUP_CONTEXT'}}
-    $expectedRoot=[IO.Path]::GetFullPath((Join-Path $controlRoot ('.ai-workspace/runtime/'+$context.taskId+'/'+$context.actor)))
+    if([string]$context.taskId-cnotmatch'^[0-9A-Za-z][0-9A-Za-z._-]*$'){throw 'MAINTENANCE_CLEANUP_CONTEXT'}
+    $adapter=@(Import-Module (Join-Path $PSScriptRoot 'ProjectAdoptionTransaction.psm1') -Force -PassThru -ErrorAction Stop)[0]
+    $actorStorage=& $adapter.ExportedFunctions['Get-AiwBoundRuntimeActorStorageKey'] -FrameworkRoot $Receipt.sourceLocators.frameworkRoot -Version $context.frameworkVersion -Actor $context.actor
+    $expectedRoot=[IO.Path]::GetFullPath((Join-Path $controlRoot ('.ai-workspace/runtime/'+$context.taskId+'/'+$actorStorage)))
     if(-not$inputFull.StartsWith($expectedRoot+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)){throw 'MAINTENANCE_CLEANUP_SCOPE'}
     $cursor=$inputFull
     while($cursor.Length-ge$controlRoot.Length){

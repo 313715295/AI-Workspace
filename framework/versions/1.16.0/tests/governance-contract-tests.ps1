@@ -21,14 +21,13 @@ $catalogText=Get-Content -Raw -Encoding utf8 -LiteralPath $catalogPath
 $catalog=$catalogText|ConvertFrom-Json
 $inventory=Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $versionRoot 'NORMATIVE_SURFACE_INVENTORY.json')|ConvertFrom-Json
 $budget=Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $versionRoot 'tests\PROCESS_REQUIREMENTS_BUDGETS.json')|ConvertFrom-Json
-$coverage=Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $versionRoot 'CORRECTION_COVERAGE.json')|ConvertFrom-Json
 
 $catalogCheck=Invoke-Ps $catalogGenerator @('-Check')
-Assert-True ($catalogCheck.Code-eq0-and$catalogCheck.Text.Contains('PASS|requirements=37|fragments=9')) 'process-requirements-canonical-fragments-match-generated-catalog'
+Assert-True ($catalogCheck.Code-eq0-and$catalogCheck.Text.Contains('PASS|requirements=40|fragments=9')) 'process-requirements-canonical-fragments-match-generated-catalog'
 $blockProjectionValid=-not$catalogText.Contains('"fullText"')
 foreach($fragmentPath in Get-ChildItem -LiteralPath (Join-Path $versionRoot 'requirements\fragments') -File -Filter '*.json'){if((Get-Content -Raw -Encoding utf8 -LiteralPath $fragmentPath.FullName).Contains('"fullText"')){$blockProjectionValid=$false}}
 foreach($requirement in @($catalog.requirements)){$ownerPath=Join-Path $versionRoot ([string]$requirement.ownerModule);try{$body=Get-RequirementBlock $ownerPath ([string]$requirement.requirementId)}catch{$blockProjectionValid=$false;continue};if([string]$requirement.exactBlockLocator-cne('AIW-REQUIREMENT:'+[string]$requirement.requirementId)-or[string]::IsNullOrWhiteSpace($body)){$blockProjectionValid=$false}}
-Assert-True ($blockProjectionValid-and@($catalog.requirements).Count-eq37) 'process-requirements-metadata-only-catalog-exact-markdown-blocks-nonempty'
+Assert-True ($blockProjectionValid-and@($catalog.requirements).Count-eq40) 'process-requirements-metadata-only-catalog-exact-markdown-blocks-nonempty'
 
 $temp=Join-Path ([IO.Path]::GetTempPath()) ('aiw-governance-contract-'+[guid]::NewGuid().ToString('N'))
 try{
@@ -59,9 +58,8 @@ Assert-True ($authorizationBlock.Contains('AUTHORIZED_ACTION_CONTINUATION')-and$
 Assert-True ([regex]::Matches($mainTestText,'authorization-receipt-regression-tests\.ps1').Count-eq1-and$mainTestText.Contains('AUTHORIZATION_RECEIPT_REGRESSION_TESTS')) 'main-suite-invokes-one-authorization-receipt-specialty-and-propagates-failure'
 
 $catalogIdentity=Get-Identity $catalogPath
-$coverageBindings=@($coverage.versions[0].incorporationMappings|ForEach-Object{[string]$_.nativeCatalogIdentity})
 Assert-True ([string]$budget.baseline.version-ceq'1.15.1'-and[string]$budget.baseline.catalogIdentity-ceq'48098|547BBC615BCFC0A281723A1B84AEFD36FECD5CA421C7155C1897D8F4F0CC74C5'-and[string]$budget.candidate.catalogIdentity-ceq$catalogIdentity) 'process-budget-minor-baseline-and-candidate-catalog-identities-exact'
-Assert-True (@($coverageBindings).Count-gt0-and@($coverageBindings|Where-Object{$_-cne$catalogIdentity}).Count-eq0-and@($inventory.schemaAndMechanicalInputs)-contains'tests/canonical-identity-tests.ps1'-and@($inventory.schemaAndMechanicalInputs)-contains'tests/governance-contract-tests.ps1') 'governance-focused-entrypoint-binds-catalog-coverage-budget-and-inventory'
+Assert-True (-not(Test-Path -LiteralPath (Join-Path $versionRoot 'CORRECTION_COVERAGE.json'))-and'CORRECTION_COVERAGE.json'-cnotin@($inventory.schemaAndMechanicalInputs)-and@($inventory.schemaAndMechanicalInputs)-contains'tests/canonical-identity-tests.ps1'-and@($inventory.schemaAndMechanicalInputs)-contains'tests/governance-contract-tests.ps1') 'governance-catalog-budget-inventory-without-central-project-mapping'
 if($SkipPerformanceSmoke){Assert-True $true 'process-budget-six-fixtures-replay-selected-pack-skipped-for-affected-run'}else{
     $measurement=Invoke-Ps (Join-Path $versionRoot 'tests\measure-process-requirements.ps1') @('-Warmups','1','-MeasuredRuns','1','-AsJson')
     $measurementValue=if($measurement.Code-eq0){$measurement.Text|ConvertFrom-Json}else{$null}
@@ -73,7 +71,7 @@ if($SkipPerformanceSmoke){Assert-True $true 'process-budget-six-fixtures-replay-
 $releasePath=Join-Path $repositoryRoot 'framework\FRAMEWORK_RELEASE.md'
 $releaseText=Get-Content -Raw -Encoding utf8 -LiteralPath $releasePath
 $reviewText=Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $versionRoot 'REVIEW_AND_EVIDENCE.md')
-Assert-True ((Test-Path -LiteralPath $releasePath -PathType Leaf)-and-not(Test-Path -LiteralPath (Join-Path $versionRoot 'FRAMEWORK_RELEASE.md'))-and@($inventory.explanationAndHistory)-cnotcontains'FRAMEWORK_RELEASE.md'-and-not$reviewText.Contains('PR_REVIEW_CANDIDATE_FREEZE_AND_SEQUENCE')-and-not$catalogText.Contains('"requirementId": "PR_REVIEW_CANDIDATE_FREEZE_AND_SEQUENCE"')-and(Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $repositoryRoot 'AGENTS.md')).Contains('framework/FRAMEWORK_RELEASE.md')) 'release-governance-root-owned-and-absent-from-version-payload'
+Assert-True ((Test-Path -LiteralPath $releasePath -PathType Leaf)-and-not(Test-Path -LiteralPath (Join-Path $versionRoot 'FRAMEWORK_RELEASE.md'))-and@($inventory.explanationAndHistory)-cnotcontains'FRAMEWORK_RELEASE.md'-and-not$reviewText.Contains('PR_REVIEW_CANDIDATE_FREEZE_AND_SEQUENCE')-and-not$catalogText.Contains('"requirementId": "PR_REVIEW_CANDIDATE_FREEZE_AND_SEQUENCE"')-and(Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $repositoryRoot 'README.md')).Contains('](framework/FRAMEWORK_RELEASE.md)')-and-not(Test-Path -LiteralPath (Join-Path $repositoryRoot 'AGENTS.md'))-and-not(Test-Path -LiteralPath (Join-Path $repositoryRoot 'CLAUDE.md'))) 'release-governance-root-owned-and-absent-from-version-payload'
 Assert-True ($releaseText.Contains('final candidate freeze 运行一次 complete current-version suite')-and$releaseText.Contains('baseline executable regression 只适用于仍声明支持且确被')-and$releaseText.Contains('已退出版本只保留历史 identity 与 recovery evidence，不恢复退役套件')-and$releaseText.Contains('一个 independent CRITICAL Source Review')-and$releaseText.Contains('Maintenance `OWNER_ACCEPT` 独立接受 exact approved candidate')-and$releaseText.Contains('没有未 Review 的 free-form/executable change 时，不需要第二次 semantic post-seal Review')-and$releaseText.Contains('deterministic publication preflight')-and$releaseText.Contains('publication 顺序为 `github/main` 后 `origin/main`')-and$releaseText.Contains('失败即停止')-and$releaseText.Contains('tests/canonical-identity-tests.ps1')-and$releaseText.Contains('tests/governance-contract-tests.ps1')-and$reviewText.Contains('same-scope repair 使用新 writer package')-and$reviewText.Contains('focused rereview')) 'release-sequence-proportional-review-owner-accept-seal-git-review-and-two-remote-stopline'
 
 Write-Output 'EVIDENCE_CEILING|MECHANICAL_CONTRACT_ONLY|MODEL_FULLTEXT_READ_AND_HOST_ENFORCEMENT_NOT_PROVEN'

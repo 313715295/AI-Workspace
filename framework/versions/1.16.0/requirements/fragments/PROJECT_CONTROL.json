@@ -14,8 +14,7 @@
           "CRITICAL"
         ],
         "roles": [
-          "CONTROLLER",
-          "FRAMEWORK_MAINTAINER"
+          "*"
         ],
         "phases": [
           "PLAN",
@@ -56,8 +55,7 @@
           "CRITICAL"
         ],
         "roles": [
-          "CONTROLLER",
-          "FRAMEWORK_MAINTAINER"
+          "*"
         ],
         "phases": [
           "PLAN",
@@ -331,24 +329,17 @@
     {
       "requirementId": "PR_CORRECTIONS_V2_COMPATIBILITY",
       "legacyAliases": [],
-      "title": "Project corrections v2 compatibility",
-      "description": "Select structured corrections progressively while preserving v1 history and fail-safe version movement.",
+      "title": "Project correction daily lifecycle and history",
+      "description": "Install, revise, pause, resume and uninstall project-owned effects with complete history, independently of a Framework upgrade.",
       "selectors": {
         "profiles": [
           "*"
         ],
         "roles": [
-          "CONTROLLER",
-          "DOMAIN_OWNER",
-          "FRAMEWORK_MAINTAINER"
+          "*"
         ],
         "phases": [
-          "RECOVER",
-          "DISCOVER",
-          "PLAN",
-          "IMPLEMENT",
-          "VERIFY",
-          "REVIEW"
+          "*"
         ],
         "actionKinds": [
           "*"
@@ -360,12 +351,55 @@
         "capabilities": [],
         "semanticTerms": [
           "correction",
-          "upgrade",
-          "downgrade",
-          "policy"
+          "corrections",
+          "纠正",
+          "rule revision",
+          "规则修订"
         ]
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_CORRECTIONS_V2_COMPATIBILITY",
+      "preparationRequirements": [
+        "CORRECTION_SCHEMA_COMPATIBLE"
+      ],
+      "resultRequirements": [
+        "CORRECTION_EFFECTIVE_SET_REPORTED"
+      ]
+    },
+    {
+      "requirementId": "PR_CORRECTION_ADOPTION_ANALYSIS",
+      "legacyAliases": [],
+      "title": "Local correction analysis during adoption",
+      "description": "Project-owned semantic analysis and exact migration preserve guarantees when native behavior changes; no central project-ID mapping.",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "*"
+        ],
+        "actionKinds": [
+          "*"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": [
+          "upgrade",
+          "adoption",
+          "migration",
+          "downgrade",
+          "升级",
+          "采用",
+          "迁移",
+          "降级"
+        ]
+      },
+      "exactBlockLocator": "AIW-REQUIREMENT:PR_CORRECTION_ADOPTION_ANALYSIS",
       "preparationRequirements": [
         "CORRECTION_SCHEMA_COMPATIBLE"
       ],

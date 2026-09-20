@@ -86,21 +86,17 @@ project adoption 加载 `1.16.0` starter 与 task contract，但不批量重写 
 <!-- AIW-REQUIREMENT:PR_OWNER_FIRST_DIRECT_DOMAIN_ROUTE:END -->
 
 <!-- AIW-REQUIREMENT:PR_CORRECTIONS_V2_COMPATIBILITY:BEGIN -->
-## Project corrections
+纠正的日常安装、修订、暂停、恢复和卸载独立于Framework升级。corrections.json保存当前项目权威；效果不佳、总成本、副作用或用户决定改变均可触发处置，不以Framework吸收为必要条件。ACTIVE或未声明生命周期的现有记录参与选择；PAUSED/UNINSTALLED为不生效历史，不用不可能命中的selector假装停用。
 
-纠正的安装、停用、恢复、卸载涵盖其全部生效改动，包括 AGENTS 委托、导航、policy、配置和专属文件。schema2 record 可带 lifecycle（state、installation 的 locator/identity、decisionLocator）；缺字段保持旧语义。ACTIVE 才选择，PAUSED/UNINSTALLED 保留不生效历史；用户撤回与框架吸收分开，不用永不匹配的 selector 假装停用，未扩展旧记录的 canonical identity 不变。
+操作覆盖该纠正实际引入的整组效果：委托、导航、policy、配置、专属文件和正文。按原installation证明归属，以FILE精确前像或TEXT唯一上下文撤销，保留后来独立决定。依赖、共享、重叠或未知历史只阻断受影响对象；不能声称未知效果已撤下，也不无限阻塞无关工作。暂停可恢复，卸载不由注册或升级复活。原审核、接受、授权及保护边界不变。
 
-沿原安装前后像/事务保存归属，在当前字节上精确撤销新增、恢复替换、保留未改和后续独立内容。暂停可恢复；卸载撤下整组效果且升级不复活。历史归属从原任务/Git/安装证据恢复，缺口、共享、重叠及依赖冲突只定位受影响对象，不猜前像、不全项目阻塞。能确定的直接处理，真实混合取舍才交用户。操作一次说明撤下/独立义务、在途影响及恢复；工具检查显式引用，模型判断隐含语义，不声称穷尽。格式与事务见 TOOL_CONTRACT/根接入合同；不新增长期台账、不自动卸载 live 纠正。
+每次操作在原upgrade-recovery/corrections/<ID>/<batch>/保存不可变history.json（完整旧record、操作和决定），当前record仅引用最近history的locator/identity；旧record保留此前history及installation引用。installation证明效果归属，history证明正文/状态演进，事务state.json证明恢复，三者不混称。新历史与全部后像同一投影提交，历史失败不得只改当前正文；正常加载不展开历史链。正式历史及原任务/Git证据长期保留，不按临时收据清理。
 
-`.ai-workspace/corrections.json` 是独立 project authority object；它既不是 task card，也不是 permanent PROJECT-CUSTOM region。task 可以发现或更新 correction，但 task lifecycle 与 chat history 不控制其保留。
+REVISE在同一投影中替换当前record及已证明的效果，不拆为先卸载再安装的两个事务。只改正文/selector时保留installation及效果；拆合沿原精确整组投影保留每条旧记录和完整义务映射，不新建吸收表或授权语言。REGISTER_HISTORY只登记有证据的旧安装，不自动归档、不补造前像或强制全项目登记。缺归属的既有record可单独修订并保存真实旧正文，但不据此撤销未知文件效果。
 
-每条 record 保存 stable correction ID、introduced-against Framework version/range、observed failure/reason、effective rule、applicability boundary 与 decision/evidence locator。不设 partial-incorporation state。Framework `1.16.0` 保留 historical ID coverage；runtime suppression 只接受 payload-sealed mapping，且必须同时匹配 project-scoped alias、native requirement、catalog identity 与 canonical source-record identity。
-
-effective project rules 是没有被 explicit pinned version 精确吸收的 correction records。incorporated record 继续作为 project evidence 保留，不重复应用也不删除。missing mapping、source drift 与 invalid coverage 会保留 correction；明确 declared conflict 在 pin write 前阻止 adoption。compatibility wrapper 评估只有 historical ID-level coverage 的旧 target 时，报告 `LEGACY_ID_ONLY_RETAINED` 并保持 record effective，不把粗粒度 metadata 当成精确证明。
-
-coverage metadata 不是 semantic proof。release 只有在 effective requirement 已进入 load manifest 可达的 applicable normative modules、被 behavior tests 覆盖，并由 independent Review 对照 original reason/boundary 接受后，才可声明吸收 correction。不创建 correction-to-module registry 或 absorption ledger。
-
-项目内修订/拆合不是版本吸收。沿原审核与Owner接受对完整义务作原子替换，保留原完整来源身份、原因及历史定位；回滚使用兼容完整组，不用停用字段或不可能匹配的selector退役。混有项目特例的记录不能按通用部分整条抑制，须保留未被原生承担的有效义务；不引入partial状态。
-
-registration 创建一个空 corrections object。upgrade 在 pin projection 前校验并报告 incorporated、still-effective 与 conflicting records；保留 existing correction bytes 与 legacy PROJECT-CUSTOM bytes；对 customized legacy region 不自动添加 structured policy，并在 projection 后复检。采用旧版或 alternate version 时重新评估相同 records，绝不静默退役。
+先预览静态路径和当前全组对象，再按精确包Apply并重验来源；写后完整三源组合不合法则整组回滚。进程中断复用原事务恢复与当前授权，第三方混合字节拒绝。实际操作参数由根PROJECT_ADOPTION导航，工具不证明隐含语义依赖。
 <!-- AIW-REQUIREMENT:PR_CORRECTIONS_V2_COMPATIBILITY:END -->
+
+<!-- AIW-REQUIREMENT:PR_CORRECTION_ADOPTION_ANALYSIS:BEGIN -->
+Framework发布通用行为、边界、验证和迁移说明，不登记消费者纠正ID或源record hash来抑制项目规则。项目可经授权提供Issue/PR/文件/本机证据，默认不外传。采用时由项目对实际旧有效、旧抑制及停用历史分析：完整覆盖退出重复，部分覆盖保留项目增量，未覆盖保留，冲突定位处理，证据不足说明而非伪称吸收。工具只检查已审精确投影，不代替语义判断。新运行时只按项目当前记录/生命周期选择；对象hash用于漂移、权限和恢复，不证明覆盖。旧中央映射退出前，在旧健康runtime取得真实分类并保存完整来源，显式处置被抑制记录，防止复活。依赖新版本才成立的退出与目标运行绑定同一采用事务，失败回到匹配旧包和完整项目前像；后来独立修改不能被覆盖。当前已知项目优先一次迁移，不建长期双轨、中央/本地吸收台账或任意旧版本转换。暂停/卸载与通用吸收不同，历史持续可追溯。
+<!-- AIW-REQUIREMENT:PR_CORRECTION_ADOPTION_ANALYSIS:END -->

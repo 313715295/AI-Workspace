@@ -46,7 +46,15 @@ try{
             if([string]$resolved.frameworkVersion-ceq[string]$packageSelection.frameworkVersion-and[string]$packageSelection.bundle-ceq'ACTOR_BOUND_PROJECT_UPGRADE'-and$packageSelection.actions-is[Array]-and[string]::Join('|',@($packageSelection.actions)) -ceq 'CONTROL_WRITE'-and$packageSelection.exactPaths-is[Array]-and$packageSelection.postObjectIdentities-is[Array]){
                 $paths=@($packageSelection.exactPaths|ForEach-Object{[string]$_});$unique=@($paths|Select-Object -Unique);$live=@($paths|Where-Object{$_-cne$sameVersionStatePath});$allowed=@('.ai-workspace/BOOTSTRAP.md','.ai-workspace/process-policy.json','AGENTS.md','.gitignore','.agents/skills/ai-workspace-router/SKILL.md')
                 $postPaths=@($packageSelection.postObjectIdentities|ForEach-Object{[string]$_.path});$postSorted=@($postPaths);$pathSorted=@($paths);[Array]::Sort($postSorted,[StringComparer]::Ordinal);[Array]::Sort($pathSorted,[StringComparer]::Ordinal)
-                $sameVersionProjectionRefresh=$paths.Count-ge2-and$paths.Count-le6-and$paths.Count-eq$unique.Count-and[string]$paths[-1]-ceq$sameVersionStatePath-and@($live|Where-Object{$_-cnotin$allowed}).Count-eq0-and$postPaths.Count-eq$paths.Count-and[string]::Join("`n",$postSorted)-ceq[string]::Join("`n",$pathSorted)
+                $carrier='.ai-workspace/corrections.json'
+                $history=@($live|Where-Object{$_-cmatch'^\.ai-workspace/upgrade-recovery/corrections/[A-Z][A-Z0-9_]*/[A-Za-z0-9._-]+/history\.json$'})
+                $historyValid=$true
+                foreach($path in $history){
+                    $pre=@($packageSelection.objectIdentities|Where-Object{[string]$_.path-ceq$path})
+                    $post=@($packageSelection.postObjectIdentities|Where-Object{[string]$_.path-ceq$path})
+                    if($pre.Count-ne1-or[string]$pre[0].identity-cne'NEW'-or$post.Count-ne1-or[string]$post[0].identity-cnotmatch'^\d+\|[A-F0-9]{64}$'){$historyValid=$false}
+                }
+                $sameVersionProjectionRefresh=$paths.Count-ge2-and$paths.Count-eq$unique.Count-and[string]$paths[-1]-ceq$sameVersionStatePath-and@($live|Where-Object{$_-cnotin$allowed-and$_-cne$carrier-and$_-cnotin$history}).Count-eq0-and($history.Count-eq0-or$carrier-cin$live)-and$historyValid-and$postPaths.Count-eq$paths.Count-and[string]::Join("`n",$postSorted)-ceq[string]::Join("`n",$pathSorted)
             }
             if(-not$sameVersionStateRebind-and-not$sameVersionProjectionRefresh){throw 'MAINTENANCE_SCHEMA3_DIRECT_AUTHORIZATION_DENIED'}
             $checkerVersion=[string]$packageSelection.frameworkVersion

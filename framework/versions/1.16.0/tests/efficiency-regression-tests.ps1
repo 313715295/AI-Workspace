@@ -48,6 +48,36 @@ try{
  function DiscoverCase([string[]]$Hints){$discovery.intentEnvelope.semanticHints=@($Hints);SaveJson $inputPath $discovery;$r=Run $resolver @{InputPath=$inputPath;AsJson=$true};if($r.Code-ne0){throw $r.Text};return $r.Value}
  $read=DiscoverCase @('configuration explanation');$ids=@($read.selectedRuleBlocks.requirementId)
  Check ('framework:PR_TASK_LAUNCH_AND_ROUTE'-cnotin$ids-and'framework:PR_TASK_RESOURCE_SELECTION'-cnotin$ids-and'framework:PR_TASK_CHANGED_OUTPUT_DISPOSITION'-cnotin$ids) 'healthy-read-only-does-not-load-creation-resource-or-write-closure'
+ # Real taskless resolver: storage is derived from exact actor bytes, not a
+ # normalized identity. Creation and cleanup exercise the same binding.
+ $actorInput=$discovery|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100
+ $actorInput.contextType='PROJECT_READ_ONLY';$actorInput.taskPath='NOT_APPLICABLE';$actorInput.expectedTaskIdentity='NOT_APPLICABLE'
+ $actorInput.readOnlyContext=[pscustomobject]@{sessionId='fixture-session';requestId='ACTOR-001';role='DOMAIN_OWNER';phase='PLAN';profile='STANDARD'}
+ $actorSegments=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+ foreach($actorName in @('/root/review','\root\review','Actor','actor','actor-sha256-example','a/b','a\b','actor.','actor..','con','con.txt','nul','01a00000-0000-7000-8000-000000000000')){
+  $segment=if($actorName-cmatch'^[a-z0-9][a-z0-9._-]*$'-and-not$actorName.EndsWith('.')-and$actorName-cnotmatch'^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)'-and-not$actorName.StartsWith('actor-sha256-')){$actorName}else{'actor-sha256-'+[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($utf8.GetBytes($actorName))).ToLowerInvariant()}
+  Check ($actorSegments.Add($segment)) ('actor-storage-distinct-'+$actorName)
+  $dir=Join-Path $control ('runtime/ACTOR-001/'+$segment);$null=New-Item -ItemType Directory -Path $dir -Force
+  $ai=Join-Path $dir 'input.json';$ar=Join-Path $dir 'compact.json';$actorInput.observedActor=$actorName;SaveJson $ai $actorInput
+  $saved=Run $resolver @{InputPath=$ai;CompactReceiptPath=$ar;DeleteInputOnExit=$true;AsJson=$true}
+  Check ($saved.Code-eq0-and(Test-Path -LiteralPath $ar)-and-not(Test-Path -LiteralPath $ai)-and$saved.Value.compactReceipt.binding.actor-ceq$actorName) ('actor-storage-roundtrip-exact-identity-'+$actorName)
+  $storedId=Id $ar;SaveJson $ai $actorInput;$again=Run $resolver @{InputPath=$ai;CompactReceiptPath=$ar;AsJson=$true}
+  Check ($again.Code-ne0-and(Id $ar)-ceq$storedId) ('actor-existing-receipt-not-overwritten-'+$actorName)
+ }
+ foreach($case in @(
+  @{Hint='temporary task archive';Required='PR_TASK_CHANGED_OUTPUT_DISPOSITION'},
+  @{Hint='git disposition';Required='PR_TASK_CHANGED_OUTPUT_DISPOSITION'},
+  @{Hint='execution organization';Required='PR_TASK_RESOURCE_SELECTION'},
+  @{Hint='new assignment';Required='PR_CODEX_TOOL_OPERATION_RESOLUTION'},
+  @{Hint='git';Required='PR_GIT_PLANNING_BOUNDARY'},
+  @{Hint='correction';Required='PR_CORRECTIONS_V2_COMPATIBILITY'},
+  @{Hint='upgrade';Required='PR_CORRECTION_ADOPTION_ANALYSIS'}
+ )){
+  $value=DiscoverCase @($case.Hint)
+  Check (('framework:'+$case.Required)-cin@($value.selectedRuleBlocks.requirementId)) ('real-composer-selects-'+$case.Hint)
+  Check ('framework:PR_GIT_PUSH_SEPARATE'-cnotin@($value.selectedRuleBlocks.requirementId)) ('planning-does-not-authorize-push-'+$case.Hint)
+ }
+ $discovery.intentEnvelope.semanticHints=@('configuration explanation')
  # Execute the actual documentation, not a separately maintained imitation.
  $promptText=[IO.File]::ReadAllText((Join-Path $versionRoot 'PROMPTS.md'))
  $example=[regex]::Match($promptText,'(?s)<!-- AIW-EXAMPLE:PROCESS_INPUTS:BEGIN -->\s*```powershell\s*(.*?)\s*```\s*<!-- AIW-EXAMPLE:PROCESS_INPUTS:END -->')
@@ -181,7 +211,7 @@ try{
   $legacyExpected=($semanticIntent.objective+' '+[string]::Join(' ',@($semanticIntent.semanticHints+$semanticIntent.externalHints))).Trim()
   Check ($legacy-ceq$legacyExpected) ('EFF-01-consumed-legacy-contract-survives-loaded-new-helper-'+$consumer.Path)
  }
- foreach($relative in @('README.md','AGENTS.md','scripts/resolve-framework-maintenance-target.ps1','scripts/resolve-framework-maintenance-process-requirements.ps1','scripts/check-framework-maintenance-authorization.ps1','scripts/invoke-framework-maintenance-safe-git.ps1','scripts/MaintenanceOverlay.psm1','scripts/ProjectAdoptionState.psm1')){$dest=Join-Path $framework $relative;$null=New-Item -ItemType Directory -Path (Split-Path -Parent $dest) -Force;Copy-Item -LiteralPath (Join-Path $repositoryRoot $relative) -Destination $dest}
+ foreach($relative in @('README.md','scripts/resolve-framework-maintenance-target.ps1','scripts/resolve-framework-maintenance-process-requirements.ps1','scripts/check-framework-maintenance-authorization.ps1','scripts/invoke-framework-maintenance-safe-git.ps1','scripts/MaintenanceOverlay.psm1','scripts/ProjectAdoptionState.psm1','scripts/ProjectAdoptionTransaction.psm1','scripts/ProjectAdoptionProjection.psm1')){$dest=Join-Path $framework $relative;$null=New-Item -ItemType Directory -Path (Split-Path -Parent $dest) -Force;Copy-Item -LiteralPath (Join-Path $repositoryRoot $relative) -Destination $dest}
  Copy-Item -LiteralPath (Join-Path $repositoryRoot 'framework/maintenance-overlay') -Destination (Join-Path $framework 'framework/maintenance-overlay') -Recurse
  & git -C $framework init -q
  $maintenance=Join-Path $temp 'maintenance';$null=New-Item -ItemType Directory -Path $maintenance;& git -C $maintenance init -q

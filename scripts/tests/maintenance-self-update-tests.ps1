@@ -8,13 +8,25 @@ param(
     [string]$ExpectedSeedTransactionIdentity,
     [switch]$CleanupOnly,
     [switch]$RelocationOnly,
-    [switch]$CrossDistributionOnly
+    [switch]$CrossDistributionOnly,
+    [string]$LegacyRuntimeRoot
 )
 $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
 if($CrossDistributionOnly){$RelocationOnly=$true}
 $utf8=[Text.UTF8Encoding]::new($false);$passes=0;$lf=[string][char]10
 $fixtureRoot=Join-Path ([IO.Path]::GetTempPath()) ('aiw-maintenance-self-update-'+[guid]::NewGuid().ToString('N'))
 function Confirm([bool]$Condition,[string]$Name){if(-not$Condition){throw ('ASSERT_FAIL|'+$Name)};$script:passes++}
+function Assert-CrossDistributionOutput([string[]]$Output,[int]$ExitCode){
+    if($ExitCode-ne0){throw 'CROSS_MAINTENANCE_MATRIX_FAILED'}
+    foreach($schema in @(2,3)){
+        foreach($stage in @('PREPARE=PASS','ADMIT=PASS|input=DELETED','FINALIZE=PASS')){
+            $expected='CROSS_CASE|layout=framework-maintenance-sibling|schema='+$schema+'|'+$stage
+            Confirm (@($Output|Where-Object{$_-ceq$expected}).Count-eq1) ('cross-outer-marker-'+$schema+'-'+$stage)
+        }
+    }
+    $summaries=@($Output|Where-Object{$_-cmatch'^PASS\|cross-distribution-framework-maintenance-sibling\|'})
+    Confirm ($summaries.Count-eq1-and$summaries[0]-cmatch'^PASS\|cross-distribution-framework-maintenance-sibling\|([1-9][0-9]*)/\1$') 'cross-outer-complete-matrix-marker'
+}
 function Write-Text([string]$Path,[string]$Text){New-Item -ItemType Directory -Path (Split-Path -Parent $Path) -Force|Out-Null;[IO.File]::WriteAllText($Path,$Text.Replace([string][char]13,'').TrimEnd()+$script:lf,$script:utf8)}
 function Write-Json([string]$Path,$Value){Write-Text $Path ($Value|ConvertTo-Json -Depth 100)}
 function Id([string]$Path){if(-not(Test-Path -LiteralPath $Path -PathType Leaf)){return 'MISSING'};$b=[IO.File]::ReadAllBytes($Path);return $b.Length.ToString()+'|'+[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($b))}
@@ -101,7 +113,8 @@ try {
         $dest=Join-Path $fixtureSource $folder;New-Item -ItemType Directory -Path (Split-Path -Parent $dest) -Force|Out-Null
         Copy-Item -LiteralPath (Join-Path $candidateInput $folder) -Destination $dest -Recurse
     }
-    foreach($name in @('AGENTS.md','README.md','LICENSE','INITIALIZATION.md','framework/FRAMEWORK_RELEASE.md','framework/PROJECT_ADOPTION.md','framework/ROADMAP.md')){Copy-Exact (Join-Path $candidateInput $name) (Join-Path $fixtureSource $name)}
+    foreach($name in @('README.md','LICENSE','INITIALIZATION.md','framework/FRAMEWORK_RELEASE.md','framework/PROJECT_ADOPTION.md','framework/ROADMAP.md')){Copy-Exact (Join-Path $candidateInput $name) (Join-Path $fixtureSource $name)}
+    Confirm (-not(Test-Path (Join-Path $fixtureSource 'AGENTS.md'))-and-not(Test-Path (Join-Path $fixtureSource 'CLAUDE.md'))) 'development-source-has-no-host-entry'
     $vr=Join-Path $fixtureSource 'framework/versions/1.16.0';$mp=Join-Path $vr 'RELEASE_MANIFEST.json'
     [string[]]$payload=@(Get-ChildItem -LiteralPath $vr -File -Recurse|Where-Object{$_.FullName-cne$mp}|ForEach-Object{[IO.Path]::GetRelativePath($vr,$_.FullName).Replace('\','/')})
     [Array]::Sort($payload,[StringComparer]::Ordinal);$rows=@();[long]$total=0
@@ -171,6 +184,10 @@ try {
     # Test-issued acceptance only; no executable result is fabricated.
     $evidencePath=Join-Path $runtime 'fixture-acceptance.json';Write-Json $evidencePath ([ordered]@{fixtureOnly=$true;status='OWNER_ACCEPTED_PENDING_RELEASE_INTEGRATION';focusedRereview=@{status='APPROVED'};ownerAcceptance=@{status='PASS'};sourcePayload=@{canonical=$freeze.sourcePayloadCanonical}})
     $paths=@($freeze.files|Where-Object{(Id (Join-Path $target $_.path))-cne($_.bytes.ToString()+'|'+$_.sha256)}|ForEach-Object{$_.path})
+    $retiredMapping='framework/versions/1.16.0/CORRECTION_COVERAGE.json'
+    $retiredMappingPreimage=Id (Join-Path $target $retiredMapping)
+    if((Test-Path -LiteralPath (Join-Path $target $retiredMapping))-and-not(Test-Path -LiteralPath (Join-Path $RepositoryRoot $retiredMapping))){$paths+=@($retiredMapping)}
+    foreach($retiredEntry in @('AGENTS.md','CLAUDE.md')){if((Test-Path -LiteralPath (Join-Path $target $retiredEntry))-and-not(Test-Path -LiteralPath (Join-Path $RepositoryRoot $retiredEntry))){$paths+=@($retiredEntry)}}
     $source=Admission 'source' $paths
     $common=@{ControlRepositoryPath=$control;CandidateRoot=$RepositoryRoot;AuthorizationPackagePath=$source.auth;ExpectedAuthorizationPackageIdentity=Id $source.auth;DiscoverReceiptPath=$source.receipt;ExpectedDiscoverReceiptIdentity=Id $source.receipt;AdmitInputPath=$source.admitInput;ExpectedAdmitInputIdentity=Id $source.admitInput;AdmitResultPath=$source.admitResult;ExpectedAdmitResultIdentity=Id $source.admitResult;AcceptedFreezePath=$freezePath;ExpectedAcceptedFreezeIdentity=Id $freezePath;AcceptedEvidencePath=$evidencePath;ExpectedAcceptedEvidenceIdentity=Id $evidencePath;ExpectedParent=$parent;AsJson=$true}
     # R1: construct a genuine schema3 TARGET receipt through the unchanged version
@@ -260,16 +277,17 @@ try {
     $oldState=Id (Join-Path $control ($recovery+'/state.json'))
     # Current completed seed exercises genuine no-write recovery; the optional
     # byte-bound historical seed keeps the real schema3 write/rollback regression.
-    $scenarios=if($RelocationOnly){@()}elseif($CleanupOnly){@('normal')}elseif($SeedTransactionPath-or$expectPayloadRefresh){@('interrupt-target','failure-target','reject-refresh-schema','interrupt-refresh','normal')}else{@('interrupt-target','failure-target','noop-drift','interrupt-refresh','normal')}
+    $scenarios=if($RelocationOnly){@()}elseif($CleanupOnly){if($retiredMapping-cin$paths){@('failure-target','normal')}else{@('normal')}}elseif($SeedTransactionPath-or$expectPayloadRefresh){@('interrupt-target','failure-target','reject-refresh-schema','interrupt-refresh','normal')}else{@('interrupt-target','failure-target','noop-drift','interrupt-refresh','normal')}
     foreach($scenario in $scenarios){
         $transaction=Join-Path $runtime ($scenario+'-transaction.json');$args=$common.Clone();$args.TransactionPath=$transaction;$args.Operation='PREVIEW'
         Confirm ((Json $integrator $args).status-ceq'PREVIEW') ($scenario+'-real-preview')
         $args.Operation='APPLY'
         if($scenario-ceq'interrupt-target'){$args.InterruptAfterWrite=1}
-        if($scenario-ceq'failure-target'){$args.FailAfterWrite=1}
+        if($scenario-ceq'failure-target'){$args.FailAfterWrite=if($retiredMapping-cin$paths){$paths.Count}else{1}}
         if($scenario-ceq'failure-target'){
             $failed=Run $integrator $args -Reject;Confirm ($failed.code-ne0-and$failed.text.Contains('SELF_UPDATE_APPLY_ROLLED_BACK')) 'write-failure-rolls-back'
             Confirm ((Id (Join-Path $control ($recovery+'/state.json')))-ceq$oldState) 'failure-preserves-maintenance'
+            if($retiredMapping-cin$paths){Confirm ((Id (Join-Path $target $retiredMapping))-ceq$retiredMappingPreimage) 'failure-after-source-deletion-restores-original-bytes'}
             continue
         }
         $applied=Json $integrator $args
@@ -431,6 +449,9 @@ try {
         Confirm (-not(Test-Path -LiteralPath $finalPath)) 'valid-finalize-input-cleaned-exactly'
         Confirm ($done.status-ceq'PASS'-and$done.originalDiscoverIdentity-ceq(Id $source.receipt)-and$done.currentSourceCompositionIdentity-match'^[A-F0-9]{64}$') 'original-source-write-finalizes-through-current-composer'
         $state=Get-Content -LiteralPath $transaction -Raw|ConvertFrom-Json;Confirm ($state.status-ceq'COMPLETE') 'complete-only-after-real-finalize'
+        Confirm (-not(Test-Path (Join-Path $target 'AGENTS.md'))-and-not(Test-Path (Join-Path $target 'CLAUDE.md'))) 'source-update-retires-development-host-entries'
+        $resolvedSource=Json (Join-Path $target 'scripts/resolve-framework-maintenance-target.ps1') @{ControlRepositoryPath=$control;ExpectedProjectConfigIdentity=Id (Join-Path $control '.ai-workspace/project.json');AsJson=$true}
+        Confirm ($resolvedSource.status-ceq'PASS'-and[IO.Path]::GetFullPath($resolvedSource.runtimeRoot)-ceq[IO.Path]::GetFullPath($target)) 'source-runtime-resolves-without-development-host-entry'
         Confirm ($done.delivery.status-ceq'READY_TO_SEND'-and-not$done.delivery.delivered-and$state.completion.delivery.status-ceq'READY_TO_SEND'-and$state.completion.inputIdentity-ceq$done.finalizeInputIdentity) 'self-update-adapter-and-saved-completion-bind-real-prepare-result'
         Write-Output ('PASS|EFF-01-real-coupled-transaction|status='+$state.status+'|original-finalize='+$done.status)
     }
@@ -638,17 +659,11 @@ try {
     if($CrossDistributionOnly){
         # A separate process confines the child's explicit exit to that process;
         # the parent must still verify its markers and execute its own finally.
-        $crossOutput=@(& pwsh -NoProfile -NonInteractive -File (Join-Path $PSScriptRoot 'upgrade-project-bridge-tests.ps1') -RepositoryRoot $RepositoryRoot -CrossDistributionOnly -CrossLayout framework-maintenance-sibling -CrossProjectRoot $control -CrossSourceRoot $RepositoryRoot 2>&1|ForEach-Object{[string]$_})
+        $legacyArguments=@();if($LegacyRuntimeRoot){$legacyArguments=@('-LegacyRuntimeRoot',$LegacyRuntimeRoot)}
+        $crossOutput=@(& pwsh -NoProfile -NonInteractive -File (Join-Path $PSScriptRoot 'upgrade-project-bridge-tests.ps1') -RepositoryRoot $RepositoryRoot -CrossDistributionOnly -CrossLayout framework-maintenance-sibling -CrossProjectRoot $control -CrossSourceRoot $RepositoryRoot @legacyArguments 2>&1|ForEach-Object{[string]$_})
         $crossCode=$LASTEXITCODE
         $crossOutput|Write-Output
-        if($crossCode-ne0){throw 'CROSS_MAINTENANCE_MATRIX_FAILED'}
-        foreach($schema in @(2,3)){
-            foreach($stage in @('PREPARE=PASS','ADMIT=PASS|input=DELETED','FINALIZE=PASS')){
-                $expected='CROSS_CASE|layout=framework-maintenance-sibling|schema='+$schema+'|'+$stage
-                Confirm (@($crossOutput|Where-Object{$_-ceq$expected}).Count-eq1) ('cross-outer-marker-'+$schema+'-'+$stage)
-            }
-        }
-        Confirm (@($crossOutput|Where-Object{$_-ceq'PASS|cross-distribution-framework-maintenance-sibling|75/75'}).Count-eq1) 'cross-outer-complete-matrix-marker'
+        Assert-CrossDistributionOutput $crossOutput $crossCode
         Write-Output 'PASS|maintenance-cross-distribution-outer|child-exit=0|markers=7'
     }
     if($RelocationOnly){Write-Output ('PASS|maintenance-runtime-relocation|'+$passes+'/'+$passes);return}

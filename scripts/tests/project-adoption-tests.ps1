@@ -3,7 +3,9 @@ param(
     [string]$SeedControlRoot,
     [string]$SeedFrameworkRoot,
     [string]$SeedTransactionPath,
-    [string]$ExpectedSeedTransactionIdentity
+    [string]$ExpectedSeedTransactionIdentity,
+    [switch]$ActorStorageOnly,
+    [string]$LegacyRuntimeRoot
 )
 
 $ErrorActionPreference = 'Stop'
@@ -77,6 +79,87 @@ function Reset-TestProject {
 }
 
 try {
+    if($ActorStorageOnly){
+        if(-not$LegacyRuntimeRoot){throw 'ACTOR_STORAGE_LEGACY_RUNTIME_REQUIRED'}
+        $sourceRoot=Split-Path -Parent $scriptsRoot
+        New-Item -ItemType Directory -Path $fixtureRoot -Force|Out-Null
+        & git -C $fixtureRoot init -q
+        $actors=@('Actor','/root/review_actor','01a0b915-e25c-73c1-96a6-0f6e50b13417')
+        function Identity($Path){Get-AiwByteIdentity ([IO.File]::ReadAllBytes($Path))}
+        function Expected-Key($Actor){if($Actor-ceq$actors[2]){return $Actor};return 'actor-sha256-'+[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($utf8.GetBytes($Actor))).ToLowerInvariant()}
+        # Exercise the exact private Maintenance cleanup body with its original script-root binding.
+        $tokens=$null;$errors=$null;$maintenancePath=Join-Path $scriptsRoot 'resolve-framework-maintenance-process-requirements.ps1'
+        $ast=[Management.Automation.Language.Parser]::ParseFile($maintenancePath,[ref]$tokens,[ref]$errors)
+        if($errors.Count){throw 'MAINTENANCE_TEST_PARSE'}
+        $fn=$ast.Find({param($node)$node-is[Management.Automation.Language.FunctionDefinitionAst]-and$node.Name-ceq'Assert-SelfUpdateCleanupPath'},$true)
+        . ([scriptblock]::Create($fn.Extent.Text.Replace('$PSScriptRoot',("'"+$scriptsRoot.Replace("'","''")+"'"))))
+        $controlRoot=[IO.Path]::GetFullPath($fixtureRoot)
+        $serial=0
+        # New -> old -> new detects stale exports from another imported runtime.
+        foreach($runtimeRoot in @($sourceRoot,$LegacyRuntimeRoot,$sourceRoot)){
+            foreach($actor in $actors){
+                $serial++;$modern=$runtimeRoot-ceq$sourceRoot;$expected=if($modern){Expected-Key $actor}else{$actor}
+                $reason='';$key='';try{$key=Get-AiwBoundRuntimeActorStorageKey $runtimeRoot '1.16.0' $actor}catch{$reason=$_.Exception.Message}
+                if(-not$modern-and$actor.Contains('/')){Assert-True ($reason-ceq'RUNTIME_ACTOR_LEGACY_CONTEXT') 'old-runtime-rejects-slash-without-borrowing-new-export';continue}
+                Assert-True ($reason-eq''-and$key-ceq$expected) ('actual-runtime-storage-contract-'+$serial)
+                $taskId='ACTOR-STORAGE-001'
+                $context=[ordered]@{projectRoot=$controlRoot;frameworkVersion='1.16.0';actor=$actor;taskId=$taskId;authorizedActions=@('CONTROL_WRITE');exactScope=@('.ai-workspace/BOOTSTRAP.md','.ai-workspace/upgrade-recovery/1.16.0/state.json')}
+                $intent=[ordered]@{requestedActionKind='CONTROL_WRITE';ambiguityState='CLEAR'}
+                $contextIdentity=(Get-AiwByteIdentity ($utf8.GetBytes(($context|ConvertTo-Json -Depth 30 -Compress)+"`n"+($intent|ConvertTo-Json -Depth 30 -Compress)))).Split('|')[1]
+                $receipt=[ordered]@{schemaVersion=2;inputContractVersion=3;status='PASS';mode='DISCOVER';receiptType='PROCESS_REQUIREMENTS_DISCOVER';authorityGranted=$false;semanticCorrectnessProven=$false;binding=$context;intentEnvelope=$intent;contextIdentity=$contextIdentity;sourceLocators=@{frameworkRoot=$runtimeRoot}}
+                $receiptPath=Join-Path $fixtureRoot ('receipt-'+$serial+'.json');Write-TestText $receiptPath (($receipt|ConvertTo-Json -Depth 30 -Compress)+"`n")
+                $boundary=[ordered]@{schemaVersion=2;mode='ADMIT_ACTION';discoverReceiptPath=$receiptPath;expectedDiscoverReceiptIdentity=Identity $receiptPath;preparationReceipts=@();resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='BOUND'}
+                $inputFull=Join-Path $fixtureRoot ('.ai-workspace/runtime/'+$taskId+'/'+$expected+'/input.json')
+                New-Item -ItemType Directory -Path (Split-Path -Parent $inputFull) -Force|Out-Null
+                Write-TestText $inputFull (($boundary|ConvertTo-Json -Depth 30 -Compress)+"`n")
+                Assert-SelfUpdateCleanupPath ($receipt|ConvertTo-Json -Depth 30|ConvertFrom-Json -Depth 30)
+                Assert-True (Test-Path $inputFull) ('maintenance-validates-without-deleting-'+$serial)
+                # Stop at absent preparation, after the real root API validates cleanup scope.
+                $reason='';try{$null=Invoke-AiwAdoptionProcessBoundary -RepositoryRoot $fixtureRoot -InputPath $inputFull -ExpectedInputIdentity (Identity $inputFull) -ObservedActor $actor -ExpectedMode ADMIT_ACTION -DeleteInputOnExit}catch{$reason=$_.Exception.Message}
+                Assert-True ($reason-ceq'ADOPTION_PROCESS_EVIDENCE_REQUIRED|PREPARATION'-and-not(Test-Path $inputFull)) ('root-boundary-cleans-bound-input-on-later-failure-'+$serial)
+                Write-TestText $inputFull (($boundary|ConvertTo-Json -Depth 30 -Compress)+"`n")
+                $reason='';try{$null=Invoke-AiwAdoptionProcessBoundary -RepositoryRoot $fixtureRoot -InputPath $inputFull -ExpectedInputIdentity (Identity $inputFull) -ObservedActor 'wrong-actor' -ExpectedMode ADMIT_ACTION -DeleteInputOnExit}catch{$reason=$_.Exception.Message}
+                Assert-True ($reason-ceq'ADOPTION_PROCESS_ACTOR_ROOT'-and(Test-Path $inputFull)) ('root-wrong-actor-keeps-input-'+$serial)
+                $inputFull=Join-Path $fixtureRoot ('.ai-workspace/runtime/'+$taskId+'/wrong-storage/input.json');New-Item -ItemType Directory -Path (Split-Path -Parent $inputFull) -Force|Out-Null;Write-TestText $inputFull (($boundary|ConvertTo-Json -Depth 30 -Compress)+"`n")
+                $reason='';try{$null=Invoke-AiwAdoptionProcessBoundary -RepositoryRoot $fixtureRoot -InputPath $inputFull -ExpectedInputIdentity (Identity $inputFull) -ObservedActor $actor -ExpectedMode ADMIT_ACTION -DeleteInputOnExit}catch{$reason=$_.Exception.Message}
+                Assert-True ($reason-ceq'ADOPTION_PROCESS_CLEANUP_SCOPE'-and(Test-Path $inputFull)) ('root-wrong-path-keeps-input-'+$serial)
+                $reason='';try{Assert-SelfUpdateCleanupPath ($receipt|ConvertTo-Json -Depth 30|ConvertFrom-Json -Depth 30)}catch{$reason=$_.Exception.Message}
+                Assert-True ($reason-ceq'MAINTENANCE_CLEANUP_SCOPE'-and(Test-Path $inputFull)) ('maintenance-wrong-path-keeps-input-'+$serial)
+            }
+        }
+        # A junction in the actor directory must not authorize cleanup of its destination.
+        $junction=Join-Path $fixtureRoot ('.ai-workspace/runtime/ACTOR-STORAGE-001/'+(Expected-Key $actors[0]))
+        $destination=Join-Path $fixtureRoot 'junction-destination';New-Item -ItemType Directory -Path $destination -Force|Out-Null
+        if(-not[IO.Path]::GetFullPath($junction).StartsWith([IO.Path]::GetFullPath($fixtureRoot)+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)){throw 'ACTOR_JUNCTION_TEST_SCOPE'}
+        if(Test-Path $junction){Remove-Item -LiteralPath $junction -Recurse -Force}
+        New-Item -ItemType Junction -Path $junction -Target $destination|Out-Null
+        try{
+            $receipt.binding.actor=$actors[0];$receipt.sourceLocators.frameworkRoot=$sourceRoot
+            $receipt.contextIdentity=(Get-AiwByteIdentity ($utf8.GetBytes(($receipt.binding|ConvertTo-Json -Depth 30 -Compress)+"`n"+($receipt.intentEnvelope|ConvertTo-Json -Depth 30 -Compress)))).Split('|')[1]
+            Write-TestText $receiptPath (($receipt|ConvertTo-Json -Depth 30 -Compress)+"`n");$boundary.expectedDiscoverReceiptIdentity=Identity $receiptPath
+            $inputFull=Join-Path $junction 'input.json';Write-TestText $inputFull (($boundary|ConvertTo-Json -Depth 30 -Compress)+"`n")
+            $reason='';try{Assert-SelfUpdateCleanupPath ($receipt|ConvertTo-Json -Depth 30|ConvertFrom-Json -Depth 30)}catch{$reason=$_.Exception.Message}
+            Assert-True ($reason-ceq'MAINTENANCE_CLEANUP_REPARSE'-and(Test-Path $inputFull)) 'maintenance-reparse-keeps-target'
+            $reason='';try{$null=Invoke-AiwAdoptionProcessBoundary -RepositoryRoot $fixtureRoot -InputPath $inputFull -ExpectedInputIdentity (Identity $inputFull) -ObservedActor $actors[0] -ExpectedMode ADMIT_ACTION -DeleteInputOnExit}catch{$reason=$_.Exception.Message}
+            Assert-True ($reason.Contains('REPARSE')-and(Test-Path $inputFull)) 'root-reparse-keeps-target'
+        }finally{Remove-Item -LiteralPath $junction -Force}
+        # Reuse the real source-recovery suite with only its anonymous actor fixture varied.
+        $copy=Join-Path $fixtureRoot 'recovery-source';$copyVersion=Join-Path $copy 'framework/versions/1.16.0'
+        New-Item -ItemType Directory -Path (Split-Path -Parent $copyVersion) -Force|Out-Null
+        Copy-Item -LiteralPath (Join-Path $sourceRoot 'framework/versions/1.16.0') -Destination $copyVersion -Recurse
+        Copy-Item -LiteralPath $scriptsRoot -Destination (Join-Path $copy 'scripts') -Recurse
+        $testPath=Join-Path $copyVersion 'tests/source-postimage-transition-tests.ps1'
+        $original=[IO.File]::ReadAllText($testPath)
+        foreach($actor in $actors){
+            [IO.File]::WriteAllText($testPath,$original.Replace('executor-fixture',$actor),$utf8)
+            $output=@(& pwsh -NoProfile -NonInteractive -File $testPath 2>&1|ForEach-Object{[string]$_});$code=$LASTEXITCODE
+            if($code-ne0){throw ('ACTOR_RECOVERY_FAILED|'+$actor+'|'+($output-join';'))}
+            Assert-True (@($output|Where-Object{$_-ceq'PASS|authorized-mixed-state-original-action-finalized'}).Count-eq1) ('real-rule-recovery-finalized-'+$actor)
+            Write-Output ('PASS|actor-recovery|actor='+$actor+'|'+$output[-1])
+        }
+        Write-Output ('PASS|actor-storage-root-consumers|'+$passed+'/'+$passed)
+        return
+    }
     $custom = "# User decisions`nOnly the approved project goal is delegated.`n"
     Assert-True ((Get-AiwStandingDelegationProjection -Text $custom) -ceq $custom) 'viewing-or-template-presence-does-not-create-user-delegation'
     $templatePath=Join-Path (Split-Path -Parent $scriptsRoot) 'framework/versions/1.16.0/project-starter/AGENTS.md'

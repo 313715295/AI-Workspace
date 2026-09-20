@@ -23,3 +23,7 @@ browser、device 与其他 external side effect 必须各自绑定当前 action�
 
 出现 payment/subscription、commercial licensing、account 或 credential change、public publication、installation、protected/secret upload、cross-domain impact、formal asset activation、project-phase change、Git/PUSH、shared quota/resource 或 unknown scope 时，不得使用直接路线，必须转交 PROJECT_CONTROLLER。改变 result kind 不能绕过本规则。action checker、process resolver 与实际 host capability 始终是独立 gate。
 <!-- AIW-REQUIREMENT:PR_DOMAIN_OWNER_DIRECT_DOMAIN_EXTERNAL:END -->
+
+<!-- AIW-REQUIREMENT:PR_GIT_PLANNING_BOUNDARY:BEGIN -->
+规划或交付Git去向时，区分READY/DEFERRED/EXCLUDED与实际Git动作。Git证据按仓库分别绑定；stage、commit、push须各自精确授权，不因讨论、Review或Owner接受而获得执行权。实际操作再加载PR_GIT_PUSH_SEPARATE，纯规划不提前运行Git。
+<!-- AIW-REQUIREMENT:PR_GIT_PLANNING_BOUNDARY:END -->

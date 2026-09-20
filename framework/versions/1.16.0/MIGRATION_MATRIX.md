@@ -21,7 +21,7 @@ read-only plan 在任何 preparation write 前报告 sealed target canonical/man
 
 schema3 package 必须精确绑定 `bundle=ACTOR_BOUND_PROJECT_UPGRADE`、`profile=CRITICAL`、`issuerRole=PROJECT_CONTROLLER`、`actions=[CONTROL_WRITE]`、Controller/task/project、完整 path/preimage set 与 live object 的 `postObjectIdentities`。`POST_OBJECT_DRIFT` 是 invalidator。跨pin兼容只能由 target profile 的 Project Format/capability 声明决定，不使用发行号白名单；1.16新基线没有跨pin direct source。root Maintenance adapter只处理当前sibling topology与overlay，不保留旧来源版本列表。
 
-升级先建立 target projection：target project、Bootstrap、corrections、process-policy、`selectedRulePackBytes` 与 migrated task route 全部就位后，调用 target resolver。只有完整 selected pack 在项目 ceiling 内 PASS 才继续；旧 resolver 的 budget 或两字段格式不能抢先阻塞 target adoption。
+升级先建立 target projection：target project、Bootstrap、corrections、process-policy、`selectedRulePackBytes` 与 migrated task route 全部就位后，调用 target resolver。完整三源、身份、授权及组合合法性校验 PASS 后才继续；完整 selected pack 的真实大小只作观测，旧 resolver 的 budget 或两字段格式不能抢先阻塞 target adoption。
 
 apply 时，首写前复检 package，准备并校验 exact old/new/state material，原子提升到 formal recovery，再推进 live non-task objects，最后写 current task。stable/schema2 保持 task write 成功即 transaction terminal、之后零写入。本地候选/schema4 中 task 仍是最后一个 live project object；完整复核全部 live postimages 后，仅将既有 recovery state 的 `transactionComplete` 从 false 原子登记为 true，然后结束。同一授权事务内不得随后 cleanup、改业务/status 或写其他对象；完成记录未成功则试点未准入，按原 exact recovery 续完，不推断成功。
 
@@ -29,7 +29,7 @@ formal recovery 是 forward-only。resume 必须重证 target release、package 
 
 ## Progressive-loading migration
 
-Framework-native rules 使用 schema2 fragments 与 exact Markdown blocks。`DISCOVER` 一次返回完整 selected blocks，并另给只含 binding/obligations 的 compact receipt。`ADMIT_ACTION` 与 `FINALIZE_OUTPUT` 复用 receipt。project policy 决定 runtime selected-pack ceiling，absolute cap 固定为 `98304`；不再使用 legacy tier exception。`LOAD_PLAN_RESOLVE` 只处理 non-rule support 与 bounded fallback。
+Framework-native rules 使用 schema2 fragments 与 exact Markdown blocks。`DISCOVER` 一次返回完整 selected blocks，并另给只含 binding/obligations 的 compact receipt。`ADMIT_ACTION` 与 `FINALIZE_OUTPUT` 复用 receipt。policy、ADOPTION_PROFILE 及旧 compact 中的 budget/ceiling 字段只作历史兼容，规则包大小不作为准入门槛；不提高额度、不新增调额确认或 tier exception。`LOAD_PLAN_RESOLVE` 只处理 non-rule support 与 bounded fallback。
 
 新调用优先使用 schema3 `DISCOVER` 与 schema2 boundary input；旧 schema1/2 输入继续兼容。没有适用任务卡的只读项目讨论可声明 `PROJECT_READ_ONLY`，但只允许 `actionKind=NONE` 以及 PLAN/USER_RESPONSE，不产生 task 或 action authority。
 

@@ -19,7 +19,7 @@ Project ID=`{{PROJECT_ID}}`；layout=`framework-maintenance-sibling`；control p
 
 1. 轻读 Maintenance `STATUS.md` 与 `tasks/README.md` 只定位 assigned task；绑定 Owner、authenticated Work route、profile、objective/action/result、selected repository、exact scope 与 protection。
 2. 先按已解析的 `<FW>/TOOL_CONTRACT.md` 中“IntentEnvelope 构造”唯一合同，由当前模型依据本次真实请求及仍有效上下文形成 DISCOVER 输入；再在 normative module 前执行 `PROCESS_REQUIREMENTS_RESOLVE/DISCOVER`；一次读取所有 returned exact complete blocks，后续只保留 compact receipt。
-3. 只读 selected rules/task 要求的 Maintenance facts、target evidence、schemas、templates 与 action artifacts。target work 在 scope 时显式读取 `<TARGET>/AGENTS.md`；sibling instruction 不自动继承。普通资料链接不自动成为规范依赖；外部标准只有经 process-policy 显式绑定后才进入当前来源快照。
+3. 只读 selected rules/task 要求的 Maintenance facts、target evidence、schemas、templates 与 action artifacts。开发 target 是源码与合同交付对象，阅读地图取 `<TARGET>/README.md`，维护/发行合同取 `<TARGET>/framework/FRAMEWORK_RELEASE.md`；当前任务和授权只取 Maintenance，不要求开发根存在宿主入口。普通资料链接不自动成为规范依赖；外部标准只有经 process-policy 显式绑定后才进入当前来源快照。
 4. `LOAD_PLAN_RESOLVE` 只用于 compatibility、non-rule support、Framework-wide explanation/maintenance 或 bounded fallback，不是 pre-DISCOVER gate。
 5. 分别重证 control/target HEAD、index、dirty。safe-Git 每次只绑定一个 repository ID 与 bounded literal paths；一个 repo 的 VERIFIED 不能填补另一个 repo 的 UNVERIFIED。
 6. 复检 current package。Maintenance 通过根级 `scripts/check-framework-maintenance-authorization.ps1` 绑定 `repositoryId + projectConfigIdentity`；可选 continuation receipt 由同一根级 authorization/process adapter 透传给 pinned version checker/resolver，仍重验 CONTROL/TARGET topology 与 current bytes。schema3只用于closed actor-bound project upgrade。

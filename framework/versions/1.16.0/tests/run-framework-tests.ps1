@@ -479,7 +479,21 @@ function Test-SelectorMatching([string]$VersionRoot) {
     }
 
     foreach($rule in $catalog.requirements){& $module {param($s)Assert-AiwSelectorContract $s 'NATIVE'} $rule.selectors}
-    Assert-True ($catalog.requirements.Count-eq37) 'selector-all37-native-contracts-valid'
+    foreach($case in @(
+        @{Id='PR_CORRECTIONS_V2_COMPATIBILITY';Text='correction revision';Action='CONTROL_WRITE';Result='IMPLEMENTATION_RESULT';Profile='STANDARD';Role='EXECUTOR';Phase='PLAN'},
+        @{Id='PR_CORRECTIONS_V2_COMPATIBILITY';Text='correction review';Action='REVIEW_EXECUTE';Result='REVIEW_VERDICT';Profile='CRITICAL';Role='REVIEWER';Phase='REVIEW'},
+        @{Id='PR_ACTION_AUTHORIZATION_INDEPENDENT';Text='update rule';Action='CONTROL_WRITE';Result='IMPLEMENTATION_RESULT';Profile='STANDARD';Role='CONTROLLER';Phase='PLAN'},
+        @{Id='PR_TASK_IMPLEMENTATION_JUDGMENT';Text='fix source';Action='SOURCE_WRITE';Result='IMPLEMENTATION_RESULT';Profile='MICRO';Role='EXECUTOR';Phase='IMPLEMENT'},
+        @{Id='PR_TASK_IMPLEMENTATION_JUDGMENT';Text='review design';Action='NONE';Result='PLAN';Profile='STANDARD';Role='DOMAIN_OWNER';Phase='PLAN'},
+        @{Id='PR_TASK_CHANGED_OUTPUT_DISPOSITION';Text='temporary task archive';Action='NONE';Result='USER_RESPONSE';Profile='STANDARD';Role='EXECUTOR';Phase='IMPLEMENT'},
+        @{Id='PR_GIT_PLANNING_BOUNDARY';Text='git';Action='NONE';Result='PLAN';Profile='STANDARD';Role='CONTROLLER';Phase='PLAN'}
+    )){
+        $selector=@($catalog.requirements|Where-Object requirementId -CEQ $case.Id)[0].selectors
+        Assert-True ((Match-Selector $selector $case.Text $case.Action $case.Result $case.Profile $case.Role $case.Phase).Match) ('selector-real-action-phase-'+$case.Id+'-'+$case.Role)
+    }
+    $push=@($catalog.requirements|Where-Object requirementId -CEQ 'PR_GIT_PUSH_SEPARATE')[0].selectors
+    Assert-True (-not(Match-Selector $push 'git' 'NONE' 'PLAN' 'STANDARD' 'CONTROLLER' 'PLAN').Match) 'git-planning-does-not-select-push-action-gate'
+    Assert-True ($catalog.requirements.Count-eq40) 'selector-all-native-contracts-valid'
 }
 
 $candidateRoot = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..')))
@@ -715,9 +729,9 @@ $intentSchema=Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $candidate
 $fixtureContractPath=Join-Path $candidateRoot 'tests\PROCESS_REQUIREMENTS_FIXTURES.json';$measurementHarnessPath=Join-Path $candidateRoot 'tests\measure-process-requirements.ps1';$fixtureContract=Get-Content -Raw -Encoding utf8 -LiteralPath $fixtureContractPath|ConvertFrom-Json
 $adoptionProfile=Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $candidateRoot 'ADOPTION_PROFILE.json')|ConvertFrom-Json
 Assert-True ([string]$adoptionProfile.frameworkVersion-ceq'1.16.0'-and[bool]$adoptionProfile.registrationEligible-and[bool]$adoptionProfile.localCandidatePilotEligible-and@($adoptionProfile.sourceCompatibility.projectFormats).Count-eq0-and@($adoptionProfile.sourceCompatibility.requiredCapabilities).Count-eq0-and$null-eq$adoptionProfile.PSObject.Properties['directSourceVersions']-and[int]$adoptionProfile.projectControl.schemaVersion-eq4-and[string]$adoptionProfile.projectControl.processCarrierContractVersion-ceq'1.16.0'-and[string]$adoptionProfile.projectControl.frameworkToolBackend-ceq'powershell7'-and[string]$adoptionProfile.projectControl.navigationProjection-ceq'ROOT_CANONICAL_SKILL_MANAGED_AGENTS'-and[string]$adoptionProfile.projectControl.runtimeArtifactRoot-ceq'.ai-workspace/runtime'-and[string]$adoptionProfile.projectControl.runtimeGitIgnoreRule-ceq'/.ai-workspace/runtime/'-and[bool]$adoptionProfile.projectControl.taskLastWriteRequired-and[string]$adoptionProfile.projectControl.capabilityBinding-ceq'EXACT_ENABLED_IDS'-and[int]$adoptionProfile.processBudget.defaultSelectedRulePackBytes-eq32768-and[int]$adoptionProfile.processBudget.absoluteSelectedRulePackBytes-eq98304-and[int]$budgetContract.ceilings.absoluteSelectedRulePackBytes-eq98304) 'adoption-profile-new-baseline-format-capability-contract-exact'
-Assert-True (@($authoritySchema.required).Count-eq25-and[int]$budgetContract.candidate.legacyAuthorityContextFieldCount-eq25-and[int]$budgetContract.candidate.compactAuthorityBindingFieldCount-eq29-and@($intentSchema.required).Count-eq10-and[int]$budgetContract.candidate.intentEnvelopeFieldCount-eq10-and[int]$budgetContract.candidate.receiptSourceBindingFieldCount-eq14-and[int]$budgetContract.candidate.compactBoundaryInputFieldCount-eq9) 'process-budget-schema-field-counts-match-runtime-contract'
+Assert-True (@($authoritySchema.required).Count-eq25-and[int]$budgetContract.candidate.legacyAuthorityContextFieldCount-eq25-and[int]$budgetContract.candidate.compactAuthorityBindingFieldCount-eq29-and@($intentSchema.required).Count-eq10-and[int]$budgetContract.candidate.intentEnvelopeFieldCount-eq10-and[int]$budgetContract.candidate.receiptSourceBindingFieldCount-eq13-and[int]$budgetContract.candidate.compactBoundaryInputFieldCount-eq9) 'process-budget-schema-field-counts-match-runtime-contract'
 $fixtureIds=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal);$fixtureBudgetsValid=$true;foreach($fixture in @($budgetContract.fixtures)){if(-not$fixtureIds.Add([string]$fixture.fixtureId)-or[int]$fixture.selectedPackEstimatedTokens-ne[int][math]::Ceiling([int]$fixture.selectedPackBytes/4.0)-or[int]$fixture.selectedPackBytes-lt1-or[int]$fixture.selectedRequirementCount-lt1){$fixtureBudgetsValid=$false};foreach($modeName in @('DISCOVER','ADMIT_ACTION','FINALIZE_OUTPUT')){$runtime=$fixture.observedRuntimeMs.$modeName;if([double]$runtime.median-le0-or[double]$runtime.p95-lt[double]$runtime.median-or[double]$runtime.p95-gt[double]$budgetContract.ceilings.p95Ms.$modeName){$fixtureBudgetsValid=$false}}}
-Assert-True ($fixtureBudgetsValid-and$fixtureIds.Count-eq6-and@($budgetContract.measurementContract.statistics)-contains'median'-and@($budgetContract.measurementContract.statistics)-contains'nearest-rank-p95'-and[int]$budgetContract.measurementContract.warmupsPerModeAndFixture-eq1-and[int]$budgetContract.measurementContract.measuredRunsPerModeAndFixture-eq5-and[string]$budgetContract.measurementContract.toleranceFormula-ceq'ceiling(max(2.0 * baselineP95Ms, baselineP95Ms + 250))'-and[string]$budgetContract.candidate.fixtureContractIdentity-ceq(Get-Identity $fixtureContractPath)-and[string]$budgetContract.candidate.measurementHarnessIdentity-ceq(Get-Identity $measurementHarnessPath)-and[int]$budgetContract.candidate.measurementObservation.warmups-eq1-and[int]$budgetContract.candidate.measurementObservation.measuredRuns-eq1-and-not[string]::IsNullOrWhiteSpace([string]$budgetContract.candidate.measurementObservation.host)-and[string]$budgetContract.candidate.measurementObservation.ceiling-match'(?i)historical|prior snapshot'-and[string]$budgetContract.candidate.measurementObservation.ceiling-match'(?i)not.*(latency|performance)') 'process-budget-six-exact-fixtures-and-proportional-measurement-protocol-bound'
+Assert-True ($fixtureBudgetsValid-and$fixtureIds.Count-eq6-and@($budgetContract.measurementContract.statistics)-contains'median'-and@($budgetContract.measurementContract.statistics)-contains'nearest-rank-p95'-and[int]$budgetContract.measurementContract.warmupsPerModeAndFixture-eq1-and[int]$budgetContract.measurementContract.measuredRunsPerModeAndFixture-eq5-and[string]$budgetContract.measurementContract.toleranceFormula-ceq'ceiling(max(2.0 * baselineP95Ms, baselineP95Ms + 250))'-and[string]$budgetContract.candidate.fixtureContractIdentity-ceq(Get-Identity $fixtureContractPath)-and[string]$budgetContract.candidate.measurementHarnessIdentity-ceq(Get-Identity $measurementHarnessPath)-and[int]$budgetContract.candidate.measurementObservation.warmups-eq0-and[int]$budgetContract.candidate.measurementObservation.measuredRuns-eq1-and-not[string]::IsNullOrWhiteSpace([string]$budgetContract.candidate.measurementObservation.host)-and[string]$budgetContract.candidate.measurementObservation.ceiling-match'(?i)current.*selected bytes/counts.*once.*no warmup'-and[string]$budgetContract.candidate.measurementObservation.ceiling-match'(?i)not.*(latency|performance)') 'process-budget-six-exact-fixtures-and-proportional-measurement-protocol-bound'
 $fixtureIdentitiesValid=$true;foreach($fixture in @($fixtureContract.fixtures)){$ordered=[ordered]@{};foreach($property in @($fixture.PSObject.Properties)){if($property.Name-cne'fixtureIdentity'){$ordered[$property.Name]=$property.Value}};$computed=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($utf8.GetBytes(($ordered|ConvertTo-Json -Depth 30 -Compress))));$budgetFixture=@($budgetContract.fixtures|Where-Object{[string]$_.fixtureId-ceq[string]$fixture.fixtureId});if($budgetFixture.Count-ne1-or[string]$fixture.fixtureIdentity-cne$computed-or[string]$budgetFixture[0].fixtureIdentity-cne$computed){$fixtureIdentitiesValid=$false}}
 Assert-True ($fixtureIdentitiesValid-and@($fixtureContract.fixtures).Count-eq6) 'process-budget-fixture-record-identities-reproducible'
 $contextBudgetsValid=$true
@@ -752,8 +766,8 @@ $reviewEvidenceText=Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $can
 $projectControlText=Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $candidateRoot 'PROJECT_CONTROL.md')
 $evaluationText=Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $candidateRoot 'PROCESS_REQUIREMENTS_EVALUATION.md')
 $processCatalogText=Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $candidateRoot 'PROCESS_REQUIREMENTS.json')
-Assert-True ($projectControlText.Contains('coverage metadata 不是 semantic proof')-and$reviewEvidenceText.Contains('coverage ID、changelog 声明或近似措辞本身不是 acceptance evidence')) 'correction-incorporation-coverage-metadata-alone-insufficient'
-Assert-True ($projectControlText.Contains('project-scoped alias、native requirement、catalog identity 与 canonical source-record identity')-and$projectControlText.Contains('load manifest 可达的 applicable normative modules')-and$projectControlText.Contains('被 behavior tests 覆盖')-and$reviewEvidenceText.Contains('原始 correction reason、effective rule 与 applicability boundary 对照实际 normative modules 与 behavior tests')-and$projectControlText.Contains('不创建 correction-to-module registry 或 absorption ledger')) 'correction-incorporation-binds-native-rule-source-tests-review-without-registry'
+Assert-True ($projectControlText.Contains('对象hash用于漂移、权限和恢复，不证明覆盖')-and$projectControlText.Contains('工具只检查已审精确投影，不代替语义判断')-and$reviewEvidenceText.Contains('测试通过不能取消有效的架构或代码质量 finding')) 'correction-adoption-identities-and-tests-do-not-prove-semantic-coverage'
+Assert-True ($projectControlText.Contains('不登记消费者纠正ID或源record hash来抑制项目规则')-and$projectControlText.Contains('完整覆盖退出重复，部分覆盖保留项目增量，未覆盖保留，冲突定位处理')-and$projectControlText.Contains('在旧健康runtime取得真实分类并保存完整来源')-and$projectControlText.Contains('依赖新版本才成立的退出与目标运行绑定同一采用事务')-and$projectControlText.Contains('失败回到匹配旧包和完整项目前像')-and$projectControlText.Contains('不建长期双轨、中央/本地吸收台账')-and$reviewEvidenceText.Contains('same-scope repair 使用新 writer package')-and$reviewEvidenceText.Contains('由同一个仍保持独立的 Reviewer 做 focused rereview')) 'correction-adoption-project-analysis-atomic-migration-history-and-independent-review-without-registry'
 Assert-True ($evaluationText.Contains('显式采用 stable `1.16.0` 后才开始 observation')-and$evaluationText.Contains('使用正常 project task')-and$evaluationText.Contains('来源 task 保留一条 compact record')-and$evaluationText.Contains('不规定固定 sample count/time window')-and$evaluationText.Contains('不是 release gate')-and$evaluationText.Contains('不替代 conformance、independent Review、`OWNER_ACCEPT` 或 release sealing')-and-not$evaluationText.Contains('exactly 20 admitted samples')-and-not$evaluationText.Contains('INSUFFICIENT_SAMPLE / NO_ADVANCE')) 'post-release-project-observation-nonblocking-no-synthetic-work'
 Assert-True (-not$processCatalogText.Contains('level_test2')-and-not$processCatalogText.Contains('Pocket')) 'process-catalog-generic-no-consumer-paths'
 
@@ -841,7 +855,7 @@ try {
     Write-Utf8 $configPath ($config | ConvertTo-Json -Depth 20)
     Write-Utf8 (Join-Path $control '.ai-workspace\private.txt') 'control private'
     Write-Utf8 (Join-Path $target 'README.md') '# AI-Workspace fixture'
-    Write-Utf8 (Join-Path $target 'AGENTS.md') '# Fixture instructions'
+    # Developer target has README only; project and packaged host entries have separate owners.
     New-Item -ItemType Directory -Path (Join-Path $target 'scripts'),(Join-Path $target 'framework') -Force|Out-Null
     foreach($rootScript in @('MaintenanceOverlay.psm1','ProjectAdoptionState.psm1','resolve-framework-maintenance-target.ps1','check-framework-maintenance-authorization.ps1','invoke-framework-maintenance-safe-git.ps1','resolve-framework-maintenance-process-requirements.ps1')){Copy-Item -LiteralPath (Join-Path $liveRepositoryRoot ('scripts\'+$rootScript)) -Destination (Join-Path $target ('scripts\'+$rootScript)) -Force}
     Copy-Item -LiteralPath (Join-Path $liveFrameworkRoot 'maintenance-overlay') -Destination (Join-Path $target 'framework\maintenance-overlay') -Recurse -Force
@@ -952,7 +966,7 @@ try {
     $installedLoader = Join-Path $installedFramework 'scripts\resolve-load-plan.ps1'
     $fullColdLoad = Invoke-Ps $installedLoader @('-Role','CONTROLLER','-Profile','CRITICAL','-Phase','RECOVER','-HostName','CODEX','-Topology','FRAMEWORK_MAINTENANCE_SIBLING')
     $renderedBootstrap = Get-Content -LiteralPath (Join-Path $controlPlane 'BOOTSTRAP.md') -Raw -Encoding utf8
-    Assert-True ($fullColdLoad.Code -ne 0 -and $renderedBootstrap.Contains('state=CURRENT') -and -not $renderedBootstrap.Contains('AllowLegacyTargetControlPlane') -and $renderedBootstrap.Contains('显式读取 `<TARGET>/AGENTS.md`') -and $renderedBootstrap.Contains('resolve-framework-maintenance-target.ps1') -and $renderedBootstrap.Contains('resolve-framework-maintenance-process-requirements.ps1')) 'maintenance-bootstrap-root-owned-full-cold-route'
+    Assert-True ($fullColdLoad.Code -ne 0 -and $renderedBootstrap.Contains('state=CURRENT') -and -not $renderedBootstrap.Contains('AllowLegacyTargetControlPlane') -and $renderedBootstrap.Contains('`<TARGET>/README.md`') -and $renderedBootstrap.Contains('`<TARGET>/framework/FRAMEWORK_RELEASE.md`') -and $renderedBootstrap.Contains('当前任务和授权只取 Maintenance') -and -not $renderedBootstrap.Contains('显式读取 `<TARGET>/AGENTS.md`') -and $renderedBootstrap.Contains('resolve-framework-maintenance-target.ps1') -and $renderedBootstrap.Contains('resolve-framework-maintenance-process-requirements.ps1')) 'maintenance-bootstrap-root-owned-full-cold-route'
 
     $drift = Invoke-Ps $resolver @('-ControlRepositoryPath',$control,'-ExpectedProjectConfigIdentity',('0|' + ('0' * 64)),'-AsJson')
     Assert-True ($drift.Code -ne 0 -and $drift.Text.Contains('PROJECT_CONFIG_DRIFT')) 'maintenance-resolver-config-drift-fails-closed'
@@ -1078,12 +1092,14 @@ try {
     Assert-True ($danglingTargetControl.Code -ne 0) 'maintenance-resolver-target-control-dangling-junction-rejected'
     Assert-True ($danglingControlAuth.Code -ne 0 -and $danglingTargetAuth.Code -ne 0) 'authorization-schema2-target-control-dangling-junction-denies-control-and-target'
 
-    $agentsPath = Join-Path $target 'AGENTS.md'
-    $agentsHold = Join-Path $target 'AGENTS.fixture-hold'
-    Move-Item -LiteralPath $agentsPath -Destination $agentsHold
-    $missingAgents = Invoke-Ps $resolver @('-ControlRepositoryPath',$control,'-ExpectedProjectConfigIdentity',$configIdentity)
-    Move-Item -LiteralPath $agentsHold -Destination $agentsPath
-    Assert-True ($missingAgents.Code -ne 0 -and $missingAgents.Text.Contains('TARGET_ROOT_FILE_MISSING|AGENTS.md')) 'maintenance-resolver-target-agents-required'
+    $developerWithoutHostEntry = Invoke-Ps $resolver @('-ControlRepositoryPath',$control,'-ExpectedProjectConfigIdentity',$configIdentity)
+    Assert-True ($developerWithoutHostEntry.Code -eq 0 -and -not(Test-Path -LiteralPath (Join-Path $target 'AGENTS.md')) -and -not(Test-Path -LiteralPath (Join-Path $target 'CLAUDE.md')) -and (Test-Path -LiteralPath (Join-Path $control 'AGENTS.md') -PathType Leaf)) 'maintenance-resolver-developer-without-host-entry-preserves-project-entry'
+    $readmePath = Join-Path $target 'README.md'
+    $readmeHold = Join-Path $target 'README.fixture-hold'
+    Move-Item -LiteralPath $readmePath -Destination $readmeHold
+    try { $missingReadme = Invoke-Ps $resolver @('-ControlRepositoryPath',$control,'-ExpectedProjectConfigIdentity',$configIdentity) }
+    finally { Move-Item -LiteralPath $readmeHold -Destination $readmePath }
+    Assert-True ($missingReadme.Code -ne 0 -and $missingReadme.Text.Contains('TARGET_ROOT_FILE_MISSING|README.md')) 'maintenance-resolver-target-readme-required'
 
     $badSiblingConfig = $configRaw | ConvertFrom-Json
     $badSiblingConfig.frameworkTarget.siblingDirectory = '..\AI-Workspace'
@@ -1633,65 +1649,10 @@ exit $LASTEXITCODE
         [ordered]@{correctionId='PROJECT_CORRECTION_LIFECYCLE';introducedAgainstFramework='1.9.0';requirementReason='No deterministic cross-version retention';effectiveRule='Retain and evaluate project correction records';applicability='Framework pin adoption and recovery';decisionLocator='task:correction-lifecycle'}
     )}
     $correctionPath=Join-Path $correctionRoot '.ai-workspace\corrections.json';Write-Utf8 $correctionPath ($correctionRecords|ConvertTo-Json -Depth 20)
-    $sealedCoveragePath=Join-Path $correctionFrameworkRoot 'framework\versions\1.16.0\CORRECTION_COVERAGE.json';$sealedCoverageOriginal=Get-Content -Raw -Encoding utf8 -LiteralPath $sealedCoveragePath
-    $sealedCatalogPath=Join-Path $correctionFrameworkRoot 'framework\versions\1.16.0\PROCESS_REQUIREMENTS.json'
-    $catalogFixture=Get-Content -Raw -Encoding utf8 -LiteralPath $sealedCatalogPath|ConvertFrom-Json
-    $ownerNative=@($catalogFixture.requirements|Where-Object{[string]$_.requirementId-ceq'PR_TASK_SCOPE_AND_FORBIDDEN'})[0]
-    $ownerAlias='correction:correction-fixture:OWNER_FIRST_DIRECT_DOMAIN_ROUTE'
-    $ownerNative.legacyAliases=@($ownerAlias)
-    Write-Utf8 $sealedCatalogPath ($catalogFixture|ConvertTo-Json -Depth 30)
-    Import-Module (Join-Path $candidateRoot 'scripts\ProcessRequirementComposition.psm1') -Force
-    $ownerRecord=$correctionRecords.corrections[0]|ConvertTo-Json -Depth 10|ConvertFrom-Json
-    $ownerSourceIdentity=Get-AiwCanonicalCorrectionRecordIdentityV1 $ownerRecord
-    $coverageFixture=$sealedCoverageOriginal|ConvertFrom-Json
-    $entry113=@($coverageFixture.versions|Where-Object{[string]$_.version-ceq'1.16.0'})[0]
-    $entry113.incorporationMappings=@([ordered]@{correctionId='OWNER_FIRST_DIRECT_DOMAIN_ROUTE';legacyRequirementId=$ownerAlias;nativeRequirementId='framework:PR_TASK_SCOPE_AND_FORBIDDEN';coverageState='INCORPORATED';nativeCatalogIdentity=(Get-Identity $sealedCatalogPath);sourceSchemaVersion=1;legacySourceRecordIdentity=$ownerSourceIdentity;v2WholeRecordIdentity='NOT_APPLICABLE'})
-    Write-Utf8 $sealedCoveragePath ($coverageFixture|ConvertTo-Json -Depth 30)
-    $null=Seal-ReleaseFixture (Split-Path -Parent $sealedCoveragePath) 'EXACT_CORRECTION_MAPPING_FIXTURE'
     $correctionArgs=@('-ProjectRoot',$correctionRoot,'-FrameworkRoot',$correctionFrameworkRoot,'-TargetVersion','1.16.0','-ExpectedProjectConfigIdentity',(Get-Identity $correctionConfigPath),'-ExpectedCorrectionsIdentity',(Get-Identity $correctionPath),'-Operation','PRECHECK','-AsJson')
     $correctionMatched=Invoke-Ps $correctionChecker $correctionArgs
     $correctionMatchedValue=$correctionMatched.Output[-1]|ConvertFrom-Json
-    if($correctionMatched.Code-ne0-or@($correctionMatchedValue.incorporated).Count-ne1){Write-Output ('DIAG|corrections-exact-mapping|code='+$correctionMatched.Code+'|'+$correctionMatched.Text)}
-    Assert-True ($correctionMatched.Code-eq0-and[string]$correctionMatchedValue.coverageStatus-ceq'MATCHED_EXACT_MAPPING'-and@($correctionMatchedValue.incorporated).Count-eq1-and[string]$correctionMatchedValue.incorporated[0].correctionId-ceq'OWNER_FIRST_DIRECT_DOMAIN_ROUTE'-and@($correctionMatchedValue.stillEffective).Count-eq1) 'corrections-exact-alias-native-source-mapping-incorporates-once'
-    $correctionDrift=$correctionRecords|ConvertTo-Json -Depth 20|ConvertFrom-Json;$correctionDrift.corrections[0].effectiveRule='Changed rule must remain effective';Write-Utf8 $correctionPath ($correctionDrift|ConvertTo-Json -Depth 20)
-    $driftArgs=@('-ProjectRoot',$correctionRoot,'-FrameworkRoot',$correctionFrameworkRoot,'-TargetVersion','1.16.0','-ExpectedProjectConfigIdentity',(Get-Identity $correctionConfigPath),'-ExpectedCorrectionsIdentity',(Get-Identity $correctionPath),'-Operation','PRECHECK','-AsJson')
-    $driftRun=Invoke-Ps $correctionChecker $driftArgs;$driftValue=$driftRun.Output[-1]|ConvertFrom-Json
-    Assert-True ($driftRun.Code-eq0-and@($driftValue.incorporated).Count-eq0-and@($driftValue.stillEffective).Count-eq2) 'corrections-source-record-drift-retained-not-suppressed'
-    Write-Utf8 $correctionPath ($correctionRecords|ConvertTo-Json -Depth 20)
-
-    $schema2Selectors=[ordered]@{profiles=@('*');roles=@('*');phases=@('*');actionKinds=@('*');resultKinds=@('*');pathPrefixes=@();capabilities=@();semanticTerms=@()}
-    $schema2Owner=[ordered]@{correctionId='OWNER_FIRST_DIRECT_DOMAIN_ROUTE';introducedAgainstFramework='<=1.8.0';requirementReason='Observed unnecessary Controller relay';effectiveRule='Domain owner routes directly';applicability='Unchanged domain task';decisionLocator='task:owner-first';selectors=$schema2Selectors;preparationRequirements=@('OWNER_ROUTE_PREPARED');resultRequirements=@('OWNER_ROUTE_RESULT');requiredFacts=@('OWNER_ROUTE_FACT');mechanicalCheckRefs=@('CURRENT_AUTHORITY_BOUND')}
-    $schema2Lifecycle=[ordered]@{correctionId='PROJECT_CORRECTION_LIFECYCLE';introducedAgainstFramework='1.9.0';requirementReason='No deterministic cross-version retention';effectiveRule='Retain and evaluate project correction records';applicability='Framework pin adoption and recovery';decisionLocator='task:correction-lifecycle';selectors=$schema2Selectors;preparationRequirements=@();resultRequirements=@();requiredFacts=@();mechanicalCheckRefs=@()}
-    $schema2Records=[ordered]@{schemaVersion=2;contractVersion='1.16.0';projectId='correction-fixture';corrections=@($schema2Owner,$schema2Lifecycle)}|ConvertTo-Json -Depth 30|ConvertFrom-Json
-    $schema2OwnerRecord=$schema2Records.corrections[0]
-    $schema2OwnerSix=[pscustomobject][ordered]@{correctionId=[string]$schema2OwnerRecord.correctionId;introducedAgainstFramework=[string]$schema2OwnerRecord.introducedAgainstFramework;requirementReason=[string]$schema2OwnerRecord.requirementReason;effectiveRule=[string]$schema2OwnerRecord.effectiveRule;applicability=[string]$schema2OwnerRecord.applicability;decisionLocator=[string]$schema2OwnerRecord.decisionLocator}
-    $schema2SixIdentity=Get-AiwCanonicalCorrectionRecordIdentityV1 $schema2OwnerSix;$schema2WholeIdentity=Get-AiwCanonicalCorrectionRecordIdentityV2 $schema2OwnerRecord
-    Write-Utf8 $correctionPath ($schema2Records|ConvertTo-Json -Depth 30)
-    $schema2Coverage=$coverageFixture|ConvertTo-Json -Depth 30|ConvertFrom-Json;$schema2Entry=@($schema2Coverage.versions|Where-Object{[string]$_.version-ceq'1.16.0'})[0]
-    $schema2Entry.incorporatedCorrectionIds=@('OWNER_FIRST_DIRECT_DOMAIN_ROUTE')
-    $schema2Entry.incorporationMappings=@([ordered]@{correctionId='OWNER_FIRST_DIRECT_DOMAIN_ROUTE';legacyRequirementId=$ownerAlias;nativeRequirementId='framework:PR_TASK_SCOPE_AND_FORBIDDEN';coverageState='INCORPORATED';nativeCatalogIdentity=(Get-Identity $sealedCatalogPath);sourceSchemaVersion=2;legacySourceRecordIdentity=$schema2SixIdentity;v2WholeRecordIdentity=$schema2WholeIdentity})
-    Write-Utf8 $sealedCoveragePath ($schema2Coverage|ConvertTo-Json -Depth 30);$null=Seal-ReleaseFixture (Split-Path -Parent $sealedCoveragePath) 'SCHEMA2_EXACT_CORRECTION_MAPPING_FIXTURE'
-    $schema2Args=@('-ProjectRoot',$correctionRoot,'-FrameworkRoot',$correctionFrameworkRoot,'-TargetVersion','1.16.0','-ExpectedProjectConfigIdentity',(Get-Identity $correctionConfigPath),'-ExpectedCorrectionsIdentity',(Get-Identity $correctionPath),'-Operation','PRECHECK','-AsJson')
-    $schema2Matched=Invoke-Ps $correctionChecker $schema2Args;$schema2MatchedValue=$schema2Matched.Output[-1]|ConvertFrom-Json
-    Assert-True ($schema2Matched.Code-eq0-and[string]$schema2MatchedValue.coverageStatus-ceq'MATCHED_EXACT_MAPPING'-and@($schema2MatchedValue.incorporated).Count-eq1-and[int]$schema2MatchedValue.incorporated[0].sourceSchemaVersion-eq2-and[string]$schema2MatchedValue.incorporated[0].legacySourceRecordIdentity-ceq$schema2SixIdentity-and[string]$schema2MatchedValue.incorporated[0].v2WholeRecordIdentity-ceq$schema2WholeIdentity-and@($schema2MatchedValue.stillEffective).Count-eq1) 'corrections-schema2-whole-record-exact-mapping-incorporates-once'
-
-    $schema2MetadataDrift=$schema2Records|ConvertTo-Json -Depth 30|ConvertFrom-Json;$schema2MetadataDrift.corrections[0].requiredFacts=@('OWNER_ROUTE_FACT_CHANGED')
-    $schema2MetadataDriftRecord=$schema2MetadataDrift.corrections[0];$schema2MetadataSix=[pscustomobject][ordered]@{correctionId=[string]$schema2MetadataDriftRecord.correctionId;introducedAgainstFramework=[string]$schema2MetadataDriftRecord.introducedAgainstFramework;requirementReason=[string]$schema2MetadataDriftRecord.requirementReason;effectiveRule=[string]$schema2MetadataDriftRecord.effectiveRule;applicability=[string]$schema2MetadataDriftRecord.applicability;decisionLocator=[string]$schema2MetadataDriftRecord.decisionLocator}
-    $schema2MetadataSixIdentity=Get-AiwCanonicalCorrectionRecordIdentityV1 $schema2MetadataSix;$schema2MetadataWholeIdentity=Get-AiwCanonicalCorrectionRecordIdentityV2 $schema2MetadataDriftRecord
-    Write-Utf8 $correctionPath ($schema2MetadataDrift|ConvertTo-Json -Depth 30)
-    $schema2DriftArgs=@('-ProjectRoot',$correctionRoot,'-FrameworkRoot',$correctionFrameworkRoot,'-TargetVersion','1.16.0','-ExpectedProjectConfigIdentity',(Get-Identity $correctionConfigPath),'-ExpectedCorrectionsIdentity',(Get-Identity $correctionPath),'-Operation','PRECHECK','-AsJson')
-    $schema2DriftRun=Invoke-Ps $correctionChecker $schema2DriftArgs;$schema2DriftValue=$schema2DriftRun.Output[-1]|ConvertFrom-Json
-    $schema2Retained=@($schema2DriftValue.stillEffective|Where-Object{[string]$_.correctionId-ceq'OWNER_FIRST_DIRECT_DOMAIN_ROUTE'})
-    $schema2DriftComposition=Invoke-ProcessRequirementComposition -ProjectRoot $correctionRoot -FrameworkRoot $correctionFrameworkRoot -TargetVersion '1.16.0' -ExpectedProjectConfigIdentity (Get-Identity $correctionConfigPath) -ExpectedCorrectionsIdentity (Get-Identity $correctionPath) -Profile MICRO -Role CONTROLLER -Phase RECOVER -Actor 'correction-wrapper-fixture' -TaskIdentity 'correction-wrapper-fixture' -Capabilities @() -Objective 'Check retained correction obligations' -ActionKind NONE -ResultKind NONE -UseDeclaredCapabilities -EvaluationOnly
-    $schema2RetainedRule=@($schema2DriftComposition.selectedRequirements|Where-Object{[string]$_.requirementId-ceq$ownerAlias});$schema2RetainedPrep=@($schema2RetainedRule[0].preparationRequirements);$schema2RetainedResult=@($schema2RetainedRule[0].resultRequirements)
-    Assert-True ($schema2MetadataSixIdentity-ceq$schema2SixIdentity-and$schema2MetadataWholeIdentity-cne$schema2WholeIdentity-and$schema2DriftRun.Code-eq0-and@($schema2DriftValue.incorporated).Count-eq0-and$schema2Retained.Count-eq1-and[string]$schema2Retained[0].legacySourceRecordIdentity-ceq$schema2SixIdentity-and[string]$schema2Retained[0].v2WholeRecordIdentity-ceq$schema2MetadataWholeIdentity-and$schema2RetainedRule.Count-eq1-and@('OWNER_ROUTE_PREPARED','OWNER_ROUTE_FACT_CHANGED','CURRENT_AUTHORITY_BOUND'|Where-Object{$_-cnotin$schema2RetainedPrep}).Count-eq0-and'OWNER_ROUTE_RESULT'-cin$schema2RetainedResult-and@($schema2DriftComposition.evidenceCeilings)-contains'SOURCE_RECORD_IDENTITY_MISMATCH_RETAINED') 'corrections-schema2-metadata-only-drift-keeps-six-field-identity-but-retains-current-obligations'
-    Write-Utf8 $correctionPath ($correctionRecords|ConvertTo-Json -Depth 20)
-    Write-Utf8 $sealedCoveragePath ($coverageFixture|ConvertTo-Json -Depth 30);$null=Seal-ReleaseFixture (Split-Path -Parent $sealedCoveragePath) 'EXACT_CORRECTION_MAPPING_FIXTURE'
-
-    $invalidMapping=$coverageFixture|ConvertTo-Json -Depth 30|ConvertFrom-Json;$invalidEntry=@($invalidMapping.versions|Where-Object{[string]$_.version-ceq'1.16.0'})[0];$invalidEntry.incorporationMappings[0].nativeCatalogIdentity='0|'+('0'*64);Write-Utf8 $sealedCoveragePath ($invalidMapping|ConvertTo-Json -Depth 30);$null=Seal-ReleaseFixture (Split-Path -Parent $sealedCoveragePath) 'INVALID_MAPPING_FIXTURE'
-    $invalidRun=Invoke-Ps $correctionChecker $correctionArgs;$invalidValue=$invalidRun.Output[-1]|ConvertFrom-Json
-    Assert-True ($invalidRun.Code-eq0-and[string]$invalidValue.coverageStatus-ceq'INVALID_RETAINED'-and@($invalidValue.incorporated).Count-eq0-and@($invalidValue.stillEffective).Count-eq2) 'corrections-invalid-mapping-retains-all'
-    Write-Utf8 $sealedCoveragePath ($coverageFixture|ConvertTo-Json -Depth 30);$null=Seal-ReleaseFixture (Split-Path -Parent $sealedCoveragePath) 'EXACT_CORRECTION_MAPPING_FIXTURE'
+    Assert-True ($correctionMatched.Code-eq0-and@($correctionMatchedValue.stillEffective).Count-eq2-and$null-eq$correctionMatchedValue.PSObject.Properties['incorporated']) 'project-owned-records-effective-without-central-registration'
     $correctionOriginal=Get-Content -Raw -Encoding utf8 -LiteralPath $correctionPath
     $correctionDuplicate=$correctionOriginal-replace '"projectId"\s*:\s*"correction-fixture"',('"projectId": "correction-fixture",'+"`n"+'  "\u0070rojectId": "correction-fixture"')
     Write-Utf8 $correctionPath $correctionDuplicate
@@ -1714,7 +1675,7 @@ exit $LASTEXITCODE
     Write-Utf8 $discoverInputPath ($discoverInput|ConvertTo-Json -Depth 20)
     $discoverRun=Invoke-Ps $processResolver @('-InputPath',$discoverInputPath,'-AsJson')
     $discoverResult=$discoverRun.Output[-1]|ConvertFrom-Json;$discoverValue=$discoverResult.compactReceipt;$discoverBlocks=@($discoverResult.selectedRuleBlocks)
-    Assert-True ($discoverRun.Code-eq0-and[string]$discoverValue.status-ceq'PASS'-and-not[bool]$discoverValue.authorityGranted-and-not[bool]$discoverValue.semanticCorrectnessProven-and[string]$discoverValue.actor-ceq'owner-fixture'-and@($discoverBlocks.requirementId)-contains'framework:PR_ACTION_AUTHORIZATION_INDEPENDENT'-and@($discoverBlocks.requirementId)-contains'correction:correction-fixture:PROJECT_CORRECTION_LIFECYCLE'-and@($discoverBlocks.requirementId)-notcontains$ownerAlias) 'process-discover-composes-three-sources-with-exact-absorption'
+    Assert-True ($discoverRun.Code-eq0-and[string]$discoverValue.status-ceq'PASS'-and-not[bool]$discoverValue.authorityGranted-and-not[bool]$discoverValue.semanticCorrectnessProven-and[string]$discoverValue.actor-ceq'owner-fixture'-and@($discoverBlocks.requirementId)-contains'framework:PR_ACTION_AUTHORIZATION_INDEPENDENT'-and@($discoverBlocks.requirementId)-contains'correction:correction-fixture:PROJECT_CORRECTION_LIFECYCLE'-and@($discoverBlocks.requirementId)-contains'correction:correction-fixture:OWNER_FIRST_DIRECT_DOMAIN_ROUTE') 'process-discover-composes-three-sources-with-project-owned-current-rules'
     $projectCapabilityConfigOriginal=Get-Content -Raw -Encoding utf8 -LiteralPath $correctionConfigPath
     $projectCapabilityCases=@(
         [pscustomobject]@{Name='unknown-id';TestName='process-resolver-capability-unknown-id-fails-closed';Capabilities=[ordered]@{UNKNOWN=[ordered]@{enabled=$false}};Expected='PROJECT_CAPABILITIES_ID'},
@@ -2290,7 +2251,7 @@ exit $LASTEXITCODE
     $pwsh=[pscustomobject]@{Source=$script:pwshExecutable}
     if($null-ne$pwsh){
         $ps7Correction=Invoke-PsHost $pwsh.Source $correctionChecker $correctionArgs
-        Assert-True ($ps7Correction.Code-eq0-and$ps7Correction.Text.Contains('"coverageStatus":"MATCHED_EXACT_MAPPING"')) 'corrections-ps7-incorporated-vs-still-effective'
+        Assert-True ($ps7Correction.Code-eq0-and$ps7Correction.Text.Contains('"stillEffective"')) 'corrections-ps7-current-project-rules'
         Write-Utf8 $correctionPath $correctionDuplicate
         try{$ps7CorrectionDuplicate=Invoke-PsHost $pwsh.Source $correctionChecker @('-ProjectRoot',$correctionRoot,'-FrameworkRoot',$correctionFrameworkRoot,'-TargetVersion','1.16.0','-ExpectedProjectConfigIdentity',(Get-Identity $correctionConfigPath),'-ExpectedCorrectionsIdentity',(Get-Identity $correctionPath),'-Operation','PRECHECK','-AsJson')}
         finally{Write-Utf8 $correctionPath $correctionOriginal}

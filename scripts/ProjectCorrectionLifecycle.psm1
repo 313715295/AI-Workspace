@@ -1,8 +1,8 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
-Import-Module (Join-Path $PSScriptRoot 'ProjectAdoptionState.psm1') -Force
-Import-Module (Join-Path $PSScriptRoot 'ProjectAdoptionProjection.psm1') -Force
-Import-Module (Join-Path $PSScriptRoot 'ProjectAdoptionTransaction.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'ProjectAdoptionState.psm1')
+Import-Module (Join-Path $PSScriptRoot 'ProjectAdoptionProjection.psm1')
+Import-Module (Join-Path $PSScriptRoot 'ProjectAdoptionTransaction.psm1')
 
 function Assert-AiwLifecycleFields($Value,[string[]]$Fields,[string]$Label) {
     if($Value-isnot[pscustomobject]){throw ($Label+'_OBJECT')}
@@ -40,7 +40,11 @@ function New-AiwCorrectionLifecycleProjection {
     Assert-AiwLifecycleFields $Plan @('schemaVersion','operation','correctionId','expectedCorrectionsIdentity','decisionLocator','record','installation','installationRelativePath','transactionRelativePath','impact','forbiddenPaths') 'CORRECTION_PLAN'
     if($Plan.forbiddenPaths-isnot[array]-or@($Plan.forbiddenPaths|Where-Object{$_-isnot[string]}).Count){throw 'CORRECTION_FORBIDDEN_PATHS'}
     foreach($forbidden in $Plan.forbiddenPaths){Assert-AiwRelativePath $forbidden.TrimEnd('/')}
-    if($Plan.schemaVersion-ne1-or$Plan.operation-cnotin@('INSTALL','REGISTER_HISTORY','PAUSE','RESUME','UNINSTALL')-or$Plan.correctionId-cnotmatch'^[A-Z][A-Z0-9_]*$'-or[string]::IsNullOrWhiteSpace($Plan.decisionLocator)){throw 'CORRECTION_PLAN_VALUES'}
+    if($Plan.schemaVersion-ne1-or$Plan.operation-cnotin@('INSTALL','REGISTER_HISTORY','REVISE','PAUSE','RESUME','UNINSTALL')-or$Plan.correctionId-cnotmatch'^[A-Z][A-Z0-9_]*$'-or[string]::IsNullOrWhiteSpace($Plan.decisionLocator)){throw 'CORRECTION_PLAN_VALUES'}
+    $transactionPath=Assert-AiwProjectionTransactionPath $root $Plan.transactionRelativePath
+    $historyRoot='.ai-workspace/upgrade-recovery/corrections/'+$Plan.correctionId+'/'
+    if(-not $Plan.transactionRelativePath.StartsWith($historyRoot,[StringComparison]::Ordinal)){throw 'CORRECTION_TRANSACTION_SCOPE'}
+    if(Test-Path -LiteralPath $transactionPath){throw 'CORRECTION_TRANSACTION_EXISTS_USE_RECOVERY'}
     Assert-AiwLifecycleFields $Plan.impact @('stoppedObligations','independentObligations','inFlightEffects','recovery','semanticAssessment') 'CORRECTION_IMPACT'
     foreach($field in @('stoppedObligations','independentObligations','inFlightEffects')){
         if($Plan.impact.$field-isnot[array]-or@($Plan.impact.$field|Where-Object{$_-isnot[string]}).Count){throw 'CORRECTION_IMPACT_ARRAY'}
@@ -53,15 +57,30 @@ function New-AiwCorrectionLifecycleProjection {
     $existing=@($carrier.corrections|Where-Object{$_.correctionId-ceq$Plan.correctionId})
     if($existing.Count-gt1){throw 'CORRECTION_DUPLICATE'}
     $state=if($existing.Count){Get-AiwLifecycleState $existing[0]}else{'ABSENT'}
-    $allowed=@{INSTALL=@('ABSENT','UNINSTALLED');REGISTER_HISTORY=@('LEGACY');PAUSE=@('ACTIVE');RESUME=@('PAUSED');UNINSTALL=@('ACTIVE','PAUSED')}
+    $allowed=@{INSTALL=@('ABSENT','UNINSTALLED');REGISTER_HISTORY=@('LEGACY');REVISE=@('LEGACY','ACTIVE','PAUSED');PAUSE=@('ACTIVE');RESUME=@('PAUSED');UNINSTALL=@('ACTIVE','PAUSED')}
     if($state-cnotin$allowed[[string]$Plan.operation]){throw ('CORRECTION_TRANSITION|'+$state+'|'+$Plan.operation)}
     $targets=[Collections.Generic.List[object]]::new()
-    if($Plan.operation-cin@('INSTALL','REGISTER_HISTORY')){
+    $priorRecord=if($existing.Count){($existing[0]|ConvertTo-Json -Depth 64|ConvertFrom-Json -Depth 64)}else{$null}
+    if($null-ne$priorRecord-and$null-ne$priorRecord.PSObject.Properties['history']){
+        Assert-AiwLifecycleFields $priorRecord.history @('locator','identity') 'CORRECTION_HISTORY'
+        if(-not$priorRecord.history.locator.StartsWith($historyRoot,[StringComparison]::Ordinal)-or-not$priorRecord.history.locator.EndsWith('/history.json',[StringComparison]::Ordinal)){throw 'CORRECTION_HISTORY_PATH'}
+        $previousHistory=Read-AiwProjectJson (Get-AiwContainedPath $root $priorRecord.history.locator) 'CORRECTION_HISTORY'
+        if($previousHistory.Identity-cne$priorRecord.history.identity-or$previousHistory.Value.correctionId-cne$Plan.correctionId){throw 'CORRECTION_HISTORY_DRIFT'}
+    }
+    $historyRelative=$Plan.transactionRelativePath.Substring(0,$Plan.transactionRelativePath.Length-'state.json'.Length)+'history.json'
+    $historyPath=Get-AiwContainedPath $root $historyRelative
+    if(Test-Path -LiteralPath $historyPath){throw 'CORRECTION_HISTORY_EXISTS'}
+    $historyText=Get-AiwLifecycleJson ([ordered]@{schemaVersion=1;correctionId=$Plan.correctionId;operation=$Plan.operation;decisionLocator=$Plan.decisionLocator;priorRecord=$priorRecord})
+    $targets.Add([pscustomobject]@{path=$historyRelative;text=$historyText})
+    $revisedEffects=$Plan.operation-ceq'REVISE'-and$Plan.installation-is[pscustomobject]
+    $previousInstallation=if($revisedEffects-and$state-cne'LEGACY'){Read-AiwCorrectionInstallation $root $existing[0]}else{$null}
+    if($revisedEffects-and$state-ceq'LEGACY'){throw 'CORRECTION_REVISE_OWNERSHIP_REQUIRED'}
+    if($Plan.operation-cin@('INSTALL','REGISTER_HISTORY')-or$revisedEffects){
         $record=if($Plan.operation-ceq'REGISTER_HISTORY'){
             if($Plan.record-cne'NOT_APPLICABLE'){throw 'CORRECTION_HISTORY_RECORD_UNCHANGED'}
             $existing[0]
         }else{($Plan.record|ConvertTo-Json -Depth 64|ConvertFrom-Json -Depth 64)}
-        if($record.correctionId-cne$Plan.correctionId-or$null-ne$record.PSObject.Properties['lifecycle']){throw 'CORRECTION_INSTALL_RECORD'}
+        if($record.correctionId-cne$Plan.correctionId-or$null-ne$record.PSObject.Properties['lifecycle']-or($Plan.operation-cne'REGISTER_HISTORY'-and$null-ne$record.PSObject.Properties['history'])){throw 'CORRECTION_INSTALL_RECORD'}
         $installation=$Plan.installation
         Assert-AiwLifecycleFields $installation @('schemaVersion','correctionId','decisionLocator','dependsOn','changes') 'CORRECTION_INSTALLATION'
         if($installation.schemaVersion-ne1-or$installation.correctionId-cne$Plan.correctionId-or[string]::IsNullOrWhiteSpace($installation.decisionLocator)-or$installation.dependsOn-isnot[array]-or$installation.changes-isnot[array]-or$installation.changes.Count-gt64){throw 'CORRECTION_INSTALLATION_VALUES'}
@@ -71,17 +90,24 @@ function New-AiwCorrectionLifecycleProjection {
         $evidenceText=Get-AiwLifecycleJson $installation
         $targets.Add([pscustomobject]@{path=$Plan.installationRelativePath;text=$evidenceText})
         $record|Add-Member lifecycle ([pscustomobject]@{state='ACTIVE';installation=[pscustomobject]@{locator=$Plan.installationRelativePath;identity=(Get-AiwLifecycleIdentity $evidenceText)};decisionLocator=$Plan.decisionLocator})
+    }elseif($Plan.operation-ceq'REVISE'){
+        if($Plan.installation-cne'NOT_APPLICABLE'-or$Plan.installationRelativePath-cne'NOT_APPLICABLE'-or$Plan.record-isnot[pscustomobject]){throw 'CORRECTION_REVISE_RECORD'}
+        $record=($Plan.record|ConvertTo-Json -Depth 64|ConvertFrom-Json -Depth 64)
+        if($record.correctionId-cne$Plan.correctionId-or$null-ne$record.PSObject.Properties['lifecycle']-or$null-ne$record.PSObject.Properties['history']){throw 'CORRECTION_REVISE_RECORD'}
+        if($state-cne'LEGACY'){$record|Add-Member lifecycle $existing[0].lifecycle;$installation=Read-AiwCorrectionInstallation $root $record}
+        else{$installation=[pscustomobject]@{dependsOn=@();changes=@()}}
     }else{
         if($Plan.record-cne'NOT_APPLICABLE'-or$Plan.installation-cne'NOT_APPLICABLE'-or$Plan.installationRelativePath-cne'NOT_APPLICABLE'){throw 'CORRECTION_EXISTING_INSTALLATION_ONLY'}
         $record=$existing[0]
         $installation=Read-AiwCorrectionInstallation $root $record
     }
     $active=@($carrier.corrections|Where-Object{(Get-AiwLifecycleState $_)-cin@('ACTIVE','LEGACY')-and$_.correctionId-cne$Plan.correctionId})
-    $forward=$Plan.operation-cin@('INSTALL','RESUME','REGISTER_HISTORY')
+    $forward=$Plan.operation-cin@('INSTALL','RESUME','REGISTER_HISTORY','REVISE')
+    $requiresActiveDependencies=$forward-and-not($Plan.operation-ceq'REVISE'-and$state-ceq'PAUSED')
     if($installation.dependsOn-isnot[array]-or@($installation.dependsOn|Select-Object -Unique).Count-ne$installation.dependsOn.Count){throw 'CORRECTION_DEPENDENCY_SHAPE'}
     foreach($dep in $installation.dependsOn){
         if($dep-isnot[string]-or$dep-cnotmatch'^[A-Z][A-Z0-9_]*$'-or$dep-ceq$Plan.correctionId){throw 'CORRECTION_DEPENDENCY_ID'}
-        if($forward-and@($active|Where-Object correctionId -CEQ $dep).Count-ne1){throw ('CORRECTION_DEPENDENCY_INACTIVE|'+$dep)}
+        if($requiresActiveDependencies-and@($active|Where-Object correctionId -CEQ $dep).Count-ne1){throw ('CORRECTION_DEPENDENCY_INACTIVE|'+$dep)}
     }
     $otherInstallations=@()
     foreach($other in $active){
@@ -95,7 +121,12 @@ function New-AiwCorrectionLifecycleProjection {
     if(-not$forward){[array]::Reverse($changes)}
     # A paused uninstall removes its installation state; effects are already absent.
     if($state-ceq'PAUSED'-and$Plan.operation-ceq'UNINSTALL'){$changes=@()}
-    foreach($change in $changes){
+    if($Plan.operation-ceq'REVISE'-and(-not$revisedEffects-or$state-ceq'PAUSED')){$changes=@()}
+    $operations=@()
+    if($revisedEffects-and$state-ceq'ACTIVE'){$reverse=@($previousInstallation.changes);[array]::Reverse($reverse);$operations+=@($reverse|ForEach-Object{[pscustomobject]@{change=$_;forward=$false}})}
+    $operations+=@($changes|ForEach-Object{[pscustomobject]@{change=$_;forward=$forward}})
+    foreach($operation in $operations){
+        $change=$operation.change;$forward=$operation.forward
         try {
             $path=[string]$change.path
             foreach($forbidden in $Plan.forbiddenPaths){if($path.Equals($forbidden.TrimEnd('/'),[StringComparison]::OrdinalIgnoreCase)-or$path.StartsWith($forbidden.TrimEnd('/')+'/',[StringComparison]::OrdinalIgnoreCase)){throw 'CORRECTION_FORBIDDEN_PATH'}}
@@ -146,8 +177,11 @@ function New-AiwCorrectionLifecycleProjection {
         }catch{$conflicts.Add([pscustomobject]@{path=[string]$change.path;reason=[string]$_.Exception.Message})}
     }
     if($conflicts.Count){return [pscustomobject]@{status='CONFLICT';conflicts=@($conflicts);impact=$Plan.impact;projection=$null}}
-    $record.lifecycle.state=switch($Plan.operation){'PAUSE'{'PAUSED'};'UNINSTALL'{'UNINSTALLED'};default{'ACTIVE'}}
-    $record.lifecycle.decisionLocator=$Plan.decisionLocator
+    if($null-ne$record.PSObject.Properties['lifecycle']){
+        $record.lifecycle.state=switch($Plan.operation){'PAUSE'{'PAUSED'};'UNINSTALL'{'UNINSTALLED'};'REVISE'{$state};default{'ACTIVE'}}
+        $record.lifecycle.decisionLocator=$Plan.decisionLocator
+    }
+    $record|Add-Member -NotePropertyName history -NotePropertyValue ([pscustomobject]@{locator=$historyRelative;identity=(Get-AiwLifecycleIdentity $historyText)}) -Force
     $carrier.corrections=@($carrier.corrections|Where-Object correctionId -CNE $Plan.correctionId)+@($record)
     foreach($path in $working.Keys){
         $value=$working[$path]
@@ -210,4 +244,42 @@ function Invoke-AiwCorrectionLifecycle {
     }
     Invoke-AiwProjectProjectionTransaction $root $prepared.projection $doc.Value.transactionRelativePath $check {param($r,$p) $true} -InterruptAfterWrite $InterruptAfterWrite -Metadata @{operation='PROJECT_CORRECTION_LIFECYCLE';planIdentity=$ExpectedPlanIdentity;impact=$doc.Value.impact}
 }
-Export-ModuleMember -Function New-AiwCorrectionLifecycleProjection,Invoke-AiwCorrectionLifecycle
+function New-AiwCorrectionAdoptionProjection {
+    param([string]$RepositoryRoot,$Plan,[string[]]$RequiredDispositionIds=@())
+    $root=Resolve-AiwRepositoryRoot $RepositoryRoot
+    Assert-AiwLifecycleFields $Plan @('schemaVersion','expectedCorrectionsIdentity','changes') 'CORRECTION_ADOPTION_PLAN'
+    if($Plan.schemaVersion-ne1-or$Plan.changes-isnot[array]){throw 'CORRECTION_ADOPTION_PLAN_VALUES'}
+    $doc=Read-AiwProjectJson (Get-AiwContainedPath $root '.ai-workspace/corrections.json') 'CORRECTIONS'
+    if($doc.Identity-cne$Plan.expectedCorrectionsIdentity-or$doc.Value.schemaVersion-ne2){throw 'CORRECTION_ADOPTION_SOURCE_DRIFT'}
+    $carrier=$doc.Value;$seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $targets=[Collections.Generic.List[object]]::new()
+    foreach($change in $Plan.changes){
+        Assert-AiwLifecycleFields $change @('correctionId','decisionLocator','record','historyRelativePath') 'CORRECTION_ADOPTION_CHANGE'
+        if($change.correctionId-cnotmatch'^[A-Z][A-Z0-9_]*$'-or-not$seen.Add($change.correctionId)-or[string]::IsNullOrWhiteSpace($change.decisionLocator)){throw 'CORRECTION_ADOPTION_CHANGE_VALUES'}
+        $matches=@($carrier.corrections|Where-Object correctionId -CEQ $change.correctionId)
+        if($matches.Count-ne1){throw 'CORRECTION_ADOPTION_RECORD_SET'}
+        $prior=$matches[0];$prefix='.ai-workspace/upgrade-recovery/corrections/'+$change.correctionId+'/'
+        $historyPath=Get-AiwContainedPath $root $change.historyRelativePath
+        if(-not$change.historyRelativePath.StartsWith($prefix,[StringComparison]::Ordinal)-or$change.historyRelativePath-cnotmatch'^\.ai-workspace/upgrade-recovery/corrections/[A-Z][A-Z0-9_]*/[A-Za-z0-9._-]+/history\.json$'-or(Test-Path -LiteralPath $historyPath)){throw 'CORRECTION_ADOPTION_HISTORY_PATH'}
+        if($null-ne$prior.PSObject.Properties['history']){
+            $previous=Read-AiwProjectJson (Get-AiwContainedPath $root $prior.history.locator) 'CORRECTION_HISTORY'
+            if($previous.Identity-cne$prior.history.identity-or$previous.Value.correctionId-cne$change.correctionId){throw 'CORRECTION_HISTORY_DRIFT'}
+        }
+        $retire=$change.record-is[string]-and$change.record-ceq'NOT_APPLICABLE'
+        if($retire-and(Get-AiwLifecycleState $prior)-cin@('ACTIVE','PAUSED')){throw 'CORRECTION_ADOPTION_OWNED_EFFECTS_REQUIRE_UNINSTALL'}
+        $historyText=Get-AiwLifecycleJson ([ordered]@{schemaVersion=1;correctionId=$change.correctionId;operation=$(if($retire){'ADOPTION_RETIRE'}else{'ADOPTION_REVISE'});decisionLocator=$change.decisionLocator;priorRecord=$prior})
+        $targets.Add([pscustomobject]@{path=$change.historyRelativePath;text=$historyText})
+        if($retire){$carrier.corrections=@($carrier.corrections|Where-Object correctionId -CNE $change.correctionId)}
+        else{
+            if($change.record-isnot[pscustomobject]-or$change.record.correctionId-cne$change.correctionId-or$null-ne$change.record.PSObject.Properties['history']-or$null-ne$change.record.PSObject.Properties['lifecycle']){throw 'CORRECTION_ADOPTION_REVISED_RECORD'}
+            $record=$change.record|ConvertTo-Json -Depth 64|ConvertFrom-Json -Depth 64
+            if($null-ne$prior.PSObject.Properties['lifecycle']){$record|Add-Member lifecycle $prior.lifecycle}
+            $record|Add-Member history ([pscustomobject]@{locator=$change.historyRelativePath;identity=(Get-AiwLifecycleIdentity $historyText)})
+            $carrier.corrections=@($carrier.corrections|ForEach-Object{if($_.correctionId-ceq$change.correctionId){$record}else{$_}})
+        }
+    }
+    if(@($RequiredDispositionIds|Where-Object{-not$seen.Contains($_)}).Count){throw 'ADOPTION_CORRECTIONS_DISPOSITION_REQUIRED'}
+    $targets.Add([pscustomobject]@{path='.ai-workspace/corrections.json';text=(Get-AiwLifecycleJson $carrier)})
+    return New-AiwProjectProjection $root @($targets)
+}
+Export-ModuleMember -Function New-AiwCorrectionLifecycleProjection,Invoke-AiwCorrectionLifecycle,New-AiwCorrectionAdoptionProjection

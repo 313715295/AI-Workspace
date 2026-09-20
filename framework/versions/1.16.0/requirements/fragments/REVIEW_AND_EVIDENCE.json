@@ -13,14 +13,10 @@
           "CRITICAL"
         ],
         "roles": [
-          "REVIEWER",
-          "DOMAIN_OWNER",
-          "FRAMEWORK_MAINTAINER",
-          "CONTROLLER"
+          "*"
         ],
         "phases": [
-          "REVIEW",
-          "VERIFY"
+          "*"
         ],
         "actionKinds": [
           "REVIEW_ROUTE",
@@ -58,10 +54,7 @@
           "*"
         ],
         "phases": [
-          "VERIFY",
-          "REVIEW",
-          "GIT",
-          "EXTERNAL"
+          "*"
         ],
         "actionKinds": [
           "TEST_RUN",

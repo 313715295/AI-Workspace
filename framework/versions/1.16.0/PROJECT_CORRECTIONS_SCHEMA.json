@@ -361,6 +361,24 @@
                   }
                 },
                 "type": "object"
+              },
+              "history": {
+                "required": [
+                  "locator",
+                  "identity"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "identity": {
+                    "pattern": "^\\d+\\|[A-F0-9]{64}$",
+                    "type": "string"
+                  },
+                  "locator": {
+                    "pattern": "^\\.ai-workspace/upgrade-recovery/corrections/.+/history\\.json$",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
               }
             }
           }

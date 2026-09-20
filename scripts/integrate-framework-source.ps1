@@ -261,7 +261,14 @@ function New-Preparation {
         $source=Get-AiwContainedPath $candidate $relative;$null=Get-AiwContainedPath $target $relative
         $expectedPre=if($pre.ContainsKey($relative)-and$pre[$relative]-ceq'NEW'){'MISSING'}else{$pre[$relative]}
         if(-not$pre.ContainsKey($relative)-or(Get-CurrentIdentity $target $relative)-cne$expectedPre){throw ('SELF_UPDATE_PREIMAGE_DRIFT|'+$relative)}
-        $targets+= [pscustomobject]@{path=$relative;bytes=[IO.File]::ReadAllBytes($source)}
+        if(Test-Path -LiteralPath $source -PathType Leaf){
+            $targets+= [pscustomobject]@{path=$relative;bytes=[IO.File]::ReadAllBytes($source)}
+        }elseif(-not(Test-Path -LiteralPath $source)-and$expectedPre-cne'MISSING'){
+            # Absence in the accepted complete freeze is an authorized deletion
+            # only for this package's exact, existing object. The ordinary
+            # projection records its bytes for rollback and postimage proof.
+            $targets+= [pscustomobject]@{path=$relative;exists=$false}
+        }else{throw ('SELF_UPDATE_CANDIDATE_OBJECT|'+$relative)}
     }
     $projection=New-AiwProjectProjection $target $targets
     $manifestPath=Join-Path $candidate ('framework/versions/'+$package.frameworkVersion+'/RELEASE_MANIFEST.json')
@@ -329,9 +336,11 @@ function Invoke-Apply($Prepared) {
         foreach($e in $s.projection.objects|Where-Object changed){
             if((Get-CurrentIdentity $s.targetRoot $e.path)-cne$e.oldIdentity){throw 'SELF_UPDATE_APPLY_DRIFT'}
             $full=Get-AiwContainedPath $s.targetRoot $e.path
-            $parent=Split-Path -Parent $full;New-Item -ItemType Directory -Path $parent -Force|Out-Null
-            $temporary=$full+'.self-update-'+[guid]::NewGuid().ToString('N')
-            try{[IO.File]::WriteAllBytes($temporary,[Convert]::FromBase64String($e.newBase64));[IO.File]::Move($temporary,$full,$true)}finally{if(Test-Path -LiteralPath $temporary){[IO.File]::Delete($temporary)}}
+            if($e.newExists){
+                $parent=Split-Path -Parent $full;New-Item -ItemType Directory -Path $parent -Force|Out-Null
+                $temporary=$full+'.self-update-'+[guid]::NewGuid().ToString('N')
+                try{[IO.File]::WriteAllBytes($temporary,[Convert]::FromBase64String($e.newBase64));[IO.File]::Move($temporary,$full,$true)}finally{if(Test-Path -LiteralPath $temporary){[IO.File]::Delete($temporary)}}
+            }else{[IO.File]::Delete($full)}
             $s.completedWrites++;Write-State $path $s
             if($InterruptAfterWrite-ge0-and$s.completedWrites-ge$InterruptAfterWrite){return [pscustomobject]@{status='INTERRUPTED';transactionIdentity=Get-Identity $path;stage='TARGET_WRITE'}}
             if($FailAfterWrite-ge0-and$s.completedWrites-ge$FailAfterWrite){throw 'SELF_UPDATE_INJECTED_FAILURE'}
@@ -429,7 +438,7 @@ function Invoke-FinalizeCheck([string]$Path,[string]$Expected,[bool]$CheckEviden
     $allowed=@('frameworkVersionIdentity','releaseManifestIdentity','nativeCatalogIdentity','correctionCoverageIdentity','candidatePilotStateIdentity')
     if(-not$noWrite-and'.ai-workspace/process-policy.json'-cin@($s.refresh.postimages.path)){$allowed+=@('policyIdentity','projectStandardsIdentity')}
     foreach($property in $receipt.sourceBindings.PSObject.Properties){
-        if($current.($property.Name)-cne$property.Value-and$property.Name-cnotin$allowed){throw ('SELF_UPDATE_UNAUTHORIZED_SOURCE_DRIFT|'+$property.Name)}
+        if($property.Name-cnotin$allowed-and($null-eq$current.PSObject.Properties[$property.Name]-or$current.($property.Name)-cne$property.Value)){throw ('SELF_UPDATE_UNAUTHORIZED_SOURCE_DRIFT|'+$property.Name)}
     }
     if($current.releaseManifestIdentity-cne$s.targetManifestIdentity){throw 'SELF_UPDATE_CURRENT_RELEASE'}
     $intent=$receipt.intentEnvelope
@@ -441,6 +450,7 @@ function Invoke-FinalizeCheck([string]$Path,[string]$Expected,[bool]$CheckEviden
     }
     $composition=Invoke-ProcessRequirementComposition -ProjectRoot $s.controlRoot -FrameworkRoot $s.targetRoot -TargetVersion $s.frameworkVersion -ExpectedProjectConfigIdentity $s.projectConfigIdentity -ExpectedCorrectionsIdentity $current.correctionsIdentity -Profile $context.profile -Role $context.role -Phase $context.phase -Actor $s.actor -TaskIdentity $s.taskIdentity -Capabilities @($authority.observedCapabilities) -Objective $semantic -ActionKind 'SOURCE_WRITE' -ResultKind $view.resultKind -ExactPaths @($s.exactPaths) -ForbiddenPaths @($authority.forbiddenScope)
     foreach($property in $receipt.sourceBindings.PSObject.Properties){
+        if($property.Name-ceq'correctionCoverageIdentity'-and$null-eq$current.PSObject.Properties[$property.Name]-and$null-eq$composition.PSObject.Properties[$property.Name]){continue}
         $value=if($property.Name-ceq'taskIdentity'){$s.taskIdentity}else{$composition.($property.Name)}
         if($value-cne$current.($property.Name)){throw ('SELF_UPDATE_RECOMPOSITION_DRIFT|'+$property.Name)}
     }

@@ -22,7 +22,7 @@ param(
 
     [string]$ExpectedActorRouteTaskIdentity,
 
-    [ValidatePattern('^[0-9A-Za-z][0-9A-Za-z._-]*$')]
+    [ValidateScript({-not[string]::IsNullOrWhiteSpace($_)})]
     [string]$ActorRouteActor,
 
     [string]$AuthorizationPackagePath,
@@ -44,6 +44,9 @@ param(
     [int]$SelectedRulePackBytes = 32768,
 
     [string]$ProjectCorrectionsMigrationPath,
+
+    [string]$AdoptionCorrectionsPlanPath,
+    [string]$ExpectedAdoptionCorrectionsPlanIdentity,
 
     [string]$ProjectCorrectionLifecyclePath,
     [string]$ExpectedProjectCorrectionLifecycleIdentity,
@@ -95,6 +98,8 @@ foreach($modulePath in @($adoptionStateModulePath,$adoptionProjectionModulePath,
     Import-Module $modulePath -Force
 }
 
+if([bool]$AdoptionCorrectionsPlanPath-ne[bool]$ExpectedAdoptionCorrectionsPlanIdentity){throw 'ADOPTION_CORRECTIONS_PLAN_FIELDS_REQUIRED'}
+if($AdoptionCorrectionsPlanPath-and(-not$LocalCandidatePilot-or$ProjectCorrectionLifecyclePath-or$ProjectCorrectionsMigrationPath-or$ProjectRuleRecoveryPlanPath-or$RecoverRuntimeAdoption-or$RepairSelectedRulePackBudget)){throw 'ADOPTION_CORRECTIONS_PLAN_REFRESH_ONLY'}
 if($ProjectCorrectionLifecyclePath){
     if($AdoptionProcessMode-or$ProjectRuleRecoveryPlanPath-or$RecoverRuntimeAdoption-or$ProjectCorrectionsMigrationPath){throw 'CORRECTION_OPERATION_EXCLUSIVE'}
     Import-Module (Join-Path $PSScriptRoot 'ProjectCorrectionLifecycle.psm1') -Force
@@ -660,6 +665,7 @@ function Assert-LocalCandidateSamePinProjectProjection([string]$RepositoryRoot,[
     Assert-MinimalExactFields $corrections $correctionsRaw @('schemaVersion','contractVersion','projectId','corrections') 'local-candidate same-pin corrections'
     $correctionsContractValid=((Test-MinimalJsonInteger $corrections.schemaVersion)-and[int]$corrections.schemaVersion-eq1-and[string]$corrections.contractVersion-ceq'1.10.0')-or((Test-MinimalJsonInteger $corrections.schemaVersion)-and[int]$corrections.schemaVersion-eq2-and[string]$corrections.contractVersion-ceq(Get-ProcessCarrierContractVersion $TargetVersion $script:ActiveAdoptionProfile))
     if(-not$correctionsContractValid-or[string]$corrections.projectId-cne$ProjectId-or-not($corrections.corrections-is[Array])){throw 'LOCAL_CANDIDATE_SAME_PIN_CORRECTIONS_BINDING'}
+
     Write-Output ('LOCAL_CANDIDATE_PROJECT_PROJECTION|version='+$TargetVersion+'|status=PASS')
 }
 
@@ -707,6 +713,28 @@ function Get-LocalCandidateSamePinProjectionRefreshPlan([string]$RepositoryRoot,
     Assert-MinimalExactFields $corrections $correctionsRaw @('schemaVersion','contractVersion','projectId','corrections') 'local-candidate same-pin corrections'
     $correctionsContractValid=((Test-MinimalJsonInteger $corrections.schemaVersion)-and[int]$corrections.schemaVersion-eq1-and[string]$corrections.contractVersion-ceq'1.10.0')-or((Test-MinimalJsonInteger $corrections.schemaVersion)-and[int]$corrections.schemaVersion-eq2-and[string]$corrections.contractVersion-ceq$targetContract)
     if(-not$correctionsContractValid-or[string]$corrections.projectId-cne$ProjectId-or-not($corrections.corrections-is[Array])){throw 'LOCAL_CANDIDATE_SAME_PIN_CORRECTIONS_BINDING'}
+
+    # The old fixed runtime alone evaluates its historical coverage. The new
+    # runtime consumes an explicit project decision, never a central mapping.
+    $requiredDispositions=@()
+    $oldBinding=Get-AiwAdoptedDistributionBinding $RepositoryRoot $TargetVersion
+    if($null-ne$oldBinding-and-not(Test-Path -LiteralPath (Join-Path $TargetFramework 'CORRECTION_COVERAGE.json'))){
+        $null=Assert-AiwDistributionBinding $oldBinding $oldBinding.runtimeRoot $TargetVersion
+        $oldEvaluator=Join-ChildPath $oldBinding.runtimeRoot ('framework/versions/'+$TargetVersion+'/scripts/check-project-corrections.ps1')
+        $oldEvaluation=Invoke-CorrectionEvaluation $oldEvaluator $RepositoryRoot $oldBinding.runtimeRoot $TargetVersion $ProjectFile $correctionsPath 'PRECHECK'
+        if($null-ne$oldEvaluation.PSObject.Properties['incorporated']){$requiredDispositions=@($oldEvaluation.incorporated|ForEach-Object{[string]$_.correctionId})}
+    }
+    if($AdoptionCorrectionsPlanPath){
+        $planDoc=Read-AiwProjectJson $AdoptionCorrectionsPlanPath 'ADOPTION_CORRECTIONS_PLAN'
+        if($planDoc.Identity-cne$ExpectedAdoptionCorrectionsPlanIdentity){throw 'ADOPTION_CORRECTIONS_PLAN_DRIFT'}
+        Import-Module (Join-Path $PSScriptRoot 'ProjectCorrectionLifecycle.psm1') -Force
+        $correctionProjection=New-AiwCorrectionAdoptionProjection $RepositoryRoot $planDoc.Value $requiredDispositions
+        foreach($entry in $correctionProjection.objects){
+            $content=$utf8NoBom.GetString([Convert]::FromBase64String($entry.newBase64))
+            & $addProjection $entry.path (Join-ChildPath $RepositoryRoot $entry.path) $content $false
+            if($entry.path-ceq'.ai-workspace/corrections.json'){$correctionsRaw=$content}
+        }
+    }elseif($requiredDispositions.Count){throw 'ADOPTION_CORRECTIONS_DISPOSITION_REQUIRED'}
 
     $agentsPath=Join-Path $RepositoryRoot 'AGENTS.md';$agentsRaw=Read-StrictUtf8NoBom $agentsPath;$targetAgentsBlock=(Get-AiwAgentsTemplateBlock (Read-StrictUtf8NoBom (Join-ChildPath $templateRoot 'AGENTS.md'))).TrimEnd("`n");$begin='<!-- AI-WORKSPACE-FRAMEWORK:BEGIN -->';$end='<!-- AI-WORKSPACE-FRAMEWORK:END -->';$start=$agentsRaw.IndexOf($begin,[StringComparison]::Ordinal);$finish=$agentsRaw.IndexOf($end,[StringComparison]::Ordinal)
     if($start-lt0-or$finish-lt$start-or[regex]::Matches($agentsRaw,[regex]::Escape($begin)).Count-ne1-or[regex]::Matches($agentsRaw,[regex]::Escape($end)).Count-ne1){throw 'AGENTS_MANAGED_MARKERS_MALFORMED'};$finish+=$end.Length;$targetAgents=Normalize-Text ($agentsRaw.Substring(0,$start)+$targetAgentsBlock+$agentsRaw.Substring($finish));& $addProjection 'AGENTS.md' $agentsPath $targetAgents $true
@@ -1871,8 +1899,9 @@ function Invoke-CorrectionEvaluationProjected([string]$Evaluator,[string]$Framew
 
 function Write-CorrectionEvaluation($Result,[string]$Phase) {
     if($null-eq$Result){Write-Host "Project corrections ($Phase): NOT_PRESENT";return}
-    Write-Host ("Project corrections ($Phase): coverage="+[string]$Result.coverageStatus+"; incorporated="+@($Result.incorporated).Count+"; still-effective="+@($Result.stillEffective).Count+"; conflicts="+@($Result.conflicts).Count)
-    foreach($item in @($Result.incorporated)){Write-Host ('  INCORPORATED '+[string]$item.correctionId)}
+    Write-Host ("Project corrections ($Phase): still-effective="+@($Result.stillEffective).Count+"; conflicts="+@($Result.conflicts).Count)
+    if($null-ne$Result.PSObject.Properties['incorporated']){foreach($item in @($Result.incorporated)){Write-Host ('  OLD_RUNTIME_INCORPORATED '+[string]$item.correctionId)}}
+    if($null-ne$Result.PSObject.Properties['inactive']){foreach($item in @($Result.inactive)){Write-Host ('  INACTIVE '+[string]$item.correctionId)}}
     foreach($item in @($Result.stillEffective)){Write-Host ('  STILL_EFFECTIVE '+[string]$item.correctionId+' — '+[string]$item.requirementReason)}
     foreach($item in @($Result.conflicts)){Write-Host ('  CONFLICT '+[string]$item.correctionId+' — '+[string]$item.requirementReason)}
     if(@($Result.conflicts).Count-ne0){throw 'PROJECT_CORRECTION_CONFLICT'}
@@ -2029,6 +2058,7 @@ if([string]$config.frameworkVersion-ceq$ToVersion){
         if($refreshPlan.Records.Count-eq0-and$null-eq$script:ActiveDistributionBinding){Assert-LocalCandidateSamePinProjectProjection $repo $workspace $targetFramework $ToVersion $projectFile $bootstrapFile $layout $ProjectId;Invoke-LocalCandidateSamePinRebind $repo $workspace $targetFramework $ToVersion $projectFile $actorRouteMigration ([bool]$Apply)}else{Invoke-LocalCandidateSamePinProjectionRefresh $repo $workspace $targetFramework $ToVersion $projectFile $actorRouteMigration $refreshPlan ([bool]$Apply)}
         return
     }
+    if($AdoptionCorrectionsPlanPath){throw 'ADOPTION_CORRECTIONS_PLAN_REFRESH_REQUIRED'}
     $registrationEntry=Join-Path (Split-Path -Parent $PSCommandPath) 'register-project.ps1'
     $registrationArguments=@{ProjectId=$ProjectId;DisplayName=[string]$config.displayName;FrameworkVersion=$ToVersion;RepositoryPath=$repo;ControllerId=$ControllerId;ControlPlaneLayout=$layout;WorkspaceRoot=$workspace}
     if($layout-ceq'framework-maintenance-sibling'){$registrationArguments.FrameworkTargetRepositoryId=[string]$config.frameworkTarget.repositoryId;$registrationArguments.FrameworkTargetSiblingDirectory=[string]$config.frameworkTarget.siblingDirectory;$registrationArguments.FrameworkTargetRoutineExcludedPath=@($config.frameworkTarget.routineExcludedPaths)}
@@ -2038,6 +2068,7 @@ if([string]$config.frameworkVersion-ceq$ToVersion){
     return
 }
 if([string]$config.frameworkVersion-cne$ToVersion){
+    if($AdoptionCorrectionsPlanPath){throw 'ADOPTION_CORRECTIONS_PLAN_REFRESH_REQUIRED'}
     Invoke-CompatibleProjectTransition $repo $projectRoot $workspace ([string]$config.frameworkVersion) $ToVersion $ProjectId $ControllerId $actorRouteMigration ([bool]$Apply)
     return
 }

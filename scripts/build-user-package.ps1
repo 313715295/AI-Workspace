@@ -156,6 +156,7 @@ if ($PSBoundParameters.ContainsKey('Distribution')) {
 $fixedMappings = @(
     [pscustomobject]@{ source = 'framework/user-package/README.md'; target = 'README.md'; template = $true },
     [pscustomobject]@{ source = 'framework/user-package/AGENTS.md'; target = 'AGENTS.md'; template = $true },
+    [pscustomobject]@{ source = 'framework/PROJECT_ADOPTION.md'; target = 'framework/PROJECT_ADOPTION.md'; template = $false },
     [pscustomobject]@{ source = 'LICENSE'; target = 'LICENSE'; template = $false },
     [pscustomobject]@{ source = 'scripts/MaintenanceOverlay.psm1'; target = 'scripts/MaintenanceOverlay.psm1'; template = $false },
     [pscustomobject]@{ source = 'scripts/ProjectAdoptionProjection.psm1'; target = 'scripts/ProjectAdoptionProjection.psm1'; template = $false },
@@ -203,6 +204,10 @@ foreach ($mapping in $orderedMappings) {
             Replace('{{DISTRIBUTION_ID}}', $distributionId).
             Replace('{{DISTRIBUTION_NOTICE}}', $distributionNotice)
         if ($text -cmatch '\{\{[A-Z_]+\}\}') { throw ('PACKAGE_TEMPLATE_UNRESOLVED|' + $sourceRelative) }
+        [Text.UTF8Encoding]::new($false).GetBytes($text)
+    }
+    elseif($sourceRelative-ceq'framework/PROJECT_ADOPTION.md') {
+        $text=[IO.File]::ReadAllText($sourcePath,[Text.UTF8Encoding]::new($false,$true)).Replace('versions/1.16.0/','versions/'+$FrameworkVersion+'/')
         [Text.UTF8Encoding]::new($false).GetBytes($text)
     }
     else { [IO.File]::ReadAllBytes($sourcePath) }

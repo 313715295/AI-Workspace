@@ -8,7 +8,7 @@ Framework operation 是 language-independent contract。backend 是 adopting pro
 
 - `DISCOVER` 严格绑定 project、当前 task 或显式 `PROJECT_READ_ONLY` request context、host-authenticated actor、effective role/phase、profile、project-declared capabilities、objective/action/result kind 与 normalized exact scope。task context 继续绑定 whole task、Owner 与 Work route actor；只读 context 必须绑定 session/request 且只能使用 `NONE + PLAN/USER_RESPONSE`，不能伪造任务或绕过已知冲突。`pathHints` 必须位于 scope 内，`capabilityHints` 必须已观察，mutation/external hints 必须匹配 requested action。CLEAR contradiction 失败；UNKNOWN 保留 conservative-load ceiling，不能 admit governed action。resolver 对完整 generated metadata catalog 选择，校验 selected locator 与 owning Markdown module，一次返回每个 exact complete block，并另给 compact receipt。still-effective corrections 与 permanent project rules 保持独立 source。
 - package grantee 可执行当前 action 或 `continuationPlan` 中预授予的本地写/测步骤，不改变 Owner/Work route/task identity。计划绑定顺序与整组 exact scope；独立 Review、`OWNER_ACCEPT`、Git、browser/device 与 external 不进入计划。
-- `ADMIT_ACTION` 只消费 exact compact DISCOVER receipt，复检 task/Framework/catalog/coverage/project/correction/policy/custom identities，按 current exact object bytes 重跑 authorization observation，并校验 selected preparation；它不授予 action。
+- `ADMIT_ACTION` 只消费 exact compact DISCOVER receipt，复检 task/Framework/catalog/project/correction/policy/custom identities，按 current exact object bytes 重跑 authorization observation，并校验 selected preparation；它不授予 action。
 - `FINALIZE_OUTPUT` 重验 sources 与 observable result/delivery；每个 exact path 必须有唯一且匹配 current object 的 `OBJECT_POSTIMAGE`。有未完成计划时才返回 `INSTRUCTION_BOUND`、`authorityGranted=false` 的 `AUTHORIZED_ACTION_CONTINUATION`，绑定原 package、source Discover identity/action/step、task/actor/repository/config/Controller/decision/protection、下一步骤与整组 postimage；不保存无法由 checker 复验的 finalize hash。
 
 后续 `DISCOVER` 可选成对携带 `continuationReceiptPath + expectedContinuationReceiptIdentity`。resolver/checker 复证 receipt bytes、原 package、source action/step、next step 与 current objects；未知字段、错链、第三方/越界、错包、虚假或 stale postimage 均 fail closed。普通项目与 Maintenance root authorization/process adapter 共用实现，root 只补 topology/repository 验证和透传。
@@ -23,17 +23,23 @@ source composition、progressive selection 与 boundary decision identity 分离
 
 `-DeleteInputOnExit` 只删除经过安全验证的 exact input：
 
-- 首选 project-local `.ai-workspace/runtime/<task>/<actor>/<safe-name>.json`，其中 task/actor 必须匹配 input binding，路径不得是 reparse；
+- 首选 project-local `.ai-workspace/runtime/<task>/<actor-storage>/<safe-name>.json`，task 与真实 actor 必须匹配 input binding，路径不得是 reparse；
 - 只有 project runtime 不可用时，才接受 operating-system temp 下的 exact non-reparse `aiw-*.json`，并公开 fallback evidence ceiling；
 - success 或 failure 都只删除该 exact file；unsafe cleanup request 在删除前失败。
 
 临时文件按实际消费者管理：支持的文件输入默认用 `-DeleteInputOnExit`；WORKFLOW_ROUTE_RESOLVE 的 `-InputJson` 与 `-InputPath` 互斥，共用严格 JSON 解析和同一个 dispatcher，直接输入不落盘。两者均拒绝 BOM、CR、NUL、replacement character、缺 final LF、转义后重复键、未知字段及错误类型；JSON 字符串是数据，调用者仍须正确处理宿主参数转义。
 
-普通到期 input/receipt/output 可在自然收尾集中处理已明确集合，无须为了整洁另唤起模型。只按已解析绝对路径非 Force 精确删除；明确成功通常足够。后续正确性依赖不存在、部分失败或恢复/保护风险时才核验，可在同一编排中完成。宿主 policy 拒绝不重试或改安全设置，报告实际拒绝。正式报告、审计/复现证据、恢复前像、在用包及其他任务材料依实际消费者保留，不按年龄、后缀或整个目录清理。
+材料按职责存放：配置、有效规则和活跃任务留在当前权威入口；长期结果、决定、研究及审核/失败复现证据复用项目既有 reports/research/history 或正式产物位置；纠正完整历史、安装归属及升级恢复留在 upgrade-recovery；临时 input、compact、output、可重建缓存和隔离 fixture 留在 runtime/tmp。业务、美术产物使用项目真实交付位置，不以控制目录代替资产仓；不强制建立空目录或批量重排旧材料。
+
+保留条件是实际用途和最后消费者。当前权威、活跃 continuation、独有审核/失败复现证据、在用 runtime/包、当前采用绑定及未完成事务不得进入到期集合。重要失败证据不要求保存每轮完整输出，普通 DISCOVER 不重复持久化全文。正式结论若长期依赖 runtime 内唯一材料，原任务收尾须落实持久归属及有效引用，保留必要原始证据；不能只搬文件使 identity/链接失效，也不能以摘要代替复现材料。旧位置仍被事务或包精确绑定时先保留，最后消费者释放后再迁移。日常恢复只加载当前必要入口，不遍历历史。
+
+普通到期 input/receipt/output、无独有证据的可重建缓存和 fixture 可在自然收尾集中处理已知集合，无须为了整洁另唤起模型。只按已解析绝对路径非 Force 精确删除；明确成功通常足够。后续正确性依赖不存在、部分失败或恢复/保护风险时才同批核验。宿主 policy 拒绝不重试或改安全设置，报告实际拒绝。不按年龄、后缀、大小、任务关闭或整个目录清理，不建逐文件台账、扫描服务或定时器。磁盘占用、规则加载和模型请求/token 分别评价，文件数或磁盘减少不证明模型收益。
 
 compact/continuation 留到最后消费者完成。上一步 compact 与 continuation 可能在下一 DISCOVER、ADMIT、FINALIZE 全部复验；先保存新的 successor continuation 再释放前序。失效/中止后在自然收尾释放已无消费者的 artifact；不用持久收据注册表。
 
-PROCESS_REQUIREMENTS_RESOLVE 可显式指定 `-CompactReceiptPath <absolute-path>`：仅 DISCOVER，保存既有 compactReceipt，完整选中正文仍在本次响应返回，不另存全文。输出增加 `savedCompactReceipt={path,identity}`；未指定时原响应形状不变。目录须已存在且精确为当前项目 `.ai-workspace/runtime/<task-or-request>/<actor>/`，文件名安全、全部祖先非 reparse；CreateNew 拒绝任何已有对象，包括输入、旧收据及权威。保存失败整个调用失败，不报告保存成功；中途失败留下的部分文件不得消费。普通 evaluation 无后续边界时不要求保存。Maintenance 前门透传该参数，仍保留其 schema/repository 限制。
+PROCESS_REQUIREMENTS_RESOLVE 可显式指定 `-CompactReceiptPath <absolute-path>`：仅 DISCOVER，保存既有 compactReceipt，完整选中正文仍在本次响应返回，不另存全文。输出增加 `savedCompactReceipt={path,identity}`；未指定时原响应形状不变。目录须已存在且精确为当前项目 `.ai-workspace/runtime/<task-or-request>/<actor-storage>/`，文件名安全、全部祖先非 reparse；CreateNew 拒绝任何已有对象，包括输入、旧收据及权威。保存失败整个调用失败，不报告保存成功；中途失败留下的部分文件不得消费。普通 evaluation 无后续边界时不要求保存。Maintenance 前门透传该参数，仍保留其 schema/repository 限制。
+
+actor-storage 仅用于保存和清理的目录定位，不改变认证 actor：匹配小写 `[a-z0-9][a-z0-9._-]*` 、不以点结尾、不是 Windows 保留设备名（含扩展名），且不以保留前缀 `actor-sha256-` 开始的身份沿用原段；其他身份使用 `actor-sha256-` 加真实身份精确 UTF-8 字节的完整 SHA-256 小写十六进制。大小写、斜杠和反斜杠不归一化、不替换字符，不创建身份注册表。输入创建、compact 保存、根采用/恢复收口和 Maintenance 专用清理共用实际绑定 runtime 的映射，authority/package 中始终保留原身份。原过程边界以原 receipt 的 runtime 为准，不因采用后当前 pin 来源变化而移动旧材料；原恢复 FINALIZE 也调用该 runtime 的 resolver。旧固定包仍使用其旧目录合同，不热改包、不将旧收据迁成新布局。
 
 schema3 DISCOVER 产生 schema2 compact receipt：authority/context 只保留在一个 `binding`，intent 只保留在一个 `intentEnvelope`，来源、义务、预算、证据与计数各自只有一个结构。schema2 ADMIT/FINALIZE input 只提交 receipt locator/identity 与新增 preparation/result/delivery evidence，不再复制 objective、action、scope 或 authorization identity。schema1/2 DISCOVER 与 schema1 boundary 只作为兼容输入保留。
 
@@ -55,7 +61,7 @@ WORKFLOW_ROUTE_RESOLVE 的 DELIVERY 使用相同 deliveryContext 校验器，调
 
 首次 DISCOVER 直接应用上文输入/收据合同，无需先加载 HOST。
 
-首次构造或相关来源改变时，随已知项目事实同批取得当前 generated catalog 的 id/title/description/selectors，以及当前有效纠正和policy对应元数据；健康上下文复用。原生目录直接投影现有 PROCESS_REQUIREMENTS.json，不新增目录文件、operation 或 LOAD_PLAN 前置门。纠正是否有效只取当前精确coverage求值，不能按ID删掉incorporated历史；未验证的记录不自行排除。旧free-text或没有可靠selector的来源沿原兼容全文/保守处理，source漂移也不靠旧元数据排除。PROMPTS的读取/构造样例只教如何使用这些来源，不生成意图或替代严格校验。
+首次构造或相关来源改变时，随已知项目事实同批取得当前 generated catalog 的 id/title/description/selectors，以及当前有效纠正和policy对应元数据；健康上下文复用。原生目录直接投影现有 PROCESS_REQUIREMENTS.json，不新增目录文件、operation 或 LOAD_PLAN 前置门。纠正有效性取项目当前记录的显式生命周期；无 lifecycle 的旧记录仍有效，不按 ID、措辞或原生相似规则自动抑制。新版本不依赖中央 coverage 映射。旧free-text或没有可靠selector的来源沿原兼容全文/保守处理，source漂移也不靠旧元数据排除。PROMPTS的读取/构造样例只教如何使用这些来源，不生成意图或替代严格校验。
 
 `DISCOVER` 前，当前主会话模型从本轮原始用户请求、仍有效的多轮上下文与已绑定任务事实，重建当前真实请求：目标、这一步实际要做的 action、当前应交付的 result、受限范围，以及仍然有效的否定、条件和先后关系。然后只填写现有 `IntentEnvelope` 字段；resolver 负责结构与 authority facts 的核对，不替模型理解原话，也不建立第二套 intent authority。
 

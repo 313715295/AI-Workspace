@@ -2,6 +2,14 @@
 
 本 root-owned 流程管理跨版本 Framework release。它不属于 sealed version payload、consumer runtime rule pack、project task 或第二 authority。Maintenance control repo 提供 current task、authorization、Review 与 evidence；本文只提供可复用顺序。
 
+## 开发与维护职责
+
+开发仓承载源码、通用合同和交付模板；Maintenance 治理项目承载真实任务、授权、责任、Review 和证据。维护前恢复该项目自己的 Bootstrap，缺失或冲突时不得在源码仓推断原任务身份或另建替代控制面。另一个环境开展新维护可以建立自己的治理项目；本合同不依赖某个本机路径或会话。
+
+STABLE 封存版本、已发行 ZIP 和固定运行目录不可原地修改。开发 CANDIDATE 可按精确授权在原目录实现和修复；源码变化撤回旧审核与完整套件证明为 PENDING，再按本文验证。候选冻结、版本发行、根工具整合、Git 发布与项目采用是独立动作。真实消费者身份、路径、任务和采用状态不写入通用源码。
+
+开发根不设 AGENTS/CLAUDE；README 提供阅读地图，版本模块持有通用规则。`framework/user-package/AGENTS.md`、版本 project-starter 和 maintenance-overlay 的入口均为独立交付模板，构建/采用继续验证其正确性。
+
 ## 发布分类
 
 - `ROOT_MAINTENANCE`：不改变 sealed payload 的 root docs、license、checkout policy、release procedure 或 integration tooling；使用 exact-path validation 与 affected tests，但不是 version release。
@@ -86,7 +94,7 @@ Review approval、`OWNER_ACCEPT`、seal、Git publication 与 consumer adoption 
 
 ## 项目纠正与平台证据
 
-coverage metadata 本身不能证明 correction incorporated。suppression 需要 original reason/boundary 已由 applicable native requirements 实现、behavior tests 覆盖，并在 Source Review 中以 exact mapping evidence 接受。
+原生吸收声明需要对照原始原因、义务和适用边界，由实际规则、行为测试及独立 Source Review 支持；不维护项目 ID 中央抑制表。项目显式采用时独立处置完整覆盖与项目增量，保留完整旧记录和决定。
 
 platform support 由 evidence 限定。release 只声称 sealed Tool Contract 声明且实际 conformance 已证明的平台。
 
@@ -119,3 +127,9 @@ platform support 由 evidence 限定。release 只声称 sealed Tool Contract �
 项目 Bootstrap custom 到 process-policy 的来源迁移由原 CONTROL_WRITE FINALIZE 处理；旧 receipt 可提供原包绑定的 Bootstrap 前像，仍须证明管理区未变。已授权动作中断时，upgrade-project 的 ProjectRuleRecoveryPlanPath 入口消费原 DISCOVER、原 ADMIT 输入与结果、原授权包及精确前后像。恢复事务明确在现在创建，不声称历史上已存在；COMPLETE 与 ROLLBACK 均复核所有对象和未授权来源后执行，并以原动作 FINALIZE 收口。缺失原 admission、前像或未知混合字节时拒绝，fresh DISCOVER 不替代原 action。
 
 本批整组纠正与调用减负的新增根 helper 属于接入工具；包构建清单必须包含其真实依赖，测试只在隔离 fixture 构包。新 capability 的开发验证不得更改已有 snapshot、ZIP、live corrections 或采用状态。默认委托正文只取版本 AGENTS 模板的 USER-DECISION，封存前检验所有全文模板消费者改为所需区块。纠正吸收仍需完整来源语义、行为和独立 Review，生命周期安装证据不能替代吸收依据。
+
+## 内部接入职责
+
+消费者注册、升级、恢复和纠正操作统一见 PROJECT_ADOPTION.md，随用户/内部包交付。Maintenance sibling 布局、CONTROL/TARGET 拓扑、maintenance-overlay、自更新与内部包构建只属根级维护工具。内部包以 build-user-package.ps1 -InternalMaintenance 构建；开发 TARGET 保留 Git 源码职责，固定 runtime 完成已授权源码动作收口，不随开发改动重绑运行来源。
+
+Maintenance 跨命名包过程以根 process adapter 的 -AdoptionProcessBoundary 和准备材料执行 ADMIT/FINALIZE；后者还绑定原 AdmitResult、AdoptionAuthorizationPackagePath/ExpectedAdoptionAuthorizationIdentity 及实际采用事务。普通消费者使用 PROJECT_ADOPTION 的 root upgrader 入口，不承担 sibling 维护职责。根工具可独立修复，但固定包不可热改，交付变化使用新的分发身份并由项目显式采用。

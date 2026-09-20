@@ -3,7 +3,7 @@
 param([string]$RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path,
     [switch]$CrossDistributionOnly,
     [ValidateSet('repo-local','framework-maintenance-sibling')][string]$CrossLayout='repo-local',
-    [string]$CrossProjectRoot,[string]$CrossSourceRoot)
+    [string]$CrossProjectRoot,[string]$CrossSourceRoot,[string]$LegacyRuntimeRoot,[string]$CrossActor)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -115,7 +115,7 @@ function New-TestCorrectionsRepairSource([string]$RepositoryRoot,[string]$Text){
 }
 
 function Test-CrossDistributionAdoption {
-    $actor='controller-fixture';$projectId='cross-fixture';$epoch=1
+    $actor=if($CrossActor){$CrossActor}else{'controller-fixture'};$projectId='cross-fixture';$epoch=1
     $temp=Join-Path ([IO.Path]::GetTempPath()) ('aiw-cross-adoption-'+[guid]::NewGuid().ToString('N'))
     $oldLocation=Get-Location;$oldDirectory=[Environment]::CurrentDirectory
     function Save($p,$v){Write-TestUtf8 $p (($v|ConvertTo-Json -Depth 100 -Compress)+"`n")}
@@ -143,19 +143,41 @@ function Test-CrossDistributionAdoption {
         else{$p.repositoryId='CONTROL';$p.invalidatesOn+=@('REPOSITORY_CHANGE')}
         return $p
     }
+    function Set-LegacyCorrectionFixture {
+            Import-Module (Join-Path $version 'scripts/ProcessRequirementComposition.psm1') -Force
+            $legacyRecords=@(foreach($id in @('COVERED_FIXTURE','MIXED_FIXTURE')){[pscustomobject]@{correctionId=$id;introducedAgainstFramework='1.16.0';requirementReason='anonymous prior regression';effectiveRule=('original complete rule '+$id);applicability='anonymous fixture';decisionLocator='fixture:original-decision';selectors=[pscustomobject]@{profiles=@('*');roles=@('*');phases=@('*');actionKinds=@('*');resultKinds=@('*');pathPrefixes=@();capabilities=@();semanticTerms=@('fixture-domain-only')};preparationRequirements=@();resultRequirements=@();requiredFacts=@();mechanicalCheckRefs=@()}})
+            $catalogFile=Join-Path $version 'PROCESS_REQUIREMENTS.json';$catalog=Get-Content -Raw $catalogFile|ConvertFrom-Json -Depth 100
+            foreach($rule in $catalog.requirements){$rule.legacyAliases=@()}
+            $native=@($catalog.requirements|Where-Object requirementId -CEQ PR_TASK_SCOPE_AND_FORBIDDEN)[0];$native.legacyAliases=@($legacyRecords|ForEach-Object{('correction:'+$projectId+':')+ $_.correctionId});Save $catalogFile $catalog
+            $mappings=@(foreach($record in $legacyRecords){$v1=[pscustomobject]@{};foreach($field in @('correctionId','introducedAgainstFramework','requirementReason','effectiveRule','applicability','decisionLocator')){$v1|Add-Member $field $record.$field};[ordered]@{correctionId=$record.correctionId;legacyRequirementId=(('correction:'+$projectId+':')+$record.correctionId);nativeRequirementId='framework:PR_TASK_SCOPE_AND_FORBIDDEN';coverageState='INCORPORATED';nativeCatalogIdentity=(Identity $catalogFile);sourceSchemaVersion=2;legacySourceRecordIdentity=(Get-AiwCanonicalCorrectionRecordIdentityV1 $v1);v2WholeRecordIdentity=(Get-AiwCanonicalCorrectionRecordIdentityV2 $record)}})
+            Save (Join-Path $version 'CORRECTION_COVERAGE.json') @{schemaVersion=3;releaseVersion='1.16.0';versions=@(@{version='1.16.0';releaseCanonical='SELF';incorporatedCorrectionIds=@($legacyRecords.correctionId);incorporationMappings=$mappings;conflictingCorrectionIds=@()})}
+        return $legacyRecords
+    }
     try {
+        if($LegacyRuntimeRoot){
+            New-Item -ItemType Directory -Path $temp -Force|Out-Null
+            $retainedCandidate=Join-Path $temp 'candidate-version'
+            Copy-Item -LiteralPath (Join-Path $RepositoryRoot 'framework/versions/1.16.0') -Destination $retainedCandidate -Recurse
+        }
         if($CrossProjectRoot){
+            if($CrossActor){throw 'CROSS_ACTOR_OVERRIDE_REQUIRES_OWN_PROJECT_FIXTURE'}
             $tempPrefix=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath([IO.Path]::GetTempPath()))+[IO.Path]::DirectorySeparatorChar
             foreach($path in @($CrossProjectRoot,$CrossSourceRoot)){if(-not[IO.Path]::GetFullPath($path).StartsWith($tempPrefix,[StringComparison]::OrdinalIgnoreCase)){throw 'CROSS_SEED_MUST_BE_ANONYMOUS_TEMP_FIXTURE'}}
             $source=$CrossSourceRoot;$project=$CrossProjectRoot;$version=Join-Path $source 'framework/versions/1.16.0';New-Item -ItemType Directory -Path $temp -Force|Out-Null
             $controller=Get-Content -Raw "$project/.ai-workspace/controller.json"|ConvertFrom-Json;$actor=$controller.controllerId;$epoch=$controller.controllerEpoch
             $projectId=(Get-Content -Raw "$project/.ai-workspace/project.json"|ConvertFrom-Json).id
+            if($LegacyRuntimeRoot){
+                $full=[IO.Path]::GetFullPath($version)
+                if(-not$full.StartsWith($tempPrefix,[StringComparison]::OrdinalIgnoreCase)-or$full-cne[IO.Path]::GetFullPath((Join-Path $source 'framework/versions/1.16.0'))){throw 'LEGACY_SEED_REPLACE_BOUNDARY'}
+                [IO.Directory]::Delete($full,$true);Copy-Item -LiteralPath (Join-Path $LegacyRuntimeRoot 'framework/versions/1.16.0') -Destination $full -Recurse
+                $legacyRecords=@(Set-LegacyCorrectionFixture);Approve-TestLocalCandidate $version
+            }
         }else{
-        if($CrossLayout-cne'repo-local'){throw 'CROSS_MAINTENANCE_REQUIRES_REAL_ADOPTION_FIXTURE'}
         $source=Join-Path $temp 'source';$project=Join-Path $temp 'project';New-TestGitRepo $source;New-TestGitRepo $project
-        foreach($dir in @('scripts','skills','framework/versions/1.16.0','framework/maintenance-overlay','framework/user-package')){$dest=Join-Path $source $dir;New-Item -ItemType Directory -Path (Split-Path -Parent $dest) -Force|Out-Null;Copy-Item -LiteralPath (Join-Path $RepositoryRoot $dir) -Destination $dest -Recurse}
-        foreach($file in @('README.md','AGENTS.md','LICENSE','INITIALIZATION.md','framework/FRAMEWORK_RELEASE.md','framework/PROJECT_ADOPTION.md','framework/ROADMAP.md')){Write-TestUtf8 (Join-Path $source $file) ([IO.File]::ReadAllText((Join-Path $RepositoryRoot $file)))}
+        foreach($dir in @('scripts','skills','framework/versions/1.16.0','framework/maintenance-overlay','framework/user-package')){$dest=Join-Path $source $dir;New-Item -ItemType Directory -Path (Split-Path -Parent $dest) -Force|Out-Null;$from=if($LegacyRuntimeRoot-and$dir-ceq'framework/versions/1.16.0'){Join-Path $LegacyRuntimeRoot $dir}else{Join-Path $RepositoryRoot $dir};Copy-Item -LiteralPath $from -Destination $dest -Recurse}
+        foreach($file in @('README.md','LICENSE','INITIALIZATION.md','framework/FRAMEWORK_RELEASE.md','framework/PROJECT_ADOPTION.md','framework/ROADMAP.md')){Write-TestUtf8 (Join-Path $source $file) ([IO.File]::ReadAllText((Join-Path $RepositoryRoot $file)))}
         $version=Join-Path $source 'framework/versions/1.16.0'
+        if($LegacyRuntimeRoot){$legacyRecords=@(Set-LegacyCorrectionFixture)}
         # Supply an explicitly synthetic compatible predecessor solely to build
         # the ordinary project's initial pilot through the real root transaction.
         $predecessor=Join-Path $source 'framework/versions/1.15.0';Copy-Item -LiteralPath $version -Destination $predecessor -Recurse
@@ -164,7 +186,7 @@ function Test-CrossDistributionAdoption {
         $oldAgentsText=[IO.File]::ReadAllText($oldAgentsTemplate)
         Write-TestUtf8 $oldAgentsTemplate ($oldAgentsText.Replace('<!-- AI-WORKSPACE-FRAMEWORK:END -->',"<!-- Synthetic predecessor navigation. -->`n<!-- AI-WORKSPACE-FRAMEWORK:END -->"))
         Seal-TestFrameworkFixture $predecessor
-        $profile=Get-Content -Raw (Join-Path $version 'ADOPTION_PROFILE.json')|ConvertFrom-Json;$profile.sourceCompatibility.projectFormats=@('repo-local/project-config-4');Save (Join-Path $version 'ADOPTION_PROFILE.json') $profile
+        $profile=Get-Content -Raw (Join-Path $version 'ADOPTION_PROFILE.json')|ConvertFrom-Json;$profile.sourceCompatibility.projectFormats=@('repo-local/project-config-4','framework-maintenance-sibling/project-config-4');Save (Join-Path $version 'ADOPTION_PROFILE.json') $profile
         Approve-TestLocalCandidate $version
         # An anonymous schema4 source project is projected by the real upgrader;
         # no successful adoption journal or process outcome is hand-authored.
@@ -181,6 +203,7 @@ function Test-CrossDistributionAdoption {
             $config|Add-Member frameworkTarget ([pscustomobject]@{repositoryId='ai-workspace-framework';siblingDirectory='source';routineExcludedPaths=@()})
         }
         Save "$project/.ai-workspace/project.json" $config
+        if($CrossActor){$controller=Get-Content -Raw "$project/.ai-workspace/controller.json"|ConvertFrom-Json;$controller.controllerId=$actor;Save "$project/.ai-workspace/controller.json" $controller}
         }
         $taskRelative='.ai-workspace/tasks/active/CROSS-001.md';$task=Join-Path $project $taskRelative
         $taskVersion=if($CrossProjectRoot){'1.16.0'}else{'1.15.0'}
@@ -197,7 +220,18 @@ function Test-CrossDistributionAdoption {
         $base.Remove('CurrentProcessInputPath');$base.Remove('ExpectedCurrentProcessInputIdentity');$base.ExpectedActorRouteTaskIdentity=Identity $task
         }
         # First fixed package is an ordinary real refresh from that completed pilot.
+        if($LegacyRuntimeRoot){Save "$project/.ai-workspace/corrections.json" @{schemaVersion=2;contractVersion='1.16.0';projectId=$projectId;corrections=$legacyRecords}}
         for($iteration=0;$iteration-lt3;$iteration++){
+            if($LegacyRuntimeRoot-and$iteration-eq1){
+                $full=[IO.Path]::GetFullPath($version);$boundary=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath([IO.Path]::GetTempPath()))+[IO.Path]::DirectorySeparatorChar
+                if(-not$full.StartsWith($boundary,[StringComparison]::OrdinalIgnoreCase)-or$full-cne[IO.Path]::GetFullPath((Join-Path $source 'framework/versions/1.16.0'))){throw 'LEGACY_FIXTURE_REPLACE_BOUNDARY'}
+                [IO.Directory]::Delete($full,$true);Copy-Item -LiteralPath $retainedCandidate -Destination $full -Recurse
+                $partial=$legacyRecords[1]|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100;$partial.effectiveRule='remaining independent project obligation'
+                $changes=@([pscustomobject]@{correctionId='COVERED_FIXTURE';decisionLocator='fixture:reviewed-complete-coverage';record='NOT_APPLICABLE';historyRelativePath='.ai-workspace/upgrade-recovery/corrections/COVERED_FIXTURE/adoption/history.json'},[pscustomobject]@{correctionId='MIXED_FIXTURE';decisionLocator='fixture:reviewed-project-delta';record=$partial;historyRelativePath='.ai-workspace/upgrade-recovery/corrections/MIXED_FIXTURE/adoption/history.json'})
+                $migrationPath="$runtime/adoption-corrections.json";Save $migrationPath @{schemaVersion=1;expectedCorrectionsIdentity=(Identity "$project/.ai-workspace/corrections.json");changes=$changes}
+                $base.AdoptionCorrectionsPlanPath=$migrationPath;$base.ExpectedAdoptionCorrectionsPlanIdentity=Identity $migrationPath
+            }
+            if($iteration-eq2){$base.Remove('AdoptionCorrectionsPlanPath');$base.Remove('ExpectedAdoptionCorrectionsPlanIdentity')}
             # Preserve the upgrader's JSON layout so the legacy-value probe does
             # not introduce an unrelated policy-formatting write into adoption.
             if($iteration-eq1){$legacyPolicyPath=Join-Path $project '.ai-workspace/process-policy.json';$legacyPolicy=Get-Content -Raw $legacyPolicyPath|ConvertFrom-Json -Depth 100;$legacyPolicy.selectedRulePackBytes=1;Write-TestUtf8 $legacyPolicyPath (($legacyPolicy|ConvertTo-Json -Depth 100)+"`n")}
@@ -217,9 +251,39 @@ function Test-CrossDistributionAdoption {
             $build=@{WorkspaceRoot=$source;FrameworkVersion='1.16.0';OutputPath=$zip;Distribution=('snapshot.'+$number);Provisional=$true;Apply=$true};if($internal){$build.InternalMaintenance=$true}
             $null=Invoke-Tool (Join-Path $source 'scripts/build-user-package.ps1') $build
             $newRuntime=Join-Path $temp ('runtime-'+$number);Expand-Archive -LiteralPath $zip -DestinationPath $newRuntime
-            $base.WorkspaceRoot=$newRuntime;$plan=Upgrade-Plan $base;$authPath="$runtime/adoption-$iteration.json";Save $authPath (Auth $plan 3)
+            $base.WorkspaceRoot=$newRuntime
+            if($LegacyRuntimeRoot-and$iteration-eq1){
+                $missing=$base.Clone();$missing.Remove('AdoptionCorrectionsPlanPath');$missing.Remove('ExpectedAdoptionCorrectionsPlanIdentity')
+                $rejected=Invoke-Tool $upgrade $missing -Reject
+                Confirm ($rejected.code-ne0-and$rejected.text.Contains('ADOPTION_CORRECTIONS_DISPOSITION_REQUIRED')) ($CrossLayout+'-old-suppressed-rules-require-explicit-project-disposition')
+            }
+            $plan=Upgrade-Plan $base;$authPath="$runtime/adoption-$iteration.json";Save $authPath (Auth $plan 3)
+            if($internal-and$LegacyRuntimeRoot-and$iteration-eq1){
+                $guard=Join-Path $source 'scripts/check-framework-maintenance-authorization.ps1'
+                $guardArgs=@{ControlRepositoryPath=$project;PackagePath=$authPath;ObservedActor=$actor;ObservedTaskId='CROSS-001';ObservedOwner=$actor;ObservedAction='CONTROL_WRITE';ObservedPath=@($plan.paths);ObservedIdentity=@($plan.pre|ForEach-Object{$_.path+'='+$_.identity});ObservedRepositoryId='CONTROL';ExpectedProjectConfigIdentity=(Identity "$project/.ai-workspace/project.json");TaskPath='.ai-workspace/tasks/active/CROSS-001.md';ExpectedTaskIdentity=(Identity $task)}
+                $accepted=@(& $guard @guardArgs 2>&1|ForEach-Object{[string]$_});$acceptedCode=$LASTEXITCODE
+                Confirm ($acceptedCode-eq0) ('maintenance-correction-history-package-adapter-accepts-exact-group|'+($accepted-join';'))
+                foreach($fault in @('isolated-history','arbitrary-recovery','missing-postimage','wrong-actor','history-overwrite','state-order')){
+                    $bad=(Auth $plan 3)|ConvertTo-Json -Depth 100|ConvertFrom-Json -AsHashtable;$probe=$guardArgs.Clone()
+                    switch($fault){
+                        'isolated-history' {$bad.exactPaths=@($bad.exactPaths|Where-Object{$_-cne'.ai-workspace/corrections.json'});$bad.objectIdentities=@($bad.objectIdentities|Where-Object{$_.path-cne'.ai-workspace/corrections.json'});$bad.postObjectIdentities=@($bad.postObjectIdentities|Where-Object{$_.path-cne'.ai-workspace/corrections.json'})}
+                        'arbitrary-recovery' {$extra='.ai-workspace/upgrade-recovery/arbitrary/history.json';$bad.exactPaths=@($bad.exactPaths[0..($bad.exactPaths.Count-2)])+@($extra,$bad.exactPaths[-1]);$bad.objectIdentities+=@(@{path=$extra;identity='NEW'});$bad.postObjectIdentities+=@(@{path=$extra;identity=('1|'+('A'*64))})}
+                        'missing-postimage' {$bad.postObjectIdentities=@($bad.postObjectIdentities|Where-Object{$_.path-cne'.ai-workspace/corrections.json'})}
+                        'wrong-actor' {$probe.ObservedActor='unrelated-actor'}
+                        'history-overwrite' {$entry=@($bad.objectIdentities|Where-Object{$_.path-cmatch'/corrections/.+/history.json$'})[0];$entry.identity='1|'+('A'*64)}
+                        'state-order' {$bad.exactPaths=@($bad.exactPaths[-1])+@($bad.exactPaths[0..($bad.exactPaths.Count-2)])}
+                    }
+                    Save $authPath $bad;$probe.ObservedPath=@($bad.exactPaths);$probe.ObservedIdentity=@($bad.objectIdentities|ForEach-Object{$_.path+'='+$_.identity})
+                    $rejected=@(& $guard @probe 2>&1|ForEach-Object{[string]$_});$rejectedCode=$LASTEXITCODE
+                    Confirm ($rejectedCode-ne0) ('maintenance-adapter-rejects-'+$fault)
+                }
+                Save $authPath (Auth $plan 3)
+            }
             if($iteration-gt0){
                 $schema=$iteration+1;$processAuth="$runtime/process-$iteration.json";Save $processAuth (Auth $plan 2)
+                $rootModule=@(Import-Module (Join-Path $source 'scripts/ProjectAdoptionTransaction.psm1') -Force -PassThru)[0]
+                $actorStorage=& $rootModule.ExportedFunctions['Get-AiwBoundRuntimeActorStorageKey'] -FrameworkRoot $oldRuntime -Version '1.16.0' -Actor $actor
+                $boundaryRuntime=Join-Path $project ('.ai-workspace/runtime/CROSS-001/'+$actorStorage);New-Item -ItemType Directory -Path $boundaryRuntime -Force|Out-Null
                 $input=$initialInput|ConvertTo-Json -Depth 100|ConvertFrom-Json -AsHashtable
                 $input.schemaVersion=$schema;if($schema-eq3){$input.contextType='TASK';$input.readOnlyContext='NOT_APPLICABLE'}
                 $input.frameworkRoot=$oldRuntime;$input.expectedProjectConfigIdentity=Identity "$project/.ai-workspace/project.json";$input.expectedCorrectionsIdentity=Identity "$project/.ai-workspace/corrections.json";$input.expectedTaskIdentity=Identity $task;$input.exactPaths=@($plan.paths);$input.authorizationPackagePath=$processAuth;$input.expectedAuthorizationIdentity=Identity $processAuth;$input.evaluationOnly=$false
@@ -231,7 +295,7 @@ function Test-CrossDistributionAdoption {
                 $rp="$runtime/receipt-$iteration.json";Save $rp $discover.compactReceipt
                 $boundary=[ordered]@{schemaVersion=2;mode='ADMIT_ACTION';discoverReceiptPath=$rp;expectedDiscoverReceiptIdentity=(Identity $rp);preparationReceipts=@($discover.compactReceipt.selectedObligations|ForEach-Object{$_.preparationRequirements}|Sort-Object -Unique);resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='BOUND'}
                 if($iteration-eq2){$boundary.deliveryContext=[ordered]@{channel='TASK_MESSAGE';stage='PREPARE';expectedRecipient=$actor;observedRecipient='NOT_APPLICABLE';outcome='NOT_SENT';evidence='NOT_APPLICABLE'}}
-                $bp="$runtime/admit-$iteration.json";Save $bp $boundary
+                $bp="$boundaryRuntime/admit-$iteration.json";Save $bp $boundary
                 $prepareArgs=$base.Clone();$prepareArgs.AdoptionProcessMode='PREPARE';$prepareArgs.CurrentProcessInputPath=$bp;$prepareArgs.ExpectedCurrentProcessInputIdentity=Identity $bp
                 $prepared=Json-Tool $upgrade $prepareArgs;$pp="$runtime/prepared-$iteration.json";Save $pp $prepared
                 Confirm (@($prepared.selectedRuleBlocks|Where-Object{[string]::IsNullOrWhiteSpace($_.fullText)}).Count-eq0-and'AGENTS.md'-cin@($prepared.projection.objects.path)-and'.ai-workspace/BOOTSTRAP.md'-cin@($prepared.projection.objects.path)) ($CrossLayout+'-schema'+$schema+'-real-projection-fulltext')
@@ -248,7 +312,19 @@ function Test-CrossDistributionAdoption {
                 Confirm (-not(Test-Path $bp)-and$admit.originalAdmissionInput.expectedDiscoverReceiptIdentity-ceq(Identity $rp)) ($CrossLayout+'-schema'+$schema+'-real-admit-cleanup-preserves-proof')
                 Write-Output ('CROSS_CASE|layout='+$CrossLayout+'|schema='+$schema+'|ADMIT=PASS|input=DELETED')
             }
-            $apply=$base.Clone();$apply.AuthorizationPackagePath=$authPath;$apply.ExpectedAuthorizationPackageIdentity=Identity $authPath;$apply.Apply=$true;$null=Invoke-Tool $upgrade $apply
+            $apply=$base.Clone();$apply.AuthorizationPackagePath=$authPath;$apply.ExpectedAuthorizationPackageIdentity=Identity $authPath;$apply.Apply=$true
+            if($LegacyRuntimeRoot-and$iteration-eq1){
+                $before=@($plan.paths|ForEach-Object{$f=Join-Path $project $_;if(Test-Path -LiteralPath $f){Identity $f}else{'MISSING'}})
+                $interrupted=$apply.Clone();$interrupted.InterruptAfterAdoptionWrite=1;$interruptResult=Invoke-Tool $upgrade $interrupted -Reject
+                if($interruptResult.code-ne0-or-not$interruptResult.text.Contains('RUNTIME_ADOPTION_INTERRUPTED')){throw ('CROSS_INTERRUPTION_NOT_REACHED|'+$interruptResult.text)}
+                $transaction="$project/.ai-workspace/runtime/project-adoption/upgrade/state.json"
+                $null=Invoke-Tool $upgrade @{ProjectId=$projectId;ToVersion='1.16.0';RepositoryPath=$project;ActorRouteActor=$actor;RecoverRuntimeAdoption=$true;AdoptionRecoveryDirection='ROLLBACK';Apply=$true;ExpectedAdoptionTransactionIdentity=(Identity $transaction);AuthorizationPackagePath=$authPath;ExpectedAuthorizationPackageIdentity=(Identity $authPath);WorkspaceRoot=$newRuntime}
+                $rolledBack=Get-Content -Raw $transaction|ConvertFrom-Json -Depth 100
+                Confirm ($rolledBack.state-ceq'ROLLED_BACK'-and$rolledBack.transactionComplete) ($CrossLayout+'-recovery-applied-rather-than-previewed')
+                $after=@($plan.paths|ForEach-Object{$f=Join-Path $project $_;if(Test-Path -LiteralPath $f){Identity $f}else{'MISSING'}})
+                Confirm (($before-join';')-ceq($after-join';')) ($CrossLayout+'-correction-adoption-interruption-restores-whole-group')
+            }
+            $null=Invoke-Tool $upgrade $apply
             if($iteration-gt0){
                 $txn="$project/.ai-workspace/runtime/project-adoption/upgrade/state.json"
                 $boundary.mode='FINALIZE_OUTPUT';$boundary.resultReceipts=@(@($discover.compactReceipt.selectedObligations|ForEach-Object{$_.resultRequirements})+@($prepared.selectedRuleBlocks|ForEach-Object{$_.resultRequirements})|Sort-Object -Unique)+@($plan.paths|ForEach-Object{'OBJECT_POSTIMAGE|'+$_+'|'+(Identity (Join-Path $project $_))})
@@ -256,11 +332,20 @@ function Test-CrossDistributionAdoption {
                     Confirm ('DELIVERY_RECEIPT'-cin@($boundary.resultReceipts)) ($CrossLayout+'-terminal-selects-delivery-obligation')
                     $boundary.resultReceipts=@($boundary.resultReceipts|Where-Object{$_-cne'DELIVERY_RECEIPT'})
                 }
-                $fp="$runtime/final-$iteration.json";Save $fp $boundary
+                $fp="$boundaryRuntime/final-$iteration.json";Save $fp $boundary
                 $finalArgs=if($internal){@{InputPath=$fp;AsJson=$true;AdoptionProcessBoundary=$true;AdmitResultPath=$ap;ExpectedAdmitResultIdentity=(Identity $ap);AdoptionAuthorizationPackagePath=$authPath;ExpectedAdoptionAuthorizationIdentity=(Identity $authPath);ExpectedAdoptionTransactionIdentity=(Identity $txn)}}else{@{ProjectId=$projectId;ToVersion='1.16.0';RepositoryPath=$project;ActorRouteActor=$actor;AdoptionProcessMode='FINALIZE_OUTPUT';CurrentProcessInputPath=$fp;ExpectedCurrentProcessInputIdentity=(Identity $fp);AdmitResultPath=$ap;ExpectedAdmitResultIdentity=(Identity $ap);AuthorizationPackagePath=$authPath;ExpectedAuthorizationPackageIdentity=(Identity $authPath);ExpectedAdoptionTransactionIdentity=(Identity $txn)}}
+                if($internal){$finalArgs.DeleteInputOnExit=$true}else{$finalArgs.DeleteProcessInputOnExit=$true}
                 $final=Json-Tool $entry $finalArgs
-                Confirm ($final.status-ceq'PASS'-and$final.originalAdmitDecisionIdentity-ceq$admit.decisionIdentity-and$final.reason-ceq'ORIGINAL_CROSS_DISTRIBUTION_ADOPTION_FINALIZED'-and-not(Test-Path $bp)) ($CrossLayout+'-schema'+$schema+'-original-cross-package-finalize')
+                Confirm ($final.status-ceq'PASS'-and$final.originalAdmitDecisionIdentity-ceq$admit.decisionIdentity-and$final.reason-ceq'ORIGINAL_CROSS_DISTRIBUTION_ADOPTION_FINALIZED'-and-not(Test-Path $bp)-and-not(Test-Path $fp)) ($CrossLayout+'-schema'+$schema+'-original-cross-package-finalize')
+                # The real success consumed its input. Later probes own a fresh copy.
+                Save $fp $boundary
+                if($internal){$finalArgs.DeleteInputOnExit=$false}else{$finalArgs.DeleteProcessInputOnExit=$false}
                 Write-Output ('CROSS_CASE|layout='+$CrossLayout+'|schema='+$schema+'|FINALIZE=PASS')
+                if($LegacyRuntimeRoot-and$iteration-eq1){
+                    $current=Get-Content -Raw "$project/.ai-workspace/corrections.json"|ConvertFrom-Json -Depth 100
+                    $history=Get-Content -Raw "$project/.ai-workspace/upgrade-recovery/corrections/COVERED_FIXTURE/adoption/history.json"|ConvertFrom-Json -Depth 100
+                    Confirm (@($current.corrections).Count-eq1-and$current.corrections[0].correctionId-ceq'MIXED_FIXTURE'-and$current.corrections[0].effectiveRule-ceq'remaining independent project obligation'-and$history.priorRecord.effectiveRule-ceq'original complete rule COVERED_FIXTURE') ($CrossLayout+'-new-runtime-keeps-delta-and-full-retired-history')
+                }
                 if($iteration-eq2){
                     Confirm ($final.delivery.status-ceq'READY_TO_SEND'-and-not$final.delivery.delivered-and$final.finalizeInputIdentity-ceq(Identity $fp)) ($CrossLayout+'-prepare-is-bound-ready-not-delivered')
                     $hostResultPath=Join-Path $runtime 'fixture-host-delivery.txt';Write-TestUtf8 $hostResultPath ('recipient='+$actor+';fixture-only delivery completed')
@@ -281,8 +366,11 @@ function Test-CrossDistributionAdoption {
                     $bad=Invoke-Tool $entry $futureArgs -Reject;Confirm ($bad.code-ne0-and$bad.text.Contains('DELIVERY_FUTURE_EVIDENCE')) ($CrossLayout+'-reject-future-delivery-receipt')
                     Save $fp $boundary
                 }
-                foreach($fault in @('original-input','decision','actor','process-package','adoption-package','task','controller','config','corrections','policy','postimage','pending','package','receipt','budget')){
+                $faults=@('original-input','decision','actor','process-package','adoption-package','task','controller','config','corrections','policy','postimage','pending','package','receipt','budget')
+                if($LegacyRuntimeRoot){$faults=@('corrections','policy','postimage','pending','package','receipt','history')}
+                foreach($fault in $faults){
                     $path=switch($fault){'original-input'{$ap};'decision'{$ap};'actor'{$processAuth};'process-package'{$processAuth};'adoption-package'{$authPath};'task'{$task};'controller'{"$project/.ai-workspace/controller.json"};'config'{"$project/.ai-workspace/project.json"};'corrections'{"$project/.ai-workspace/corrections.json"};'policy'{"$project/.ai-workspace/process-policy.json"};'postimage'{Join-Path $project $plan.paths[0]};'pending'{$txn};'package'{Join-Path $newRuntime 'README.md'};'receipt'{$rp};'budget'{"$project/.ai-workspace/process-policy.json"}}
+                    if($fault-ceq'history'){$path="$project/.ai-workspace/upgrade-recovery/corrections/COVERED_FIXTURE/adoption/history.json"}
                     $bytes=[IO.File]::ReadAllBytes($path);$probe=$finalArgs.Clone()
                     if($fault-cin@('original-input','decision')){$v=Get-Content -Raw $ap|ConvertFrom-Json -Depth 100;if($fault-ceq'original-input'){$v.PSObject.Properties.Remove('originalAdmissionInput')}else{$v.decisionIdentity='0'*64};Save $ap $v;$probe.ExpectedAdmitResultIdentity=Identity $ap}
                     elseif($fault-ceq'actor'){$v=Get-Content -Raw $processAuth|ConvertFrom-Json -Depth 100;$v.grantee='unrelated-fixture-actor';Save $processAuth $v}

@@ -5,9 +5,7 @@
   "requirements": [
     {
       "requirementId": "PR_CODEX_RESOURCE_ROUTE",
-      "legacyAliases": [
-        "correction:pocket-legion:HOST_RESOURCE_ROUTE_DELEGATION"
-      ],
+      "legacyAliases": [],
       "title": "Codex resource route",
       "description": "Bind explicit temporary Codex resources after organization selection without reopening topology or granting authority.",
       "selectors": {
@@ -37,7 +35,13 @@
           "宿主接受",
           "task assignment",
           "new assignment",
-          "新分派"
+          "新分派",
+          "execution organization",
+          "task organization",
+          "delegation",
+          "执行组织",
+          "任务组织",
+          "委派"
         ]
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_CODEX_RESOURCE_ROUTE",
@@ -141,7 +145,12 @@
           "tool",
           "operation",
           "workflow",
-          "backend"
+          "backend",
+          "task assignment",
+          "new assignment",
+          "execution environment",
+          "新分派",
+          "执行环境"
         ]
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_CODEX_TOOL_OPERATION_RESOLUTION",

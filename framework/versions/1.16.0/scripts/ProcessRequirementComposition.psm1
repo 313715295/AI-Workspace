@@ -4,6 +4,13 @@ $script:Utf8Strict = [Text.UTF8Encoding]::new($false,$true)
 $script:ProcessCarrierContractVersion = '1.16.0'
 $script:AbsoluteSelectedRulePackBytes = 98304
 
+function Get-AiwRuntimeActorStorageKey([string]$Actor) {
+    if([string]::IsNullOrWhiteSpace($Actor)){throw 'RUNTIME_ACTOR_EMPTY'}
+    if($Actor-cmatch'^[a-z0-9][a-z0-9._-]*$'-and-not$Actor.EndsWith('.')-and$Actor-cnotmatch'^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)'-and-not$Actor.StartsWith('actor-sha256-',[StringComparison]::Ordinal)){return $Actor}
+    return 'actor-sha256-'+[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($script:Utf8Strict.GetBytes($Actor))).ToLowerInvariant()
+}
+Export-ModuleMember -Function Get-AiwRuntimeActorStorageKey
+
 function Get-AiwProcessSemanticText {
     param([Parameter(Mandatory)]$IntentEnvelope)
     # The consumed version owns the IntentEnvelope-to-selection projection.
@@ -391,6 +398,13 @@ function Get-AiwCanonicalCorrectionRecordIdentityV1 {
 function Get-AiwCanonicalCorrectionRecordIdentityV2 {
     param([Parameter(Mandatory)]$Record)
     $fields = @('correctionId','introducedAgainstFramework','requirementReason','effectiveRule','applicability','decisionLocator','selectors','preparationRequirements','resultRequirements','requiredFacts','mechanicalCheckRefs')
+    if($null-ne$Record.PSObject.Properties['history']){
+        $fields+='history'
+        Assert-AiwExactFields $Record.history @('locator','identity') 'CORRECTION_HISTORY'
+        $history=ConvertTo-AiwSafeRelativePath $Record.history.locator 'CORRECTION_HISTORY'
+        if(-not$history.StartsWith('.ai-workspace/upgrade-recovery/corrections/'+$Record.correctionId+'/',[StringComparison]::Ordinal)-or
+           -not$history.EndsWith('/history.json',[StringComparison]::Ordinal)-or$Record.history.identity-cnotmatch'^\d+\|[A-F0-9]{64}$'){throw 'CORRECTION_HISTORY_VALUES'}
+    }
     if($null-ne$Record.PSObject.Properties['lifecycle']){
         $fields+='lifecycle'
         Assert-AiwExactFields $Record.lifecycle @('state','installation','decisionLocator') 'CORRECTION_LIFECYCLE'
@@ -472,7 +486,6 @@ function Get-AiwProcessBindingSnapshot {
     $versionPath=Resolve-AiwChildFile $framework ('framework/versions/'+$TargetVersion+'/VERSION.json') 'FRAMEWORK_VERSION'
     $manifestPath=Resolve-AiwChildFile $framework ('framework/versions/'+$TargetVersion+'/RELEASE_MANIFEST.json') 'RELEASE_MANIFEST'
     $catalogPath=Resolve-AiwChildFile $framework ('framework/versions/'+$TargetVersion+'/PROCESS_REQUIREMENTS.json') 'PROCESS_REQUIREMENTS'
-    $coveragePath=Resolve-AiwChildFile $framework ('framework/versions/'+$TargetVersion+'/CORRECTION_COVERAGE.json') 'CORRECTION_COVERAGE'
     $correctionsPath=Resolve-AiwChildFile $project '.ai-workspace/corrections.json' 'CORRECTIONS' -AllowMissing
     $controllerPath=Resolve-AiwChildFile $project '.ai-workspace/controller.json' 'CONTROLLER' -AllowMissing
     $bootstrapPath=Resolve-AiwChildFile $project '.ai-workspace/BOOTSTRAP.md' 'BOOTSTRAP'
@@ -507,7 +520,6 @@ function Get-AiwProcessBindingSnapshot {
         releaseManifestIdentity=Get-AiwFileIdentity $manifestPath
         candidatePilotStateIdentity=$candidatePilotStateIdentity
         nativeCatalogIdentity=Get-AiwFileIdentity $catalogPath
-        correctionCoverageIdentity=Get-AiwFileIdentity $coveragePath
     }
 }
 
@@ -835,63 +847,15 @@ function Invoke-ProcessRequirementComposition {
         }
     }
 
-    $mappedByAlias = @{}
-    $conflicting = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
-    $coverageStatus = 'UNAVAILABLE_RETAINED'
-    $coveragePath=Resolve-AiwChildFile $composerVersionDirectory 'CORRECTION_COVERAGE.json' 'CORRECTION_COVERAGE'
-    $coverageIdentity=Get-AiwFileIdentity $coveragePath
-    try {
-        $coverageDoc = Read-AiwStrictJson $coveragePath 'CORRECTION_COVERAGE'
-        $coverage = $coverageDoc.Value
-        Assert-AiwExactFields $coverage @('schemaVersion','releaseVersion','versions') 'CORRECTION_COVERAGE'
-        if ([int]$coverage.schemaVersion -notin @(2,3) -or [string]$coverage.releaseVersion -cne $ComposerVersion -or -not ($coverage.versions -is [Array])) { throw 'CORRECTION_COVERAGE_VALUES' }
-        $entry = @($coverage.versions | Where-Object { [string]$_.version -ceq $TargetVersion })
-        if ($entry.Count -eq 1) {
-            Assert-AiwExactFields $entry[0] @('version','releaseCanonical','incorporatedCorrectionIds','incorporationMappings','conflictingCorrectionIds') 'CORRECTION_COVERAGE_ENTRY'
-            if(($ComposerVersion-ceq$TargetVersion-and[string]$entry[0].releaseCanonical-cne'SELF')-or($ComposerVersion-cne$TargetVersion-and[string]$entry[0].releaseCanonical-cne[string]$releaseManifestDoc.Value.canonical)){throw 'CORRECTION_COVERAGE_RELEASE_MISMATCH'}
-            Assert-AiwStringArray $entry[0].incorporatedCorrectionIds 'LEGACY_INCORPORATED_IDS'
-            Assert-AiwStringArray $entry[0].conflictingCorrectionIds 'CONFLICTING_CORRECTION_IDS'
-            if (-not ($entry[0].incorporationMappings -is [Array])) { throw 'INCORPORATION_MAPPINGS_TYPE' }
-            foreach ($id in @($entry[0].conflictingCorrectionIds)) { $null=$conflicting.Add([string]$id) }
-            foreach ($mapping in @($entry[0].incorporationMappings)) {
-                if ([int]$coverage.schemaVersion -eq 2) { Assert-AiwExactFields $mapping @('correctionId','legacyRequirementId','nativeRequirementId','coverageState','nativeCatalogIdentity','legacySourceRecordIdentity') 'INCORPORATION_MAPPING' }
-                else { Assert-AiwExactFields $mapping @('correctionId','legacyRequirementId','nativeRequirementId','coverageState','nativeCatalogIdentity','sourceSchemaVersion','legacySourceRecordIdentity','v2WholeRecordIdentity') 'INCORPORATION_MAPPING' }
-                if ([string]$mapping.coverageState -cne 'INCORPORATED' -or [string]$mapping.legacyRequirementId -cnotmatch '^correction:[a-z0-9][a-z0-9-]*:[A-Z][A-Z0-9_]*$' -or [string]$mapping.nativeRequirementId -cnotmatch '^framework:PR_[A-Z0-9_]+$' -or [string]$mapping.nativeCatalogIdentity -cne $catalogDoc.Identity -or [string]$mapping.legacySourceRecordIdentity -cnotmatch '^\d+\|[A-F0-9]{64}$') { throw 'INCORPORATION_MAPPING_VALUES' }
-                if ([int]$coverage.schemaVersion -eq 3 -and ([int]$mapping.sourceSchemaVersion -notin @(1,2) -or ([int]$mapping.sourceSchemaVersion -eq 1 -and [string]$mapping.v2WholeRecordIdentity -cne 'NOT_APPLICABLE') -or ([int]$mapping.sourceSchemaVersion -eq 2 -and [string]$mapping.v2WholeRecordIdentity -cnotmatch '^\d+\|[A-F0-9]{64}$'))) { throw 'INCORPORATION_MAPPING_VALUES' }
-                if (-not $nativeById.ContainsKey([string]$mapping.nativeRequirementId) -or -not $nativeByAlias.ContainsKey([string]$mapping.legacyRequirementId) -or [string]$nativeByAlias[[string]$mapping.legacyRequirementId] -cne [string]$mapping.nativeRequirementId) { throw 'CONFLICT_ALIAS_COVERAGE' }
-                if ($mappedByAlias.ContainsKey([string]$mapping.legacyRequirementId)) { throw 'CONFLICT_ALIAS_COVERAGE' }
-                $mappedByAlias[[string]$mapping.legacyRequirementId]=$mapping
-            }
-            $coverageStatus = $(if($entry[0].incorporationMappings.Count -gt 0){'MATCHED_EXACT_MAPPING'}elseif($ComposerVersion-cne$TargetVersion-and$entry[0].incorporatedCorrectionIds.Count-gt0){'LEGACY_ID_ONLY_RETAINED'}else{'NO_EXACT_MAPPING_RETAINED'})
-        }
-    } catch {
-        if ([string]$_.Exception.Message -like 'CONFLICT_*') { throw }
-        $mappedByAlias=@{}
-        $coverageStatus = 'INVALID_RETAINED'
-    }
-
-    $legacyEffective = @(); $legacyIncorporated = @(); $legacyConflicts = @(); $inactiveCorrections=@()
-    $sourceIdentityMismatch = @()
+    # Current correction lifecycle is project-owned; no central semantic suppression.
+    $legacyEffective = @(); $legacyConflicts = @(); $inactiveCorrections=@()
     foreach ($item in $records) {
         if($null-ne$item.Record.PSObject.Properties['lifecycle']-and$item.Record.lifecycle.state-cne'ACTIVE'){
             $inactiveCorrections+=[pscustomobject]@{correctionId=$item.Record.correctionId;state=$item.Record.lifecycle.state;decisionLocator=$item.Record.lifecycle.decisionLocator}
             continue
         }
         $view = [ordered]@{correctionId=[string]$item.Record.correctionId;requirementReason=[string]$item.Record.requirementReason;effectiveRule=[string]$item.Record.effectiveRule;applicability=[string]$item.Record.applicability;decisionLocator=[string]$item.Record.decisionLocator;sourceSchemaVersion=[int]$item.SchemaVersion;legacyRequirementId=[string]$item.Alias;legacySourceRecordIdentity=[string]$item.SourceRecordIdentity;v2WholeRecordIdentity=[string]$item.V2WholeRecordIdentity}
-        if ($conflicting.Contains([string]$item.Record.correctionId)) { $legacyConflicts += [pscustomobject]$view }
-        elseif ($mappedByAlias.ContainsKey([string]$item.Alias)) {
-            $mapping=$mappedByAlias[[string]$item.Alias]
-            if ([string]$mapping.correctionId -cne [string]$item.Record.correctionId) { throw 'CONFLICT_ALIAS_COVERAGE' }
-            $mappingV2Matches = if ($null -eq $mapping.PSObject.Properties['v2WholeRecordIdentity']) { [int]$item.SchemaVersion -eq 1 } else { [string]$mapping.v2WholeRecordIdentity -ceq [string]$item.V2WholeRecordIdentity }
-            $mappingSchemaMatches = if ($null -eq $mapping.PSObject.Properties['sourceSchemaVersion']) { [int]$item.SchemaVersion -eq 1 } else { [int]$mapping.sourceSchemaVersion -eq [int]$item.SchemaVersion }
-            if ([string]$mapping.legacySourceRecordIdentity -ceq [string]$item.SourceRecordIdentity -and $mappingV2Matches -and $mappingSchemaMatches) {
-                $view.nativeRequirementId=[string]$mapping.nativeRequirementId
-                $legacyIncorporated += [pscustomobject]$view
-            } else {
-                $legacyEffective += [pscustomobject]$view
-                $sourceIdentityMismatch += [string]$item.Alias
-            }
-        } else { $legacyEffective += [pscustomobject]$view }
+        $legacyEffective += [pscustomobject]$view
     }
 
     $bootstrapPath = Resolve-AiwChildFile $project '.ai-workspace/BOOTSTRAP.md' 'BOOTSTRAP'
@@ -938,9 +902,8 @@ function Invoke-ProcessRequirementComposition {
         if (-not $seenRequirement.Add($id)) { throw 'NATIVE_REQUIREMENT_ID' }
         $match=Test-AiwRuleMatch $requirement.selectors $Profile $Role $Phase $ActionKind $ResultKind $ExactPaths $Capabilities $Objective ([bool]$SemanticApplicabilityUnknown)
         if ($match.Match) {
-            $origins=@($legacyIncorporated|Where-Object{[string]$_.nativeRequirementId-ceq$id}|ForEach-Object{[pscustomobject]@{legacyRequirementId=[string]$_.legacyRequirementId;legacySourceRecordIdentity=[string]$_.legacySourceRecordIdentity}})
             $blockText=Get-AiwNativeRuleBlock -VersionDirectory $composerVersionDirectory -OwnerModule ([string]$requirement.ownerModule) -RequirementId ([string]$requirement.requirementId) -ExactBlockLocator ([string]$requirement.exactBlockLocator) -OwnerTextCache $ownerTextCache
-            $selected += [pscustomobject]@{requirementId=$id;source='FRAMEWORK';ownerModule=[string]$requirement.ownerModule;sourceAliases=@($origins);semanticApplicability=$match.Semantic;fullText=$blockText;preparationRequirements=@($requirement.preparationRequirements);resultRequirements=@($requirement.resultRequirements)}
+            $selected += [pscustomobject]@{requirementId=$id;source='FRAMEWORK';ownerModule=[string]$requirement.ownerModule;semanticApplicability=$match.Semantic;fullText=$blockText;preparationRequirements=@($requirement.preparationRequirements);resultRequirements=@($requirement.resultRequirements)}
         }
     }
     foreach ($item in $legacyEffective) {
@@ -986,7 +949,6 @@ function Invoke-ProcessRequirementComposition {
         "manifest=$releaseManifestIdentity",
         "candidatePilot=$candidatePilotStateIdentity",
         "catalog=$($catalogDoc.Identity)",
-        "coverage=$coverageIdentity",
         "project=$($configDoc.Identity)",
         "controller=$controllerIdentity",
         "corrections=$correctionsIdentity",
@@ -1002,15 +964,14 @@ function Invoke-ProcessRequirementComposition {
     $evidenceCeilings=@()
     if($candidatePilotStateIdentity-cne'MISSING'){$evidenceCeilings+='LOCAL_CANDIDATE_PILOT'}
     if(@($legacyEffective|Where-Object{[int]$_.sourceSchemaVersion-eq1}).Count-gt0){$evidenceCeilings+='LEGACY_CORRECTIONS_FULL_LOAD'}
-    if($sourceIdentityMismatch.Count-gt0){$evidenceCeilings+='SOURCE_RECORD_IDENTITY_MISMATCH_RETAINED'}
     if($custom.HasNormativeContent){$evidenceCeilings+='LEGACY_PROJECT_CUSTOM_FULL_LOAD'}
     if([bool]$projectStandards.Drift){$evidenceCeilings+='PROJECT_STANDARD_SOURCE_DRIFT_CONSERVATIVE_LOAD'}
     return [pscustomobject]@{
         status=$(if($candidateEvaluation){'EVALUATION_ONLY'}else{'PASS'}); projectId=$projectId; targetVersion=$TargetVersion; sourceCompositionIdentity=$sourceKey
         projectConfigIdentity=$configDoc.Identity; controllerIdentity=$controllerIdentity; correctionsIdentity=$correctionsIdentity; policyIdentity=$policyIdentity; bootstrapManagedIdentity=$custom.ManagedIdentity;projectCustomIdentity=$custom.Identity;projectAgentsIdentity=(Get-AiwProjectAgentsIdentity $project $ForbiddenPaths); projectStandardsIdentity=$projectStandards.Identity
-        frameworkVersionIdentity=$versionDoc.Identity; releaseManifestIdentity=$releaseManifestIdentity; nativeCatalogIdentity=$catalogDoc.Identity; correctionCoverageIdentity=$coverageIdentity
+        frameworkVersionIdentity=$versionDoc.Identity; releaseManifestIdentity=$releaseManifestIdentity; nativeCatalogIdentity=$catalogDoc.Identity
         candidatePilotStateIdentity=$candidatePilotStateIdentity
-        coverageStatus=$coverageStatus; incorporated=@($legacyIncorporated); stillEffective=@($legacyEffective); conflicts=@($legacyConflicts); inactive=@($inactiveCorrections)
+        stillEffective=@($legacyEffective); conflicts=@($legacyConflicts); inactive=@($inactiveCorrections)
         selectedRequirements=@($selected); selectedRulePackBytes=$selectedRulePackBytes; absoluteSelectedRulePackBytes=$script:AbsoluteSelectedRulePackBytes; evidenceCeilings=@($evidenceCeilings)
         sourceBuildCount=1; legacyCorrectionsFullReadCount=$(if(@($legacyEffective|Where-Object{[int]$_.sourceSchemaVersion-eq1}).Count-gt0){1}else{0}); legacyProjectCustomFullReadCount=$(if($custom.HasNormativeContent){1}else{0})
     }

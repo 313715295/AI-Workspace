@@ -45,7 +45,7 @@ try{
     $install=Plan INSTALL A $changes
     $before=Id '.ai-workspace/corrections.json'
     $preview=New-AiwCorrectionLifecycleProjection $temp $install
-    Check ($preview.status-ceq'READY'-and$preview.projection.changeCount-eq5-and(Id '.ai-workspace/corrections.json')-ceq$before) 'preview-exact-group-and-no-write'
+    Check ($preview.status-ceq'READY'-and$preview.projection.changeCount-eq6-and(Id '.ai-workspace/corrections.json')-ceq$before) 'preview-exact-group-and-no-write'
     $null=ApplyPlan $install
     Check ((Read 'AGENTS.md').Contains('Owned delegation')-and(Test-Path (Join-Path $temp 'helpers/owned.txt'))) 'install-full-group'
     Text 'AGENTS.md' ((Read 'AGENTS.md')+"Later independent user decision`n")
@@ -109,6 +109,51 @@ try{
     $preview=Invoke-AiwCorrectionLifecycle $temp (Join-Path $temp 'plan.json') $planId fixture '1.16.0'
     Check ($preview.status-ceq'READY') 'real-root-helper-preview-validates-target-schema'
     Reject {Invoke-AiwCorrectionLifecycle $temp (Join-Path $temp 'plan.json') $planId fixture '1.16.0' -Apply} 'CORRECTION_ADMIT_INPUT' 'apply-cannot-use-preview-as-authority'
+    foreach($path in @('.ai-workspace/upgrade-recovery/corrections/API/new','.ai-workspace/runtime/project-adoption/API/state.json','.ai-workspace/upgrade-recovery/corrections/OTHER/new/state.json')){
+        $invalid=Plan INSTALL API @();$invalid.transactionRelativePath=$path
+        Reject {New-AiwCorrectionLifecycleProjection $temp $invalid} 'TRANSACTION' ('preview-rejects-invalid-transaction-'+$path)
+    }
+    Reject {New-AiwCorrectionLifecycleProjection $temp $install} 'TRANSACTION_EXISTS' 'preview-existing-transaction-requires-recovery'
+    $null=ApplyPlan (Plan INSTALL REV @())
+    $original=@((Read '.ai-workspace/corrections.json'|ConvertFrom-Json).corrections|Where-Object correctionId -CEQ REV)[0]
+    $rev=Plan REVISE REV;$rev.record=Record REV;$rev.record.effectiveRule='revised full rule';$rev.record.selectors.semanticTerms=@('revision only')
+    $null=ApplyPlan $rev
+    $revised=@((Read '.ai-workspace/corrections.json'|ConvertFrom-Json).corrections|Where-Object correctionId -CEQ REV)[0]
+    $history=Read $revised.history.locator|ConvertFrom-Json
+    Check ($revised.effectiveRule-ceq'revised full rule'-and$revised.lifecycle.installation.identity-ceq$original.lifecycle.installation.identity-and($history.priorRecord|ConvertTo-Json -Depth 64 -Compress)-ceq($original|ConvertTo-Json -Depth 64 -Compress)) 'revision-retains-installation-and-complete-prior-record'
+    $null=ApplyPlan (Plan PAUSE REV)
+    $paused=Plan REVISE REV;$paused.record=Record REV;$paused.record.effectiveRule='paused revision';$null=ApplyPlan $paused
+    Check (@((Read '.ai-workspace/corrections.json'|ConvertFrom-Json).corrections|Where-Object correctionId -CEQ REV)[0].lifecycle.state-ceq'PAUSED') 'revision-preserves-paused-state'
+    $null=ApplyPlan (Plan RESUME REV)
+    Text 'revision-effect.txt' 'before'
+    $effect=@([pscustomobject]@{kind='TEXT';path='revision-effect.txt';before='before';after='first';prefix='';suffix=''})
+    $null=ApplyPlan (Plan INSTALL EFFECT $effect)
+    $replace=Plan INSTALL EFFECT @([pscustomobject]@{kind='TEXT';path='revision-effect.txt';before='before';after='second';prefix='';suffix=''})
+    $replace.operation='REVISE';$replace.record=Record EFFECT
+    $null=ApplyPlan $replace
+    Check ((Read 'revision-effect.txt')-ceq'second') 'effect-revision-reverses-old-and-applies-new-in-one-projection'
+    $null=ApplyPlan (Plan UNINSTALL EFFECT)
+    Check ((Read 'revision-effect.txt')-ceq'before') 'revised-effect-uninstall-uses-new-ownership'
+    $null=ApplyPlan (Plan INSTALL DEP_PARENT @())
+    $null=ApplyPlan (Plan INSTALL DEP_CHILD @() @('DEP_PARENT'))
+    $null=ApplyPlan (Plan PAUSE DEP_CHILD);$null=ApplyPlan (Plan PAUSE DEP_PARENT)
+    $dependentRevision=Plan REVISE DEP_CHILD;$dependentRevision.record=Record DEP_CHILD;$dependentRevision.record.effectiveRule='paused dependency revision'
+    $null=ApplyPlan $dependentRevision
+    Check (@((Read '.ai-workspace/corrections.json'|ConvertFrom-Json).corrections|Where-Object correctionId -CEQ DEP_CHILD)[0].lifecycle.state-ceq'PAUSED') 'paused-revision-does-not-require-inactive-dependency-to-run'
+    Reject {New-AiwCorrectionLifecycleProjection $temp (Plan RESUME DEP_CHILD)} 'CORRECTION_DEPENDENCY_INACTIVE' 'resume-still-requires-dependency-active'
+    $fail=Plan REVISE REV;$fail.record=Record REV;$fail.record.effectiveRule='must rollback';$beforeFailure=Id '.ai-workspace/corrections.json';$fp=New-AiwCorrectionLifecycleProjection $temp $fail
+    Reject {Invoke-AiwProjectProjectionTransaction $temp $fp.projection $fail.transactionRelativePath {param($r,$p) throw 'INVALID_COMPOSITION'} {param($r,$p) $true}} 'INVALID_COMPOSITION' 'revision-postcheck-failure-uses-whole-group-rollback'
+    Check ((Id '.ai-workspace/corrections.json')-ceq$beforeFailure-and-not(Test-Path -LiteralPath (Join-Path $temp ($fail.transactionRelativePath.Replace('state.json','history.json'))))) 'failed-revision-leaves-neither-current-rule-nor-orphan-history'
+    $carrier=Read '.ai-workspace/corrections.json'|ConvertFrom-Json;$carrier.corrections+=@((Record COVERED),(Record MIXED));Json '.ai-workspace/corrections.json' $carrier
+    $mixed=Record MIXED;$mixed.effectiveRule='project-only remaining obligation'
+    $adopt=[pscustomobject]@{schemaVersion=1;expectedCorrectionsIdentity=(Id '.ai-workspace/corrections.json');changes=@(
+      [pscustomobject]@{correctionId='COVERED';decisionLocator='fixture:full-coverage-reviewed';record='NOT_APPLICABLE';historyRelativePath='.ai-workspace/upgrade-recovery/corrections/COVERED/adopt/history.json'},
+      [pscustomobject]@{correctionId='MIXED';decisionLocator='fixture:partial-coverage-reviewed';record=$mixed;historyRelativePath='.ai-workspace/upgrade-recovery/corrections/MIXED/adopt/history.json'})}
+    Reject {New-AiwCorrectionAdoptionProjection $temp $adopt @('COVERED','MISSING_DECISION')} 'DISPOSITION_REQUIRED' 'adoption-does-not-revive-undisposed-old-suppression'
+    $projection=New-AiwCorrectionAdoptionProjection $temp $adopt @('COVERED','MIXED')
+    $null=Invoke-AiwProjectProjectionTransaction $temp $projection '.ai-workspace/upgrade-recovery/adoption-test/state.json' {param($r,$p) $true} {param($r,$p) $true}
+    $current=Read '.ai-workspace/corrections.json'|ConvertFrom-Json
+    Check (@($current.corrections|Where-Object correctionId -CEQ COVERED).Count-eq0-and@($current.corrections|Where-Object correctionId -CEQ MIXED)[0].effectiveRule-ceq$mixed.effectiveRule-and(Read '.ai-workspace/upgrade-recovery/corrections/COVERED/adopt/history.json'|ConvertFrom-Json).priorRecord.effectiveRule-ceq'fixture rule COVERED') 'adoption-retains-project-delta-and-full-retired-history'
     Write-Output ("RESULT|project-correction-lifecycle|passed=$script:passed")
 }finally{
     $full=[IO.Path]::GetFullPath($temp);$parent=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath([IO.Path]::GetTempPath()))

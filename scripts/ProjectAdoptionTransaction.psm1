@@ -4,6 +4,21 @@ $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'ProjectAdoptionState.psm1') -ErrorAction Stop
 $script:Utf8NoBom = [Text.UTF8Encoding]::new($false)
 
+function Get-AiwBoundRuntimeActorStorageKey([string]$FrameworkRoot,[string]$Version,[string]$Actor) {
+    if($Version-cnotmatch'^\d+\.\d+\.\d+$'){throw 'RUNTIME_ACTOR_VERSION'}
+    $path=Get-AiwContainedPath $FrameworkRoot ('framework/versions/'+$Version+'/scripts/ProcessRequirementComposition.psm1')
+    $module=@(Import-Module $path -Force -PassThru -ErrorAction Stop)[0]
+    if([IO.Path]::GetFullPath($module.Path)-cne[IO.Path]::GetFullPath($path)){throw 'RUNTIME_ACTOR_MODULE_BINDING'}
+    # Query this exact module's exports, never an ambient command left by another runtime.
+    if($module.ExportedFunctions.ContainsKey('Get-AiwRuntimeActorStorageKey')){
+        return & $module.ExportedFunctions['Get-AiwRuntimeActorStorageKey'] -Actor $Actor
+    }
+    # A prior runtime owns its original single-segment contract; do not relocate its evidence.
+    if($Actor-cnotmatch'^[0-9A-Za-z][0-9A-Za-z._-]*$'){throw 'RUNTIME_ACTOR_LEGACY_CONTEXT'}
+    return $Actor
+}
+Export-ModuleMember -Function Get-AiwBoundRuntimeActorStorageKey
+
 function Get-AiwCurrentIdentity {
     param([Parameter(Mandatory)][string]$Path)
 
@@ -216,6 +231,16 @@ function Restore-AiwProjectProjection {
     }
 }
 
+function Assert-AiwProjectionTransactionPath {
+    param([string]$RepositoryRoot,[string]$TransactionRelativePath)
+    Assert-AiwRelativePath $TransactionRelativePath
+    if((-not $TransactionRelativePath.StartsWith('.ai-workspace/upgrade-recovery/',[StringComparison]::Ordinal)-and
+        -not $TransactionRelativePath.StartsWith('.ai-workspace/runtime/project-adoption/',[StringComparison]::Ordinal))-or
+       -not $TransactionRelativePath.EndsWith('/state.json',[StringComparison]::Ordinal)){throw 'TRANSACTION_PATH_INVALID'}
+    return Get-AiwContainedPath $RepositoryRoot $TransactionRelativePath
+}
+Export-ModuleMember -Function Assert-AiwProjectionTransactionPath
+
 function Invoke-AiwProjectProjectionTransaction {
     param(
         [Parameter(Mandatory)][string]$RepositoryRoot,
@@ -230,15 +255,7 @@ function Invoke-AiwProjectProjectionTransaction {
     )
 
     $root = Assert-AiwProjectionContract $RepositoryRoot $Projection
-    Assert-AiwRelativePath $TransactionRelativePath
-    $transactionRootAllowed =
-        $TransactionRelativePath.StartsWith('.ai-workspace/upgrade-recovery/', [StringComparison]::Ordinal) -or
-        $TransactionRelativePath.StartsWith('.ai-workspace/runtime/project-adoption/', [StringComparison]::Ordinal)
-    if (-not $transactionRootAllowed -or
-        -not $TransactionRelativePath.EndsWith('/state.json', [StringComparison]::Ordinal)) {
-        throw 'TRANSACTION_PATH_INVALID'
-    }
-    $transactionPath = Get-AiwContainedPath $root $TransactionRelativePath
+    $transactionPath = Assert-AiwProjectionTransactionPath $root $TransactionRelativePath
 
     if ([bool]$Projection.noOp) {
         return [pscustomobject]@{ status = 'NO_CHANGE'; transactionCreated = $false; writes = 0 }
@@ -377,15 +394,7 @@ function Resume-AiwProjectProjectionRollback {
     )
 
     $root = Resolve-AiwRepositoryRoot $RepositoryRoot
-    Assert-AiwRelativePath $TransactionRelativePath
-    $transactionRootAllowed =
-        $TransactionRelativePath.StartsWith('.ai-workspace/upgrade-recovery/', [StringComparison]::Ordinal) -or
-        $TransactionRelativePath.StartsWith('.ai-workspace/runtime/project-adoption/', [StringComparison]::Ordinal)
-    if (-not $transactionRootAllowed -or
-        -not $TransactionRelativePath.EndsWith('/state.json', [StringComparison]::Ordinal)) {
-        throw 'TRANSACTION_PATH_INVALID'
-    }
-    $transactionPath = Get-AiwContainedPath $root $TransactionRelativePath
+    $transactionPath = Assert-AiwProjectionTransactionPath $root $TransactionRelativePath
     if ((Get-AiwCurrentIdentity $transactionPath) -cne $ExpectedTransactionIdentity) {
         throw 'TRANSACTION_STATE_DRIFT'
     }
@@ -488,9 +497,10 @@ function Invoke-AiwProjectRuleActionRecovery {
         frameworkVersionIdentity=(Join-Path $framework "framework/versions/$version/VERSION.json")
         releaseManifestIdentity=(Join-Path $framework "framework/versions/$version/RELEASE_MANIFEST.json")
         nativeCatalogIdentity=(Join-Path $framework "framework/versions/$version/PROCESS_REQUIREMENTS.json")
-        correctionCoverageIdentity=(Join-Path $framework "framework/versions/$version/CORRECTION_COVERAGE.json")
         candidatePilotStateIdentity=(Join-Path $root ".ai-workspace/upgrade-recovery/$version/state.json")
     }
+    # Only the original fixed-runtime receipt may bind its historical coverage file.
+    if($null-ne$receipt.sourceBindings.PSObject.Properties['correctionCoverageIdentity']){$static.correctionCoverageIdentity=Join-Path $framework "framework/versions/$version/CORRECTION_COVERAGE.json"}
     foreach($name in $static.Keys){
         $actual=Get-AiwCurrentIdentity ([string]$static[$name])
         if($actual-cne[string]$receipt.sourceBindings.$name){throw ('RULE_RECOVERY_UNAUTHORIZED_SOURCE_DRIFT|'+$name)}
@@ -531,10 +541,11 @@ function Invoke-AiwProjectRuleActionRecovery {
     $transactionPath=Get-AiwContainedPath $root $transactionRelative
     $projection=New-AiwProjectProjection $root $desired
     if(-not$Apply){return [pscustomobject]@{status='WHAT_IF';direction=$Direction;source='ORIGINAL_ADMISSION';transactionPath=$transactionPath;exactPaths=@($context.paths);changes=@(Get-AiwProjectProjectionDiff $projection);authorityGranted=$false;evidenceGrade='INSTRUCTION_BOUND'}}
-    $runtime=Join-Path $root ('.ai-workspace/runtime/'+[string]$context.taskId+'/'+$ObservedActor)
+    $actorStorage=Get-AiwBoundRuntimeActorStorageKey $framework $version $ObservedActor
+    $runtime=Get-AiwContainedPath $root ('.ai-workspace/runtime/'+[string]$context.taskId+'/'+$actorStorage)
     [IO.Directory]::CreateDirectory($runtime)|Out-Null
     $finalInput=[ordered]@{schemaVersion=2;mode='FINALIZE_OUTPUT';discoverReceiptPath=[string]$plan.discoverReceiptPath;expectedDiscoverReceiptIdentity=[string]$plan.discoverReceiptIdentity;preparationReceipts=@($plan.preparationReceipts)+@('BOOTSTRAP_PREIMAGE|'+[string]$bootstrapPreimage.preimagePath+'|'+[string]$bootstrapPreimage.preimageIdentity);resultReceipts=@($plan.resultReceipts);deliveryReceipts=@();publicDecisionIdentity=[string]$admit.publicDecisionIdentity;protectionState=[string]$admit.protectionState}
-    $finalResolver=Join-Path (Split-Path -Parent $PSScriptRoot) "framework/versions/$version/scripts/resolve-process-requirements.ps1"
+    $finalResolver=Join-Path $framework "framework/versions/$version/scripts/resolve-process-requirements.ps1"
     $finalResult=$null
     $postcheck={
         param($checkRoot,$checkProjection)
@@ -761,7 +772,9 @@ function Get-AiwAdoptionProcessContext($Receipt) {
         $c|Add-Member -NotePropertyName taskOwner -NotePropertyValue ([string]$Receipt.taskOwner)
     }
     $allowed=@('AGENTS.md','.ai-workspace/BOOTSTRAP.md','.ai-workspace/upgrade-recovery/1.16.0/state.json')
-    if($c.frameworkVersion-cne'1.16.0'-or$intent.requestedActionKind-cne'CONTROL_WRITE'-or$intent.ambiguityState-cne'CLEAR'-or'CONTROL_WRITE'-cnotin@($c.authorizedActions)-or@($c.exactScope).Count-eq0-or@($c.exactScope|Where-Object{$_-cnotin$allowed}).Count-ne0-or$allowed[2]-cnotin@($c.exactScope)){throw 'ADOPTION_PROCESS_CONTEXT_SCOPE'}
+    $correctionPaths=@($c.exactScope|Where-Object{$_-ceq'.ai-workspace/corrections.json'-or$_-cmatch'^\.ai-workspace/upgrade-recovery/corrections/[A-Z][A-Z0-9_]*/[A-Za-z0-9._-]+/history\.json$'})
+    if($correctionPaths.Count-and'.ai-workspace/corrections.json'-cnotin$correctionPaths){throw 'ADOPTION_PROCESS_CORRECTION_SCOPE'}
+    if($c.frameworkVersion-cne'1.16.0'-or$intent.requestedActionKind-cne'CONTROL_WRITE'-or$intent.ambiguityState-cne'CLEAR'-or'CONTROL_WRITE'-cnotin@($c.authorizedActions)-or@($c.exactScope).Count-eq0-or@($c.exactScope|Where-Object{$_-cnotin$allowed-and$_-cnotin$correctionPaths}).Count-ne0-or$allowed[2]-cnotin@($c.exactScope)){throw 'ADOPTION_PROCESS_CONTEXT_SCOPE'}
     return $c
 }
 function Get-AiwAdoptionComposition([string]$Root,[string]$Runtime,$Receipt,[switch]$EvaluationOnly) {
@@ -783,7 +796,10 @@ function New-AiwAdoptionProcessPreparation {
     if((Resolve-AiwRepositoryRoot $c.projectRoot)-cne$root-or$c.actor-cne$ObservedActor){throw 'ADOPTION_PROCESS_ACTOR_ROOT'}
     $null=Assert-AiwProjectionContract $root $Projection
     Assert-AiwAdoptionSame @($Projection.objects.path|Sort-Object) @($c.exactScope|Sort-Object) 'PROJECTION_SCOPE'
-    foreach($entry in $Projection.objects){if($entry.kind-cne'FILE'-or-not$entry.oldExists-or-not$entry.newExists-or(Get-AiwCurrentIdentity (Get-AiwContainedPath $root $entry.path))-cne$entry.oldIdentity){throw 'ADOPTION_PROCESS_PROJECTION_PREIMAGE'}}
+    foreach($entry in $Projection.objects){
+        $newHistory=$entry.path-cmatch'^\.ai-workspace/upgrade-recovery/corrections/[A-Z][A-Z0-9_]*/[A-Za-z0-9._-]+/history\.json$'
+        if($entry.kind-cne'FILE'-or(-not$entry.oldExists-and-not$newHistory)-or($newHistory-and$entry.oldExists)-or-not$entry.newExists-or(Get-AiwCurrentIdentity (Get-AiwContainedPath $root $entry.path))-cne$entry.oldIdentity){throw 'ADOPTION_PROCESS_PROJECTION_PREIMAGE'}
+    }
     $oldBinding=Get-AiwAdoptedDistributionBinding $root '1.16.0'
     $null=Assert-AiwDistributionBinding $oldBinding $receipt.sourceLocators.frameworkRoot '1.16.0'
     $newBinding=Get-AiwDistributionBinding $TargetRuntimeRoot '1.16.0' -Required
@@ -825,8 +841,9 @@ function Invoke-AiwAdoptionProcessBoundary {
     if((Resolve-AiwRepositoryRoot $c.projectRoot)-cne$root-or$c.actor-cne$ObservedActor){throw 'ADOPTION_PROCESS_ACTOR_ROOT'}
     $cleanup=$false
     if($DeleteInputOnExit){
-        foreach($name in @($c.taskId,$c.actor)){if($name-cnotmatch'^[0-9A-Za-z][0-9A-Za-z._-]*$'){throw 'ADOPTION_PROCESS_CLEANUP_CONTEXT'}}
-        $prefix=(Get-AiwContainedPath $root ('.ai-workspace/runtime/'+$c.taskId+'/'+$c.actor))+[IO.Path]::DirectorySeparatorChar
+        if($c.taskId-cnotmatch'^[0-9A-Za-z][0-9A-Za-z._-]*$'){throw 'ADOPTION_PROCESS_CLEANUP_CONTEXT'}
+        $actorStorage=Get-AiwBoundRuntimeActorStorageKey $r.sourceLocators.frameworkRoot $c.frameworkVersion $c.actor
+        $prefix=(Get-AiwContainedPath $root ('.ai-workspace/runtime/'+$c.taskId+'/'+$actorStorage))+[IO.Path]::DirectorySeparatorChar
         if(-not$inputDoc.Path.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase)){throw 'ADOPTION_PROCESS_CLEANUP_SCOPE'}
         $null=Get-AiwContainedPath $root ([IO.Path]::GetRelativePath($root,$inputDoc.Path).Replace('\','/'));$cleanup=$true
     }
@@ -885,7 +902,8 @@ function Invoke-AiwAdoptionProcessBoundary {
         Assert-AiwAdoptionSame (Get-AiwAdoptedDistributionBinding $root '1.16.0') $p.targetDistribution 'LIVE_DISTRIBUTION'
         foreach($e in $t.projection.objects){
             $pre=@($pkg.objectIdentities|Where-Object{$_.path-ceq$e.path})
-            if($pre.Count-ne1-or$pre[0].identity-cne$e.oldIdentity-or(Get-AiwCurrentIdentity (Get-AiwContainedPath $root $e.path))-cne$e.newIdentity-or('OBJECT_POSTIMAGE|'+$e.path+'|'+$e.newIdentity)-cnotin@($b.resultReceipts)){throw 'ADOPTION_PROCESS_OBJECT_PROOF'}
+            $expectedPre=if($e.oldExists){[string]$e.oldIdentity}else{'NEW'}
+            if($pre.Count-ne1-or$pre[0].identity-cne$expectedPre-or(Get-AiwCurrentIdentity (Get-AiwContainedPath $root $e.path))-cne$e.newIdentity-or('OBJECT_POSTIMAGE|'+$e.path+'|'+$e.newIdentity)-cnotin@($b.resultReceipts)){throw 'ADOPTION_PROCESS_OBJECT_PROOF'}
         }
         if(@($pkg.objectIdentities).Count-ne@($t.projection.objects).Count){throw 'ADOPTION_PROCESS_OBJECT_SCOPE'}
         $stateEntry=@($t.projection.objects|Where-Object{$_.path-ceq'.ai-workspace/upgrade-recovery/1.16.0/state.json'})[0]
@@ -906,6 +924,7 @@ function Invoke-AiwAdoptionProcessBoundary {
         # projected managed files and package fields are proved separately above.
         $bindings=Get-AiwProcessBindingSnapshot -ProjectRoot $root -FrameworkRoot $p.targetDistribution.runtimeRoot -TargetVersion '1.16.0' -TaskRelativePath $r.sourceLocators.taskRelativePath -ForbiddenPaths @($c.forbiddenScope)
         $projectedFields=@('frameworkVersionIdentity','releaseManifestIdentity','nativeCatalogIdentity','correctionCoverageIdentity','bootstrapManagedIdentity','projectAgentsIdentity')
+        if('.ai-workspace/corrections.json'-cin@($t.projection.objects.path)){$projectedFields+='correctionsIdentity'}
         foreach($field in $bindings.PSObject.Properties){
             $name=$field.Name
             if($name-ceq'candidatePilotStateIdentity'){$expected=[string]$stateEntry.newIdentity}
@@ -918,7 +937,7 @@ function Invoke-AiwAdoptionProcessBoundary {
             }
             if([string]$field.Value-cne$expected){throw ('ADOPTION_PROCESS_SOURCE_DRIFT|'+$name)}
         }
-        foreach($name in $p.oldSourceBindings.PSObject.Properties.Name){if($null-eq$bindings.PSObject.Properties[$name]){throw ('ADOPTION_PROCESS_UNSUPPORTED_SOURCE|'+$name)}}
+        foreach($name in $p.oldSourceBindings.PSObject.Properties.Name){if($null-eq$bindings.PSObject.Properties[$name]-and$name-cne'correctionCoverageIdentity'){throw ('ADOPTION_PROCESS_UNSUPPORTED_SOURCE|'+$name)}}
         $prep=@(@($r.selectedObligations|ForEach-Object{$_.preparationRequirements})+@($p.selectedRuleBlocks|ForEach-Object{$_.preparationRequirements})|Sort-Object -Unique)
         if(@($prep|Where-Object{$_-cnotin@($a.preparationReceipts)-or$_-cnotin@($b.preparationReceipts)}).Count){throw 'ADOPTION_PROCESS_PREPARATION_INCOMPLETE'}
         $results=@(@($r.selectedObligations|ForEach-Object{$_.resultRequirements})+@($p.selectedRuleBlocks|ForEach-Object{$_.resultRequirements})|Sort-Object -Unique)
