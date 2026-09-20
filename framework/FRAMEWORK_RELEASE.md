@@ -8,7 +8,25 @@
 
 STABLE 封存版本、已发行 ZIP 和固定运行目录不可原地修改。开发 CANDIDATE 可按精确授权在原目录实现和修复；源码变化撤回旧审核与完整套件证明为 PENDING，再按本文验证。候选冻结、版本发行、根工具整合、Git 发布与项目采用是独立动作。真实消费者身份、路径、任务和采用状态不写入通用源码。
 
-开发根不设 AGENTS/CLAUDE；README 提供阅读地图，版本模块持有通用规则。`framework/user-package/AGENTS.md`、版本 project-starter 和 maintenance-overlay 的入口均为独立交付模板，构建/采用继续验证其正确性。
+开发根不设 AGENTS/CLAUDE；README 面向使用者；本文提供维护阅读地图，版本模块持有通用规则。`framework/user-package/AGENTS.md`、版本 project-starter 和 maintenance-overlay 的入口均为独立交付模板，构建/采用继续验证其正确性。
+
+## 维护阅读地图
+
+从源码仓理解框架的职责、行为和验证方式，沿以下现有文档与实现阅读，无需依赖旧聊天或原维护项目。概览与链接用于导航；规则以对应模块正文为准，实现和测试分别用于核对行为与验证范围。
+
+| 维护内容 | 文档与实现入口 |
+|---|---|
+| 版本能力与发行资格 | [版本说明](versions/1.16.0/README.md)、[版本元数据](versions/1.16.0/VERSION.json)、[发布资格](versions/1.16.0/RELEASE_MANIFEST.json) |
+| 任务、授权、审查与恢复 | [任务与范围](versions/1.16.0/TASK_AND_SCOPE.md)、[授权](versions/1.16.0/AUTHORIZATION_MODEL.md)、[审核与证据](versions/1.16.0/REVIEW_AND_EVIDENCE.md)、[恢复](versions/1.16.0/RECOVERY_CORE.md) |
+| 规则组合、纠正与材料 | [工具合同](versions/1.16.0/TOOL_CONTRACT.md)、[项目控制](versions/1.16.0/PROJECT_CONTROL.md)、[组合实现](versions/1.16.0/scripts/ProcessRequirementComposition.psm1)、[纠正生命周期实现](../scripts/ProjectCorrectionLifecycle.psm1) |
+| 宿主接入与项目采用 | [Codex 接入](versions/1.16.0/HOST_CODEX.md)、[项目接入与升级](PROJECT_ADOPTION.md) |
+| 行为变更与验证场景 | [变更记录](versions/1.16.0/CHANGELOG.md)、[运行合同测试](versions/1.16.0/tests/process-runtime-v2-tests.ps1)、[选择与存储回归](versions/1.16.0/tests/efficiency-regression-tests.ps1)、[纠正测试](../scripts/tests/project-correction-lifecycle-tests.ps1)、[采用与恢复测试](../scripts/tests/upgrade-project-bridge-tests.ps1) |
+
+Framework 负责项目治理与协作规则，复用现有模块约束任务、行动、证据、协作、材料和资源选择。宿主提供模型调用、上下文压缩、缓存、工具调度、并发、通知和计费；具体接入由宿主适配文档说明。业务标准和产物由项目维护。当前实现与验证主要覆盖 Windows、PowerShell 7 和 Codex。
+
+维护取舍依据质量要求、实际消费者、现有能力和完整交付成本，沿现有方案与验证处理，不额外增加必填表或检查阶段。宿主能力缺口只限制实际受影响的动作；责任、授权、独立性与证据边界仍按对应规则处理。
+
+测试源码用于了解验证场景，实际通过结论取对应执行证据；开发候选的当前状态与已审发行快照分别核对，旧快照证据不证明新字节。继续原维护任务须恢复原维护项目；在新环境开展维护则建立自己的治理项目，不从本仓库推断原会话的身份和权限。
 
 ## 发布分类
 
