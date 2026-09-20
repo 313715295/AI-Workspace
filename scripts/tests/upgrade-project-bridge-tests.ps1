@@ -177,7 +177,7 @@ function Test-CrossDistributionAdoption {
         }else{
         $source=Join-Path $temp 'source';$project=Join-Path $temp 'project';New-TestGitRepo $source;New-TestGitRepo $project
         foreach($dir in @('scripts','skills','framework/versions/1.16.0','framework/maintenance-overlay','framework/user-package')){$dest=Join-Path $source $dir;New-Item -ItemType Directory -Path (Split-Path -Parent $dest) -Force|Out-Null;$from=if($LegacyRuntimeRoot-and$dir-ceq'framework/versions/1.16.0'){Join-Path $LegacyRuntimeRoot $dir}else{Join-Path $RepositoryRoot $dir};Copy-Item -LiteralPath $from -Destination $dest -Recurse}
-        foreach($file in @('README.md','LICENSE','INITIALIZATION.md','framework/FRAMEWORK_RELEASE.md','framework/PROJECT_ADOPTION.md','framework/ROADMAP.md')){Write-TestUtf8 (Join-Path $source $file) ([IO.File]::ReadAllText((Join-Path $RepositoryRoot $file)))}
+        foreach($file in @('README.md','LICENSE','framework/FRAMEWORK_RELEASE.md','framework/PROJECT_ADOPTION.md','framework/ROADMAP.md')){Write-TestUtf8 (Join-Path $source $file) ([IO.File]::ReadAllText((Join-Path $RepositoryRoot $file)))}
         $version=Join-Path $source 'framework/versions/1.16.0'
         if($LegacyRuntimeRoot){$legacyRecords=@(Set-LegacyCorrectionFixture)}
         # Supply an explicitly synthetic compatible predecessor solely to build

@@ -85,7 +85,7 @@ try {
     Assert-True (-not$overlayText.Contains('<TARGET>/AGENTS.md')-and$overlayText.Contains('<TARGET>/README.md')-and$overlayText.Contains('<TARGET>/framework/FRAMEWORK_RELEASE.md')) 'maintenance-template-uses-source-contract-navigation'
     $null = New-Item -ItemType Directory -Path $fixture
     $rootLinksValid = $true
-    foreach ($relative in @('INITIALIZATION.md','README.md','framework/PROJECT_ADOPTION.md','framework/FRAMEWORK_RELEASE.md')) {
+    foreach ($relative in @('README.md','framework/PROJECT_ADOPTION.md','framework/FRAMEWORK_RELEASE.md')) {
         $document = Join-Path $workspace $relative
         foreach ($match in [regex]::Matches([IO.File]::ReadAllText($document), '\]\((?<target>[^)#]+)(?:#[^)]*)?\)')) {
             $link = [string]$match.Groups['target'].Value
@@ -94,8 +94,6 @@ try {
         }
     }
     Assert-True $rootLinksValid 'root-entry-and-adoption-links-resolve'
-    [IO.File]::Copy((Join-Path $workspace 'INITIALIZATION.md'), (Join-Path $fixture 'compatibility-navigation.md'), $false)
-    Assert-True (-not [IO.File]::ReadAllText((Join-Path $fixture 'compatibility-navigation.md')).Contains('之后零写入')) 'self-update-required-navigation-copy-has-no-obsolete-transaction-rule'
     $packageWorkspace = Join-Path $fixture 'workspace'
     foreach ($relative in @('LICENSE','framework/PROJECT_ADOPTION.md','framework/user-package/README.md','framework/user-package/AGENTS.md','scripts/MaintenanceOverlay.psm1','scripts/ProjectAdoptionProjection.psm1','scripts/ProjectAdoptionState.psm1','scripts/ProjectAdoptionTransaction.psm1','scripts/ProjectCorrectionLifecycle.psm1','scripts/register-project.ps1','scripts/upgrade-project.ps1','skills/ai-workspace-router/SKILL.md')) {
         $destination = Join-Path $packageWorkspace $relative

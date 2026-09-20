@@ -113,7 +113,7 @@ try {
         $dest=Join-Path $fixtureSource $folder;New-Item -ItemType Directory -Path (Split-Path -Parent $dest) -Force|Out-Null
         Copy-Item -LiteralPath (Join-Path $candidateInput $folder) -Destination $dest -Recurse
     }
-    foreach($name in @('README.md','LICENSE','INITIALIZATION.md','framework/FRAMEWORK_RELEASE.md','framework/PROJECT_ADOPTION.md','framework/ROADMAP.md')){Copy-Exact (Join-Path $candidateInput $name) (Join-Path $fixtureSource $name)}
+    foreach($name in @('README.md','LICENSE','framework/FRAMEWORK_RELEASE.md','framework/PROJECT_ADOPTION.md','framework/ROADMAP.md')){Copy-Exact (Join-Path $candidateInput $name) (Join-Path $fixtureSource $name)}
     Confirm (-not(Test-Path (Join-Path $fixtureSource 'AGENTS.md'))-and-not(Test-Path (Join-Path $fixtureSource 'CLAUDE.md'))) 'development-source-has-no-host-entry'
     $vr=Join-Path $fixtureSource 'framework/versions/1.16.0';$mp=Join-Path $vr 'RELEASE_MANIFEST.json'
     [string[]]$payload=@(Get-ChildItem -LiteralPath $vr -File -Recurse|Where-Object{$_.FullName-cne$mp}|ForEach-Object{[IO.Path]::GetRelativePath($vr,$_.FullName).Replace('\','/')})
@@ -135,7 +135,7 @@ try {
     foreach($folder in @('scripts','skills','framework/maintenance-overlay','framework/versions/1.16.0')){
         $dest=Join-Path $target $folder;New-Item -ItemType Directory -Path (Split-Path -Parent $dest) -Force|Out-Null;Copy-Item -LiteralPath (Join-Path $seedSourceRoot $folder) -Destination $dest -Recurse
     }
-    foreach($name in @('AGENTS.md','README.md','LICENSE','INITIALIZATION.md')){Copy-Exact (Join-Path $seedSourceRoot $name) (Join-Path $target $name)}
+    foreach($name in @('AGENTS.md','README.md','LICENSE')){Copy-Exact (Join-Path $seedSourceRoot $name) (Join-Path $target $name)}
     foreach($relative in @('AGENTS.md','.gitignore','.ai-workspace/project.json','.ai-workspace/BOOTSTRAP.md','.ai-workspace/controller.json','.ai-workspace/corrections.json','.ai-workspace/process-policy.json','.ai-workspace/PROJECT-CUSTOM.md')){
         if(Test-Path -LiteralPath (Join-Path $SeedControlRoot $relative)){Copy-Exact (Join-Path $SeedControlRoot $relative) (Join-Path $control $relative)}
     }

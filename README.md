@@ -48,6 +48,7 @@ Framework 结合通用规则、项目纠正和项目长期规则开展工作。�
 
 - [项目接入与升级](framework/PROJECT_ADOPTION.md)：环境检查、接入、升级、恢复，以及项目纠正的维护。
 - [1.16.0 版本说明](framework/versions/1.16.0/README.md)与[变更记录](framework/versions/1.16.0/CHANGELOG.md)：了解该版本的能力和变化。
+- [可选配套工具](tools/README.md)：资源评估工具，可独立使用，不参与项目初始化或日常运行。
 - [后续规划](framework/ROADMAP.md)：了解尚未交付的演进方向。
 - [开发与维护入口](framework/FRAMEWORK_RELEASE.md)：面向框架维护者的规则、实现、验证及发布导航。
 
