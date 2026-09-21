@@ -6,6 +6,7 @@ param(
     [string]$ExpectedSeedTransactionIdentity,
     [switch]$ActorStorageOnly,
     [switch]$EntryTemplatesOnly,
+    [switch]$AdoptionPackageOnly,
     [string]$LegacyRuntimeRoot
 )
 
@@ -80,6 +81,40 @@ function Reset-TestProject {
 }
 
 try {
+    Reset-TestProject
+    $packageModule=Get-Module ProjectAdoptionTransaction
+    $packagePath=Join-Path $fixtureRoot 'process-package.json'
+    $configIdentity=Get-AiwByteIdentity ([IO.File]::ReadAllBytes((Join-Path $fixtureRoot '.ai-workspace/project.json')))
+    $context=[pscustomobject]@{actor='actor';taskOwner='owner';taskIdentity='task-bytes';taskId='task';userDecision='decision';exactScope=@('AGENTS.md')}
+    $receipt=[pscustomobject]@{sourceLocators=[pscustomobject]@{authorizationPackagePath=$packagePath};sourceBindings=[pscustomobject]@{projectConfigIdentity=$configIdentity}}
+    $basePackage=[ordered]@{schemaVersion=1;grantee='actor';owner='owner';taskIdentity='task-bytes';taskId='task';projectConfigIdentity=$configIdentity;userConfirmation='decision';actions=@('CONTROL_WRITE');exactPaths=@('AGENTS.md')}
+    foreach($case in @('schema1','schema2','schema3','actor','owner','task','taskIdentity','config','decision','continuation','action','scope','identity')){
+        $pkg=$basePackage|ConvertTo-Json -Depth 10|ConvertFrom-Json
+        switch($case){
+            'schema2'{$pkg.schemaVersion=2};'schema3'{$pkg.schemaVersion=3}
+            'actor'{$pkg.grantee='wrong'};'owner'{$pkg.owner='wrong'};'task'{$pkg.taskId='wrong'}
+            'taskIdentity'{$pkg.taskIdentity='wrong'};'config'{$pkg.projectConfigIdentity='wrong'};'decision'{$pkg.userConfirmation='wrong'}
+            'continuation'{$pkg|Add-Member continuationPlan @()};'action'{$pkg.actions=@('SOURCE_WRITE')};'scope'{$pkg.exactPaths=@('other.md')}
+        }
+        Write-TestText $packagePath (($pkg|ConvertTo-Json -Depth 10 -Compress)+"`n")
+        $context|Add-Member authorizationIdentity (Get-AiwByteIdentity ([IO.File]::ReadAllBytes($packagePath))) -Force
+        if($case-ceq'identity'){$context.authorizationIdentity='1|INVALID'}
+        $reason='';try{$null=& $packageModule {param($r,$c,$root) Get-AiwAdoptionProcessPackage $r $c $root} $receipt $context $fixtureRoot}catch{$reason=$_.Exception.Message}
+        Assert-True (($case-in@('schema1','schema2')-and$reason-eq'')-or($case-notin@('schema1','schema2')-and$reason-like'ADOPTION_PROCESS_*')) ('adoption-process-package-'+$case)
+    }
+    $cfgPath=Join-Path $fixtureRoot '.ai-workspace/project.json'
+    $cfg=Get-Content -LiteralPath $cfgPath -Raw|ConvertFrom-Json
+    $cfg|Add-Member controlPlaneLayout 'framework-maintenance-sibling'
+    Write-TestText $cfgPath (($cfg|ConvertTo-Json -Depth 10 -Compress)+"`n")
+    foreach($schema in @(1,2)){
+        $pkg=$basePackage|ConvertTo-Json -Depth 10|ConvertFrom-Json;$pkg.schemaVersion=$schema
+        $pkg.projectConfigIdentity=Get-AiwByteIdentity ([IO.File]::ReadAllBytes($cfgPath));$receipt.sourceBindings.projectConfigIdentity=$pkg.projectConfigIdentity
+        Write-TestText $packagePath (($pkg|ConvertTo-Json -Depth 10 -Compress)+"`n")
+        $context.authorizationIdentity=Get-AiwByteIdentity ([IO.File]::ReadAllBytes($packagePath))
+        $reason='';try{$null=& $packageModule {param($r,$c,$root) Get-AiwAdoptionProcessPackage $r $c $root} $receipt $context $fixtureRoot}catch{$reason=$_.Exception.Message}
+        Assert-True (($schema-eq1-and$reason-ceq'ADOPTION_PROCESS_PACKAGE_BINDING')-or($schema-eq2-and$reason-eq'')) ('maintenance-process-package-'+$schema)
+    }
+    if($AdoptionPackageOnly){Write-Output ('PASS|adoption-process-package|'+$passed+'/'+$passed);return}
     if($ActorStorageOnly){
         if(-not$LegacyRuntimeRoot){throw 'ACTOR_STORAGE_LEGACY_RUNTIME_REQUIRED'}
         $sourceRoot=Split-Path -Parent $scriptsRoot

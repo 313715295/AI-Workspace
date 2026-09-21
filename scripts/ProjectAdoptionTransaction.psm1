@@ -764,6 +764,19 @@ function Read-AiwAdoptionEvidence([string]$Path,[string]$Identity,[string]$Label
     if($doc.Identity-cne$Identity){throw ('ADOPTION_PROCESS_EVIDENCE_DRIFT|'+$Label)}
     return $doc
 }
+function Get-AiwAdoptionProcessPackage($Receipt,$Context,[string]$Root) {
+    $doc=Read-AiwAdoptionEvidence $Receipt.sourceLocators.authorizationPackagePath $Context.authorizationIdentity 'PROCESS_PACKAGE'
+    $pkg=$doc.Value
+    $config=(Read-AiwProjectJson (Get-AiwContainedPath $Root '.ai-workspace/project.json') 'PROJECT').Value
+    $maintenance=$null-ne$config.PSObject.Properties['controlPlaneLayout']-and$config.controlPlaneLayout-ceq'framework-maintenance-sibling'
+    if($pkg.schemaVersion-notin@(1,2)-or($maintenance-and$pkg.schemaVersion-ne2)-or
+       $pkg.grantee-cne$Context.actor-or$pkg.owner-cne$Context.taskOwner-or$pkg.taskIdentity-cne$Context.taskIdentity-or
+       $pkg.taskId-cne$Context.taskId-or$pkg.projectConfigIdentity-cne$Receipt.sourceBindings.projectConfigIdentity-or
+       $pkg.userConfirmation-cne$Context.userDecision-or$null-ne$pkg.PSObject.Properties['continuationPlan']){throw 'ADOPTION_PROCESS_PACKAGE_BINDING'}
+    Assert-AiwAdoptionSame @($pkg.actions) @('CONTROL_WRITE') 'PACKAGE_ACTION'
+    Assert-AiwAdoptionSame @($pkg.exactPaths|Sort-Object) @($Context.exactScope|Sort-Object) 'PACKAGE_SCOPE'
+    return $doc
+}
 function Get-AiwAdoptionProcessContext($Receipt) {
     if(($Receipt.schemaVersion-eq1-and$Receipt.inputContractVersion-eq2)){$c=$Receipt.authorityContext}
     elseif($Receipt.schemaVersion-eq2-and$Receipt.inputContractVersion-eq3){$c=$Receipt.binding}
@@ -803,6 +816,7 @@ function New-AiwAdoptionProcessPreparation {
     $c=Get-AiwAdoptionProcessContext $receipt
     if((Resolve-AiwRepositoryRoot $c.projectRoot)-cne$root-or$c.actor-cne$ObservedActor){throw 'ADOPTION_PROCESS_ACTOR_ROOT'}
     $null=Assert-AiwProjectionContract $root $Projection
+    $null=Get-AiwAdoptionProcessPackage $receipt $c $root
     Assert-AiwAdoptionSame @($Projection.objects.path|Sort-Object) @($c.exactScope|Sort-Object) 'PROJECTION_SCOPE'
     foreach($entry in $Projection.objects){
         $newHistory=$entry.path-cmatch'^\.ai-workspace/upgrade-recovery/corrections/[A-Z][A-Z0-9_]*/[A-Za-z0-9._-]+/history\.json$'
@@ -894,10 +908,7 @@ function Invoke-AiwAdoptionProcessBoundary {
         if($null-ne$a.PSObject.Properties['deliveryContext']){$material+=($a.deliveryContext|ConvertTo-Json -Compress)}
         if((Get-AiwByteIdentity ($script:Utf8NoBom.GetBytes($material))).Split('|')[1]-cne$ad.decisionIdentity){throw 'ADOPTION_PROCESS_ORIGINAL_DECISION'}
         if(('ADOPTION_TARGET_RULES_LOADED|'+$ad.adoptionPreparationIdentity)-cnotin@($a.preparationReceipts)){throw 'ADOPTION_PROCESS_TARGET_PREPARATION_INCOMPLETE'}
-        $pkgDoc=Read-AiwAdoptionEvidence $r.sourceLocators.authorizationPackagePath $c.authorizationIdentity 'PROCESS_PACKAGE';$pkg=$pkgDoc.Value
-        if($pkg.schemaVersion-ne2-or$pkg.grantee-cne$c.actor-or$pkg.owner-cne$c.taskOwner-or$pkg.taskIdentity-cne$c.taskIdentity-or$pkg.taskId-cne$c.taskId-or$pkg.projectConfigIdentity-cne$r.sourceBindings.projectConfigIdentity-or$pkg.userConfirmation-cne$c.userDecision-or$null-ne$pkg.PSObject.Properties['continuationPlan']){throw 'ADOPTION_PROCESS_PACKAGE_BINDING'}
-        Assert-AiwAdoptionSame @($pkg.actions) @('CONTROL_WRITE') 'PACKAGE_ACTION'
-        Assert-AiwAdoptionSame @($pkg.exactPaths|Sort-Object) @($c.exactScope|Sort-Object) 'PACKAGE_SCOPE'
+        $pkgDoc=Get-AiwAdoptionProcessPackage $r $c $root;$pkg=$pkgDoc.Value
         $txnPath=Get-AiwContainedPath $root '.ai-workspace/runtime/project-adoption/upgrade/state.json'
         $txnDoc=Read-AiwAdoptionEvidence $txnPath $ExpectedTransactionIdentity 'TRANSACTION';$t=$txnDoc.Value
         if($t.transactionComplete-isnot[bool]-or-not$t.transactionComplete-or$t.state-cne'COMPLETE'-or$t.metadata.taskPath-cne$r.sourceLocators.taskRelativePath-or$t.metadata.taskIdentity-cne$c.taskIdentity-or$t.metadata.projectConfigIdentity-cne$r.sourceBindings.projectConfigIdentity-or$t.metadata.controllerIdentity-cne$r.sourceBindings.controllerIdentity){throw 'ADOPTION_PROCESS_TRANSACTION_INCOMPLETE_OR_CONTEXT'}
