@@ -886,7 +886,7 @@
       "requirementId": "PR_KNOWLEDGE_REFERENCE_QUERY",
       "legacyAliases": [],
       "title": "Knowledge reference query",
-      "description": "Discover compact metadata and query at most three request-scoped non-authoritative entries.",
+      "description": "Discover compact metadata and query explicitly selected request-scoped non-authoritative entries.",
       "ownerModule": "KNOWLEDGE_AND_REFERENCE.md",
       "selectors": {
         "profiles": [

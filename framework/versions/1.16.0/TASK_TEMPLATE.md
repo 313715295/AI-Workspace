@@ -28,9 +28,9 @@
 
 只有实际发生才加：组织/资源选择及必要理由、QUERY影响引用、术语变化、写后产物/Git去向。健康结论复用，无新结果不写卡。
 
-CRITICAL补独立Reviewer、用户决定入口、稳定候选及必要依赖、范围变化触发；Range summary在lifecycle后增加 `current_exact=<稳定候选>`。每张CRITICAL卡有一条 `Phase gate: TRUE|FALSE` 和 `Proportionality`：重大方案新增机制时填写 existing / classification / minimum_sufficient_fix / added_machinery / escalation_trigger；真实不适用时填写 `NOT_APPLICABLE; reason=<原因>`。不要求固定Review轮数、卡片字节或反例数量。
+CRITICAL补独立Reviewer、用户决定入口、稳定候选及必要依赖、范围变化触发；Range summary在lifecycle后增加 `current_exact=<稳定候选>`。实际重大方案或新增流程机制时在方案填写 `Proportionality` 的 existing / classification / minimum_sufficient_fix / added_machinery / escalation_trigger；普通CRITICAL卡无需补不适用套话。需要审核且范围、writer及Reviewer已明确时默认配置repairReviewPlan，首次交审和局部修复复审直接衔接。独立审核、实质决定和最终Owner接受仍保留。不要求固定Review轮数、卡片字节或反例数量。
 
-只有推进项目/多领域里程碑的父任务使用 `Phase gate: TRUE`，否则FALSE；TRUE时使用以下已有矩阵：
+推进项目/多领域实际里程碑的父任务使用 `Phase gate: TRUE`及以下既有矩阵；非里程碑卡可省略Phase gate，不强制FALSE。已声明字段继续校验结构与真实验收顺序，旧卡无需批量重写：
 
 ```markdown
 ## Phase acceptance

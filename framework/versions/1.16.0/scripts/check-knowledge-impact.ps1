@@ -147,7 +147,7 @@ function Read-StrictJson([string]$Path,[string]$Label) {
     $bytes=[IO.File]::ReadAllBytes($Path)
     if($bytes.Length-ge3-and$bytes[0]-eq0xEF-and$bytes[1]-eq0xBB-and$bytes[2]-eq0xBF){throw ($Label+'_BOM')}
     try{$raw=$utf8Strict.GetString($bytes)}catch{throw ($Label+'_UTF8')}
-    if($raw.Contains("`r")-or$raw.Contains([char]0)-or$raw.Contains([char]0xFFFD)-or-not$raw.EndsWith("`n")){throw ($Label+'_TEXT_FORMAT')}
+    if($raw.Contains([char]0)-or$raw.Contains([char]0xFFFD)){throw ($Label+'_TEXT_FORMAT')}
     $cursor=0
     try{Read-JsonValue $raw ([ref]$cursor);Skip-JsonWhitespace $raw ([ref]$cursor);if($cursor-ne$raw.Length){throw 'JSON_TRAILING'}}catch{throw ($Label+'_'+[string]$_.Exception.Message)}
     try{

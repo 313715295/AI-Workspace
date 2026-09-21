@@ -15,7 +15,7 @@ function Assert-AiwInputJsonMembers($Element) {
 function ConvertFrom-AiwStrictInputJson {
     param([Parameter(Mandatory)][string]$Text)
     if($Text.Length -gt 0 -and $Text[0] -eq [char]0xFEFF){throw 'INPUT_BOM'}
-    if($Text.Contains("`r") -or $Text.Contains([char]0) -or $Text.Contains([char]0xFFFD) -or -not $Text.EndsWith("`n")){throw 'INPUT_TEXT_FORMAT'}
+    if($Text.Contains([char]0) -or $Text.Contains([char]0xFFFD)){throw 'INPUT_TEXT_FORMAT'}
     try{$null=[Text.UTF8Encoding]::new($false,$true).GetBytes($Text)}catch{throw 'INPUT_UTF8'}
     try{$document=[System.Text.Json.JsonDocument]::Parse($Text)}catch{throw 'INPUT_JSON'}
     try{

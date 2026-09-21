@@ -80,12 +80,6 @@ function Read-StrictUtf8Template {
     if ($content.Contains([char]0) -or $content.Contains([char]0xFFFD)) {
         throw "File contains a forbidden text code point: $Path"
     }
-    if ($content.Contains("`r")) {
-        throw "File must use LF line endings: $Path"
-    }
-    if (-not $content.EndsWith("`n")) {
-        throw "File must end with LF: $Path"
-    }
     return $content
 }
 
@@ -918,7 +912,8 @@ if ((Test-Path -LiteralPath $projectRoot) -and -not $completedRollbackStateOnly)
     $existingBootstrapTemplate=Read-StrictUtf8Template (Join-ChildPath $existingTemplateRoot 'BOOTSTRAP.md')
     Assert-RepoLocalProject $projectRoot $ProjectId $DisplayName $FrameworkVersion $requiredProjectFiles $requiredProjectDirectories $existingBootstrapTemplate $workspace $ControllerId $ControlPlaneLayout $FrameworkTargetRepositoryId $FrameworkTargetSiblingDirectory $FrameworkTargetRoutineExcludedPath
     $existingAgentsProjection=Get-FrameworkAgentsProjection $repo $existingTemplateRoot $FrameworkVersion
-    if([string]$existingAgentsProjection.OldAgentsIdentity-ceq'MISSING'-or(Read-StrictUtf8Template ([string]$existingAgentsProjection.AgentsPath))-cne[string]$existingAgentsProjection.TargetAgents){throw 'EXISTING_REGISTRATION_PROJECTION_DRIFT|AGENTS.md'}
+    if([string]$existingAgentsProjection.OldAgentsIdentity-ceq'MISSING'){throw 'EXISTING_REGISTRATION_PROJECTION_DRIFT|AGENTS.md'}
+    $null=Get-AiwAgentsTemplateBlock (Read-StrictUtf8Template ([string]$existingAgentsProjection.AgentsPath))
     if($null-eq$existingAgentsProjection.GitIgnore-or[bool]$existingAgentsProjection.GitIgnore.Changed){throw 'EXISTING_REGISTRATION_PROJECTION_DRIFT|.gitignore'}
     [pscustomobject]@{
         status = 'ALREADY_REGISTERED'

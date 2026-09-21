@@ -144,7 +144,7 @@ platform support 由 evidence 限定。release 只声称 sealed Tool Contract �
 
 项目 Bootstrap custom 到 process-policy 的来源迁移由原 CONTROL_WRITE FINALIZE 处理；旧 receipt 可提供原包绑定的 Bootstrap 前像，仍须证明管理区未变。已授权动作中断时，upgrade-project 的 ProjectRuleRecoveryPlanPath 入口消费原 DISCOVER、原 ADMIT 输入与结果、原授权包及精确前后像。恢复事务明确在现在创建，不声称历史上已存在；COMPLETE 与 ROLLBACK 均复核所有对象和未授权来源后执行，并以原动作 FINALIZE 收口。缺失原 admission、前像或未知混合字节时拒绝，fresh DISCOVER 不替代原 action。
 
-本批整组纠正与调用减负的新增根 helper 属于接入工具；包构建清单必须包含其真实依赖，测试只在隔离 fixture 构包。新 capability 的开发验证不得更改已有 snapshot、ZIP、live corrections 或采用状态。持续委托随 AGENTS 的 FRAMEWORK 管理模板更新；旧 USER-DECISION 默认声明在升级投影中迁入，区外项目扩展保留，封存前验证注册与升级消费者一致。纠正吸收仍需完整来源语义、行为和独立 Review，生命周期安装证据不能替代吸收依据。
+本批整组纠正与调用减负的新增根 helper 属于接入工具；包构建清单必须包含其真实依赖，测试只在隔离 fixture 构包。新 capability 的开发验证不得更改已有 snapshot、ZIP、live corrections 或采用状态。项目授权正文随 AGENTS 的 FRAMEWORK 管理模板更新，日常以当前正文为准，安装managedIdentity不是永久内容锁；升级只替换 FRAMEWORK 管理区，旧 USER-DECISION 声明、标记及其他区外内容均保持原始字节，封存前验证注册与升级消费者一致。纠正吸收仍需完整来源语义、行为和独立 Review，生命周期安装证据不能替代吸收依据。
 
 ## 内部接入职责
 

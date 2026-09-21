@@ -61,11 +61,10 @@ $bytes = [IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $TaskPath))
 $reasons = New-Object 'System.Collections.Generic.List[string]'
 if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) { Add-Reason $reasons 'UTF8_BOM' }
 try { $text = [Text.UTF8Encoding]::new($false, $true).GetString($bytes) } catch { Write-Output 'FAIL|UTF8_INVALID'; exit 2 }
-if ($text.Contains("`r")) { Add-Reason $reasons 'CRLF_OR_CR' }
 if ($text.Contains([char]0)) { Add-Reason $reasons 'NUL' }
 if ($text.Contains([char]0xFFFD)) { Add-Reason $reasons 'U_FFFD' }
-if (-not $text.EndsWith("`n")) { Add-Reason $reasons 'FINAL_LF' }
-if ([regex]::IsMatch($text, '(?m)[ \t]+$')) { Add-Reason $reasons 'TRAILING_WHITESPACE' }
+# Parse line structure in memory; byte identities always use the original file.
+$text=$text.Replace("`r`n","`n").Replace("`r","`n")
 
 $schemaMatches = [regex]::Matches($text, '(?m)^- Task schema:\s*(?<version>[^\s]+)\s*$')
 if ($schemaMatches.Count -eq 0) {
@@ -189,7 +188,7 @@ if($closure.Count-gt0){
 
 if ($profile -ceq 'CRITICAL' -and [string]::IsNullOrWhiteSpace($currentExact)) { Add-Reason $reasons 'CRITICAL_CURRENT_EXACT' }
 
-if ($taskSchema -in @('1.9.0','1.10.0','1.11.0','1.12.0','1.13.0','1.16.0') -and $profile -ceq 'CRITICAL') {
+if ($taskSchema -in @('1.9.0','1.10.0','1.11.0','1.12.0','1.13.0','1.16.0') -and [regex]::IsMatch($text,'(?m)^- Proportionality:')) {
     $proportionalityMatches = [regex]::Matches($text, '(?m)^- Proportionality:\s*(?<value>.+?)\s*$')
     if ($proportionalityMatches.Count -ne 1) {
         Add-Reason $reasons 'PROPORTIONALITY_FIELD'
@@ -223,7 +222,7 @@ if ($taskSchema -in @('1.9.0','1.10.0','1.11.0','1.12.0','1.13.0','1.16.0') -and
     }
 }
 
-if ($taskSchema -in @('1.5.2','1.9.0','1.10.0','1.11.0','1.12.0','1.13.0','1.16.0') -and $profile -ceq 'CRITICAL') {
+if ($taskSchema -in @('1.5.2','1.9.0','1.10.0','1.11.0','1.12.0','1.13.0','1.16.0') -and [regex]::IsMatch($text,'(?m)^- (Phase gate|Technical evidence|Domain contract check|Runtime/platform check|Project phase signoff|User final gate|Acceptance order):')) {
     $phaseGateMatches = [regex]::Matches($text, '(?m)^- Phase gate:\s*(?<value>TRUE|FALSE)\s*$')
     if ($phaseGateMatches.Count -ne 1) {
         Add-Reason $reasons 'PHASE_GATE_FIELD'

@@ -25,11 +25,32 @@ function Get-AiwLifecycleState($Record) {
 }
 function Read-AiwCorrectionInstallation([string]$Root,$Record) {
     $ref=$Record.lifecycle.installation
+    if($ref-is[string]-and$ref-ceq'NOT_APPLICABLE'){
+        return [pscustomobject]@{correctionId=$Record.correctionId;dependsOn=@();changes=@()}
+    }
     Assert-AiwLifecycleFields $ref @('locator','identity') 'CORRECTION_INSTALLATION_REF'
     if(-not([string]$ref.locator).StartsWith('.ai-workspace/upgrade-recovery/corrections/',[StringComparison]::Ordinal)){throw 'CORRECTION_INSTALLATION_LOCATOR'}
     $doc=Read-AiwProjectJson (Get-AiwContainedPath $Root $ref.locator) 'CORRECTION_INSTALLATION'
     if($doc.Identity-cne$ref.identity-or$doc.Value.correctionId-cne$Record.correctionId){throw 'CORRECTION_INSTALLATION_DRIFT'}
-    return $doc.Value
+    return ConvertTo-AiwCorrectionEffectView $doc.Value
+}
+
+# CURRENT_REMOVAL records an actual present-day edit, not an invented original
+# installation. Only the working view reverses its direction for pause/resume.
+function ConvertTo-AiwCorrectionEffectView($Installation) {
+    if($null-eq$Installation.PSObject.Properties['effectDirection']){return $Installation}
+    if($Installation.effectDirection-cne'CURRENT_REMOVAL'){throw 'CORRECTION_EFFECT_DIRECTION'}
+    $view=$Installation|ConvertTo-Json -Depth 64|ConvertFrom-Json -Depth 64
+    $changes=@($view.changes);[array]::Reverse($changes)
+    foreach($change in $changes){
+        if($change.kind-ceq'TEXT'){$value=$change.before;$change.before=$change.after;$change.after=$value}
+        elseif($change.kind-ceq'FILE'){
+            $value=$change.beforeBase64;$change.beforeBase64=$change.afterBase64;$change.afterBase64=$value
+            $exists=$change.beforeExists;$change.beforeExists=$change.afterExists;$change.afterExists=$exists
+        }else{throw 'CORRECTION_EFFECT_KIND'}
+    }
+    $view.changes=$changes
+    return $view
 }
 
 # @design-contract framework/versions/1.16.0/PROJECT_CONTROL.md#Project-corrections
@@ -57,7 +78,7 @@ function New-AiwCorrectionLifecycleProjection {
     $existing=@($carrier.corrections|Where-Object{$_.correctionId-ceq$Plan.correctionId})
     if($existing.Count-gt1){throw 'CORRECTION_DUPLICATE'}
     $state=if($existing.Count){Get-AiwLifecycleState $existing[0]}else{'ABSENT'}
-    $allowed=@{INSTALL=@('ABSENT','UNINSTALLED');REGISTER_HISTORY=@('LEGACY');REVISE=@('LEGACY','ACTIVE','PAUSED');PAUSE=@('ACTIVE');RESUME=@('PAUSED');UNINSTALL=@('ACTIVE','PAUSED')}
+    $allowed=@{INSTALL=@('ABSENT','UNINSTALLED');REGISTER_HISTORY=@('LEGACY');REVISE=@('LEGACY','ACTIVE','PAUSED');PAUSE=@('LEGACY','ACTIVE');RESUME=@('PAUSED');UNINSTALL=@('LEGACY','ACTIVE','PAUSED')}
     if($state-cnotin$allowed[[string]$Plan.operation]){throw ('CORRECTION_TRANSITION|'+$state+'|'+$Plan.operation)}
     $targets=[Collections.Generic.List[object]]::new()
     $priorRecord=if($existing.Count){($existing[0]|ConvertTo-Json -Depth 64|ConvertFrom-Json -Depth 64)}else{$null}
@@ -83,13 +104,34 @@ function New-AiwCorrectionLifecycleProjection {
         if($record.correctionId-cne$Plan.correctionId-or$null-ne$record.PSObject.Properties['lifecycle']-or($Plan.operation-cne'REGISTER_HISTORY'-and$null-ne$record.PSObject.Properties['history'])){throw 'CORRECTION_INSTALL_RECORD'}
         $installation=$Plan.installation
         Assert-AiwLifecycleFields $installation @('schemaVersion','correctionId','decisionLocator','dependsOn','changes') 'CORRECTION_INSTALLATION'
-        if($installation.schemaVersion-ne1-or$installation.correctionId-cne$Plan.correctionId-or[string]::IsNullOrWhiteSpace($installation.decisionLocator)-or$installation.dependsOn-isnot[array]-or$installation.changes-isnot[array]-or$installation.changes.Count-gt64){throw 'CORRECTION_INSTALLATION_VALUES'}
+        if($installation.schemaVersion-ne1-or$installation.correctionId-cne$Plan.correctionId-or[string]::IsNullOrWhiteSpace($installation.decisionLocator)-or$installation.dependsOn-isnot[array]-or$installation.changes-isnot[array]){throw 'CORRECTION_INSTALLATION_VALUES'}
         if(-not([string]$Plan.installationRelativePath).StartsWith('.ai-workspace/upgrade-recovery/corrections/'+$Plan.correctionId+'/',[StringComparison]::Ordinal)-or-not([string]$Plan.installationRelativePath).EndsWith('/installation.json',[StringComparison]::Ordinal)){throw 'CORRECTION_INSTALLATION_PATH'}
         $evidencePath=Get-AiwContainedPath $root $Plan.installationRelativePath
         if(Test-Path -LiteralPath $evidencePath){throw 'CORRECTION_INSTALLATION_EVIDENCE_EXISTS'}
         $evidenceText=Get-AiwLifecycleJson $installation
         $targets.Add([pscustomobject]@{path=$Plan.installationRelativePath;text=$evidenceText})
         $record|Add-Member lifecycle ([pscustomobject]@{state='ACTIVE';installation=[pscustomobject]@{locator=$Plan.installationRelativePath;identity=(Get-AiwLifecycleIdentity $evidenceText)};decisionLocator=$Plan.decisionLocator})
+    }elseif($state-ceq'LEGACY'-and$Plan.operation-cin@('PAUSE','UNINSTALL')){
+        if($Plan.record-cne'NOT_APPLICABLE'){throw 'CORRECTION_EXIT_RECORD_UNCHANGED'}
+        $record=$existing[0];$installationRef='NOT_APPLICABLE'
+        if($Plan.installation-is[string]-and$Plan.installation-ceq'NOT_APPLICABLE'){
+            if($Plan.installationRelativePath-cne'NOT_APPLICABLE'){throw 'CORRECTION_INSTALLATION_PATH'}
+            $installation=[pscustomobject]@{dependsOn=@();changes=@()}
+        }else{
+            $installation=$Plan.installation
+            $fields=@('schemaVersion','correctionId','decisionLocator','dependsOn','changes')
+            if($null-ne$installation.PSObject.Properties['effectDirection']){$fields+='effectDirection'}
+            Assert-AiwLifecycleFields $installation $fields 'CORRECTION_INSTALLATION'
+            if($installation.schemaVersion-ne1-or$installation.correctionId-cne$Plan.correctionId-or[string]::IsNullOrWhiteSpace($installation.decisionLocator)-or$installation.dependsOn-isnot[array]-or$installation.changes-isnot[array]){throw 'CORRECTION_INSTALLATION_VALUES'}
+            if(-not([string]$Plan.installationRelativePath).StartsWith($historyRoot,[StringComparison]::Ordinal)-or-not([string]$Plan.installationRelativePath).EndsWith('/installation.json',[StringComparison]::Ordinal)){throw 'CORRECTION_INSTALLATION_PATH'}
+            $path=Get-AiwContainedPath $root $Plan.installationRelativePath
+            if(Test-Path -LiteralPath $path){throw 'CORRECTION_INSTALLATION_EVIDENCE_EXISTS'}
+            $installationText=Get-AiwLifecycleJson $installation
+            $targets.Add([pscustomobject]@{path=$Plan.installationRelativePath;text=$installationText})
+            $installationRef=[pscustomobject]@{locator=$Plan.installationRelativePath;identity=(Get-AiwLifecycleIdentity $installationText)}
+            $installation=ConvertTo-AiwCorrectionEffectView $installation
+        }
+        $record|Add-Member lifecycle ([pscustomobject]@{state='ACTIVE';installation=$installationRef;decisionLocator=$Plan.decisionLocator})
     }elseif($Plan.operation-ceq'REVISE'){
         if($Plan.installation-cne'NOT_APPLICABLE'-or$Plan.installationRelativePath-cne'NOT_APPLICABLE'-or$Plan.record-isnot[pscustomobject]){throw 'CORRECTION_REVISE_RECORD'}
         $record=($Plan.record|ConvertTo-Json -Depth 64|ConvertFrom-Json -Depth 64)

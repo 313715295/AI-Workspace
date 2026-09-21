@@ -338,6 +338,9 @@
                     ]
                   },
                   "installation": {
+                    "oneOf": [
+                      {"const": "NOT_APPLICABLE"},
+                      {
                     "required": [
                       "locator",
                       "identity"
@@ -354,6 +357,8 @@
                       }
                     },
                     "type": "object"
+                      }
+                    ]
                   },
                   "decisionLocator": {
                     "minLength": 1,

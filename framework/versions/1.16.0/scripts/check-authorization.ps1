@@ -90,7 +90,7 @@ function Read-StrictUtf8([string]$Path) {
     if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) { throw 'CONTROLLER_BOM' }
     $encoding = New-Object Text.UTF8Encoding($false, $true)
     try { $text = $encoding.GetString($bytes) } catch { throw 'CONTROLLER_UTF8' }
-    if ($text.Contains([char]0) -or $text.Contains([char]0xFFFD) -or $text.Contains("`r") -or -not $text.EndsWith("`n")) { throw 'CONTROLLER_TEXT_FORMAT' }
+    if ($text.Contains([char]0) -or $text.Contains([char]0xFFFD)) { throw 'CONTROLLER_TEXT_FORMAT' }
     return $text
 }
 
@@ -208,7 +208,7 @@ $continuationPlanFields = @('continuationPlan')
 $upgradePostimageFields = @('postObjectIdentities')
 $upgradeSnapshotFields = @('targetFrameworkSnapshot')
 $criticalReviewFields = @('candidateWriter','materialContributors')
-$boundedRereview=$null-ne$package.PSObject.Properties['repairReviewBinding']-and[string]$package.repairReviewBinding.phase-ceq'REREVIEW'
+$boundedRereview=$null-ne$package.PSObject.Properties['repairReviewBinding']-and[string]$package.repairReviewBinding.phase-cin@('INITIAL_REVIEW','REREVIEW')
 $criticalReviewPackage = ([string]$package.profile -ceq 'CRITICAL' -and 'REVIEW_EXECUTE' -in @($package.actions)) -or $boundedRereview
 $domainExternalPackage = [string]$package.issuerRole -ceq 'DOMAIN_OWNER' -and 'EXTERNAL' -in @($package.actions)
 $actualFields = @($package.PSObject.Properties.Name)
@@ -239,7 +239,7 @@ function Assert-RepairPlan($Parent) {
     $plan=$Parent.repairReviewPlan
     Assert-RepairFields $plan @('writer','reviewer','maxCycles','materialContributors')
     if($plan.writer-isnot[string]-or$plan.reviewer-isnot[string]-or[string]::IsNullOrWhiteSpace($plan.writer)-or[string]::IsNullOrWhiteSpace($plan.reviewer)-or
-       -not(Test-JsonInteger $plan.maxCycles)-or$plan.maxCycles-lt1-or$plan.maxCycles-gt8-or$plan.materialContributors-isnot[array]){throw 'REPAIR_REVIEW_PLAN_VALUES'}
+       -not(Test-JsonInteger $plan.maxCycles)-or$plan.maxCycles-lt1-or$plan.materialContributors-isnot[array]){throw 'REPAIR_REVIEW_PLAN_VALUES'}
     if($plan.writer-cne$Parent.grantee-or$plan.reviewer-cin@($Parent.owner,$Parent.issuer,$plan.writer)-or$plan.reviewer-cin@($plan.materialContributors)){throw 'REPAIR_REVIEW_INDEPENDENCE'}
     if(@($Parent.actions|Where-Object{$_-cnotin@('SOURCE_WRITE','TEST_WRITE','TEST_RUN','CONTROL_WRITE')}).Count){throw 'REPAIR_REVIEW_PARENT_ACTION'}
 }
@@ -253,7 +253,9 @@ try {
         if($null-ne$parent.PSObject.Properties['repairReviewBinding']){throw 'REPAIR_REVIEW_NESTED_PARENT'}
         Assert-RepairPlan $parent
         $plan=$parent.repairReviewPlan
-        if($b.phase-cnotin@('REPAIR','REREVIEW')-or-not(Test-JsonInteger $b.cycle)-or$b.cycle-lt1-or$b.cycle-gt$plan.maxCycles){throw 'REPAIR_REVIEW_CYCLE'}
+        $initialReview=$b.phase-ceq'INITIAL_REVIEW'
+        if($b.phase-cnotin@('INITIAL_REVIEW','REPAIR','REREVIEW')-or-not(Test-JsonInteger $b.cycle)-or
+           ($initialReview-and$b.cycle-ne0)-or(-not$initialReview-and($b.cycle-lt1-or$b.cycle-gt$plan.maxCycles))){throw 'REPAIR_REVIEW_CYCLE'}
         foreach($name in @('schemaVersion','frameworkVersion','taskId','taskIdentity','owner','issuer','issuerRole','profile','projectConfigIdentity','userConfirmation')){
             if($package.$name-cne$parent.$name){throw ('REPAIR_REVIEW_PARENT_DRIFT|'+$name)}
         }
@@ -261,12 +263,16 @@ try {
             if($null-ne$parent.PSObject.Properties[$name]-and($null-eq$package.PSObject.Properties[$name]-or$package.$name-cne$parent.$name)){throw ('REPAIR_REVIEW_PARENT_DRIFT|'+$name)}
         }
         if((@($package.exactPaths|Sort-Object)-join"`n")-cne(@($parent.exactPaths|Sort-Object)-join"`n")){throw 'REPAIR_REVIEW_SCOPE_CHANGED'}
+        if($initialReview){
+            if($b.verdictPath-cne'NOT_APPLICABLE'-or$b.verdictIdentity-cne'NOT_APPLICABLE'){throw 'INITIAL_REVIEW_NO_VERDICT'}
+        }else{
         $verdict=Read-RepairEvidence $b.verdictPath $b.verdictIdentity
         Assert-RepairFields $verdict @('taskId','owner','reviewer','writer','cycle','verdict','exactPaths','objectIdentities','findingPaths','scopeChanged','decisionChanged')
         if($verdict.taskId-cne$parent.taskId-or$verdict.owner-cne$parent.owner-or$verdict.reviewer-cne$plan.reviewer-or$verdict.writer-cne$plan.writer-or
            $verdict.cycle-ne($b.cycle-1)-or$verdict.verdict-cne'CHANGES_REQUESTED'-or$verdict.scopeChanged-isnot[bool]-or$verdict.scopeChanged-or$verdict.decisionChanged-isnot[bool]-or$verdict.decisionChanged){throw 'REPAIR_REVIEW_VERDICT_BOUNDARY'}
         if($verdict.findingPaths-isnot[array]-or$verdict.findingPaths.Count-eq0-or@($verdict.findingPaths|Where-Object{$_-cnotin$parent.exactPaths}).Count-or
            (@($verdict.exactPaths|Sort-Object)-join"`n")-cne(@($parent.exactPaths|Sort-Object)-join"`n")){throw 'REPAIR_REVIEW_FINDING_SCOPE'}
+        }
         if($b.phase-ceq'REPAIR'){
             if($package.grantee-cne$plan.writer-or@($package.actions|Where-Object{$_-cnotin$parent.actions}).Count){throw 'REPAIR_REVIEW_WRITER_ACTION'}
             foreach($name in @('repairFinalizeInputPath','repairFinalizeInputIdentity','repairFinalizeResultPath','repairFinalizeResultIdentity')){if($b.$name-cne'NOT_APPLICABLE'){throw 'REPAIR_REVIEW_FUTURE_RESULT'}}
@@ -300,9 +306,13 @@ try {
             }
             if($null-eq$finalDelivery-and$intent.requestedResultKind-cin@('USER_RESPONSE','TERMINAL','HANDOFF','REVIEW_VERDICT','OWNER_ACCEPTANCE')-and@($finalInput.deliveryReceipts).Count-eq0){throw 'REPAIR_REVIEW_FINALIZE_INCOMPLETE'}
             $repairPackage=Read-RepairEvidence $discover.sourceLocators.authorizationPackagePath $context.authorizationIdentity
-            if($repairPackage.grantee-cne$plan.writer-or$repairPackage.taskIdentity-cne$package.taskIdentity-or
-               $repairPackage.repairReviewBinding.phase-cne'REPAIR'-or$repairPackage.repairReviewBinding.parentPackageIdentity-cne$b.parentPackageIdentity-or
-               $repairPackage.repairReviewBinding.verdictIdentity-cne$b.verdictIdentity-or$repairPackage.repairReviewBinding.cycle-ne$b.cycle){throw 'REPAIR_REVIEW_REPAIR_SOURCE'}
+            if($repairPackage.grantee-cne$plan.writer-or$repairPackage.taskIdentity-cne$package.taskIdentity){throw 'REPAIR_REVIEW_REPAIR_SOURCE'}
+            if($initialReview){
+                if($context.authorizationIdentity-cne$b.parentPackageIdentity-or
+                   $null-ne$repairPackage.PSObject.Properties['repairReviewBinding']-or
+                   $intent.requestedActionKind-cnotin$parent.actions){throw 'INITIAL_REVIEW_PRODUCER_SOURCE'}
+            }elseif($repairPackage.repairReviewBinding.phase-cne'REPAIR'-or$repairPackage.repairReviewBinding.parentPackageIdentity-cne$b.parentPackageIdentity-or
+                     $repairPackage.repairReviewBinding.verdictIdentity-cne$b.verdictIdentity-or$repairPackage.repairReviewBinding.cycle-ne$b.cycle){throw 'REPAIR_REVIEW_REPAIR_SOURCE'}
             $rows=@($finalInput.resultReceipts|Where-Object{$_-clike'OBJECT_POSTIMAGE|*'}|Sort-Object)
             $expected=@($package.objectIdentities|ForEach-Object{'OBJECT_POSTIMAGE|'+$_.path+'|'+$_.identity}|Sort-Object)
             if(($rows-join"`n")-cne($expected-join"`n")){throw 'REPAIR_REVIEW_POSTIMAGE_DRIFT'}
@@ -471,7 +481,7 @@ if ($actions.Count -ne @($actions | Select-Object -Unique).Count) { Add-Reason $
 if($hasContinuationPlan){
     $continuationPlan=@($package.continuationPlan)
     $continuableActions=@('CONTROL_WRITE','SOURCE_WRITE','TEST_WRITE','TEST_RUN')
-    if([int]$package.schemaVersion-eq3-or$continuationPlan.Count-lt2-or$continuationPlan.Count-gt16){Add-Reason $reasons 'CONTINUATION_PLAN_SHAPE'}
+    if([int]$package.schemaVersion-eq3-or$continuationPlan.Count-lt2){Add-Reason $reasons 'CONTINUATION_PLAN_SHAPE'}
     foreach($action in $continuationPlan){
         if(-not($action-is[string])-or[string]$action-cnotin$continuableActions-or[string]$action-cnotin$actions){Add-Reason $reasons 'CONTINUATION_PLAN_ACTION'}
     }

@@ -17,7 +17,7 @@
     }
   },
   "candidate": {
-    "catalogIdentity": "46912|F18ACBA30A676F141D833A663755E9F6856A9FD4F34ECF58BB88657DC684797B",
+    "catalogIdentity": "46918|61C74938DA4C5464B5661A754DF53BCAB9E48BE81A240AAC75ECE52583FFAEC1",
     "fixtureContractIdentity": "4990|B73AEA3E3E1963BCF0ECB1242A3E03A2C1503B38B03CBABB1706F33A39308993",
     "measurementHarnessIdentity": "16792|FA7A86DF6D7DCA136D0FD1307E6F4CBCE909763473FA7A66111582A96E78B75E",
     "legacyAuthorityContextFieldCount": 25,
@@ -57,8 +57,8 @@
     {
       "fixtureId": "ordinary_source",
       "fixtureIdentity": "5D596B512675523599F2A869C712AE580AFEF49C1FED9C67B227719DDC0450B4",
-      "selectedPackBytes": 22120,
-      "selectedPackEstimatedTokens": 5530,
+      "selectedPackBytes": 22760,
+      "selectedPackEstimatedTokens": 5690,
       "selectedRequirementCount": 12,
       "observedRuntimeMs": {
         "DISCOVER": {
@@ -78,8 +78,8 @@
     {
       "fixtureId": "critical_review",
       "fixtureIdentity": "62C1C37232E3F20DAF4165E8A9C65F3CCEC08D2B0AFFE8CC5DE221EAA9C60589",
-      "selectedPackBytes": 33381,
-      "selectedPackEstimatedTokens": 8346,
+      "selectedPackBytes": 34218,
+      "selectedPackEstimatedTokens": 8555,
       "selectedRequirementCount": 18,
       "observedRuntimeMs": {
         "DISCOVER": {
@@ -99,8 +99,8 @@
     {
       "fixtureId": "domain_external",
       "fixtureIdentity": "80ED0F8798C28C693D16DAC020F7D990C8D508CB638868C45695BD493A484827",
-      "selectedPackBytes": 17125,
-      "selectedPackEstimatedTokens": 4282,
+      "selectedPackBytes": 17765,
+      "selectedPackEstimatedTokens": 4442,
       "selectedRequirementCount": 11,
       "observedRuntimeMs": {
         "DISCOVER": {
@@ -120,8 +120,8 @@
     {
       "fixtureId": "framework_maintenance_review",
       "fixtureIdentity": "028F2A36B8F2D37D362118D70A7C573E920FB3670D8BB4CECCE8B7F72C359437",
-      "selectedPackBytes": 33394,
-      "selectedPackEstimatedTokens": 8349,
+      "selectedPackBytes": 34231,
+      "selectedPackEstimatedTokens": 8558,
       "selectedRequirementCount": 18,
       "observedRuntimeMs": {
         "DISCOVER": {
@@ -141,8 +141,8 @@
     {
       "fixtureId": "worst_unknown",
       "fixtureIdentity": "F56055458B276B427F6BCF0D778448046D628D48918798C18388721AF007FC0D",
-      "selectedPackBytes": 44028,
-      "selectedPackEstimatedTokens": 11007,
+      "selectedPackBytes": 45661,
+      "selectedPackEstimatedTokens": 11416,
       "selectedRequirementCount": 27,
       "observedRuntimeMs": {
         "DISCOVER": {
@@ -192,10 +192,6 @@
   "ceilings": {
     "routerSkillBytes": 8192,
     "routerSkillEstimatedTokens": 2048,
-    "intentEnvelopeBytes": 4096,
-    "intentEnvelopeEstimatedTokens": 1024,
-    "authorityContextBytes": 8192,
-    "authorityContextEstimatedTokens": 2048,
     "defaultSelectedRulePackBytes": 32768,
     "defaultSelectedRulePackEstimatedTokens": 8192,
     "absoluteSelectedRulePackBytes": 98304,

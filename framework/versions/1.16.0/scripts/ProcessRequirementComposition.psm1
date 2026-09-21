@@ -28,6 +28,17 @@ function Get-AiwSha256Hex {
     finally{$sha.Dispose()}
 }
 
+# Historical installation checks may accept layout alone; receipts still bind raw bytes.
+function Test-AiwInstalledTextLayout([string]$Text,[string]$ExpectedIdentity) {
+    $lf=$Text.Replace("`r`n","`n")
+    $withoutFinal=if($lf.EndsWith("`n")){$lf.Substring(0,$lf.Length-1)}else{$lf}
+    foreach($variant in @($Text,$withoutFinal,($withoutFinal+"`n"),$withoutFinal.Replace("`n","`r`n"),($withoutFinal+"`n").Replace("`n","`r`n"))){
+        $bytes=$script:Utf8Strict.GetBytes($variant)
+        if(($bytes.Length.ToString()+'|'+(Get-AiwSha256Hex $bytes))-ceq$ExpectedIdentity){return $true}
+    }
+    return $false
+}
+
 function Get-AiwFileIdentity {
     param([Parameter(Mandatory)][string]$Path)
     $bytes = [IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $Path))
@@ -59,7 +70,7 @@ function Read-AiwStrictJson {
     try { $bytes = [IO.File]::ReadAllBytes($item.FullName) } catch { throw "${Label}_UNREADABLE" }
     if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) { throw "${Label}_BOM" }
     try { $text = $script:Utf8Strict.GetString($bytes) } catch { throw "${Label}_UTF8" }
-    if ($text.Contains("`r") -or $text.Contains([char]0) -or $text.Contains([char]0xFFFD) -or -not $text.EndsWith("`n")) { throw "${Label}_TEXT_FORMAT" }
+    if ($text.Contains([char]0) -or $text.Contains([char]0xFFFD)) { throw "${Label}_TEXT_FORMAT" }
     try {
         $document = [System.Text.Json.JsonDocument]::Parse($text)
         try { Assert-AiwNoDuplicateJsonMember -Element $document.RootElement } finally { $document.Dispose() }
@@ -76,7 +87,7 @@ function Read-AiwStrictText {
     $bytes = [IO.File]::ReadAllBytes($item.FullName)
     if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) { throw "${Label}_BOM" }
     try { $text = $script:Utf8Strict.GetString($bytes) } catch { throw "${Label}_UTF8" }
-    if ($text.Contains("`r") -or $text.Contains([char]0) -or $text.Contains([char]0xFFFD) -or -not $text.EndsWith("`n")) { throw "${Label}_TEXT_FORMAT" }
+    if ($text.Contains([char]0) -or $text.Contains([char]0xFFFD)) { throw "${Label}_TEXT_FORMAT" }
     return $text
 }
 
@@ -231,7 +242,7 @@ function Get-AiwAgentsManagedBlockIdentity {
     param([Parameter(Mandatory)][string]$AgentsPath)
     $bytes=[IO.File]::ReadAllBytes($AgentsPath)
     try{$text=$script:Utf8Strict.GetString($bytes)}catch{throw 'AGENTS_UTF8'}
-    if($text.Contains("`r")-or-not$text.EndsWith("`n")){throw 'AGENTS_TEXT_FORMAT'}
+    if($text.Contains([char]0)-or$text.Contains([char]0xFFFD)){throw 'AGENTS_TEXT_FORMAT'}
     $begin='<!-- AI-WORKSPACE-FRAMEWORK:BEGIN -->';$end='<!-- AI-WORKSPACE-FRAMEWORK:END -->'
     $start=$text.IndexOf($begin,[StringComparison]::Ordinal);$finish=$text.IndexOf($end,[StringComparison]::Ordinal)
     if($start-lt0-or$finish-le$start-or$text.IndexOf($begin,$start+1,[StringComparison]::Ordinal)-ge0-or$text.IndexOf($end,$finish+1,[StringComparison]::Ordinal)-ge0){throw 'AGENTS_MANAGED_MARKERS'}
@@ -318,20 +329,27 @@ function Get-AiwLocalCandidatePilotBinding {
         $relative=[string]$entry.relative;$expected=[string]$entry.identity;$full=[IO.Path]::GetFullPath((Join-Path $ProjectRoot $relative))
         if([int]$state.schemaVersion-in@(4,5,6)-and$relative-in@('.ai-workspace/BOOTSTRAP.md','.ai-workspace/process-policy.json','.ai-workspace/corrections.json')){
             $resolved=Resolve-AiwChildFile $ProjectRoot $relative 'LOCAL_CANDIDATE_PILOT_PROJECTION'
-            if($relative-ceq'.ai-workspace/BOOTSTRAP.md'-and(Get-AiwProjectCustomRegion $resolved).ManagedIdentity-cne[string]$entry.managedIdentity){throw ('LOCAL_CANDIDATE_PILOT_PROJECTION_DRIFT|'+$relative)}
+            if($relative-ceq'.ai-workspace/BOOTSTRAP.md'){
+                $region=Get-AiwProjectCustomRegion $resolved
+                if(-not(Test-AiwInstalledTextLayout $region.ManagedText ([string]$entry.managedIdentity))){throw ('LOCAL_CANDIDATE_PILOT_PROJECTION_DRIFT|'+$relative)}
+            }
             # 项目规则由当前 composer 严格校验并绑定当前身份，不被历史安装快照永久冻结。
             continue
         }
-        if([int]$state.schemaVersion-in@(4,5,6)-and$relative-ceq'AGENTS.md'-and$null-ne$entry.PSObject.Properties['managedIdentity']){
+        if($relative-ceq'AGENTS.md'){
             $resolved=Resolve-AiwChildFile $ProjectRoot $relative 'LOCAL_CANDIDATE_PILOT_PROJECTION'
-            if((Get-AiwAgentsManagedBlockIdentity $resolved)-cne[string]$entry.managedIdentity){throw ('LOCAL_CANDIDATE_PILOT_PROJECTION_DRIFT|'+$relative)}
+            # Installation records retain the installed image; current user decisions
+            # are bound independently by projectAgentsIdentity on every discovery.
+            $null=Get-AiwAgentsManagedBlockIdentity $resolved
             continue
         }
         if($expected-ceq'MISSING'){
             if(Test-Path -LiteralPath $full){throw ('LOCAL_CANDIDATE_PILOT_PROJECTION_DRIFT|'+$relative)}
         }else{
             $resolved=Resolve-AiwChildFile $ProjectRoot $relative 'LOCAL_CANDIDATE_PILOT_PROJECTION'
-            if((Get-AiwFileIdentity $resolved)-cne$expected){throw ('LOCAL_CANDIDATE_PILOT_PROJECTION_DRIFT|'+$relative)}
+            if((Get-AiwFileIdentity $resolved)-cne$expected){
+                if($relative-cne'.ai-workspace/project.json'-or-not(Test-AiwInstalledTextLayout (Read-AiwStrictText $resolved 'PROJECT_CONFIG') $expected)){throw ('LOCAL_CANDIDATE_PILOT_PROJECTION_DRIFT|'+$relative)}
+            }
         }
     }
     return [pscustomobject]@{
@@ -408,12 +426,14 @@ function Get-AiwCanonicalCorrectionRecordIdentityV2 {
     if($null-ne$Record.PSObject.Properties['lifecycle']){
         $fields+='lifecycle'
         Assert-AiwExactFields $Record.lifecycle @('state','installation','decisionLocator') 'CORRECTION_LIFECYCLE'
-        Assert-AiwExactFields $Record.lifecycle.installation @('locator','identity') 'CORRECTION_INSTALLATION'
         if($Record.lifecycle.state-cnotin@('ACTIVE','PAUSED','UNINSTALLED')-or
-           $Record.lifecycle.installation.identity-cnotmatch'^\d+\|[A-F0-9]{64}$'-or
            [string]::IsNullOrWhiteSpace($Record.lifecycle.decisionLocator)){throw 'CORRECTION_LIFECYCLE_VALUES'}
-        $locator=ConvertTo-AiwSafeRelativePath $Record.lifecycle.installation.locator 'CORRECTION_INSTALLATION'
-        if(-not$locator.StartsWith('.ai-workspace/upgrade-recovery/corrections/',[StringComparison]::Ordinal)){throw 'CORRECTION_INSTALLATION_LOCATOR'}
+        if($Record.lifecycle.installation-isnot[string]-or$Record.lifecycle.installation-cne'NOT_APPLICABLE'){
+            Assert-AiwExactFields $Record.lifecycle.installation @('locator','identity') 'CORRECTION_INSTALLATION'
+            if($Record.lifecycle.installation.identity-cnotmatch'^\d+\|[A-F0-9]{64}$'){throw 'CORRECTION_LIFECYCLE_VALUES'}
+            $locator=ConvertTo-AiwSafeRelativePath $Record.lifecycle.installation.locator 'CORRECTION_INSTALLATION'
+            if(-not$locator.StartsWith('.ai-workspace/upgrade-recovery/corrections/',[StringComparison]::Ordinal)){throw 'CORRECTION_INSTALLATION_LOCATOR'}
+        }
     }
     Assert-AiwExactFields $Record $fields 'CORRECTION_RECORD_V2'
     $ordered = [ordered]@{}
@@ -427,7 +447,7 @@ function Get-AiwProjectCustomRegion {
     param([Parameter(Mandatory)][string]$BootstrapPath)
     $bytes = [IO.File]::ReadAllBytes($BootstrapPath)
     try{$text = $script:Utf8Strict.GetString($bytes)}catch{throw 'BOOTSTRAP_UTF8'}
-    if($text.Contains("`r")-or-not$text.EndsWith("`n")){throw 'BOOTSTRAP_TEXT_FORMAT'}
+    if($text.Contains([char]0)-or$text.Contains([char]0xFFFD)){throw 'BOOTSTRAP_TEXT_FORMAT'}
     $begin = '<!-- PROJECT-CUSTOM:BEGIN -->'
     $end = '<!-- PROJECT-CUSTOM:END -->'
     $start = $text.IndexOf($begin,[StringComparison]::Ordinal)
@@ -444,7 +464,7 @@ function Get-AiwProjectCustomRegion {
         $trimmed -ceq '此 legacy region 当前没有 permanent project process rule。structured rules 位于 `.ai-workspace/process-policy.json`。'
     $managedBytes=$script:Utf8Strict.GetBytes($text.Substring(0,$bodyStart)+$text.Substring($finish))
     $managedIdentity=$managedBytes.Length.ToString()+'|'+(Get-AiwSha256Hex $managedBytes)
-    return [pscustomobject]@{ Identity=$identity; Text=$body; HasNormativeContent=(-not $defaultOnly); ManagedIdentity=$managedIdentity }
+    return [pscustomobject]@{ Identity=$identity; Text=$body; HasNormativeContent=(-not $defaultOnly); ManagedIdentity=$managedIdentity; ManagedText=$script:Utf8Strict.GetString($managedBytes) }
 }
 
 function Get-AiwProjectAgentsIdentity {
@@ -603,7 +623,7 @@ function Get-AiwProjectSourceRule {
     )
     $source=$Rule.source
     Assert-AiwExactFields $source @('rootSourceId','documents') ($Label+'_SOURCE')
-    if(-not($source.rootSourceId-is[string])-or[string]$source.rootSourceId-cnotmatch'^[A-Z][A-Z0-9_]*$'-or-not($source.documents-is[Array])-or@($source.documents).Count-lt1-or@($source.documents).Count-gt16){throw ($Label+'_SOURCE_VALUES')}
+    if(-not($source.rootSourceId-is[string])-or[string]$source.rootSourceId-cnotmatch'^[A-Z][A-Z0-9_]*$'-or-not($source.documents-is[Array])-or@($source.documents).Count-lt1){throw ($Label+'_SOURCE_VALUES')}
     $byId=@{};$pathSeen=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     foreach($document in @($source.documents)){
         $documentFields=@('sourceId','locator','identity','mode','sectionStart','sectionEnd','dependencies')
@@ -644,6 +664,7 @@ function Get-AiwProjectSourceRule {
         $node=$byId[$id];$document=$node.Document;$body=[string]$node.Text
         if([bool]$node.Drift){$drift=$true}
         elseif([string]$document.mode-ceq'MARKED_SECTION'){
+            $body=$body.Replace("`r`n","`n")
             $start=[string]$document.sectionStart;$end=[string]$document.sectionEnd
             $startIndex=$body.IndexOf($start,[StringComparison]::Ordinal);$endIndex=$body.IndexOf($end,[StringComparison]::Ordinal)
             if($startIndex-lt0-or$endIndex-le$startIndex-or$body.IndexOf($start,$startIndex+1,[StringComparison]::Ordinal)-ge0-or$body.IndexOf($end,$endIndex+1,[StringComparison]::Ordinal)-ge0){throw ($Label+'_SECTION_CARDINALITY')}
@@ -886,7 +907,6 @@ function Invoke-ProcessRequirementComposition {
         foreach($field in @('requirementReason','decisionLocator')){if(-not($rule.$field-is[string])-or[string]::IsNullOrWhiteSpace([string]$rule.$field)){throw 'PROCESS_POLICY_TEXT'}}
         if($bodyFields[0]-ceq'effectiveRule'-and(-not($rule.effectiveRule-is[string])-or[string]::IsNullOrWhiteSpace([string]$rule.effectiveRule))){throw 'PROCESS_POLICY_TEXT'}
     }
-    if ($policyRules.Count -gt 0 -and $custom.HasNormativeContent) { throw 'PROJECT_RULE_DUAL_CARRIER_FAIL_CLOSED' }
     $projectStandards=Get-AiwProjectStandardsSnapshot -ProjectRoot $project -Rules $policyRules -ForbiddenPaths $ForbiddenPaths
     $effectiveRuleOwners=@{};$effectiveSharedKeys=@{}
     foreach($entry in (@($legacyEffective|ForEach-Object{[pscustomobject]@{Source='PROJECT_CORRECTION';SharedKey='';Id=[string]$_.legacyRequirementId;Text=[string]$_.effectiveRule}})+@($policyRules|Where-Object{$null-eq$_.PSObject.Properties['source']-or-not[bool]$projectStandards.Rules[[string]$_.ruleId].Unavailable}|ForEach-Object{$text=if($null-ne$_.PSObject.Properties['source']){[string]$projectStandards.Rules[[string]$_.ruleId].FullText}else{[string]$_.effectiveRule};[pscustomobject]@{Source='PROJECT_POLICY';SharedKey=$(if($null-ne$_.PSObject.Properties['source']){[string]::Join(';',@($projectStandards.Rules[[string]$_.ruleId].Blocks|ForEach-Object{$_.Key}))}else{''});Id=[string]$_.ruleId;Text=$text}})+$(if($custom.HasNormativeContent){@([pscustomobject]@{Source='LEGACY_PROJECT_CUSTOM';SharedKey='';Id=('project-custom:'+$projectId);Text=[string]$custom.Text})}else{@()}))){

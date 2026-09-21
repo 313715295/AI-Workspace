@@ -158,6 +158,11 @@ try {
         Confirm ((Id (Join-Path $control ($recovery+'/state.json')))-ceq(@($seed.controlPreimages|Where-Object {$_.path-ceq($recovery+'/state.json')})[0].identity)) 'historical-completed-seed-restored-from-real-preimages'
     }
     $controller=Get-Content -LiteralPath (Join-Path $control '.ai-workspace/controller.json') -Raw|ConvertFrom-Json
+    # The retained adoption transaction supplies real installation bytes. This
+    # anonymous fixture owns its current rules; later live-project corrections
+    # are neither historical seed evidence nor subjects of this test.
+    $fixtureConfig=Get-Content -LiteralPath (Join-Path $control '.ai-workspace/project.json') -Raw|ConvertFrom-Json
+    Write-Json (Join-Path $control '.ai-workspace/corrections.json') ([ordered]@{schemaVersion=2;contractVersion='1.16.0';projectId=$fixtureConfig.id;corrections=@()})
     $owner=[string]$controller.controllerId;$epoch=[int]$controller.controllerEpoch
     $taskRelative='.ai-workspace/tasks/active/SELF-UPDATE-001.md';$task=Join-Path $control $taskRelative
     Write-Text $task (@('# SELF-UPDATE-001 — isolated real-entry self update','','- Task schema: 1.16.0','- Profile: CRITICAL',('- Owner: '+$owner),('- Work route: actor='+$owner+'; role=FRAMEWORK_MAINTAINER; phase=IMPLEMENT'),'- Range summary: profile=CRITICAL; lifecycle=ACTIVE; current_exact=SCOPED_PACKAGE; expected_paths=[]; actual_paths=[]','- Proportionality: NOT_APPLICABLE; reason=bounded fixture','- Phase gate: FALSE','')-join$lf)
@@ -183,6 +188,11 @@ try {
     $freeze=Freeze $RepositoryRoot;$freezePath=Join-Path $runtime 'accepted-freeze.json';Write-Json $freezePath $freeze
     # Test-issued acceptance only; no executable result is fabricated.
     $evidencePath=Join-Path $runtime 'fixture-acceptance.json';Write-Json $evidencePath ([ordered]@{fixtureOnly=$true;status='OWNER_ACCEPTED_PENDING_RELEASE_INTEGRATION';focusedRereview=@{status='APPROVED'};ownerAcceptance=@{status='PASS'};sourcePayload=@{canonical=$freeze.sourcePayloadCanonical}})
+    foreach($jsonPath in @($freezePath,$evidencePath)){
+        $formatted=[IO.File]::ReadAllText($jsonPath).Replace("`r`n","`n").TrimEnd("`n").Replace("`n","`r`n")
+        [IO.File]::WriteAllText($jsonPath,$formatted,$utf8)
+    }
+    $formattedIdentities=@((Id $freezePath),(Id $evidencePath))
     $paths=@($freeze.files|Where-Object{(Id (Join-Path $target $_.path))-cne($_.bytes.ToString()+'|'+$_.sha256)}|ForEach-Object{$_.path})
     $retiredMapping='framework/versions/1.16.0/CORRECTION_COVERAGE.json'
     $retiredMappingPreimage=Id (Join-Path $target $retiredMapping)
@@ -281,6 +291,7 @@ try {
     foreach($scenario in $scenarios){
         $transaction=Join-Path $runtime ($scenario+'-transaction.json');$args=$common.Clone();$args.TransactionPath=$transaction;$args.Operation='PREVIEW'
         Confirm ((Json $integrator $args).status-ceq'PREVIEW') ($scenario+'-real-preview')
+        Confirm (((Id $freezePath)+';'+(Id $evidencePath))-ceq($formattedIdentities-join';')) ($scenario+'-crlf-no-final-lf-evidence-retains-real-identities')
         $args.Operation='APPLY'
         if($scenario-ceq'interrupt-target'){$args.InterruptAfterWrite=1}
         if($scenario-ceq'failure-target'){$args.FailAfterWrite=if($retiredMapping-cin$paths){$paths.Count}else{1}}
@@ -529,7 +540,7 @@ try {
     $beforeRejectedRecovery=Live-Identities
     $firstResume=@{ProjectId='ai-workspace-maintenance';ToVersion='1.16.0';RepositoryPath=$control;ActorRouteActor=$owner;RecoverRuntimeAdoption=$true;ExpectedAdoptionTransactionIdentity=Id $txnPath;AuthorizationPackagePath=$first.auth;ExpectedAuthorizationPackageIdentity=Id $first.auth;Apply=$true}
     $reason='';try{& (Join-Path $RepositoryRoot 'scripts/upgrade-project.ps1') @firstResume|Out-Null}catch{$reason=$_.Exception.Message}
-    Confirm ($reason.Contains('LOCAL_CANDIDATE_PILOT_PROJECTION_DRIFT|AGENTS.md')-and(Live-Identities)-ceq$beforeRejectedRecovery) 'R2-preexisting-managed-drift-rejects-through-CLI-with-no-live-or-transaction-write'
+    Confirm ($reason.Contains('ADOPTION_RECOVERY_UNCHANGED_OBJECT_DRIFT|AGENTS.md')-and(Live-Identities)-ceq$beforeRejectedRecovery) 'R2-preexisting-managed-drift-rejects-through-CLI-with-no-live-or-transaction-write'
     [IO.File]::WriteAllBytes($agentsPath,$agentsBefore)
 
     # Fault injection after a real resumed write/journal flush, before the real
@@ -559,7 +570,7 @@ try {
         $injected=& $transactionModule {$script:R2FaultCount}
         Confirm ($injected-eq1-and(Id $faultPath)-ceq(Get-AiwByteIdentity $faultBytes)) ('R2-late-failure-preserves-third-party-bytes-'+$fault)
         if($fault-ceq'UNCHANGED_MANAGED'){
-            Confirm ($reason.Contains('LOCAL_CANDIDATE_PILOT_PROJECTION_DRIFT|AGENTS.md')-and$reason.Contains('ADOPTION_RECOVERY_RESUMED_WRITES_RESTORED')-and(Id $txnPath)-ceq(Get-AiwByteIdentity $txnBefore)) 'R2-late-postcheck-restores-entry-transaction'
+            Confirm ($reason.Contains('ADOPTION_RECOVERY_UNCHANGED_OBJECT_DRIFT|AGENTS.md')-and$reason.Contains('ADOPTION_RECOVERY_RESUMED_WRITES_RESTORED')-and(Id $txnPath)-ceq(Get-AiwByteIdentity $txnBefore)) 'R2-late-postcheck-restores-entry-transaction'
             [IO.File]::WriteAllBytes($agentsPath,$agentsBefore)
             Confirm ((Live-Identities)-ceq$beforeResume) 'R2-late-postcheck-undoes-only-resumed-writes-and-keeps-earlier-interruption'
         }else{

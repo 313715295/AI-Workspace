@@ -151,7 +151,7 @@ function Read-StrictJson([string]$Path,[string]$Label) {
     $bytes=[IO.File]::ReadAllBytes($Path)
     if($bytes.Length-ge3-and$bytes[0]-eq0xEF-and$bytes[1]-eq0xBB-and$bytes[2]-eq0xBF){throw ($Label+'_BOM')}
     $raw=$utf8Strict.GetString($bytes)
-    if($raw.Contains("`r")-or$raw.Contains([char]0)-or$raw.Contains([char]0xFFFD)-or-not$raw.EndsWith("`n")){throw ($Label+'_TEXT_FORMAT')}
+    if($raw.Contains([char]0)-or$raw.Contains([char]0xFFFD)){throw ($Label+'_TEXT_FORMAT')}
     $cursor=0
     try{Read-JsonValue $raw ([ref]$cursor);Skip-JsonWhitespace $raw ([ref]$cursor);if($cursor-ne$raw.Length){throw 'JSON_TRAILING'}}catch{throw ($Label+'_'+[string]$_.Exception.Message)}
     try{
@@ -255,14 +255,13 @@ try {
     if($mode-ceq'DISCOVER'){
         if($entryIdWasBound){Write-KnowledgeUnavailable 'DISCOVER_ENTRY_ID_FORBIDDEN'}
         $catalog=@($entries|ForEach-Object{[pscustomobject][ordered]@{id=$_.id;title=$_.title;tags=$_.tags;state=$_.state;locator=$_.locator;authorityLocators=@($_.authorityDependencies|ForEach-Object{$_.locator});verifiedAt=$_.verifiedAt}})
-        $result=[pscustomobject][ordered]@{status='KNOWLEDGE_CATALOG';reason='INDEX_METADATA_VERIFIED';operation='DISCOVER';referenceOnly=$true;authority=$false;projectConfigIdentity=$ExpectedProjectConfigIdentity;indexLocator=$indexLocator;indexIdentity=$ExpectedIndexIdentity;maxQueries=3;entries=$catalog}
+        $result=[pscustomobject][ordered]@{status='KNOWLEDGE_CATALOG';reason='INDEX_METADATA_VERIFIED';operation='DISCOVER';referenceOnly=$true;authority=$false;projectConfigIdentity=$ExpectedProjectConfigIdentity;indexLocator=$indexLocator;indexIdentity=$ExpectedIndexIdentity;entries=$catalog}
         if($AsJson){$result|ConvertTo-Json -Depth 10 -Compress}else{Write-Output('PASS|knowledge-discover|entries='+$catalog.Count)}
         exit 0
     }
     if(-not$entryIdWasBound-or$null-eq$EntryId){Write-KnowledgeUnavailable 'ENTRY_ID_EMPTY'}
     $requestedIds=@($EntryId)
     if($requestedIds.Count-lt1){Write-KnowledgeUnavailable 'ENTRY_ID_EMPTY'}
-    if($requestedIds.Count-gt3){Write-KnowledgeUnavailable 'ENTRY_ID_LIMIT'}
     $requested=New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
     foreach($requestedId in $requestedIds){
         if(-not($requestedId-is[string])){Write-KnowledgeUnavailable 'ENTRY_ID_TYPE'}

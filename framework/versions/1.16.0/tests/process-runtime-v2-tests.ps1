@@ -46,6 +46,53 @@ try{
   $selected=@($run.Value.selectedRuleBlocks|Where-Object{[string]$_.requirementId-ceq'project:process-v2-fixture:SOURCE_BOUND_STANDARD'})
   Assert-True ($run.Code-eq0-and[int]$run.Value.compactReceipt.schemaVersion-eq2-and$selected.Count-eq1-and[string]$selected[0].fullText-clike'*Base project rule dependency*Selected project standard rule body*') 'source-bound-project-standard-loads-selected-section-and-dependency'
   $originalPolicyText=[IO.File]::ReadAllText($policyPath);$standardPath=Join-Path $temp 'docs/standard.md';$originalStandardText=[IO.File]::ReadAllText($standardPath)
+  [IO.File]::WriteAllText($standardPath,$originalStandardText.TrimEnd("`n").Replace("`n","`r`n"),$utf8)
+  $sectionPolicy=$sourcePolicy|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100;$sectionIdentity=Get-Identity $standardPath;$sectionPolicy.rules[0].source.documents[1].identity=$sectionIdentity
+  Write-Json $policyPath $sectionPolicy;Write-Json $discoverPath $discover;$sectionRun=Invoke-Resolver $resolver $discoverPath
+  Assert-True ($sectionRun.Code-eq0-and$sectionRun.Text.Contains('Selected project standard rule body')-and-not$sectionRun.Text.Contains('Intro.')-and(Get-Identity $standardPath)-ceq$sectionIdentity) 'marked-section-crlf-no-final-lf-selects-body-and-keeps-source-bytes'
+  [IO.File]::WriteAllText($standardPath,$originalStandardText,$utf8);[IO.File]::WriteAllText($policyPath,$originalPolicyText,$utf8)
+  $observer=$discover|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100
+  $observer.contextType='PROJECT_READ_ONLY';$observer.taskPath='NOT_APPLICABLE';$observer.expectedTaskIdentity='NOT_APPLICABLE';$observer.observedActor='temporary-observer'
+  $observer.readOnlyContext=[pscustomobject]@{sessionId='temporary-observer';requestId='bounded-observation';role='EXECUTOR';phase='PLAN';profile='STANDARD'}
+  $observer.intentEnvelope.objective='Bounded observation '+('context '*1200)
+  $observer.intentEnvelope.semanticHints=@('source-bound')
+  $observer.intentEnvelope.pathHints=@('docs/')
+  $observer.exactPaths=@(1..110|ForEach-Object{'docs/'+('bounded-'*10)+$_.ToString()+'.md'})
+  Write-Json $discoverPath $observer;$observerRun=Invoke-Resolver $resolver $discoverPath
+  Assert-True ($observerRun.Code-eq0-and$observerRun.Value.compactReceipt.binding.actor-ceq'temporary-observer'-and[Text.Encoding]::UTF8.GetByteCount(($observerRun.Value.compactReceipt.binding|ConvertTo-Json -Depth 30 -Compress))-gt8192) 'temporary-taskless-observer-accepts-long-objective-and-large-exact-authority'
+  Assert-True ($utf8.GetByteCount(($observer.intentEnvelope|ConvertTo-Json -Depth 30 -Compress))-gt4096-and$observerRun.Value.compactReceipt.intentEnvelope.objective-ceq$observer.intentEnvelope.objective) 'ascii-objective-over-old-envelope-limit-with-normal-hints-preserved'
+  $observer.readOnlyContext.role='REVIEWER';$observer.intentEnvelope.objective='核查当前目标与约束：'+('明确目标保持精确范围。'*600)
+  Write-Json $discoverPath $observer;$chineseRun=Invoke-Resolver $resolver $discoverPath
+  Assert-True ($chineseRun.Code-eq0-and$utf8.GetByteCount(($observer.intentEnvelope|ConvertTo-Json -Depth 30 -Compress))-gt4096-and$chineseRun.Value.compactReceipt.intentEnvelope.objective-ceq$observer.intentEnvelope.objective) 'chinese-objective-over-old-envelope-limit-with-temporary-reviewer-observation'
+  $badObserver=$observer|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100;$badObserver.intentEnvelope.objective=42
+  Write-Json $discoverPath $badObserver
+  Assert-True ((Invoke-Resolver $resolver $discoverPath).Code-ne0) 'large-envelope-still-rejects-objective-type-drift'
+  $duplicateIntent=($observer|ConvertTo-Json -Depth 100 -Compress).Replace('"objective":','"objective":"duplicate","objective":')
+  [IO.File]::WriteAllText($discoverPath,$duplicateIntent+"`n",$utf8)
+  Assert-True ((Invoke-Resolver $resolver $discoverPath).Code-ne0) 'large-envelope-still-rejects-duplicate-objective-key'
+  $badObserver=$observer|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100;$badObserver.intentEnvelope.pathHints=@('outside-scope/')
+  Write-Json $discoverPath $badObserver
+  Assert-True ((Invoke-Resolver $resolver $discoverPath).Code-ne0) 'large-envelope-still-rejects-hint-outside-exact-scope'
+  $observer.intentEnvelope.requestedActionKind='SOURCE_WRITE';Write-Json $discoverPath $observer;$observerWrite=Invoke-Resolver $resolver $discoverPath
+  Assert-True ($observerWrite.Code-ne0) 'taskless-observation-never-authorizes-write'
+  $observer.intentEnvelope.requestedActionKind='NONE';$observer.intentEnvelope.requestedResultKind='REVIEW_VERDICT';Write-Json $discoverPath $observer
+  Assert-True ((Invoke-Resolver $resolver $discoverPath).Code-ne0) 'taskless-observation-never-substitutes-formal-review'
+  $manyPolicy=$sourcePolicy|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100
+  $manyPolicy.rules[0].source.rootSourceId='DOC_17'
+  $manyPolicy.rules[0].source.documents=@(1..17|ForEach-Object{
+    $rel="docs/extra-$_.md";[IO.File]::WriteAllText((Join-Path $temp $rel),"Rule $_`r`nEquivalent format",$utf8)
+    [pscustomobject]@{sourceId="DOC_$_";locator=$rel;identity=Get-Identity (Join-Path $temp $rel);mode='FULL_FILE';sectionStart='NOT_APPLICABLE';sectionEnd='NOT_APPLICABLE';dependencies=@($(if($_-gt1){'DOC_'+($_-1)}))}
+  })
+  Write-Json $policyPath $manyPolicy;Write-Json $discoverPath $discover;$manyRun=Invoke-Resolver $resolver $discoverPath
+  Assert-True ($manyRun.Code-eq0-and$manyRun.Text.Contains('Rule 17')) 'seventeen-explicit-standard-documents-with-crlf-and-no-final-lf'
+  [IO.File]::WriteAllText($policyPath,$originalPolicyText,$utf8)
+  $configPath=Join-Path $control 'project.json';$configOriginal=[IO.File]::ReadAllText($configPath)
+  [IO.File]::WriteAllText($configPath,$configOriginal.Replace("`r`n","`n").TrimEnd("`n").Replace("`n","`r`n"),$utf8)
+  $formatted=$discover|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100;$formatted.expectedProjectConfigIdentity=Get-Identity $configPath
+  [IO.File]::WriteAllText($discoverPath,($formatted|ConvertTo-Json -Depth 100).Replace("`r`n","`n").TrimEnd("`n").Replace("`n","`r`n"),$utf8)
+  $formatIdentity=Get-Identity $configPath;$formattedRun=Invoke-Resolver $resolver $discoverPath
+  Assert-True ($formattedRun.Code-eq0-and$formattedRun.Value.compactReceipt.sourceBindings.projectConfigIdentity-ceq$formatIdentity-and(Get-Identity $configPath)-ceq$formatIdentity) 'crlf-config-and-tool-json-keep-actual-byte-identities-without-rewriting'
+  [IO.File]::WriteAllText($configPath,$configOriginal,$utf8)
   $largeBody='Necessary fixture content. '*5000
   Write-Utf8 $standardPath ("<!-- RULE:BEGIN -->`n"+$largeBody+"`n<!-- RULE:END -->")
   $largePolicy=$sourcePolicy|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100;$largePolicy.selectedRulePackBytes=1;$largePolicy.rules[0].source.documents[1].identity=Get-Identity $standardPath;Write-Json $policyPath $largePolicy
@@ -241,8 +288,8 @@ try{
   $historicalPlaceholder=Invoke-ProcessRequirementComposition @standardArgs
   Assert-True (@($historicalPlaceholder.selectedRequirements|Where-Object{[string]$_.requirementId-ceq'project-custom:process-v2-fixture'}).Count-eq0-and@($historicalPlaceholder.evidenceCeilings)-notcontains'LEGACY_PROJECT_CUSTOM_FULL_LOAD') 'exact-historical-chinese-placeholder-with-structured-policy-is-nonnormative'
   Write-Utf8 (Join-Path $control 'BOOTSTRAP.md') "<!-- PROJECT-CUSTOM:BEGIN -->`n$historicalChinese`nAn actual permanent project rule is active.`n<!-- PROJECT-CUSTOM:END -->"
-  $appendedCarrierFailure=$null;try{$null=Invoke-ProcessRequirementComposition @standardArgs}catch{$appendedCarrierFailure=[string]$_.Exception.Message}
-  Assert-True ($appendedCarrierFailure-ceq'PROJECT_RULE_DUAL_CARRIER_FAIL_CLOSED') 'historical-placeholder-with-appended-rule-is-dual-carrier'
+  $appendedCarrier=Invoke-ProcessRequirementComposition @standardArgs
+  Assert-True (@($appendedCarrier.selectedRequirements|Where-Object{$_.fullText.Contains('An actual permanent project rule is active.')}).Count-eq1) 'historical-placeholder-with-distinct-appended-rule-coexists-with-policy'
   Write-Utf8 (Join-Path $control 'BOOTSTRAP.md') "<!-- PROJECT-CUSTOM:BEGIN -->`nNo permanent project process rule is active in this legacy region. Structured rules belong to ``.ai-workspace/process-policy.json``.`n<!-- PROJECT-CUSTOM:END -->"
   $sourcePolicy.rules=@();Write-Json $policyPath $sourcePolicy
   $readOnlyIntent=[ordered]@{schemaVersion=1;objective='Explain the current project process without performing an action';requestedActionKind='NONE';requestedResultKind='USER_RESPONSE';semanticHints=@('project process');pathHints=@();capabilityHints=@();mutationHints=@();externalHints=@();ambiguityState='CLEAR'}

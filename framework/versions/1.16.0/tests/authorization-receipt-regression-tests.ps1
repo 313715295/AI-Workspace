@@ -84,6 +84,8 @@ try{
   $planned=New-Package 'STANDARD' 'DOMAIN_OWNER' 'executor-fixture' 'SOURCE_WRITE' 'ROUTINE_LOCAL';$planned.actions=@('SOURCE_WRITE','TEST_RUN');$planned|Add-Member -NotePropertyName continuationPlan -NotePropertyValue @('SOURCE_WRITE','TEST_RUN','SOURCE_WRITE');$planned.invalidatesOn+=@('CONTINUATION_RESULT_DRIFT')
   $plannedInitial=Invoke-Check $planned 'executor-fixture' 'SOURCE_WRITE'
   Assert-True ($plannedInitial.Code-eq0) 'authorization-temporary-actor-multi-action-plan-admits-first-step'
+  $longPlan=$planned|ConvertTo-Json -Depth 50|ConvertFrom-Json;$longPlan.continuationPlan=@(1..20|ForEach-Object{if($_%2){'SOURCE_WRITE'}else{'TEST_RUN'}})
+  Assert-True ((Invoke-Check $longPlan 'executor-fixture' 'SOURCE_WRITE').Code-eq0) 'continuation-accepts-twenty-explicit-bounded-steps'
   $plannedSkip=Invoke-Check $planned 'executor-fixture' 'TEST_RUN'
   Assert-True ($plannedSkip.Code-ne0-and$plannedSkip.Text.Contains('CONTINUATION_ACTION_ORDER_DRIFT')) 'authorization-continuation-plan-rejects-skipped-first-step'
   $missingContinuationInvalidator=$planned|ConvertTo-Json -Depth 50|ConvertFrom-Json;$missingContinuationInvalidator.invalidatesOn=@($missingContinuationInvalidator.invalidatesOn|Where-Object{$_-cne'CONTINUATION_RESULT_DRIFT'});$missingContinuationInvalidatorRun=Invoke-Check $missingContinuationInvalidator 'executor-fixture' 'SOURCE_WRITE'
@@ -99,16 +101,16 @@ try{
   $critical=Invoke-Check (New-Package 'CRITICAL' 'DOMAIN_OWNER' 'reviewer-fixture' 'REVIEW_EXECUTE' 'ROUTINE_LOCAL') 'reviewer-fixture' 'REVIEW_EXECUTE'
   Assert-True ($critical.Code-eq0) 'authorization-canonical-independent-critical-review-passes'
 
-  $internal=New-Package 'CRITICAL' 'DOMAIN_OWNER' 'internal-reviewer-fixture' 'REVIEW_EXECUTE' 'ROUTINE_LOCAL'
-  $internalCheck=Invoke-Check $internal 'internal-reviewer-fixture' 'REVIEW_EXECUTE'
-  Assert-True ($internalCheck.Code-eq0) 'review-authorization-accepts-distinct-internal-actor-without-carrier-name-gate'
+  $internal=New-Package 'CRITICAL' 'DOMAIN_OWNER' 'visible-reviewer-fixture' 'REVIEW_EXECUTE' 'ROUTINE_LOCAL'
+  $internalCheck=Invoke-Check $internal 'visible-reviewer-fixture' 'REVIEW_EXECUTE'
+  Assert-True ($internalCheck.Code-eq0) 'review-authorization-accepts-distinct-visible-actor-with-bound-identity'
   foreach($excluded in @('owner-fixture','writer-fixture','contributor-fixture')){
     $bad=New-Package 'CRITICAL' 'DOMAIN_OWNER' $excluded 'REVIEW_EXECUTE' 'ROUTINE_LOCAL';$bad.materialContributors=@('contributor-fixture')
     $badCheck=Invoke-Check $bad $excluded 'REVIEW_EXECUTE'
-    Assert-True ($badCheck.Code-ne0) ('internal-carrier-does-not-waive-identity-exclusion-'+$excluded)
+    Assert-True ($badCheck.Code-ne0) ('reviewer-role-does-not-waive-identity-exclusion-'+$excluded)
   }
-  $unknownCheck=Invoke-Check $internal 'unknown-internal-actor' 'REVIEW_EXECUTE'
-  Assert-True ($unknownCheck.Code-ne0) 'review-authorization-rejects-unbound-actual-internal-identity'
+  $unknownCheck=Invoke-Check $internal 'unknown-reviewer-actor' 'REVIEW_EXECUTE'
+  Assert-True ($unknownCheck.Code-ne0) 'review-authorization-rejects-unbound-actual-reviewer-identity'
 
   $lowerProfile=Invoke-Check (New-Package 'critical' 'DOMAIN_OWNER' 'owner-fixture' 'REVIEW_EXECUTE' 'ROUTINE_LOCAL') 'owner-fixture' 'REVIEW_EXECUTE'
   Assert-True ($lowerProfile.Code-ne0-and$lowerProfile.Text.Contains('PROFILE')) 'authorization-critical-profile-is-case-sensitive'
@@ -120,6 +122,10 @@ try{
   $parent.repairReviewPlan=[ordered]@{writer='writer-fixture';reviewer='reviewer-fixture';maxCycles=2;materialContributors=@()}
   $parentCheck=Invoke-Check $parent 'writer-fixture' 'SOURCE_WRITE'
   Assert-True ($parentCheck.Code-eq0) 'owner-can-preauthorize-bounded-repair-review-without-changing-work-route'
+  $largerPlan=$parent|ConvertTo-Json -Depth 50|ConvertFrom-Json;$largerPlan.repairReviewPlan.maxCycles=12
+  Assert-True ((Invoke-Check $largerPlan 'writer-fixture' 'SOURCE_WRITE').Code-eq0) 'repair-review-accepts-task-selected-finite-plan-over-eight'
+  $largerPlan.repairReviewPlan.maxCycles=0
+  Assert-True ((Invoke-Check $largerPlan 'writer-fixture' 'SOURCE_WRITE').Code-ne0) 'repair-review-still-requires-positive-bounded-plan'
   $parentPath=Join-Path $control 'repair-parent.json';Write-Json $parentPath $parent
   $verdict=[ordered]@{taskId='AUTH-REGRESSION-001';owner='owner-fixture';reviewer='reviewer-fixture';writer='writer-fixture';cycle=0;verdict='CHANGES_REQUESTED';exactPaths=@($objectRelative);objectIdentities=@($parent.objectIdentities);findingPaths=@($objectRelative);scopeChanged=$false;decisionChanged=$false}
   $verdictPath=Join-Path $control 'repair-verdict.json';Write-Json $verdictPath $verdict
@@ -171,6 +177,49 @@ try{
   $resolver=Join-Path $fixtureVersion 'scripts/resolve-process-requirements.ps1'
   function Run-Process($Value,[string]$Name){$p=Join-Path $control ($Name+'.json');Write-Json $p $Value;$out=@(& pwsh -NoProfile -File $resolver -InputPath $p -AsJson);if($LASTEXITCODE-ne0){throw ('REAL_PROCESS_FAILED|'+$Name+'|'+($out-join"`n"))};return ($out-join"`n")|ConvertFrom-Json -Depth 100}
   $discover=[ordered]@{schemaVersion=3;mode='DISCOVER';contextType='TASK';readOnlyContext='NOT_APPLICABLE';projectRoot=$temp;frameworkRoot=$frameworkRoot;taskPath=$taskPath;expectedProjectConfigIdentity=Get-Identity (Join-Path $control 'project.json');expectedCorrectionsIdentity=Get-Identity (Join-Path $control 'corrections.json');expectedTaskIdentity=Get-Identity $taskPath;observedActor='writer-fixture';capabilities=@();exactPaths=@($objectRelative);forbiddenPaths=@('private/');protectedPaths=@();authorizationPackagePath=$childPath;expectedAuthorizationIdentity=Get-Identity $childPath;userDecision='NOT_REQUIRED';recoveryState='WARM';hostEnforcementGrade='INSTRUCTION_BOUND';invocationState='PROVEN_EXPLICIT';intentEnvelope=[ordered]@{schemaVersion=1;objective='Repair the accepted bounded finding and return its terminal result';requestedActionKind='SOURCE_WRITE';requestedResultKind='TERMINAL';semanticHints=@('repair');pathHints=@($objectRelative);capabilityHints=@();mutationHints=@('source');externalHints=@();ambiguityState='CLEAR'};evaluationOnly=$false}
+  # First submission uses a real producer action and FINALIZE, without inventing a finding.
+  $initial=$discover|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100
+  $initial.authorizationPackagePath=$parentPath;$initial.expectedAuthorizationIdentity=Get-Identity $parentPath
+  $initial.intentEnvelope.objective='Produce the candidate for its first independent review'
+  $initial.intentEnvelope.requestedResultKind='IMPLEMENTATION_RESULT';$initial.intentEnvelope.semanticHints=@('implementation')
+  $first=Run-Process $initial 'initial-producer-discover';$firstReceipt=Join-Path $control 'initial-producer-compact.json';Write-Json $firstReceipt $first.compactReceipt
+  $firstBoundary=[ordered]@{schemaVersion=2;mode='ADMIT_ACTION';discoverReceiptPath=$firstReceipt;expectedDiscoverReceiptIdentity=Get-Identity $firstReceipt;preparationReceipts=@($first.compactReceipt.selectedObligations.preparationRequirements|Sort-Object -Unique);resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='NOT_APPLICABLE'}
+  $firstAdmit=Run-Process $firstBoundary 'initial-producer-admit';Assert-True ($firstAdmit.status-ceq'PASS') 'first-review-producer-is-actually-admitted'
+  Write-Utf8 $objectPath 'Initial candidate awaiting independent judgment'
+  $firstBoundary.mode='FINALIZE_OUTPUT';$firstBoundary.resultReceipts=@($first.compactReceipt.selectedObligations.resultRequirements|Sort-Object -Unique)+@('OBJECT_POSTIMAGE|'+$objectRelative+'|'+(Get-Identity $objectPath))
+  $firstFinal=Run-Process $firstBoundary 'initial-producer-finalize';$firstFinalPath=Join-Path $control 'initial-producer-finalize-result.json';Write-Json $firstFinalPath $firstFinal
+  $firstContinuation=Join-Path $control 'first-continuation.json';Write-Json $firstContinuation $firstFinal.continuationReceipt
+  $firstTest=$initial|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100
+  $firstTest|Add-Member continuationReceiptPath $firstContinuation;$firstTest|Add-Member expectedContinuationReceiptIdentity (Get-Identity $firstContinuation)
+  $firstTest.intentEnvelope.requestedActionKind='TEST_RUN';$firstTest.intentEnvelope.requestedResultKind='TEST_RESULT';$firstTest.intentEnvelope.semanticHints=@('test');$firstTest.intentEnvelope.mutationHints=@('test')
+  $tested=Run-Process $firstTest 'initial-test-discover';$testReceipt=Join-Path $control 'initial-test-compact.json';Write-Json $testReceipt $tested.compactReceipt
+  $testBoundary=[ordered]@{schemaVersion=2;mode='ADMIT_ACTION';discoverReceiptPath=$testReceipt;expectedDiscoverReceiptIdentity=Get-Identity $testReceipt;preparationReceipts=@($tested.compactReceipt.selectedObligations.preparationRequirements|Sort-Object -Unique);resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='NOT_APPLICABLE'}
+  $testAdmit=Run-Process $testBoundary 'initial-test-admit'
+  Assert-True ($testAdmit.status-ceq'PASS'-and[IO.File]::ReadAllText($objectPath).TrimEnd("`n")-ceq'Initial candidate awaiting independent judgment') 'first-submission-self-test-consumes-real-producer-continuation'
+  $testBoundary.mode='FINALIZE_OUTPUT';$testBoundary.resultReceipts=@($tested.compactReceipt.selectedObligations.resultRequirements|Sort-Object -Unique)+@('OBJECT_POSTIMAGE|'+$objectRelative+'|'+(Get-Identity $objectPath))
+  $testedFinal=Run-Process $testBoundary 'initial-test-finalize';$testedFinalPath=Join-Path $control 'initial-test-finalize-result.json';Write-Json $testedFinalPath $testedFinal
+  $initialBinding=[ordered]@{parentPackagePath=$parentPath;parentPackageIdentity=Get-Identity $parentPath;phase='INITIAL_REVIEW';cycle=0;verdictPath='NOT_APPLICABLE';verdictIdentity='NOT_APPLICABLE';repairFinalizeInputPath=(Join-Path $control 'initial-test-finalize.json');repairFinalizeInputIdentity=Get-Identity (Join-Path $control 'initial-test-finalize.json');repairFinalizeResultPath=$testedFinalPath;repairFinalizeResultIdentity=Get-Identity $testedFinalPath}
+  Write-Json $routeInput ([ordered]@{operation='REPAIR_REVIEW';repositoryRoot=$temp;binding=$initialBinding})
+  $firstReview=(& pwsh -NoProfile -File (Join-Path $PSScriptRoot '../scripts/resolve-workflow-route.ps1') -InputPath $routeInput -AsJson)|ConvertFrom-Json -Depth 100
+  $firstReviewCheck=Invoke-Check $firstReview.package reviewer-fixture REVIEW_EXECUTE
+  if($firstReviewCheck.Code-ne0){Write-Output ('DIAG|first-review|'+$firstReviewCheck.Text)}
+  Assert-True ($firstReviewCheck.Code-eq0) 'first-review-current-package-binds-real-producer-finalize'
+  $firstReviewPath=Join-Path $control 'initial-review-package.json';Write-Json $firstReviewPath $firstReview.package
+  $reviewDiscover=$initial|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100
+  $reviewDiscover.observedActor='reviewer-fixture';$reviewDiscover.authorizationPackagePath=$firstReviewPath;$reviewDiscover.expectedAuthorizationIdentity=Get-Identity $firstReviewPath
+  $reviewDiscover.intentEnvelope.requestedActionKind='REVIEW_EXECUTE';$reviewDiscover.intentEnvelope.requestedResultKind='REVIEW_VERDICT';$reviewDiscover.intentEnvelope.semanticHints=@('review');$reviewDiscover.intentEnvelope.mutationHints=@()
+  $reviewDiscovered=Run-Process $reviewDiscover 'initial-review-discover';$reviewReceipt=Join-Path $control 'initial-review-compact.json';Write-Json $reviewReceipt $reviewDiscovered.compactReceipt
+  $reviewBoundary=[ordered]@{schemaVersion=2;mode='ADMIT_ACTION';discoverReceiptPath=$reviewReceipt;expectedDiscoverReceiptIdentity=Get-Identity $reviewReceipt;preparationReceipts=@($reviewDiscovered.compactReceipt.selectedObligations.preparationRequirements|Sort-Object -Unique);resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='NOT_APPLICABLE'}
+  $reviewAdmit=Run-Process $reviewBoundary 'initial-review-admit';Assert-True ($reviewAdmit.status-ceq'PASS') 'first-review-independent-actor-passes-real-process-admission'
+  $reviewBoundary.mode='FINALIZE_OUTPUT';$reviewBoundary.resultReceipts=@($reviewDiscovered.compactReceipt.selectedObligations.resultRequirements|Sort-Object -Unique)+@('OBJECT_POSTIMAGE|'+$objectRelative+'|'+(Get-Identity $objectPath));$reviewBoundary.deliveryReceipts=@('FIXTURE_REVIEW_RETURN')
+  $reviewFinal=Run-Process $reviewBoundary 'initial-review-finalize';Assert-True ($reviewFinal.status-ceq'PASS') 'first-review-returns-through-real-finalize'
+  $badFirst=$firstReview.package|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100;$badFirst.repairReviewBinding.cycle=1
+  Assert-True ((Invoke-Check $badFirst reviewer-fixture REVIEW_EXECUTE).Code-ne0) 'first-review-rejects-invented-repair-cycle'
+  $verdict.objectIdentities=@([ordered]@{path=$objectRelative;identity=Get-Identity $objectPath});Write-Json $verdictPath $verdict
+  $binding.verdictIdentity=Get-Identity $verdictPath
+  Write-Json $routeInput ([ordered]@{operation='REPAIR_REVIEW';repositoryRoot=$temp;binding=$binding})
+  $prepared=(& pwsh -NoProfile -File (Join-Path $PSScriptRoot '../scripts/resolve-workflow-route.ps1') -InputPath $routeInput -AsJson)|ConvertFrom-Json -Depth 100
+  Write-Json $childPath $prepared.package;$discover.expectedAuthorizationIdentity=Get-Identity $childPath
   $d=Run-Process $discover 'repair-discover';$receiptPath=Join-Path $control 'repair-compact.json';Write-Json $receiptPath $d.compactReceipt
   $boundary=[ordered]@{schemaVersion=2;mode='ADMIT_ACTION';discoverReceiptPath=$receiptPath;expectedDiscoverReceiptIdentity=Get-Identity $receiptPath;preparationReceipts=@($d.compactReceipt.selectedObligations|ForEach-Object{$_.preparationRequirements}|Sort-Object -Unique);resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='NOT_APPLICABLE'}
   $admitted=Run-Process $boundary 'repair-admit';Assert-True ($admitted.status-ceq'PASS') 'real-repair-admission-passes'
@@ -187,6 +236,15 @@ try{
   $reviewCheck=Invoke-Check $reviewPrepared.package reviewer-fixture REVIEW_EXECUTE
   if($reviewCheck.Code-ne0){Write-Output ('DIAG|rereview|'+$reviewCheck.Text)}
   Assert-True ($reviewCheck.Code-eq0) 'real-finalize-authorizes-prebound-independent-focused-rereview'
+  $rereviewPath=Join-Path $control 'rereview-package.json';Write-Json $rereviewPath $reviewPrepared.package
+  $reviewDiscover.authorizationPackagePath=$rereviewPath;$reviewDiscover.expectedAuthorizationIdentity=Get-Identity $rereviewPath
+  $rereview=Run-Process $reviewDiscover 'rereview-discover';$rereviewReceipt=Join-Path $control 'rereview-compact.json';Write-Json $rereviewReceipt $rereview.compactReceipt
+  $rereviewBoundary=[ordered]@{schemaVersion=2;mode='ADMIT_ACTION';discoverReceiptPath=$rereviewReceipt;expectedDiscoverReceiptIdentity=Get-Identity $rereviewReceipt;preparationReceipts=@($rereview.compactReceipt.selectedObligations.preparationRequirements|Sort-Object -Unique);resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='NOT_APPLICABLE'}
+  $rereviewAdmit=Run-Process $rereviewBoundary 'rereview-admit'
+  Assert-True ($rereviewAdmit.status-ceq'PASS'-and[IO.File]::ReadAllText($objectPath).TrimEnd("`n")-ceq'Repaired candidate with real postimage') 'same-independent-reviewer-actually-admits-and-inspects-repaired-candidate'
+  $rereviewBoundary.mode='FINALIZE_OUTPUT';$rereviewBoundary.resultReceipts=@($rereview.compactReceipt.selectedObligations.resultRequirements|Sort-Object -Unique)+@('OBJECT_POSTIMAGE|'+$objectRelative+'|'+(Get-Identity $objectPath));$rereviewBoundary.deliveryReceipts=@('FIXTURE_REREVIEW_RETURN')
+  $rereviewFinal=Run-Process $rereviewBoundary 'rereview-finalize'
+  Assert-True ($rereviewFinal.status-ceq'PASS') 'repair-to-rereview-chain-finishes-through-real-finalize-without-owner-relay'
   $hostResultPath=Join-Path $temp 'fixture-host-result.txt';Write-Utf8 $hostResultPath 'recipient=owner-fixture;outcome=SUCCESS;fixture-only'
   foreach($deliveryCase in @('NATIVE_PREPARE','TASK_PREPARE','SUCCESS','FAILURE','UNKNOWN')){
     $withDelivery=$boundary|ConvertTo-Json -Depth 100|ConvertFrom-Json -AsHashtable

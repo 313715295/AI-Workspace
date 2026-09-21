@@ -62,11 +62,11 @@ switch ($operation) {
         $identity=$bytes.Length.ToString()+'|'+[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes))
         if($identity-cne$binding.parentPackageIdentity){throw 'REPAIR_REVIEW_PARENT_DRIFT'}
         $candidate=$parentDoc.Value
-        if($null-eq$candidate.PSObject.Properties['repairReviewPlan']-or$binding.phase-cnotin@('REPAIR','REREVIEW')){throw 'REPAIR_REVIEW_PLAN_REQUIRED'}
+        if($null-eq$candidate.PSObject.Properties['repairReviewPlan']-or$binding.phase-cnotin@('INITIAL_REVIEW','REPAIR','REREVIEW')){throw 'REPAIR_REVIEW_PLAN_REQUIRED'}
         $plan=$candidate.repairReviewPlan
         $candidate.PSObject.Properties.Remove('repairReviewPlan')
         $candidate.grantee=if($binding.phase-ceq'REPAIR'){$plan.writer}else{$plan.reviewer}
-        if($binding.phase-ceq'REREVIEW'){
+        if($binding.phase-cin@('INITIAL_REVIEW','REREVIEW')){
             $candidate.PSObject.Properties.Remove('continuationPlan')
             $candidate.actions=@('REVIEW_EXECUTE');$candidate.reviewIndependence='INDEPENDENT'
             if('CONTRIBUTOR_SET_CHANGE'-cnotin$candidate.invalidatesOn){$candidate.invalidatesOn+=@('CONTRIBUTOR_SET_CHANGE')}

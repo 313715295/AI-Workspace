@@ -3,7 +3,7 @@
 <!-- AIW-REQUIREMENT:PR_CODEX_RESOURCE_ROUTE:BEGIN -->
 资源选择及调整只遵循 TASK 的 PR_TASK_RESOURCE_SELECTION；HOST负责核对当前可用 model、各自支持的 effort 与实际接受结果。同名 effort 不证明跨模型等价，角色/profile 不决定档位。
 
-健康 identity/model/effort 复用。新分派或实际调整时，宿主支持则显式传参并消费接受结果；omitted/rejected/normalized/ignored、接受不明、host move 或能力变化才复查。prompt 不能证明物理切档，也不要求健康 peer 额外握手。
+健康 identity/model/effort 复用。新任务显式落实当次选定的 model/effort，并核对实际接受结果；按当次工具合同传参，不能用“保持默认”代替选型，也不能把调用前主动省略说成工具拒绝。omitted/rejected/normalized/ignored、接受不明、host move 或能力变化才复查。prompt 不能证明物理切档，不要求健康 peer 额外握手。长期主控/Owner保持原绑定。
 
 用户持续委托的来源与复用遵循 AUTHORIZATION_MODEL。HOST 只映射当前调用参数、实际配置和结果，不新增泛化宿主限制预检、安装守卫或授权台账；实际拒绝仍按真实原因处理。
 
@@ -23,7 +23,7 @@ temporary actor/Reviewer 一次 terminal 后即无写职责；不向 Owner 索�
 <!-- AIW-REQUIREMENT:PR_COMPACT_NON_INTERRUPT_DELIVERY:END -->
 
 <!-- AIW-REQUIREMENT:PR_CODEX_TOOL_OPERATION_RESOLUTION:BEGIN -->
-首次解析、来源变化或正文实际缺失时读取项目backend与pinned TOOLCHAIN.json，校验runtime/platform并取得exact entrypoint；健康调用复用。不得从shell推断backend、另造后端或让用户逐任务选择。已知独立读查同批执行；有依赖且无需新语义判断的机械步骤按结果连续编排，各门保留独立结果，失败停止依赖链。按预期耗时合理首次等待；新事实、语义取舍或真实失败才返回模型，不能自动填授权、Review或接受PASS。
+首次解析、来源变化或正文实际缺失时读取项目backend与pinned TOOLCHAIN.json，校验runtime/platform并取得exact entrypoint；健康调用复用。不得从shell推断backend、另造后端或让用户逐任务选择。已知独立读查同批执行；有依赖且无需新语义判断的机械步骤按结果连续编排，各门保留独立结果，失败停止依赖链。按预期耗时合理首次等待；无新事实的等待不反复唤起模型，此约束覆盖所有等待工具和轮询行为。新事实、语义取舍或真实失败才返回模型，不能自动填授权、Review或接受PASS。记录、交付和必要归档在原任务收尾集中完成，不另起清理或统计回合。
 
 TASK定义的workflow transition使用fresh repo-local authority、cwd/Git top、package、用户决定和host-authenticated envelope，按 TOOLCHAIN 的 WORKFLOW_ROUTE_RESOLVE 提交 ephemeral input；缺事实 fail closed，具体字段及输入生命周期仅见TOOL_CONTRACT。任务显示名遵循TASK命名合同；创建时使用宿主title参数，主题实变时按authenticated task ID调用宿主标题操作，只改显示、不发指令或改authority。
 

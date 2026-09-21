@@ -40,7 +40,7 @@ WARM、`FULL_COLD`、source composition、boundary decision 与 compaction 后�
 
 同一 domain task 中，DOMAIN_OWNER 直接选择 temporary actor/Reviewer、签发 package 并接收 terminal result。Controller 只接 owner/public-decision、cross-domain-contract、protected-path、project-phase、Git/device/external、resource-conflict、routine-exclusion 或 object-drift exception。不得建立 ACK chain。
 
-`frameworkCapabilities={}` 或 `KNOWLEDGE_REFERENCE.enabled=false` 表示 optional capability 未启用。显式启用时，DISCOVER metadata 后最多 QUERY 三个 ID；Knowledge 不授予 authority/action，也没有 background polling/write。
+`frameworkCapabilities={}` 或 `KNOWLEDGE_REFERENCE.enabled=false` 表示 optional capability 未启用。显式启用时，DISCOVER metadata 后按当前请求 QUERY 显式选择的 ID；Knowledge 不授予 authority/action，也没有 background polling/write。
 <!-- FRAMEWORK-MANAGED:END -->
 
 <!-- PROJECT-CUSTOM:BEGIN -->

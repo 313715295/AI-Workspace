@@ -28,5 +28,5 @@
 <!-- AIW-REQUIREMENT:PR_PERSPECTIVE_LENS_SELECTION:END -->
 
 <!-- AIW-REQUIREMENT:PR_PROPORTIONALITY_WHEN_MACHINERY_ADDED:BEGIN -->
-对CRITICAL架构/Framework/workflow方案，或任何会增加模块、服务、状态、transition、任务、角色、handoff的CRITICAL规划，推荐前先写一行`Proportionality`。只判断现有机制、缺口分类、最小充分修正、新增机器数量与升级触发条件；MICRO、普通bug fix及不增加机器的routine work豁免。该结论不是第二决策对象或台账，也不替代用户/Owner/Review门。
+对实际重大架构/Framework/workflow方案，或会新增流程机制的规划，推荐前在既有方案写一行`Proportionality`。CRITICAL标签本身不要求每张卡填写该字段或不适用套话。只判断现有机制、缺口分类、最小充分修正、新增机器数量与升级触发条件；MICRO、普通bug fix及不增加机器的routine work豁免。该结论不是第二决策对象或台账，也不替代用户/Owner/Review门。
 <!-- AIW-REQUIREMENT:PR_PROPORTIONALITY_WHEN_MACHINERY_ADDED:END -->

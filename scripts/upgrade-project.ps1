@@ -211,13 +211,13 @@ function Assert-ExactTransactionTree([string]$Root,[string[]]$ExpectedFiles,[str
 function Get-PilotBootstrapManagedIdentity([string]$Text){
     $begin='<!-- PROJECT-CUSTOM:BEGIN -->';$end='<!-- PROJECT-CUSTOM:END -->'
     $start=$Text.IndexOf($begin,[StringComparison]::Ordinal);$finish=$Text.IndexOf($end,[StringComparison]::Ordinal)
-    if($Text.Contains("`r")-or-not$Text.EndsWith("`n")-or$start-lt0-or$finish-le$start-or$Text.IndexOf($begin,$start+1,[StringComparison]::Ordinal)-ge0-or$Text.IndexOf($end,$finish+1,[StringComparison]::Ordinal)-ge0){throw 'LOCAL_CANDIDATE_BOOTSTRAP_MARKERS_OR_TEXT'}
+    if($start-lt0-or$finish-le$start-or$Text.IndexOf($begin,$start+1,[StringComparison]::Ordinal)-ge0-or$Text.IndexOf($end,$finish+1,[StringComparison]::Ordinal)-ge0){throw 'LOCAL_CANDIDATE_BOOTSTRAP_MARKERS_OR_TEXT'}
     return Get-MinimalBytesIdentity ($utf8NoBom.GetBytes($Text.Substring(0,$start+$begin.Length)+$Text.Substring($finish)))
 }
 function Get-PilotAgentsManagedIdentity([string]$Text){
     $begin='<!-- AI-WORKSPACE-FRAMEWORK:BEGIN -->';$end='<!-- AI-WORKSPACE-FRAMEWORK:END -->'
     $start=$Text.IndexOf($begin,[StringComparison]::Ordinal);$finish=$Text.IndexOf($end,[StringComparison]::Ordinal)
-    if($Text.Contains("`r")-or-not$Text.EndsWith("`n")-or$Text.Contains([char]0)-or$Text.Contains([char]0xFFFD)-or$start-lt0-or$finish-le$start-or$Text.IndexOf($begin,$start+1,[StringComparison]::Ordinal)-ge0-or$Text.IndexOf($end,$finish+1,[StringComparison]::Ordinal)-ge0){throw 'LOCAL_CANDIDATE_AGENTS_MARKERS_OR_TEXT'}
+    if($Text.Contains([char]0)-or$Text.Contains([char]0xFFFD)-or$start-lt0-or$finish-le$start-or$Text.IndexOf($begin,$start+1,[StringComparison]::Ordinal)-ge0-or$Text.IndexOf($end,$finish+1,[StringComparison]::Ordinal)-ge0){throw 'LOCAL_CANDIDATE_AGENTS_MARKERS_OR_TEXT'}
     return Get-MinimalBytesIdentity ($utf8NoBom.GetBytes($Text.Substring($start,$finish+$end.Length-$start)))
 }
 function New-PilotProjectionRecord([string]$Relative,[string]$Identity,[string]$BootstrapText='',[string]$AgentsText=''){
@@ -230,15 +230,28 @@ function Assert-PilotProjectionCurrent([string]$RepositoryRoot,$Entry,[int]$Sche
     $relative=[string]$Entry.relative;Assert-ActorBoundLivePath $RepositoryRoot $relative
     $path=Join-ChildPath $RepositoryRoot $relative;$actual=Get-OptionalIdentity $path
     if($SchemaVersion-in@(4,5,6)-and$relative-ceq'.ai-workspace/BOOTSTRAP.md'){
-        if($actual-ceq'MISSING'-or(Get-PilotBootstrapManagedIdentity (Read-StrictUtf8NoBom $path))-cne[string]$Entry.managedIdentity){throw ($ErrorCode+'|'+$relative)}
-    }elseif($SchemaVersion-in@(4,5,6)-and$relative-ceq'AGENTS.md'-and$null-ne$Entry.PSObject.Properties['managedIdentity']){
-        if($actual-ceq'MISSING'-or(Get-PilotAgentsManagedIdentity (Read-StrictUtf8NoBom $path))-cne[string]$Entry.managedIdentity){throw ($ErrorCode+'|'+$relative)}
+        if($actual-ceq'MISSING'-or-not(Test-PilotTextLayoutIdentity (Read-StrictUtf8NoBom $path) ([string]$Entry.managedIdentity) -Bootstrap)){throw ($ErrorCode+'|'+$relative)}
+    }elseif($relative-ceq'AGENTS.md'){
+        if($actual-ceq'MISSING'){throw ($ErrorCode+'|'+$relative)}
+        $null=Get-PilotAgentsManagedIdentity (Read-StrictUtf8NoBom $path)
     }elseif($SchemaVersion-in@(4,5,6)-and$relative-in@('.ai-workspace/process-policy.json','.ai-workspace/corrections.json')){
         if($actual-ceq'MISSING'){throw ($ErrorCode+'|'+$relative)}
         # The target preflight/composer validates current rules; do not read historical rule bodies here.
         $raw=Read-StrictUtf8NoBom $path;Assert-StrictJsonMemberSet $raw 'LOCAL_CANDIDATE_PROJECT_AUTHORITY_JSON'
         try{$null=$raw|ConvertFrom-Json}catch{throw 'LOCAL_CANDIDATE_PROJECT_AUTHORITY_JSON'}
-    }elseif($actual-cne[string]$Entry.identity){throw ($ErrorCode+'|'+$relative)}
+    }elseif($actual-cne[string]$Entry.identity){
+        if($relative-cne'.ai-workspace/project.json'-or$actual-ceq'MISSING'-or-not(Test-PilotTextLayoutIdentity (Read-StrictUtf8NoBom $path) ([string]$Entry.identity))){throw ($ErrorCode+'|'+$relative)}
+    }
+}
+
+function Test-PilotTextLayoutIdentity([string]$Text,[string]$ExpectedIdentity,[switch]$Bootstrap){
+    $lf=$Text.Replace("`r`n","`n")
+    $withoutFinal=if($lf.EndsWith("`n")){$lf.Substring(0,$lf.Length-1)}else{$lf}
+    foreach($variant in @($Text,$withoutFinal,($withoutFinal+"`n"),$withoutFinal.Replace("`n","`r`n"),($withoutFinal+"`n").Replace("`n","`r`n"))){
+        $identity=if($Bootstrap){Get-PilotBootstrapManagedIdentity $variant}else{Get-MinimalBytesIdentity ($utf8NoBom.GetBytes($variant))}
+        if($identity-ceq$ExpectedIdentity){return $true}
+    }
+    return $false
 }
 
 function Get-ActorBoundRecoveryContract([string]$RepositoryRoot,[string]$RecoveryRoot,$State,[string]$StateRaw,[string]$ProjectId,[string]$TargetVersion,$Migration) {
@@ -682,7 +695,7 @@ function Get-LocalCandidateSamePinProjectionRefreshPlan([string]$RepositoryRoot,
     if(-not$stateEntries.ContainsKey('.ai-workspace/project.json')-or-not$stateEntries.ContainsKey($historicalTaskRelative)-or(Get-OptionalIdentity $Migration.Path)-cne$Migration.OldIdentity){throw 'LOCAL_CANDIDATE_SAME_PIN_RECOVERY_CLOSURE'}
     # A template refresh owns the managed AGENTS block. Bind its current whole
     # file as the transaction preimage, including edits made while moving project
-    # extensions outside that block. Daily recovery still uses the strict check.
+    # user decisions. Installation history is not a daily content lock.
     $assertRefreshEntry={param($Entry)
         if([string]$Entry.relative-ceq'AGENTS.md'){
             Assert-ActorBoundLivePath $RepositoryRoot 'AGENTS.md'
@@ -692,7 +705,7 @@ function Get-LocalCandidateSamePinProjectionRefreshPlan([string]$RepositoryRoot,
     foreach($entry in @($contract.ProjectionRecords|Where-Object{[string]$_.relative-cne$historicalTaskRelative})){& $assertRefreshEntry $entry}
 
     $projectRaw=Read-StrictUtf8NoBom $ProjectFile;try{$project=$projectRaw|ConvertFrom-Json}catch{throw 'LOCAL_CANDIDATE_SAME_PIN_PROJECT_JSON'}
-    if([string]$project.id-cne$ProjectId-or[string]$project.frameworkVersion-cne$TargetVersion-or[string]$project.controlPlaneLayout-cne$Layout-or(Get-MinimalFileIdentity $ProjectFile)-cne[string]$stateEntries['.ai-workspace/project.json'].identity){throw 'LOCAL_CANDIDATE_SAME_PIN_PROJECT_BINDING'}
+    if([string]$project.id-cne$ProjectId-or[string]$project.frameworkVersion-cne$TargetVersion-or[string]$project.controlPlaneLayout-cne$Layout-or-not(Test-PilotTextLayoutIdentity (Read-StrictUtf8NoBom $ProjectFile) ([string]$stateEntries['.ai-workspace/project.json'].identity))){throw 'LOCAL_CANDIDATE_SAME_PIN_PROJECT_BINDING'}
     Assert-TargetProjectCapabilities $projectRaw 'LOCAL_CANDIDATE_SAME_PIN_PROJECT'
     $records=New-Object 'System.Collections.Generic.List[object]'
     $addProjection={param([string]$Relative,[string]$Path,$Content,[bool]$RequirePriorState)
@@ -748,7 +761,7 @@ function Get-LocalCandidateSamePinProjectionRefreshPlan([string]$RepositoryRoot,
     $agentsPath=Join-Path $RepositoryRoot 'AGENTS.md';$agentsRaw=Read-StrictUtf8NoBom $agentsPath
     $null=Get-AiwAgentsTemplateBlock $agentsRaw
     $targetAgents=Get-AiwStandingDelegationProjection -Text $agentsRaw -AdoptionRequested $true -TemplatePath (Join-ChildPath $templateRoot 'AGENTS.md')
-    & $addProjection 'AGENTS.md' $agentsPath (Normalize-Text $targetAgents) $true
+    & $addProjection 'AGENTS.md' $agentsPath $targetAgents $true
     $skillRelative='.agents/skills/ai-workspace-router/SKILL.md';$skillPath=Join-ChildPath $RepositoryRoot $skillRelative;if(Test-Path -LiteralPath $skillPath -PathType Leaf){& $addProjection $skillRelative $skillPath $null $true}
     $gitIgnore=Get-RuntimeGitIgnoreProjection $RepositoryRoot ([string]$script:ActiveAdoptionProfile.projectControl.runtimeGitIgnoreRule);if([bool]$gitIgnore.Changed){& $addProjection '.gitignore' ([string]$gitIgnore.Path) ([string]$gitIgnore.Content) ([bool]$stateEntries.ContainsKey('.gitignore'))}
 
@@ -813,9 +826,11 @@ function Invoke-LocalCandidateSamePinProjectionRefresh([string]$RepositoryRoot,[
             }
             $null=Assert-AiwDistributionBinding $script:ActiveDistributionBinding $FrameworkWorkspace $TargetVersion
             Import-Module (Join-ChildPath $TargetFramework 'scripts/ProcessRequirementComposition.psm1') -Force
-            $null=Get-AiwLocalCandidateSupportBinding -ProjectRoot $root -VersionDirectory (Join-Path $FrameworkWorkspace ("framework/versions/"+$TargetVersion)) -Version $TargetVersion -ExpectedProjectConfigIdentity (Get-MinimalFileIdentity (Join-Path $root ".ai-workspace/project.json")) -ExpectedCandidatePilotStateIdentity (Get-MinimalFileIdentity (Join-Path $root (".ai-workspace/upgrade-recovery/"+$TargetVersion+"/state.json")))
+            Assert-AiwRuntimeAdoptionProjection $root $projection $TargetFramework $TargetVersion (Get-MinimalFileIdentity (Join-Path $root ".ai-workspace/project.json"))
             return $true
         }
+        Import-Module (Join-ChildPath $TargetFramework 'scripts/ProcessRequirementComposition.psm1') -Force
+        Assert-AiwRuntimeAdoptionProjection $RepositoryRoot $Plan.Projection $TargetFramework $TargetVersion (Get-MinimalFileIdentity $ProjectFile)
         $transaction=Invoke-AiwProjectProjectionTransaction $RepositoryRoot $Plan.Projection '.ai-workspace/runtime/project-adoption/upgrade/state.json' $postcheck {param($r,$p) $true} -InterruptAfterWrite $InterruptAfterAdoptionWrite -Metadata @{
             operation='UPGRADE_RUNTIME_REFRESH';authorizationIdentity=$ExpectedAuthorizationPackageIdentity;actor=$Migration.Actor
             projectConfigIdentity=(Get-MinimalFileIdentity $ProjectFile);controllerIdentity=(Get-MinimalFileIdentity (Join-Path $RepositoryRoot '.ai-workspace/controller.json'));taskPath=$Migration.Relative;taskIdentity=$Migration.OldIdentity
@@ -910,12 +925,12 @@ function Get-ManagedAgentsTransition([string]$RepositoryRoot,[string]$SourceFram
         $bytes=[IO.File]::ReadAllBytes($agentsPath)
         if($bytes.Length-ge3-and$bytes[0]-eq239-and$bytes[1]-eq187-and$bytes[2]-eq191){throw 'AGENTS_MANAGED_BLOCK_BOM'}
         try{$text=$utf8Strict.GetString($bytes)}catch{throw 'AGENTS_MANAGED_BLOCK_UTF8'}
-        if($text.Contains("`r")-or-not$text.EndsWith("`n")){throw 'AGENTS_MANAGED_BLOCK_TEXT_FORMAT'}
+        if($text.Contains([char]0)-or$text.Contains([char]0xFFFD)){throw 'AGENTS_MANAGED_BLOCK_TEXT_FORMAT'}
         $text
     }else{''}
 
     $null=Get-AiwAgentsTemplateBlock $current
-    $newAgents=Normalize-Text (Get-AiwStandingDelegationProjection -Text $current -AdoptionRequested $true -TemplatePath (Join-ChildPath $TargetFramework 'project-starter/AGENTS.md'))
+    $newAgents=Get-AiwStandingDelegationProjection -Text $current -AdoptionRequested $true -TemplatePath (Join-ChildPath $TargetFramework 'project-starter/AGENTS.md')
     return [pscustomobject]@{AgentsPath=$agentsPath;SkillPath=$skillPath;AgentsContent=$newAgents;SkillContent=$null}
 }
 
@@ -1116,12 +1131,6 @@ function ConvertFrom-StrictUtf8NoBomBytes {
     }
     if ($content.Contains([char]0) -or $content.Contains([char]0xFFFD)) {
         throw "File contains a forbidden text code point: $Source"
-    }
-    if ($content.Contains("`r")) {
-        throw "File must use LF line endings: $Source"
-    }
-    if (-not $content.EndsWith("`n")) {
-        throw "File must end with LF: $Source"
     }
     return $content
 }
@@ -1579,7 +1588,7 @@ function Get-SameVersionCorrectionsMigration([string]$RepositoryRoot,[string]$Fr
     $oldIdentity=Get-MinimalFileIdentity $correctionsFile
     if($oldIdentity-ceq$ExpectedProjectCorrectionsMigrationIdentity){throw 'PROJECT_CORRECTIONS_ALREADY_MIGRATED'}
     $oldRaw=Read-StrictUtf8NoBom $correctionsFile;$candidateRaw=Read-StrictUtf8NoBom $ProjectCorrectionsMigrationPath
-    if($candidateRaw.Contains("`r")-or-not$candidateRaw.EndsWith("`n")){throw 'PROJECT_CORRECTIONS_MIGRATION_TEXT_FORMAT'}
+    if($candidateRaw.Contains([char]0)-or$candidateRaw.Contains([char]0xFFFD)){throw 'PROJECT_CORRECTIONS_MIGRATION_TEXT_FORMAT'}
     Assert-StrictJsonMemberSet $oldRaw 'PROJECT_CORRECTIONS_SOURCE_DUPLICATE_MEMBER';Assert-StrictJsonMemberSet $candidateRaw 'PROJECT_CORRECTIONS_MIGRATION_DUPLICATE_MEMBER'
     try{$old=$oldRaw|ConvertFrom-Json;$candidate=$candidateRaw|ConvertFrom-Json}catch{throw 'PROJECT_CORRECTIONS_MIGRATION_JSON'}
     $topFields=@('schemaVersion','contractVersion','projectId','corrections')
@@ -1594,7 +1603,7 @@ function Get-SameVersionCorrectionsMigration([string]$RepositoryRoot,[string]$Fr
         $repairResolved=Get-ValidatedProjectCorrectionsRepairSource $RepositoryRoot $ProjectCorrectionsMigrationRepairPath $ExpectedProjectCorrectionsMigrationRepairIdentity
         if($repairResolved-ceq$candidateResolved-or(Get-MinimalFileIdentity $ProjectCorrectionsMigrationRepairPath)-cne$ExpectedProjectCorrectionsMigrationRepairIdentity){throw 'PROJECT_CORRECTIONS_MIGRATION_REPAIR_INPUT_DRIFT'}
         $repairRaw=Read-StrictUtf8NoBom $repairResolved
-        if($repairRaw.Contains("`r")-or-not$repairRaw.EndsWith("`n")){throw 'PROJECT_CORRECTIONS_MIGRATION_REPAIR_TEXT_FORMAT'}
+        if($repairRaw.Contains([char]0)-or$repairRaw.Contains([char]0xFFFD)){throw 'PROJECT_CORRECTIONS_MIGRATION_REPAIR_TEXT_FORMAT'}
         Assert-StrictJsonMemberSet $repairRaw 'PROJECT_CORRECTIONS_MIGRATION_REPAIR_DUPLICATE_MEMBER'
         try{$repair=$repairRaw|ConvertFrom-Json}catch{throw 'PROJECT_CORRECTIONS_MIGRATION_REPAIR_JSON'}
         Assert-ProjectCorrectionsMigrationCandidate $old $oldRaw $repair $repairRaw $TargetVersion $ProjectId 'Repaired project corrections candidate'

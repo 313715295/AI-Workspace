@@ -9,9 +9,9 @@ mechanical formatting、canonical projection 与 release-field sealing 在不改
 
 Review 不授予 write、Git、push 或 external capability。
 
-审核资格与载体分开判断。APPLICATION_TASK 与 INTERNAL_SUBAGENT 都必须绑定可证明的真实审核主体、当前候选身份与精确范围、原始材料及可追溯 verdict。主体必须满足下述关系独立性；复制一个新名称、继承 writer 的判断或返回摘要不能证明独立性。Owner 在分派前核对上下文是否足够新鲜、材料是否完整及结果是否可保留和复证。
+独立审核使用可见 APPLICATION_TASK，绑定真实审核主体、当前候选身份与精确范围、原始材料及可追溯 verdict。新的独立审核任务新建会话；同一审核继续及修复复审复用仍独立且上下文可用的原会话。复制新名称、继承 writer 判断或返回摘要不能证明独立性。分派者核对材料完整、上下文可用及结果可复证。
 
-用户明确要求可见任务，或审核需要内部载体无法提供的持续独立生命周期时，使用 APPLICATION_TASK。只有全部身份、独立性、候选/材料、追溯和上下文条件成立，且没有上述可见/持续要求时，INTERNAL_SUBAGENT 才可正式消费；任何条件缺失或未知均不准入，不能静默替换载体。ADMIT 的 REVIEW_CARRIER_QUALIFIED 与 REVIEW_MATERIALS_BOUND 回执记录这些已核对事实，仍为 INSTRUCTION_BOUND，不声称工具证明材料理解或宿主身份真实性。旧内部观察不追认成旧规则下的正式 Review。
+分派者完成创建并消费真实返回 ID，按该 ID 连续完成审核包及必要凭据绑定。接收者只承担自身审核成果，不再承担“创建/取得审核身份”，也不另派审核者。创建前准备完整候选、批准基线、原始材料、范围、资源选择及可预备凭据；依赖 ID 的步骤在取得 ID 后连续完成。真实缺项由分派者补齐，不要求反向身份握手。ADMIT 的 REVIEW_CARRIER_QUALIFIED 与 REVIEW_MATERIALS_BOUND 记录已核对的可见载体、独立性和材料事实，仍为 INSTRUCTION_BOUND。
 
 对未变化的 domain task，DOMAIN_OWNER 可以直接选择 independent Reviewer，并签发纯 `REVIEW_EXECUTE` package；PROJECT_CONTROLLER 不是强制签名或 delivery hop。临时 Reviewer 只成为 action grantee，不改写 task Owner、Work route actor、task identity 或 candidate bytes。CRITICAL scope 下，task owner、issuer、candidate writer 与 material solution contributor 必须被机械排除；合格 cross-domain writer 仍是 writer/contributor，不改变 task ownership。`OWNER_ACCEPT` 是之后的 domain/product gate，不是 Review。
 
@@ -21,7 +21,7 @@ Review 不授予 write、Git、push 或 external capability。
 
 stable candidate 标识 repository、parent/baseline、exact files、byte identities、canonical payload、known dirty/index state、writer release 与 evidence ceiling。canonical immutable evidence 只存一次并由其他对象引用；不要在 mutable card 之间复制，也不要增加 field-level manifest。
 
-finding 本身不授权 repair；原 Owner 已明确预授予 repairReviewPlan 时，依 TOOL_CONTRACT 机械准备当前包并由各主体实际准入，无须 Owner 纯中转。same-scope repair 使用新 writer package，更新 affected freeze，并由同一个仍保持独立的 Reviewer 做 focused rereview。复验实际修复、直接消费者及必要相邻回归；未受影响的原完整 Review 和验证证据保留，不因候选整文件身份变化重跑无关范围，也不复用旧授权或 stale receipt。contract、path 或 impact set 扩大时，需要新的 full Review。独立性按实质贡献和当前可重绑上下文判断；单纯看过材料或提出 finding 不自动成为 writer/contributor，未准入结论不得冒充正式审核。测试通过不能取消有效的架构或代码质量 finding。
+适用且主体、范围已确定的任务默认按 AUTHORIZATION_MODEL 配置 repairReviewPlan。首次交审由已完成的生产 FINALIZE 绑定当前候选；finding 本身不授权 repair，实际修复/复审沿计划准备当前包并各自准入，无须 Owner 纯中转。same-scope repair 使用新 writer package，更新 affected freeze，由同一个仍独立的 Reviewer 做 focused rereview。局部 finding 只重开受影响范围，复验实际修复、直接消费者及必要相邻回归；未受影响的原完整 Review 和验证证据保留，不因整文件身份变化重跑无关范围，不复用旧授权或 stale receipt。contract、path 或 impact set 扩大时回 Owner 处理所需 full Review；同一审核仍按当前独立性与上下文判断是否复用会话。提出 finding 不自动成为 writer/contributor，未准入结论不冒充正式审核，测试通过不能取消有效质量 finding。
 
 release 声明已吸收某条 project correction 时，Review 必须把原始 correction reason、effective rule 与 applicability boundary 对照实际 normative modules 与 behavior tests。原生规则 ID、changelog 声明或近似措辞本身不是 acceptance evidence。通用吸收不登记项目身份；项目采用时独立判断完整覆盖、部分覆盖或继续保留，混合义务保留项目增量与完整历史。
 <!-- AIW-REQUIREMENT:PR_CRITICAL_REVIEW_INDEPENDENCE:END -->

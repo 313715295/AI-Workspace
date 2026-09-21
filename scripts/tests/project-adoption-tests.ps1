@@ -166,15 +166,16 @@ try {
     foreach($templatePath in @((Join-Path (Split-Path -Parent $scriptsRoot) 'framework/versions/1.16.0/project-starter/AGENTS.md'),(Join-Path (Split-Path -Parent $scriptsRoot) 'framework/maintenance-overlay/AGENTS.md'))){
         $delegated=Get-AiwStandingDelegationProjection -Text $custom -AdoptionRequested $true -TemplatePath $templatePath
         $block=Get-AiwAgentsTemplateBlock $delegated
-        Assert-True ($delegated.StartsWith($custom)-and$block.Contains('用户持续委托AI')-and-not$block.Contains('BOOTSTRAP.md')-and-not$delegated.Contains('AI-WORKSPACE-USER-DECISION')) 'registration-managed-delegation-preserves-outside'
+        Assert-True ($delegated.StartsWith($custom)-and$block.Contains('在本项目内，AI 根据当前采用的 Framework、当前生效的项目纠正及永久规则作出的具体工作决定，均视为用户明确决定')-and-not$block.Contains('BOOTSTRAP.md')-and-not$delegated.Contains('AI-WORKSPACE-USER-DECISION')) 'registration-managed-delegation-preserves-outside'
         Assert-True ((Get-AiwStandingDelegationProjection -Text $delegated -AdoptionRequested $true -TemplatePath $templatePath)-ceq$delegated) 'template-projection-idempotent'
-        $changed=$delegated.Replace('用户持续委托AI','HAND_EDITED_MANAGED')+"`n用户撤回持续委托。`n"
+        $changed=$delegated.Replace('在本项目内，AI','HAND_EDITED_MANAGED')+"`n用户撤回持续委托。`n"
         $updated=Get-AiwStandingDelegationProjection -Text $changed -AdoptionRequested $true -TemplatePath $templatePath
         Assert-True (-not$updated.Contains('HAND_EDITED_MANAGED')-and$updated.EndsWith("`n用户撤回持续委托。`n")-and$updated.StartsWith($custom)) 'managed-hand-edit-overwritten-outside-revocation-retained'
-        $default=@($block-split"`n"|Where-Object{$_-like'用户持续委托AI*'})[0]
+        $default=@($block-split"`n"|Where-Object{$_-like'在本项目内，AI*'})[0]
         $legacy=$custom+"<!-- AI-WORKSPACE-FRAMEWORK:BEGIN -->`nold template`n<!-- AI-WORKSPACE-FRAMEWORK:END -->`n<!-- AI-WORKSPACE-USER-DECISION:BEGIN -->`n$default`n用户将委托收窄为只读分析。`n<!-- AI-WORKSPACE-USER-DECISION:END -->`n"
         $migrated=Get-AiwStandingDelegationProjection -Text $legacy -AdoptionRequested $true -TemplatePath $templatePath
-        Assert-True (-not$migrated.Contains('AI-WORKSPACE-USER-DECISION')-and[regex]::Matches($migrated,'用户持续委托AI').Count-eq1-and$migrated.IndexOf('用户将委托收窄为只读分析。')-gt$migrated.IndexOf('<!-- AI-WORKSPACE-FRAMEWORK:END -->')) 'legacy-default-migrates-once-and-project-restriction-remains-outside'
+        $managedPattern='(?s)<!-- AI-WORKSPACE-FRAMEWORK:BEGIN -->.*?<!-- AI-WORKSPACE-FRAMEWORK:END -->'
+        Assert-True ([regex]::Replace($migrated,$managedPattern,'')-ceq[regex]::Replace($legacy,$managedPattern,'')) 'upgrade-keeps-complete-outside-declaration-and-project-restriction'
         Assert-True ((Get-AiwStandingDelegationProjection -Text $migrated -AdoptionRequested $true -TemplatePath $templatePath)-ceq$migrated) 'legacy-migration-idempotent'
         $rejected=$false;try{$null=Get-AiwStandingDelegationProjection -Text ($custom+'<!-- AI-WORKSPACE-FRAMEWORK:BEGIN -->') -AdoptionRequested $true -TemplatePath $templatePath}catch{$rejected=$_.ToString().Contains('AGENTS_MANAGED_MARKERS_MALFORMED')}
         Assert-True $rejected 'malformed-managed-markers-rejected'

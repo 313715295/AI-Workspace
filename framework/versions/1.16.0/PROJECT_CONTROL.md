@@ -49,7 +49,7 @@ local candidate pilot 在任何 project preflight 前重算 candidate payload，
 <!-- AIW-REQUIREMENT:PR_PROCESS_REQUIREMENTS_THREE_SOURCE_COMPOSITION:BEGIN -->
 PROCESS_REQUIREMENTS_RESOLVE是受治理工作的唯一过程入口。DISCOVER组合sealed原生规则、仍有效纠正和永久项目规则，各自保留authority；动作与输出分别ADMIT_ACTION/FINALIZE_OUTPUT，receipt临时且非权威。调用/选择语义、严格来源校验、预算与临时生命周期只由TOOL_CONTRACT定义。
 
-新项目以`.ai-workspace/process-policy.json`承载规则，selectedRulePackBytes仅保留历史／兼容数据，不限制完整规则包。真实bytes、规则数及选择结果用于查明无关加载、重复和异常增长，不新增阈值、调额或确认门。legacy PROJECT-CUSTOM在独立Review的原子迁移同时建立structured carrier并退役已迁移正文前仍是bound source；empty-source与双载体同规则均拒绝。
+新项目以`.ai-workspace/process-policy.json`承载规则，selectedRulePackBytes仅保留历史／兼容数据，不限制完整规则包。真实bytes、规则数及选择结果用于查明无关加载、重复和异常增长，不新增阈值、调额或确认门。PROJECT-CUSTOM与policy各自绑定当前来源；不同职责可同时存在，不因两个位置直接拒绝。真正重复的有效正文拒绝，语义冲突由当前任务识别并正常整理，不能静默覆盖；保持唯一语义归属，不强制迁移或新增语义解析器。
 
 项目规则可内联或引用使用者维护的完整标准/唯一marked section及直接依赖。PROJECT_RELATIVE相对项目Git根；ABSOLUTE_FILE为显式本机非reparse绝对文件，可在项目外或独立checkout；省略kind保持PROJECT_RELATIVE。项目自行选择位置，多个项目绑定同一文件即可共享；不设全局注册或强制复制。policy保留selector、kind/locator、whole identity、section、dependency和decision evidence，原使用者拥有正文，读取不授予写权限。
 
@@ -76,7 +76,7 @@ machine truth 是 `controller.json`。handoff 冻结 old/new identity 与 epoch�
 <!-- AIW-REQUIREMENT:PR_KNOWLEDGE_REFERENCE_LIFECYCLE:BEGIN -->
 ## Knowledge capability
 
-Knowledge reference 仍为 optional、project-local、non-authoritative。`DISCOVER` 返回 compact metadata；`QUERY` 在 request scope 最多校验三个 selected IDs。只读 changed-authority impact check 帮助 owning task 在正常 acceptance boundary 刷新或标记 stale entry。不增加 background service 或 automatic write；Knowledge 不能改变 product facts、task authority 或 Framework pin。
+Knowledge reference 仍为 optional、project-local、non-authoritative。`DISCOVER` 返回 compact metadata；`QUERY` 在 request scope 校验显式选择的 IDs，不设统一数量配额。只读 changed-authority impact check 帮助 owning task 在正常 acceptance boundary 刷新或标记 stale entry。不增加 background service 或 automatic write；Knowledge 不能改变 product facts、task authority 或 Framework pin。
 <!-- AIW-REQUIREMENT:PR_KNOWLEDGE_REFERENCE_LIFECYCLE:END -->
 
 <!-- AIW-REQUIREMENT:PR_OWNER_FIRST_DIRECT_DOMAIN_ROUTE:BEGIN -->
@@ -92,7 +92,7 @@ project adoption 加载 `1.16.0` starter 与 task contract，但不批量重写 
 
 每次操作在原upgrade-recovery/corrections/<ID>/<batch>/保存不可变history.json（完整旧record、操作和决定），当前record仅引用最近history的locator/identity；旧record保留此前history及installation引用。installation证明效果归属，history证明正文/状态演进，事务state.json证明恢复，三者不混称。新历史与全部后像同一投影提交，历史失败不得只改当前正文；正常加载不展开历史链。正式历史及原任务/Git证据长期保留，不按临时收据清理。
 
-REVISE在同一投影中替换当前record及已证明的效果，不拆为先卸载再安装的两个事务。只改正文/selector时保留installation及效果；拆合沿原精确整组投影保留每条旧记录和完整义务映射，不新建吸收表或授权语言。REGISTER_HISTORY只登记有证据的旧安装，不自动归档、不补造前像或强制全项目登记。缺归属的既有record可单独修订并保存真实旧正文，但不据此撤销未知文件效果。
+REVISE在同一投影中替换当前record及已证明的效果，不拆为先卸载再安装的两个事务。只改正文/selector时保留installation及效果；拆合沿原精确整组投影保留每条旧记录和完整义务映射，不新建吸收表或授权语言。REGISTER_HISTORY只登记有证据的旧安装，不自动归档、不补造前像或强制全项目登记。缺归属的既有record可独立修订、暂停或卸载并保存真实旧记录；lifecycle.installation=NOT_APPLICABLE明确安装历史未知，不因此维持旧正文有效。已证明归属的效果按真实原记录处置；用户明确指定移除的效果在现有installation记录中以effectDirection=CURRENT_REMOVAL保存本次真实移除前后像，不声称这是历史安装before。未知效果如实保留未证明/未逆转，不能冒称整组恢复。
 
 先预览静态路径和当前全组对象，再按精确包Apply并重验来源；写后完整三源组合不合法则整组回滚。进程中断复用原事务恢复与当前授权，第三方混合字节拒绝。实际操作参数由根PROJECT_ADOPTION导航，工具不证明隐含语义依赖。
 <!-- AIW-REQUIREMENT:PR_CORRECTIONS_V2_COMPATIBILITY:END -->

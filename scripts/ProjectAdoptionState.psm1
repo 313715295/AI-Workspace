@@ -118,7 +118,7 @@ function Read-AiwProjectJson {
     catch {
         throw ($Label + '_UTF8')
     }
-    if ($text.Contains("`r") -or -not $text.EndsWith("`n")) {
+    if ($text.Contains([char]0) -or $text.Contains([char]0xFFFD)) {
         throw ($Label + '_TEXT_FORMAT')
     }
 
@@ -508,15 +508,6 @@ function Get-AiwStandingDelegationProjection {
     if($starts-eq0-and$ends-eq0){$separator=if($Text.Length-eq0){''}elseif($Text.EndsWith("`n")){"`n"}else{"`n`n"};$Text=$Text+$separator+$block+"`n"}
     elseif($starts-eq1-and$ends-eq1-and$Text.IndexOf($begin)-lt$Text.IndexOf($end)){$first=$Text.IndexOf($begin);$last=$Text.IndexOf($end)+$end.Length;$Text=$Text.Substring(0,$first)+$block+$Text.Substring($last)}
     else{throw 'AGENTS_MANAGED_MARKERS_MALFORMED'}
-    # One-time migration of the former default declaration; retain non-default project text outside management.
-    $begin='<!-- AI-WORKSPACE-USER-DECISION:BEGIN -->';$end='<!-- AI-WORKSPACE-USER-DECISION:END -->'
-    $starts=[regex]::Matches($Text,[regex]::Escape($begin)).Count;$ends=[regex]::Matches($Text,[regex]::Escape($end)).Count
-    if($starts-eq0-and$ends-eq0){return $Text}
-    if($starts-ne1-or$ends-ne1-or$Text.IndexOf($begin)-ge$Text.IndexOf($end)){throw 'USER_DECISION_MARKERS_MALFORMED'}
-    $first=$Text.IndexOf($begin);$last=$Text.IndexOf($end)
-    $legacy=$Text.Substring($first+$begin.Length,$last-$first-$begin.Length)
-    $default='用户持续委托AI，为完成本项目已授权目标，遵循当前采用的Framework、当前生效的项目纠正和永久规则，自主作出并执行其允许的工作决定。该委托持续有效，无须逐任务、逐步骤重复确认；用户后续明确决定优先，规则明确保留给用户的决定仍由用户作出。'
-    $extension=$legacy.Replace($default,'')
-    return $Text.Substring(0,$first)+$extension+$Text.Substring($last+$end.Length)
+    return $Text
 }
 Export-ModuleMember -Function Get-AiwStandingDelegationProjection,Get-AiwAgentsTemplateBlock

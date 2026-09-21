@@ -3,9 +3,9 @@
 <!-- AIW-REQUIREMENT:PR_ACTION_AUTHORIZATION_INDEPENDENT:BEGIN -->
 受治理动作包必须显式、限域，并且只对当前 phase 或包内连续步骤有效。不得从 recovery、Review 或任务分配中推断动作包授权。用户明确采用 Framework 开展项目工作时，初始化按目标模板生成项目 AGENTS 的框架管理内容及持续委托，不再要求单独确认持续委托。仅查看文件、目录存在、模板或未采纳建议不构成采用。
 
-持续委托属于 AGENTS 的 FRAMEWORK 管理区，注册生成、升级按目标模板覆盖更新，无须再次确认。项目约定、额外限制及撤回放在区外并保留；后续明确用户决定与保留门仍优先。
+项目 AGENTS 的 FRAMEWORK 管理区保存用户授权正文，注册生成、升级按目标模板更新。AI 根据当前采用的 Framework、有效纠正及永久规则作出的具体工作决定，按该正文视为用户明确决定并执行；恢复、压缩或更换执行者不使约定失效。后续用户明确决定优先，规则明确保留给用户亲自决定的事项仍由用户决定。组织、资源、实施、审核及收尾共用此解释，不逐任务或逐步骤再次确认。
 
-新会话读取项目 AGENTS 中的实际用户决定，并核对后续收窄、撤回及当前任务。该正文保存用户决定，不是 Framework 自授权限；通用规则、项目标准和用户决定仍各有真实来源。升级保留管理区外正文及其中的限制；管理区内容随模板更新。具体包继续绑定当前 userDecision、对象和动作；AGENTS 决定变化使旧过程收据失效，重新对齐用户决定后才可继续。
+新会话读取当前 AGENTS 正文并核对后续收窄、撤回及任务。用户可直接编辑管理区授权；安装时 managedIdentity 保存历史，不永久锁住当前决定。正文变化使旧过程收据失效，重新对齐并绑定当前决定后继续。升级更新目标模板管理区，保留区外内容；需要跨升级保留的项目限制可在正常升级准备中整理。实际事务仍绑定原始前后像并拒绝并发覆盖。具体包分别绑定当前决定、对象和动作，不另建决定台账或复制第二份授权。
 
 `CONTROL_WRITE`、`SOURCE_WRITE`、`TEST_WRITE`、`TEST_RUN`、`BROWSER_RUN`、`DEVICE_RUN`、`REVIEW_ROUTE`、`REVIEW_EXECUTE`、`OWNER_ACCEPT`、`GIT_STAGE`、`GIT_COMMIT`、`PUSH`、`EXTERNAL`。
 
@@ -23,7 +23,7 @@ schema3 project-upgrade package 可包含 `targetFrameworkSnapshot={canonical,ma
 
 continuation receipt 是 `INSTRUCTION_BOUND` 的短生命周期结果载体，不是签名、host enforcement、authority 或消费 ledger；下一边界完成、失效或 abort 后删除。它只证明上述可复验关联，不声称 single consumption 或抗恶意伪造。
 
-Owner 可在本地写测包预授予 `repairReviewPlan`，限定原范围、决定、主体和最多八轮。按 TOOL_CONTRACT 由真实 finding 准备当前修复包，再以修复 FINALIZE 后像准备独立复审包；两者各过 checker/DISCOVER/ADMIT，不沿用旧对象授权。Reviewer 排除 Owner、issuer、writer 和贡献者。超轮、扩面、决定／主体变化或缺证据回 Owner；最终接受、Git、发布及采用仍独立。
+需要独立审核且范围、writer、Reviewer 已明确的任务，Owner 默认在本地写测包配置 `repairReviewPlan`，把首次交审与修复—复审直接衔接；普通不需审核的任务不强制配置。计划限定原范围、决定、主体及任务选定的有限 maxCycles，不设框架统一轮数上限。生产结果 FINALIZE 后沿 TOOL_CONTRACT 准备首次审核包；真实 finding 后准备当前修复包及其 FINALIZE 后像绑定的复审包，各自 checker/DISCOVER/ADMIT，不沿用旧对象授权。Reviewer 排除 Owner、issuer、writer 和贡献者。超出任务计划、扩面、决定／主体变化或真实缺证据回 Owner；最终接受、Git、发布及采用仍独立。
 <!-- AIW-REQUIREMENT:PR_ACTION_AUTHORIZATION_INDEPENDENT:END -->
 
 <!-- AIW-REQUIREMENT:PR_PROTECTED_PATH_FAIL_CLOSED:BEGIN -->

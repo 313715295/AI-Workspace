@@ -12,6 +12,12 @@
 
 current card 可声明 `Work route: actor=task-123; role=EXECUTOR; phase=VERIFY`。DOMAIN_OWNER 给 `review-task-9` 签发纯 `REVIEW_EXECUTE` package 后，任务卡仍保持 `task-123`；receipt 报告 `taskActor=task-123`、`actor=review-task-9`、`role=REVIEWER`、`phase=REVIEW`。
 
+新审核由分派者创建可见会话并显式落实选定模型和effort；返回真实ID后绑定独立性、候选及审核包，再让该审核者消费完整材料。接收者负责审核，不负责建立另一位Reviewer。同项修复复审复用该会话，条件是仍独立且上下文可用。
+
+例如范围、writer和Reviewer均已确定的任务，在本地写测包配置`repairReviewPlan={writer,reviewer,maxCycles,materialContributors}`，maxCycles取本任务的有限计划。生产FINALIZE后，REPAIR_REVIEW以INITIAL_REVIEW/cycle=0及生产FINALIZE准备首次审核包；verdict字段为NOT_APPLICABLE。审核提出真实CHANGES_REQUESTED后，以cycle=1准备REPAIR，修复FINALIZE后准备REREVIEW。每包都独立准入，最终Owner接受单独处理。普通无需独立审核的任务直接完成，不强制造计划或新任务。
+
+临时只读观察用PROJECT_READ_ONLY、真实EXECUTOR职责、NONE与PLAN；相同context请求SOURCE_WRITE或REVIEW_VERDICT仍拒绝。CRITICAL普通修复可省略Proportionality和Phase gate；重大方案仍给比例性结论，实际里程碑仍声明阶段验收。
+
 ## Progressive requirements
 
 `DISCOVER` 一次返回完整 selected Framework rules 与 applicable project rules，并生成 compact receipt。`ADMIT_ACTION` 在 preparation receipt 缺失或 exact object 漂移时阻塞；结构 PASS 不授予 `SOURCE_WRITE`。`FINALIZE_OUTPUT` 在 result、`OBJECT_POSTIMAGE|path|identity` 或 delivery evidence 缺失时阻塞，并保持 `semanticCorrectnessProven=false`。

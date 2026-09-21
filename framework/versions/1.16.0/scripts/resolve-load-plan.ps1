@@ -50,7 +50,7 @@ function Read-StrictTask([string]$Path) {
     $bytes = [IO.File]::ReadAllBytes($item.FullName)
     if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) { throw 'LOAD_TASK_BOM' }
     try { $text = $utf8Strict.GetString($bytes) } catch { throw 'LOAD_TASK_UTF8' }
-    if ($text.Contains("`r") -or $text.Contains([char]0) -or $text.Contains([char]0xFFFD) -or -not $text.EndsWith("`n")) { throw 'LOAD_TASK_TEXT_FORMAT' }
+    if ($text.Contains([char]0) -or $text.Contains([char]0xFFFD)) { throw 'LOAD_TASK_TEXT_FORMAT' }
     return $text
 }
 

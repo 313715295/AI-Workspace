@@ -24,7 +24,8 @@ try{
   @{Name='array';Text='[]'},@{Name='trailing-comma';Text='{"operation":"LAUNCH",}'},@{Name='unknown-operation';Text='{"operation":"UNKNOWN"}'}
  )){$text=$case.Text+"`n";SaveText $ip $text;$f=Run $workflow @{InputPath=$ip;AsJson=$true};$d=Run $workflow @{InputJson=$text;AsJson=$true};Check ($f.Code-ne0-and$d.Code-ne0) ('workflow-both-reject-'+$case.Name)}
  $both=Run $workflow @{InputPath=$ip;InputJson=$valid;AsJson=$true};Check ($both.Code-ne0) 'workflow-inputs-mutually-exclusive'
- foreach($text in @($valid.TrimEnd("`n"),$valid.Replace("`n","`r`n"),([string][char]0xFEFF+$valid),($valid+[char]0),($valid+[char]0xFFFD))){$d=Run $workflow @{InputJson=$text;AsJson=$true};Check ($d.Code-ne0) ('workflow-strict-text-'+$passed)}
+ foreach($text in @($valid.TrimEnd("`n"),$valid.Replace("`n","`r`n"))){$d=Run $workflow @{InputJson=$text;AsJson=$true};Check ($d.Code-eq0) ('workflow-equivalent-text-layout-'+$passed)}
+ foreach($text in @(([string][char]0xFEFF+$valid),($valid+[char]0),($valid+[char]0xFFFD))){$d=Run $workflow @{InputJson=$text;AsJson=$true};Check ($d.Code-ne0) ('workflow-damaged-text-rejected-'+$passed)}
  $m=Run $workflow @{InputJson=('{"operation":"MESSAGE","senderAuthentic":true}'+"`n");AsJson=$true};Check ($m.Code-ne0) 'workflow-message-missing-authenticated-fields-rejected'
  # Anonymous ordinary project exercises actual composer and process entrypoints.
  $project=Join-Path $temp 'project';$null=New-Item -ItemType Directory -Path $project;& git -C $project init -q

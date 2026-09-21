@@ -70,6 +70,12 @@ foreach ($entryPath in $workflowEntryDocuments) {
 $temp=Join-Path ([IO.Path]::GetTempPath()) ('aiw-workflow-focused-'+[guid]::NewGuid().ToString('N'))
 try{New-Item -ItemType Directory -Path $temp|Out-Null
     $workflowResolver = Join-Path $candidateRoot 'scripts\resolve-workflow-route.ps1'
+    foreach($layout in @('CRLF','NO_FINAL_LF')){
+        $raw='{"operation":"LAUNCH",'+"`n"+'"recoveryComplete":true,"packageValid":true,"bindingsMatch":true}'
+        if($layout-ceq'CRLF'){$raw=$raw.Replace("`n","`r`n")+"`r`n"}
+        $layoutRun=Invoke-Ps $workflowResolver @('-InputJson',$raw,'-AsJson')
+        Assert-True ($layoutRun.Code-eq0-and($layoutRun.Text|ConvertFrom-Json).status-ceq'IMPLEMENTATION_READY') ('workflow-equivalent-json-layout-'+$layout)
+    }
     $launchRecovery = Invoke-WorkflowCase $workflowResolver $temp 'launch-recovery' ([ordered]@{operation='LAUNCH';recoveryComplete=$true;packageValid=$false;bindingsMatch=$true})
     $launchReady = Invoke-WorkflowCase $workflowResolver $temp 'launch-ready' ([ordered]@{operation='LAUNCH';recoveryComplete=$true;packageValid=$true;bindingsMatch=$true})
     Assert-True ($launchRecovery.Run.Code -eq 0 -and [string]$launchRecovery.Value.status -ceq 'RECOVERY_READY' -and -not [bool]$launchRecovery.Value.writerActive -and -not [bool]$launchRecovery.Value.recoveryIsAuthority) 'workflow-launch-recovery-does-not-open-writer'

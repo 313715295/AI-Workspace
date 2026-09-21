@@ -27,7 +27,7 @@ source composition、progressive selection 与 boundary decision identity 分离
 - 只有 project runtime 不可用时，才接受 operating-system temp 下的 exact non-reparse `aiw-*.json`，并公开 fallback evidence ceiling；
 - success 或 failure 都只删除该 exact file；unsafe cleanup request 在删除前失败。
 
-临时文件按实际消费者管理：支持的文件输入默认用 `-DeleteInputOnExit`；WORKFLOW_ROUTE_RESOLVE 的 `-InputJson` 与 `-InputPath` 互斥，共用严格 JSON 解析和同一个 dispatcher，直接输入不落盘。两者均拒绝 BOM、CR、NUL、replacement character、缺 final LF、转义后重复键、未知字段及错误类型；JSON 字符串是数据，调用者仍须正确处理宿主参数转义。
+临时文件按实际消费者管理：支持的文件输入默认用 `-DeleteInputOnExit`；WORKFLOW_ROUTE_RESOLVE 的 `-InputJson` 与 `-InputPath` 互斥，共用严格 JSON 解析和同一个 dispatcher，直接输入不落盘。两者接受 CRLF 和缺末尾 LF，仍拒绝 BOM、NUL、replacement character、转义后重复键、未知字段及错误类型；JSON 字符串是数据，调用者仍须正确处理宿主参数转义。
 
 材料按职责存放：配置、有效规则和活跃任务留在当前权威入口；长期结果、决定、研究及审核/失败复现证据复用项目既有 reports/research/history 或正式产物位置；纠正完整历史、安装归属及升级恢复留在 upgrade-recovery；临时 input、compact、output、可重建缓存和隔离 fixture 留在 runtime/tmp。业务、美术产物使用项目真实交付位置，不以控制目录代替资产仓；不强制建立空目录或批量重排旧材料。
 
@@ -57,6 +57,10 @@ WORKFLOW_ROUTE_RESOLVE 的 DELIVERY 使用相同 deliveryContext 校验器，调
 
 有界修复复审使用原包的 repairReviewPlan 和新包 repairReviewBinding。后者精确引用 parentPackagePath/parentPackageIdentity、phase=REPAIR/REREVIEW、cycle、verdictPath/verdictIdentity，以及复审时的 repairFinalizeInputPath/repairFinalizeInputIdentity、repairFinalizeResultPath/repairFinalizeResultIdentity（修复阶段这些字段为 NOT_APPLICABLE）。verdict 保存 taskId、owner、reviewer、writer、cycle、CHANGES_REQUESTED、exactPaths/objectIdentities、findingPaths、scopeChanged/decisionChanged；后两者只能为 false 才可沿计划续作。WORKFLOW_ROUTE_RESOLVE 的 REPAIR_REVIEW 接收 repositoryRoot/binding，读取当前候选生成标准新包数据；checker 验计划、关系独立性、原 verdict/修复后像、当前任务和当前候选，原 DISCOVER/ADMIT 继续不可省略。证据仍为 INSTRUCTION_BOUND，不声称签名、语义证明、单次消费或物理撤权。
 
+同一 REPAIR_REVIEW 入口承接首次交审：binding.phase=INITIAL_REVIEW、cycle=0，verdictPath/verdictIdentity=NOT_APPLICABLE；原 repairFinalize 四字段绑定生产动作的实际 FINALIZE 输入/结果，生产包必须是 parentPackage 自身。当前候选必须等于该 FINALIZE 的完整后像，Reviewer仍按计划绑定且独立。REPAIR/REREVIEW从真实finding开始，cycle不得超出任务自定maxCycles；首次交审不伪造finding或修复历史。适用任务默认由原分派者配置计划、准入和材料，缺ID时先完成实际创建再连续绑定，不把组织动作转交已创建Reviewer。
+
+PROJECT_READ_ONLY可使用当前真实的管理、执行或观察审核角色；临时观察者可按EXECUTOR表达实际只读职责，无须冒填管理身份或新建卡。它仅允许NONE与PLAN/USER_RESPONSE，REVIEWER标签也不授予正式Review、写入或越界读取。objective、authority context、标准文档数、纠正changes、Knowledge查询数和continuation步骤不设框架统一使用配额；任务仍绑定有限范围、具体计划及退出条件，结构、类型、唯一性和路径验证保持。
+
 ### IntentEnvelope 构造
 
 首次 DISCOVER 直接应用上文输入/收据合同，无需先加载 HOST。
@@ -79,7 +83,7 @@ WORKFLOW_ROUTE_RESOLVE 的 DELIVERY 使用相同 deliveryContext 校验器，调
 
 process schema3 TASK DISCOVER 使用绝对 projectRoot/frameworkRoot/taskPath；其readOnlyContext为NOT_APPLICABLE，不伪造无任务上下文。Maintenance TARGET动作继续使用schema2 DISCOVER/schema1 compact，不能把CONTROL示例的schema3复制过去；根前门不改写不支持的receipt。独立authorization checker的TaskPath则是相对已绑定CONTROL/项目根的规范路径；调用时同时对齐PowerShell工作目录与进程当前目录，避免.NET相对文件API指向旧cwd。ObservedIdentity为path=length|SHA256（新对象为path=NEW），不是裸hash数组。
 
-有包时userDecision精确绑定仍有效的package.userConfirmation；无包只读为NOT_REQUIRED，不能由样例制造授权。boundary schema2只引用原compact并提交实际完成的preparation/result/delivery证据；publicDecisionIdentity为NOT_REQUIRED或length|SHA256，不是任意decision哈希；protectionState仅BOUND/NOT_APPLICABLE，须符合实际保护事实。不得把selected obligations自动当完成证据。输入用UTF-8无BOM、紧凑JSON加final LF，避免Windows格式化输出的CR；旧严格格式、未知字段/重复键与漂移拒绝不变。
+有包时userDecision精确绑定仍有效的package.userConfirmation；无包只读为NOT_REQUIRED，不能由样例制造授权。boundary schema2只引用原compact并提交实际完成的preparation/result/delivery证据；publicDecisionIdentity为NOT_REQUIRED或length|SHA256，不是任意decision哈希；protectionState仅BOUND/NOT_APPLICABLE，须符合实际保护事实。不得把selected obligations自动当完成证据。输入使用严格UTF-8无BOM，接受CRLF和缺末尾LF等价格式；未知字段、重复键、错误类型、损坏文本与漂移仍拒绝。原始字节用于identity和事务前后像，不重写文件伪造原像。
 
 ### 选择条件：结构边界、确定性触发与内容判断
 
@@ -131,7 +135,7 @@ official backend 使用 `pwsh -NoProfile -NonInteractive -File <entrypoint> ...`
 
 exit code `0` 表示 operation 返回 documented accepted result；nonzero 使 requested boundary 失败，caller 保留 explicit reason，不从 prose 猜测成功。支持时优先用 structured `-AsJson`。human-readable output 只是同一 result 的 projection，不是 authority object。
 
-file identity 为 exact bytes 上的 `byteLength|UPPER_SHA256`。JSON/Markdown 使用 strict UTF-8 no BOM 与 LF。security-relevant JSON 在 escape decoding 后递归拒绝 duplicate members。repository-relative evidence 使用 forward slashes。
+file identity 为 exact bytes 上的 `byteLength|UPPER_SHA256`。JSON/Markdown 使用 strict UTF-8 no BOM，接受语义等价的 CRLF 和缺末尾 LF；解析时的等价处理不改变原始字节 identity。security-relevant JSON 在 escape decoding 后递归拒绝 duplicate members。repository-relative evidence 使用 forward slashes。
 
 `1.16.0` 只列 Windows。未来 platform 只有在实际 conformance run PASS 后才受支持；missing CI/host evidence 是 capability ceiling，不得推断 compatibility。
 

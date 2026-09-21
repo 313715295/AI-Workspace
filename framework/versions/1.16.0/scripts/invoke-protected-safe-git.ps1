@@ -130,7 +130,7 @@ function Read-StrictConfig([string]$Path) {
     $bytes = [IO.File]::ReadAllBytes($Path)
     if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) { throw 'PROJECT_CONFIG_BOM' }
     try { $raw = $utf8Strict.GetString($bytes) } catch { throw 'PROJECT_CONFIG_UTF8' }
-    if ($raw.Contains([char]0) -or $raw.Contains([char]0xFFFD) -or $raw.Contains("`r") -or -not $raw.EndsWith("`n")) { throw 'PROJECT_CONFIG_TEXT_FORMAT' }
+    if ($raw.Contains([char]0) -or $raw.Contains([char]0xFFFD)) { throw 'PROJECT_CONFIG_TEXT_FORMAT' }
     $cursor=0
     try { Read-JsonValue $raw ([ref]$cursor);Skip-JsonWhitespace $raw ([ref]$cursor);if ($cursor -ne $raw.Length) { throw 'JSON_TRAILING' } }
     catch { throw ('PROJECT_CONFIG_'+[string]$_.Exception.Message) }

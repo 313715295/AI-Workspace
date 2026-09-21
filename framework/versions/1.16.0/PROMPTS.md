@@ -60,11 +60,13 @@ function ConvertTo-ExampleInputJson($Value) {
 
 评估 project、cwd/Git top、outcome、task-owner continuity、actor eligibility、lineage、resource、independent-context need、protection、Git/device/external boundary 与 public decision。把 strict ephemeral input 写入 `.ai-workspace/runtime/<task>/<actor>/`，通过 Tool Contract 运行 `WORKFLOW_ROUTE_RESOLVE`，随后删除 input。mandatory facts 任一缺失或冲突都 `fail closed`；只返回 `REUSE`、`MUST_NEW` 或 `BLOCKED`。
 
-`TERMINAL`、`MESSAGE`、`HANDOFF` 与 `HOT_STATE` 必须在声称 transition 前调用相应 operation。最终输出前，用实际 result/delivery 执行 `FINALIZE_OUTPUT`。Codex independent task 只做一次 compact terminal delivery；只有 exact result 阻塞 unique next action 且无其他安全工作时才用 `wait_threads`。
+`TERMINAL`、`MESSAGE`、`HANDOFF` 与 `HOT_STATE` 必须在声称 transition 前调用相应 operation。最终输出前，用实际 result/delivery 执行 `FINALIZE_OUTPUT`。独立任务只做一次紧凑终态交付；只有 exact result 阻塞 unique next action 且无其他安全工作时才等待，无新事实不反复唤起模型，适用于所有等待工具。
 
 ## Review
 
 消费纯 Review package，独立校验 frozen candidate，返回 findings、evidence ceiling 与 Git disposition；不得写入或 repair。Reviewer 是临时 action grantee，不改写 task Work route。Review approval 与 `OWNER_ACCEPT` 分离。
+
+分派者先准备批准基线、当前候选和验证材料、范围及模型/effort选择；新审核由分派者新建可见会话，取得真实ID后连续绑定凭据。给接收者的指令为“你是本项已创建的独立审核者，审核指定候选并直接返回指定接收者；缺项交原分派者处理”。不要要求接收者再创建或取得审核身份，不以默认资源代替明确选择。同一审核继续及局部修复复审复用仍独立、上下文可用的原会话。
 
 ## Framework maintenance
 
@@ -80,4 +82,4 @@ function ConvertTo-ExampleInputJson($Value) {
 ```
 任务间发送前把 channel 改为 TASK_MESSAGE、expectedRecipient 设为真实绑定任务。实际发送后，在同一工具编排按宿主返回填 OBSERVE：仅确定成功且接收人吻合时 SUCCESS，明确失败为 FAILURE，否则 UNKNOWN；evidence 绑定真实宿主结果。调用 WORKFLOW_ROUTE_RESOLVE 的 DELIVERY，直接消费返回，不开启 ACK/轮询/记账模型回合。普通后续实质成果由责任方判断。
 
-有界修复使用 Owner 预授予的 repairReviewPlan；调用 REPAIR_REVIEW 准备当前候选包，保存后重新 checker/DISCOVER/ADMIT，不能将 PREPARED 当授权。实例验证覆盖错主体、越界、原 verdict 漂移、后像错误和超轮数；手写 hint fixture 只证明选择器，不证明模型归一化准确率。
+需要审核且范围/主体已确定时默认配置repairReviewPlan。生产FINALIZE后以INITIAL_REVIEW交审，真实finding后依REPAIR、修复FINALIZE、REREVIEW连续准备当前包并各自checker/DISCOVER/ADMIT，不能将PREPARED当授权。局部finding只重开受影响范围；实质决定和最终接受仍回Owner。分别记录fixture、实际调用及模型行为证据，不以helper存在证明完整链已可用。原任务同次收尾完成必要记录、交付与归档。

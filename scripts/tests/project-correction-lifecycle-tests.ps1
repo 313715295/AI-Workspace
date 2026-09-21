@@ -98,7 +98,31 @@ try{
     $recovered=Resume-AiwProjectProjectionRollback $temp $interrupted.transactionRelativePath (Id $interrupted.transactionRelativePath) {param($r,$p) $true}
     Check ($recovered.status-ceq'ROLLED_BACK'-and(Id '.ai-workspace/corrections.json')-ceq$old-and-not(Test-Path (Join-Path $temp 'interrupted.txt'))) 'existing-recovery-restores-interrupted-full-group'
     $legacy=Record LEGACY;$carrier=Read '.ai-workspace/corrections.json'|ConvertFrom-Json;$carrier.corrections+=@($legacy);Json '.ai-workspace/corrections.json' $carrier
-    Reject {New-AiwCorrectionLifecycleProjection $temp (Plan UNINSTALL LEGACY)} 'CORRECTION_TRANSITION' 'legacy-without-provenance-cannot-pretend-complete-uninstall'
+    $legacySnapshot=Read '.ai-workspace/corrections.json'
+    $null=ApplyPlan (Plan UNINSTALL LEGACY)
+    $stopped=@((Read '.ai-workspace/corrections.json'|ConvertFrom-Json).corrections|Where-Object correctionId -CEQ LEGACY)[0]
+    Check ($stopped.lifecycle.state-ceq'UNINSTALLED'-and$stopped.lifecycle.installation-ceq'NOT_APPLICABLE') 'legacy-rule-can-stop-without-inventing-installation'
+    Check ((Read $stopped.history.locator|ConvertFrom-Json).priorRecord.effectiveRule-ceq$legacy.effectiveRule) 'legacy-stop-retains-real-prior-record'
+    Text '.ai-workspace/corrections.json' $legacySnapshot
+    $null=ApplyPlan (Plan PAUSE LEGACY);$null=ApplyPlan (Plan RESUME LEGACY)
+    $resumed=@((Read '.ai-workspace/corrections.json'|ConvertFrom-Json).corrections|Where-Object correctionId -CEQ LEGACY)[0]
+    Check ($resumed.lifecycle.state-ceq'ACTIVE'-and$resumed.lifecycle.installation-ceq'NOT_APPLICABLE') 'legacy-rule-only-pause-resume-keeps-unknown-effect-history'
+    Text '.ai-workspace/corrections.json' $legacySnapshot
+    Text 'legacy-shared.txt' "Independent start`r`nOwned legacy rule`r`nIndependent end"
+    $exit=Plan PAUSE LEGACY
+    $exit.installation=[pscustomobject]@{schemaVersion=1;correctionId='LEGACY';decisionLocator='fixture:explicit-current-removal';dependsOn=@();effectDirection='CURRENT_REMOVAL';changes=@([pscustomobject]@{kind='TEXT';path='legacy-shared.txt';before="Owned legacy rule`n";after='';prefix="Independent start`n";suffix='Independent end'})}
+    $exit.installationRelativePath=$exit.transactionRelativePath.Replace('state.json','installation.json')
+    $null=ApplyPlan $exit
+    Check ((Read 'legacy-shared.txt')-ceq"Independent start`nIndependent end") 'explicit-legacy-removal-preserves-independent-shared-text'
+    $saved=Read $exit.installationRelativePath|ConvertFrom-Json
+    Check ($saved.effectDirection-ceq'CURRENT_REMOVAL'-and$saved.changes[0].before-ceq"Owned legacy rule`n") 'explicit-removal-evidence-before-is-actual-present-content'
+    Text 'legacy-shared.txt' ((Read 'legacy-shared.txt')+"`nLater independent text")
+    $null=ApplyPlan (Plan RESUME LEGACY)
+    Check ((Read 'legacy-shared.txt').Contains("Owned legacy rule`nIndependent end`nLater independent text")) 'legacy-resume-reverses-only-current-removal'
+    Text '.ai-workspace/corrections.json' $legacySnapshot
+    $many=@(1..65|ForEach-Object{[pscustomobject]@{kind='FILE';path="many/$_.txt";beforeExists=$false;afterExists=$true;beforeBase64='';afterBase64=[Convert]::ToBase64String($utf8.GetBytes("effect $_"))}})
+    $null=ApplyPlan (Plan INSTALL MANY $many)
+    Check ((Read 'many/65.txt')-ceq'effect 65') 'more-than-64-exact-effects-follow-bounded-plan'
     Text 'historical.txt' 'installed'
     $historyChange=@([pscustomobject]@{kind='FILE';path='historical.txt';beforeExists=$true;afterExists=$true;beforeBase64=[Convert]::ToBase64String($utf8.GetBytes('original'));afterBase64=[Convert]::ToBase64String($utf8.GetBytes('installed'))})
     $null=ApplyPlan (Plan REGISTER_HISTORY LEGACY $historyChange)

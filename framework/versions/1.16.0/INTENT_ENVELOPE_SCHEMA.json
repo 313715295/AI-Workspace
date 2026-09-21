@@ -10,7 +10,7 @@
   ],
   "properties": {
     "schemaVersion": {"const": 1},
-    "objective": {"type": "string", "minLength": 1, "maxLength": 2048},
+    "objective": {"type": "string", "minLength": 1},
     "requestedActionKind": {"type": "string", "minLength": 1},
     "requestedResultKind": {"type": "string", "minLength": 1},
     "semanticHints": {"type": "array", "maxItems": 64, "items": {"type": "string", "maxLength": 256}},

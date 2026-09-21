@@ -612,6 +612,13 @@ function Assert-AiwRuntimeAdoptionProjection {
             $target=Get-AiwContainedPath $stage $relative
             $observed[$relative]=Get-AiwCurrentIdentity $live
             $entry=@($Projection.objects|Where-Object{[string]$_.path-ceq$relative})
+            # This prospective state was minted from the current admission, not
+            # the historical installation. Bind unchanged AGENTS raw bytes only
+            # for this pending transaction, including edits outside its block.
+            if($relative-ceq'AGENTS.md'-and$entry.Count-eq0){
+                $record=@($pilot.projectionObjects|Where-Object{[string]$_.relative-ceq$relative})
+                if($record.Count-ne1-or$observed[$relative]-cne[string]$record[0].identity){throw ('ADOPTION_RECOVERY_UNCHANGED_OBJECT_DRIFT|'+$relative)}
+            }
             if($entry.Count-eq1){
                 if($entry[0].kind-cne'FILE'){throw 'ADOPTION_RECOVERY_PROJECTED_KIND'}
                 if($entry[0].newExists){Write-AiwAtomicBytes $target ([Convert]::FromBase64String($entry[0].newBase64))}
@@ -632,6 +639,7 @@ function Assert-AiwRuntimeAdoptionProjection {
     }
 }
 
+Export-ModuleMember -Function Assert-AiwRuntimeAdoptionProjection
 function Resume-AiwRuntimeAdoption {
     [CmdletBinding()]
     param(
@@ -705,7 +713,7 @@ function Resume-AiwRuntimeAdoption {
                 $lastTransactionIdentity=Get-AiwCurrentIdentity $path
             }
         }
-        $null=Get-AiwLocalCandidateSupportBinding -ProjectRoot $root -VersionDirectory $versionRoot -Version ([string]$package.frameworkVersion) -ExpectedProjectConfigIdentity ([string]$metadata.projectConfigIdentity) -ExpectedCandidatePilotStateIdentity (Get-AiwCurrentIdentity (Join-Path $root (".ai-workspace/upgrade-recovery/"+[string]$package.frameworkVersion+"/state.json")))
+        Assert-AiwRuntimeAdoptionProjection $root $state.projection $versionRoot ([string]$package.frameworkVersion) ([string]$metadata.projectConfigIdentity)
         foreach($entry in $changed){
             if((Get-AiwCurrentIdentity (Get-AiwContainedPath $root $entry.path))-cne$entry.newIdentity){throw ('ADOPTION_RECOVERY_POSTIMAGE|'+$entry.path)}
         }

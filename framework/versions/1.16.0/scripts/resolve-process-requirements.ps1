@@ -68,7 +68,7 @@ function Get-ProcessBudgetContract {
 function Read-Input([string]$Path){
   if(-not(Test-Path -LiteralPath $Path -PathType Leaf)){throw 'INPUT_MISSING'}
   $b=[IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $Path));if($b.Length-ge3-and$b[0]-eq239-and$b[1]-eq187-and$b[2]-eq191){throw 'INPUT_BOM'}
-  try{$t=$utf8.GetString($b)}catch{throw 'INPUT_UTF8'};if($t.Contains("`r")-or$t.Contains([char]0)-or$t.Contains([char]0xFFFD)-or-not$t.EndsWith("`n")){throw 'INPUT_TEXT_FORMAT'}
+  try{$t=$utf8.GetString($b)}catch{throw 'INPUT_UTF8'};if($t.Contains([char]0)-or$t.Contains([char]0xFFFD)){throw 'INPUT_TEXT_FORMAT'}
   $options=[Text.Json.JsonDocumentOptions]::new();$options.AllowTrailingCommas=$false;$options.CommentHandling=[Text.Json.JsonCommentHandling]::Disallow
   try{$document=[Text.Json.JsonDocument]::Parse($t,$options)}catch{throw 'INPUT_JSON'}
   try{Assert-NoDuplicateJsonMembers $document.RootElement}finally{$document.Dispose()}
@@ -138,9 +138,8 @@ function Assert-IntentEnvelope($Envelope){
   Assert-StringArray $Envelope.capabilityHints 'intent_capabilityHints' 32 128
   Assert-StringArray $Envelope.mutationHints 'intent_mutationHints' 32 128
   Assert-StringArray $Envelope.externalHints 'intent_externalHints' 32 256
-  if(([string]$Envelope.objective).Length-gt2048-or[string]$Envelope.ambiguityState-cnotin@('CLEAR','UNKNOWN','CONFLICT')){throw 'INTENT_VALUES'}
+  if([string]$Envelope.ambiguityState-cnotin@('CLEAR','UNKNOWN','CONFLICT')){throw 'INTENT_VALUES'}
   Assert-ActionAndResult ([string]$Envelope.requestedActionKind) ([string]$Envelope.requestedResultKind)
-  $bytes=$utf8.GetByteCount(($Envelope|ConvertTo-Json -Depth 20 -Compress));if($bytes-gt4096){throw 'INTENT_BUDGET_EXCEEDED'}
 }
 
 function Test-IntentPathHint([string]$Hint,[string[]]$ExactPaths){
@@ -332,7 +331,7 @@ try{
       if($inputContract-ne3-or[string]$input.taskPath-cne'NOT_APPLICABLE'-or[string]$input.authorizationPackagePath-cne'NOT_REQUIRED'-or[string]$input.expectedAuthorizationIdentity-cne'NOT_REQUIRED'-or[string]$input.actionKind-cne'NONE'-or[string]$input.resultKind-cnotin@('PLAN','USER_RESPONSE')){throw 'PROJECT_READ_ONLY_BOUNDARY'}
       Assert-Fields $input.readOnlyContext @('sessionId','requestId','role','phase','profile')
       foreach($name in @('sessionId','requestId','role','phase','profile')){Assert-InputString $input.readOnlyContext.$name ('readOnlyContext.'+$name)}
-      if([string]$input.readOnlyContext.role-cnotin@('CONTROLLER','DOMAIN_OWNER','FRAMEWORK_MAINTAINER')-or[string]$input.readOnlyContext.phase-cnotin@('DISCOVER','PLAN','RECOVER')-or[string]$input.readOnlyContext.profile-cnotin@('MICRO','STANDARD','CRITICAL')){throw 'PROJECT_READ_ONLY_CONTEXT'}
+      if([string]$input.readOnlyContext.role-cnotin@('CONTROLLER','DOMAIN_OWNER','FRAMEWORK_MAINTAINER','EXECUTOR','REVIEWER')-or[string]$input.readOnlyContext.phase-cnotin@('DISCOVER','PLAN','RECOVER')-or[string]$input.readOnlyContext.profile-cnotin@('MICRO','STANDARD','CRITICAL')){throw 'PROJECT_READ_ONLY_CONTEXT'}
       $taskIdentity='NOT_APPLICABLE';$taskRelative='NOT_APPLICABLE';$taskId='NOT_APPLICABLE';$taskOwner='NOT_APPLICABLE';$taskActor='NOT_APPLICABLE';$effectiveRole=[string]$input.readOnlyContext.role;$effectivePhase=[string]$input.readOnlyContext.phase;$profile=[string]$input.readOnlyContext.profile;$runtimeSegment=[string]$input.readOnlyContext.requestId
     }
     [string[]]$intentFactMismatches=@();if($inputContract-ge2){$intentFactMismatches=@(Get-IntentFactMismatches $intent @($input.capabilities) @($input.exactPaths) ([string]$input.actionKind))}
@@ -357,7 +356,6 @@ try{
     $authority=[ordered]@{schemaVersion=1;projectId=$composition.projectId;projectRoot=$auth.RepositoryRoot;repositoryGitTop=(Get-GitTop $auth.RepositoryRoot);frameworkVersion='1.16.0';frameworkSealIdentity=$composition.releaseManifestIdentity;controllerIdentity=$controllerIdentity;taskIdentity=$taskIdentity;taskActor=$taskActor;actor=$actor;role=$effectiveRole;phase=$effectivePhase;profile=$profile;exactScope=@($input.exactPaths);forbiddenScope=@($forbiddenPaths);protectedScope=@($protectedPaths);authorizationIdentity=$auth.Identity;authorizedActions=@($auth.Actions);observedCapabilities=@($input.capabilities);projectConfigIdentity=$composition.projectConfigIdentity;correctionsIdentity=$composition.correctionsIdentity;policyIdentity=$composition.policyIdentity;userDecision=$userDecision;recoveryState=$recoveryState;hostEnforcementGrade=[string]$input.hostEnforcementGrade}
     if($inputContract-eq3){$authority=[ordered]@{schemaVersion=2;contextType=$contextType;contextLocator=$runtimeSegment;projectId=$composition.projectId;projectRoot=$auth.RepositoryRoot;repositoryGitTop=(Get-GitTop $auth.RepositoryRoot);frameworkVersion='1.16.0';frameworkSealIdentity=$composition.releaseManifestIdentity;controllerIdentity=$controllerIdentity;taskIdentity=$taskIdentity;taskId=$taskId;taskOwner=$taskOwner;taskActor=$taskActor;actor=$actor;role=$effectiveRole;phase=$effectivePhase;profile=$profile;exactScope=@($input.exactPaths);forbiddenScope=@($forbiddenPaths);protectedScope=@($protectedPaths);authorizationIdentity=$auth.Identity;authorizedActions=@($auth.Actions);observedCapabilities=@($input.capabilities);projectConfigIdentity=$composition.projectConfigIdentity;correctionsIdentity=$composition.correctionsIdentity;policyIdentity=$composition.policyIdentity;userDecision=$userDecision;recoveryState=$recoveryState;hostEnforcementGrade=[string]$input.hostEnforcementGrade}}
     if([bool]$auth.HasContinuationPlan){$authority['continuationReceiptPath']=[string]$auth.ContinuationReceiptPath;$authority['continuationReceiptIdentity']=[string]$auth.ContinuationReceiptIdentity;$authority['continuationStepIndex']=[int]$auth.ContinuationStepIndex}
-    $authorityBytes=$utf8.GetByteCount(($authority|ConvertTo-Json -Depth 30 -Compress));if($authorityBytes-gt8192){throw 'AUTHORITY_CONTEXT_BUDGET_EXCEEDED'}
     $intentMaterial=$intent|ConvertTo-Json -Depth 30 -Compress
     $selectionMaterial=@($composition.sourceCompositionIdentity,$intentMaterial,[string]::Join("`n",@($input.capabilities)),[string]::Join("`n",@($input.exactPaths)),[string]::Join("`n",@($intentFactMismatches)))-join"`n"
     $selectionIdentity=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($utf8.GetBytes($selectionMaterial)))

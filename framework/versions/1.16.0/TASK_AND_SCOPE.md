@@ -5,7 +5,7 @@
 
 仅新分派或组织事实变化时判断：REUSE=同边界且现 actor 合格；MUST_NEW=同边界确需独立成果、上下文、生命周期、writer 隔离或当前会话不可用资源；BLOCKED=项目、Owner、authority、保护、外部路线或用户决定实变。复用项目 AGENTS 中用户已确认且仍有效的持续委托，不逐任务或逐步骤重复确认。委托来源、后续决定及保留事项遵循 AUTHORIZATION_MODEL；规则本身不制造用户授权。
 
-先满足质量、风险、独立性、隔离和持续时间，再比较直接执行与委派中Owner及执行者双方的模型往返、上下文、执行、工具/等待、澄清、交接、验证、集成、返工及用户介入总成本；可依据任务和同类证据定性估计，不要求事前证明节省或新增实验/审批。没有明确收益则 DIRECT_SELF；机械重复用既有脚本。用户要求可见任务或需要持续独立成果/生命周期时使用 visible APPLICATION_TASK；限域工作可使用 INTERNAL_SUBAGENT。正式 Review 先按 REVIEW_AND_EVIDENCE 核对真实主体资格、当前材料和结果追溯，再选择满足可见性、持续时间及上下文要求的载体；内部载体不无条件替代必要独立 Review。按实际读取基线、隔离和处置需要选择宿主支持的执行环境/精确起点；用户指定优先，宿主默认不授予权限，不把某项目的LOCAL/WORKTREE默认推广为通用规则。健康续作复用组织结论，不逐动作重评。
+先满足质量、风险、独立性、隔离和持续时间，再比较直接执行与委派中Owner及执行者双方的模型往返、上下文、执行、工具/等待、澄清、交接、验证、集成、返工及用户介入总成本；可依据任务和同类证据定性估计，不要求事前证明节省或新增实验/审批。没有明确收益则 DIRECT_SELF；机械重复用既有脚本。需要独立成果、审核或持续独立生命周期时使用可见 APPLICATION_TASK。框架不支持内部子 agent，包括内部 Reviewer，不因停用内部载体把普通工作全部委派。正式 Review 按 REVIEW_AND_EVIDENCE 核对真实主体、材料和结果追溯；创建动作由分派者完成，接收者只负责自身成果。按实际读取基线、隔离和处置需要选择宿主支持的执行环境/精确起点；用户指定优先，宿主默认不授予权限，不把某项目的LOCAL/WORKTREE默认推广为通用规则。健康续作复用组织结论，不逐动作重评。
 
 创建时用简短「职责｜主题」标题；职责/主题实变才更新显示。长期以项目/领域、临时以对象消歧，不逐轮附加状态或日期。标题不授权；存量仅在自然边界按已知职责整理，不扫描无关聊天。
 <!-- AIW-REQUIREMENT:PR_TASK_LAUNCH_AND_ROUTE:END -->
@@ -36,7 +36,7 @@ active card 保存用户成果与实际增量、验收场景、Owner/actor、范
 <!-- AIW-REQUIREMENT:PR_FINAL_OUTPUT_CURRENT_RESULT:BEGIN -->
 终态仅发一次 compact terminal：`READY`=下一 authorized phase 可开始；`COMPLETE`=requested outcome+required gates 全完成；`BLOCKED`=真实 boundary 阻止继续；`RANGE_GATE_REQUIRED`=缺 deterministic scope input；protected-path exception=exact exception+owner route。发送前绑定实际授权、精确消费者与允许内容；结果含裁决、必要 finding/原因/影响/最小修正及证据定位与上限、精确阻塞和 unique next action。认证 identity/Controller epoch 留实际工具包络，普通正文仅披露消费者判断或行动必需的事实，不复制常规成功控制证明或无关敏感资料。authoritative task 不可达=>`REPORT_CHANNEL_UNAVAILABLE`，不得称已交付。协议本身不授予通信权。
 
-无 ACK；不等 ordinary progress/read confirmation，不立即重试 unchanged timeout。仅一个 exact result 阻塞 unique next action 且无其他安全工作时才用 `wait_threads`。
+无 ACK；不等待 ordinary progress/read confirmation，不重试无新事实的超时或状态读取。仅一个 exact result 阻塞 unique next action 且无其他安全工作时才等待；此规则覆盖所有等待工具和轮询行为。使用宿主结果通知或有界等待，未知结果不自行转成成功或重试许可。
 
 等待与环境/起点选择服从当前用户决定和宿主实际合同；以读取基线、写入隔离及处置需要选择支持的载体，不把项目特定默认推广为通用规则。仅宿主成功信号证明送达。明确策略拒绝不得绕行；超时、未知或模糊结果停止受影响发送，不盲查重发。仅宿主明确可重试且当前授权/身份仍有效时，按其有界合同重送同一结果，不重做 Review、建 ACK 链或投递台账。
 

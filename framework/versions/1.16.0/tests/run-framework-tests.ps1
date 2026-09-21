@@ -766,8 +766,8 @@ $reviewEvidenceText=Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $can
 $projectControlText=Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $candidateRoot 'PROJECT_CONTROL.md')
 $evaluationText=Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $candidateRoot 'PROCESS_REQUIREMENTS_EVALUATION.md')
 $processCatalogText=Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $candidateRoot 'PROCESS_REQUIREMENTS.json')
-Assert-True ($projectControlText.Contains('对象hash用于漂移、权限和恢复，不证明覆盖')-and$projectControlText.Contains('工具只检查已审精确投影，不代替语义判断')-and$reviewEvidenceText.Contains('测试通过不能取消有效的架构或代码质量 finding')) 'correction-adoption-identities-and-tests-do-not-prove-semantic-coverage'
-Assert-True ($projectControlText.Contains('不登记消费者纠正ID或源record hash来抑制项目规则')-and$projectControlText.Contains('完整覆盖退出重复，部分覆盖保留项目增量，未覆盖保留，冲突定位处理')-and$projectControlText.Contains('在旧健康runtime取得真实分类并保存完整来源')-and$projectControlText.Contains('依赖新版本才成立的退出与目标运行绑定同一采用事务')-and$projectControlText.Contains('失败回到匹配旧包和完整项目前像')-and$projectControlText.Contains('不建长期双轨、中央/本地吸收台账')-and$reviewEvidenceText.Contains('same-scope repair 使用新 writer package')-and$reviewEvidenceText.Contains('由同一个仍保持独立的 Reviewer 做 focused rereview')) 'correction-adoption-project-analysis-atomic-migration-history-and-independent-review-without-registry'
+Assert-True ($projectControlText.Contains('对象hash用于漂移、权限和恢复，不证明覆盖')-and$projectControlText.Contains('工具只检查已审精确投影，不代替语义判断')-and$reviewEvidenceText.Contains('测试通过不能取消有效质量 finding')) 'correction-adoption-identities-and-tests-do-not-prove-semantic-coverage'
+Assert-True ($projectControlText.Contains('不登记消费者纠正ID或源record hash来抑制项目规则')-and$projectControlText.Contains('完整覆盖退出重复，部分覆盖保留项目增量，未覆盖保留，冲突定位处理')-and$projectControlText.Contains('在旧健康runtime取得真实分类并保存完整来源')-and$projectControlText.Contains('依赖新版本才成立的退出与目标运行绑定同一采用事务')-and$projectControlText.Contains('失败回到匹配旧包和完整项目前像')-and$projectControlText.Contains('不建长期双轨、中央/本地吸收台账')-and$reviewEvidenceText.Contains('same-scope repair 使用新 writer package')-and$reviewEvidenceText.Contains('由同一个仍独立的 Reviewer 做 focused rereview')) 'correction-adoption-project-analysis-atomic-migration-history-and-independent-review-without-registry'
 Assert-True ($evaluationText.Contains('显式采用 stable `1.16.0` 后才开始 observation')-and$evaluationText.Contains('使用正常 project task')-and$evaluationText.Contains('来源 task 保留一条 compact record')-and$evaluationText.Contains('不规定固定 sample count/time window')-and$evaluationText.Contains('不是 release gate')-and$evaluationText.Contains('不替代 conformance、independent Review、`OWNER_ACCEPT` 或 release sealing')-and-not$evaluationText.Contains('exactly 20 admitted samples')-and-not$evaluationText.Contains('INSUFFICIENT_SAMPLE / NO_ADVANCE')) 'post-release-project-observation-nonblocking-no-synthetic-work'
 Assert-True (-not$processCatalogText.Contains('level_test2')-and-not$processCatalogText.Contains('Pocket')) 'process-catalog-generic-no-consumer-paths'
 
@@ -794,7 +794,11 @@ try {
     Assert-True ($criticalTaskValid.Code -eq 0 -and $criticalTaskValid.Text.Contains('profile=CRITICAL')) 'task-card-critical-proportionality-valid'
     Write-Utf8 $criticalTaskPath ($criticalTask -replace '(?m)^- Proportionality:.*(?:\n|$)','')
     $criticalTaskMissing = Invoke-Ps $taskChecker @('-TaskPath',$criticalTaskPath)
-    Assert-True ($criticalTaskMissing.Code -ne 0 -and $criticalTaskMissing.Text.Contains('PROPORTIONALITY_FIELD')) 'task-card-critical-proportionality-required'
+    Assert-True ($criticalTaskMissing.Code -eq 0) 'task-card-critical-label-does-not-require-proportionality-boilerplate'
+    $optionalTask=($criticalTask -replace '(?m)^- Proportionality:.*(?:\n|$)','' -replace '(?m)^- Phase gate:.*(?:\n|$)','').TrimEnd("`r","`n").Replace("`n","`r`n")
+    [IO.File]::WriteAllText($criticalTaskPath,$optionalTask,[Text.UTF8Encoding]::new($false));$optionalTaskIdentity=Get-Identity $criticalTaskPath
+    $optionalTaskResult=Invoke-Ps $taskChecker @('-TaskPath',$criticalTaskPath)
+    Assert-True ($optionalTaskResult.Code-eq0-and(Get-Identity $criticalTaskPath)-ceq$optionalTaskIdentity) 'critical-task-optional-boilerplate-crlf-no-final-newline-preserves-raw-bytes'
     Write-Utf8 $criticalTaskPath ($criticalTask -replace 'existing=partial','existing=sufficient' -replace 'added_machinery=NONE','added_machinery=service:1')
     $criticalTaskContradiction = Invoke-Ps $taskChecker @('-TaskPath',$criticalTaskPath)
     Assert-True ($criticalTaskContradiction.Code -ne 0 -and $criticalTaskContradiction.Text.Contains('PROPORTIONALITY_CONTRADICTION')) 'task-card-proportionality-blocks-machinery-when-existing-sufficient'
@@ -2108,17 +2112,17 @@ exit $LASTEXITCODE
     Write-Utf8 $processBootstrapPath "<!-- PROJECT-CUSTOM:BEGIN -->`nA permanent legacy project rule remains active.`n<!-- PROJECT-CUSTOM:END -->`n"
     Write-Utf8 $discoverInputPath ($discoverInput|ConvertTo-Json -Depth 20)
     $doubleCarrier=Invoke-Ps $processResolver @('-InputPath',$discoverInputPath,'-AsJson')
-    Assert-True ($doubleCarrier.Code-ne0-and$doubleCarrier.Text.Contains('PROJECT_RULE_DUAL_CARRIER_FAIL_CLOSED')) 'process-distinct-policy-and-legacy-custom-carriers-fail-closed'
+    Assert-True ($doubleCarrier.Code-eq0-and$doubleCarrier.Text.Contains('A permanent legacy project rule remains active.')) 'process-distinct-policy-and-custom-obligations-coexist'
     Write-Utf8 $processBootstrapPath "<!-- PROJECT-CUSTOM:BEGIN -->`nBind the project source preparation receipt before source work.`n<!-- PROJECT-CUSTOM:END -->`n"
     $policyCustomDuplicate=Invoke-Ps $processResolver @('-InputPath',$discoverInputPath,'-AsJson')
-    Assert-True ($policyCustomDuplicate.Code-ne0-and$policyCustomDuplicate.Text.Contains('PROJECT_RULE_DUAL_CARRIER_FAIL_CLOSED')) 'process-identical-policy-and-legacy-custom-carriers-fail-with-same-diagnostic'
+    Assert-True ($policyCustomDuplicate.Code-ne0-and$policyCustomDuplicate.Text.Contains('CONFLICT_PROJECT_RULE_DUPLICATE_EFFECTIVE_RULE')) 'process-identical-policy-and-custom-obligations-reject-duplicate'
     $historicalChinese='此 legacy region 当前没有 permanent project process rule。structured rules 位于 `.ai-workspace/process-policy.json`。'
     Write-Utf8 $processBootstrapPath "<!-- PROJECT-CUSTOM:BEGIN -->`n$historicalChinese`n<!-- PROJECT-CUSTOM:END -->`n"
     $historicalPlaceholder=Invoke-Ps $processResolver @('-InputPath',$discoverInputPath,'-AsJson');$historicalPlaceholderResult=$historicalPlaceholder.Output[-1]|ConvertFrom-Json
     Assert-True ($historicalPlaceholder.Code-eq0-and@($historicalPlaceholderResult.selectedRuleBlocks.requirementId)-contains'project:correction-fixture:PROJECT_SOURCE_PREP'-and@($historicalPlaceholderResult.selectedRuleBlocks.requirementId)-notcontains'project-custom:correction-fixture'-and@($historicalPlaceholderResult.compactReceipt.evidenceCeilings)-notcontains'LEGACY_PROJECT_CUSTOM_FULL_LOAD') 'process-exact-historical-chinese-placeholder-with-policy-is-nonnormative'
     Write-Utf8 $processBootstrapPath "<!-- PROJECT-CUSTOM:BEGIN -->`n$historicalChinese`nA permanent appended rule is active.`n<!-- PROJECT-CUSTOM:END -->`n"
     $historicalAppended=Invoke-Ps $processResolver @('-InputPath',$discoverInputPath,'-AsJson')
-    Assert-True ($historicalAppended.Code-ne0-and$historicalAppended.Text.Contains('PROJECT_RULE_DUAL_CARRIER_FAIL_CLOSED')) 'process-historical-placeholder-with-appended-rule-is-normative-dual-carrier'
+    Assert-True ($historicalAppended.Code-eq0-and$historicalAppended.Text.Contains('A permanent appended rule is active.')) 'process-historical-placeholder-does-not-hide-distinct-appended-rule'
     Write-Utf8 $processBootstrapPath $processBootstrapOriginal
     $correctionPolicy=$policy|ConvertTo-Json -Depth 30|ConvertFrom-Json;$correctionPolicy.rules[0].effectiveRule='Retain and evaluate project correction records';Write-Utf8 $policyPath ($correctionPolicy|ConvertTo-Json -Depth 30)
     $correctionPolicyDuplicate=Invoke-Ps $processResolver @('-InputPath',$discoverInputPath,'-AsJson')
@@ -2185,13 +2189,21 @@ exit $LASTEXITCODE
     $knowledgeBaseArgs=@('-ProjectRoot',$knowledgeRoot,'-ExpectedProjectConfigIdentity',$knowledgeConfigIdentity,'-ExpectedIndexIdentity',(Get-Identity $knowledgeIndexPath))
     $primaryPwshDiscover=Invoke-PsHost $script:pwshExecutable $knowledgeChecker @($knowledgeBaseArgs+@('-Operation','DISCOVER','-AsJson'))
     $discoverValue=@($primaryPwshDiscover.Output)[-1]|ConvertFrom-Json
-    Assert-True ($primaryPwshDiscover.Code -eq 0 -and [string]$discoverValue.status -ceq 'KNOWLEDGE_CATALOG' -and @($discoverValue.entries).Count -eq 3 -and $null-eq$discoverValue.entries[0].PSObject.Properties['summary'] -and [int]$discoverValue.maxQueries -eq 3) 'knowledge-discover-compact-metadata-no-summary'
+    Assert-True ($primaryPwshDiscover.Code -eq 0 -and [string]$discoverValue.status -ceq 'KNOWLEDGE_CATALOG' -and @($discoverValue.entries).Count -eq 3 -and $null-eq$discoverValue.entries[0].PSObject.Properties['summary'] -and $null-eq$discoverValue.PSObject.Properties['maxQueries']) 'knowledge-discover-compact-metadata-no-summary-or-query-cap'
     $primaryPwshQuery=Invoke-PsHost $script:pwshExecutable $knowledgeChecker @($knowledgeBaseArgs+@('-Operation','QUERY','-EntryId','REF-1','-AsJson'))
     $queryValue=@($primaryPwshQuery.Output)[-1]|ConvertFrom-Json
     Assert-True ($primaryPwshQuery.Code -eq 0 -and [string]$queryValue.entries[0].status -ceq 'AVAILABLE' -and $null-ne$queryValue.entries[0].PSObject.Properties['authorityDependencies']) 'knowledge-query-requested-current-entry-available'
     $multiQuery=Invoke-PsHostEntryIdArray $script:pwshExecutable $knowledgeChecker $knowledgeBaseArgs @('REF-1','REF-2') $temp
     $multiValue=@($multiQuery.Output)[-1]|ConvertFrom-Json
     Assert-True ($multiQuery.Code -eq 0 -and @($multiValue.entries).Count -eq 2 -and @($multiValue.entries|Where-Object{$_.status-ceq'AVAILABLE'}).Count -eq 2) 'knowledge-query-two-current-entries-available'
+    $fourIndex=$schema2Index|ConvertTo-Json -Depth 20|ConvertFrom-Json
+    $fourIndex.entries=@(1..4|ForEach-Object{$entry=$schema2Index.entries[0]|ConvertTo-Json -Depth 20|ConvertFrom-Json;$entry.id='QUERY-'+$_;$entry})
+    Write-Utf8 $knowledgeIndexPath ($fourIndex|ConvertTo-Json -Depth 20)
+    $fourBaseArgs=@('-ProjectRoot',$knowledgeRoot,'-ExpectedProjectConfigIdentity',$knowledgeConfigIdentity,'-ExpectedIndexIdentity',(Get-Identity $knowledgeIndexPath))
+    $fourQuery=Invoke-PsHostEntryIdArray $script:pwshExecutable $knowledgeChecker $fourBaseArgs @('QUERY-1','QUERY-2','QUERY-3','QUERY-4') $temp
+    $fourValue=@($fourQuery.Output)[-1]|ConvertFrom-Json
+    Assert-True ($fourQuery.Code-eq0-and@($fourValue.entries|Where-Object status -CEQ 'AVAILABLE').Count-eq4) 'knowledge-query-four-current-entries-has-no-framework-count-cap'
+    Write-Utf8 $knowledgeIndexPath ($schema2Index|ConvertTo-Json -Depth 20)
     Assert-True ($primaryPwshDiscover.Code-eq0-and$primaryPwshQuery.Code-eq0) 'knowledge-schema4-starter-shape-discover-and-query'
 
     Write-Utf8 (Join-Path $knowledgeRoot 'private-other\audit-rule.md') 'non-excluded path-segment boundary'
@@ -2274,7 +2286,7 @@ exit $LASTEXITCODE
     Assert-True ($noId.Code -eq 3 -and $noId.Text.Contains('ENTRY_ID_EMPTY')) 'knowledge-query-no-id-explicitly-not-requested'
     Assert-True ($unknownId.Code -eq 3 -and $unknownId.Text.Contains('ENTRY_ID_UNKNOWN')) 'knowledge-query-unknown-id-fails-closed'
     Assert-True ($duplicateId.Code -eq 3 -and $duplicateId.Text.Contains('ENTRY_ID_DUPLICATE')) 'knowledge-query-duplicate-id-fails-closed'
-    Assert-True ($overLimit.Code -eq 3 -and $overLimit.Text.Contains('ENTRY_ID_LIMIT')) 'knowledge-query-over-three-fails-closed'
+    Assert-True ($overLimit.Code -eq 3 -and $overLimit.Text.Contains('ENTRY_ID_UNKNOWN')) 'knowledge-query-fourth-unknown-id-still-validates-identity'
 
     $impactBaseArgs=@('-ProjectRoot',$knowledgeRoot,'-ExpectedProjectConfigIdentity',$knowledgeConfigIdentity,'-ExpectedIndexIdentity',(Get-Identity $knowledgeIndexPath),'-AsJson')
     $directImpact=Invoke-PsHost $script:pwshExecutable $knowledgeImpact @($impactBaseArgs+@('-ChangedAuthorityPath','authority-1.md'))

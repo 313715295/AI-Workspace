@@ -51,7 +51,7 @@ function Read-StrictJson([string]$Path, [string]$Label) {
     $bytes = [IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $Path))
     if ($bytes.Length -ge 3 -and $bytes[0] -eq 239 -and $bytes[1] -eq 187 -and $bytes[2] -eq 191) { throw ($Label + '_BOM') }
     try { $text = $utf8.GetString($bytes) } catch { throw ($Label + '_UTF8') }
-    if ($text.Contains("`r") -or $text.Contains([char]0) -or -not $text.EndsWith("`n")) { throw ($Label + '_TEXT_FORMAT') }
+    if ($text.Contains([char]0) -or $text.Contains([char]0xFFFD)) { throw ($Label + '_TEXT_FORMAT') }
     $doc=[Text.Json.JsonDocument]::Parse($text)
     try { Assert-UniqueJson $doc.RootElement } finally { $doc.Dispose() }
     try { return $text | ConvertFrom-Json -Depth 100 } catch { throw ($Label + '_JSON') }
