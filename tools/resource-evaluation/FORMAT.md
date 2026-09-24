@@ -10,10 +10,12 @@
   "round": "r1",
   "cutoff": "2026-01-01T12:00:00Z",
   "rateBasis": "Explicit credits per million; supplied tariff date",
+  "costUnit": "codex_credits",
+  "comparisonScope": "turn",
   "rates": {"model-name": {"input": 100, "cachedInput": 10, "output": 500}},
   "tailExcluded": true,
   "trajectoryKind": "real_host_followup_not_context_compression",
-  "turns": [{"id":"t1","threadId":"h1","role":"subject","participant":"P1","case":"C1","stage":"0","requested":{"model":"model-name","effort":"high"},"sentAt":"2026-01-01T11:00:00Z"}],
+  "turns": [{"id":"t1","threadId":"h1","role":"subject","participant":"P1","case":"C1","stage":"0","costScope":"turn","requested":{"model":"model-name","effort":"high"},"sentAt":"2026-01-01T11:00:00Z"}],
   "observations": [],
   "limitations": ["Uncounted final reporting tail"]
 }
@@ -31,7 +33,9 @@
 
 身份必须显式绑定，不能把未匹配turn推断为统筹。用`role:"coordinator"`另列统筹turn。同一thread的不同turn可分别属于不同轮次，仅列本轮授权身份。`responseId`在数据集内唯一；相同身份和usage的重复记录只计一次，冲突重复会报错。`cumulativeUsage`可选，表示同turn累计值，用于对账，不能传整个历史thread累计值。
 
-所有时间需带时区。`timestamp`是记录可见时间；截止时间含等于边界的记录。不要用导出时刻回填未知发生时间。计费要求input/cached/output和已知为0的cache-write；reasoning或total缺失仍显示null。`input_tokens`包括缓存读取，公式为`(input-cached)*inputRate + cached*cachedRate + output*outputRate`，除以一百万。费率必须有限且非负。
+所有时间需带时区。`timestamp`是记录可见时间；截止时间含等于边界的记录。不要用导出时刻回填未知发生时间。`costUnit`仅可为`codex_credits`（历史默认）或`api_usd`，一个study只用一种单位；费率均按每百万token，需写明来源和日期，不能将两单位相加。Codex credits按`(input-cached)*inputRate + cached*cachedRate + output*outputRate`计算；cache-write原计数可为null，且不另加未有依据的写入价。API USD若有cache-write须提供实际计数与显式`cacheWrite`费率，公式将写入token从普通非缓存输入中扣出单独计价；缺计数或费率保持unknown。`input_tokens`包括缓存读取。reasoning已含于output，不重复计费。费率必须有限且非负；新增GPT-6型号没有默认费率，实际model ID、计费通道、日期和计时定义取当次证据。
+
+`responseCount`仅是截止前去重后的可观察usage记录数；重复记录不加数，不能证明供应商请求总数。`responseCountBasis`和`responseCoverage`在每行、角色汇总、CSV及Markdown保留此边界。`measurementComplete`要求有usage、截止前完成、累计usage与逐响应合计一致且各响应可计价；配置核验单列。比较还要求study显式`comparisonScope`与turn显式`costScope`一致，范围只可为`turn`、`stage`或`task`。阶段费用不自动充当完整任务费用；未完成或配置不符的尝试仍保留已知消耗。整项费用未知时，`knownCostSubtotal`给出去重响应中可计价部分，`unknownCostResponses`注明缺项；已知小计不是完整账单。
 
 观察记录示例：
 
@@ -69,5 +73,8 @@ R4适配器专用于此旧格式；核心没有R4日期、协调者或模型费�
 - `cases`固定公开materials、初始消息、必要followUps、私有rubric、checker与可选checkerArgs；占位符`{submission}`替换为冻结提交目录，参数不经过shell。检查器只输出JSON `{pass,passed,total}`，退出0且pass=true才是机械通过。
 - `participants`明确每人的model/effort/cases。`stop.maxJobs`约束已配置组合数，`afterAll:true`禁止自动扩展，deadline之后不准备/派发新工作；仍可收取已有结果。`--at`只用于明确的离线历史重放。
 - `submissions`键为`participant--case`，值`{path,final:true}`。未声明final的目录不视作首交。每阶段可用单独case/stage标识或`import --kind submission`单独冻结，不用重开模型回合索要ACK。
+- 组合键在写入前预检；例如participant `A`/case `B--C`与participant `A--B`/case `C`冲突时直接拒绝并列出两来源，不会把两个job误作一个。
+- `public-initial`逐字节派生于已验证的`materials/payload`，并在复用时按冻结清单核验；follow-up仅在冻结材料中保留，初始包不泄露未来消息。
 - 直接复用study的turns、rates、cutoff、observations，并用`events`指向脱敏事件文件。新增数据只生成新计量版本；老报告不覆盖。相关案例和时间定义由操作者显式保留，不强行视为独立样本。
 - 正常rerun不重跑旧检查器。修改已冻结答案只报告漂移；若要重新答题，必须另设明确的新样本ID。修正验收器解释放在独立观察通道，不能编辑首交机械结果。
+- 分析缓存绑定study/events、计算版本及报告生成实现，并在复用前逐个核验JSON、CSV和Markdown哈希。旧记录缺身份或文件漂移会在新目录离线重算并提示；已消费的旧目录不会覆盖。

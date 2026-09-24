@@ -38,7 +38,7 @@
 - 临时 process/authorization/diagnostic/transaction JSON 默认位于 `.ai-workspace/runtime/<task-or-request>/<actor>/`，由项目根 `.gitignore` 排除。
 - 同一收据不重复顶层与嵌套 authority/intent/source 事实；能在同进程传递时不强制物化文件。
 - 临时授权在本轮终态后不得启动新动作；垃圾清理与授权终点分开，不为此新增 ledger 或释放 ACK。
-- 项目可在 `process-policy.json` 选择规则包预算；Framework 只提供默认值与绝对安全上限。预算不足时保留窄只读诊断和 exact policy repair，不让项目失去恢复能力。
+- `selectedRulePackBytes` 等旧预算数字只作格式兼容与测量；当前选择返回全部必要正文，不因字节数拒绝恢复或要求调额。过程边界以当前 `TOOL_CONTRACT.md` 为准。
 
 ### 项目接入与升级
 
@@ -85,9 +85,9 @@
 
 以下方向只有出现新的真实证据、完成比例性评估并由用户明确选入后，才进入后续版本：
 
-- 已接受结果的 current-facing 投影：先由项目纠正自然试点；只有重复出现工作会话残留污染正式权威或交付面时，才考虑吸收软规则或最小机械检查。
+- 已接受结果的 current-facing 投影：已有任务收尾和健康恢复规则；仅在自然使用出现尚未覆盖的重复污染时再评估增量。
 - Host 真实性强化：只有宿主提供可测试的可信身份/权限信号，并证明现有机械 preflight 不足时才接入。
-- Knowledge 上下文预算扩展：先让现有 DISCOVER/QUERY 在真实任务中使用；只有 compact metadata 与当前 ID 上限实测不足时才扩展。
+- Knowledge 上下文扩展：现有 DISCOVER/QUERY 已可用；只有真实任务证明当前选择与读取仍不足时才扩展。
 - 更细的物理模块独立发布：只有根级工具或版本载荷的实际变更仍被无关全量验证拖慢，并且依赖边界已通过自然维护证明稳定时才评估；对外仍保持统一版本。
 - 更强的并发迁移机制：只有短维护窗口无法维持，或用户明确要求不停机迁移时才评估。
 

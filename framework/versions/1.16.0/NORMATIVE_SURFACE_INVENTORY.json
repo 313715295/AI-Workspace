@@ -73,6 +73,7 @@
     "VERSION.json",
     "scripts/ProcessRequirementComposition.psm1",
     "scripts/build-process-requirements.ps1",
+    "scripts/bind-receiver-authorization.ps1",
     "scripts/check-authorization.ps1",
     "scripts/check-knowledge-entry.ps1",
     "scripts/check-knowledge-impact.ps1",
@@ -92,6 +93,7 @@
     "tests/process-runtime-v2-tests.ps1",
     "tests/source-postimage-transition-tests.ps1",
     "tests/run-framework-tests.ps1",
+    "tests/run-framework-tests-summary.ps1",
     "scripts/StrictJsonInput.psm1",
     "tests/efficiency-regression-tests.ps1",
     "tests/workflow-route-tests.ps1"

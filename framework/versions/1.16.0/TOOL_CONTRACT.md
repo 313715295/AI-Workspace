@@ -7,7 +7,7 @@ Framework operation 是 language-independent contract。backend 是 adopting pro
 一个 source composer 提供三个 logical mode：
 
 - `DISCOVER` 严格绑定 project、当前 task 或显式 `PROJECT_READ_ONLY` request context、host-authenticated actor、effective role/phase、profile、project-declared capabilities、objective/action/result kind 与 normalized exact scope。task context 继续绑定 whole task、Owner 与 Work route actor；只读 context 必须绑定 session/request 且只能使用 `NONE + PLAN/USER_RESPONSE`，不能伪造任务或绕过已知冲突。`pathHints` 必须位于 scope 内，`capabilityHints` 必须已观察，mutation/external hints 必须匹配 requested action。CLEAR contradiction 失败；UNKNOWN 保留 conservative-load ceiling，不能 admit governed action。resolver 对完整 generated metadata catalog 选择，校验 selected locator 与 owning Markdown module，一次返回每个 exact complete block，并另给 compact receipt。still-effective corrections 与 permanent project rules 保持独立 source。
-- package grantee 可执行当前 action 或 `continuationPlan` 中预授予的本地写/测步骤，不改变 Owner/Work route/task identity。计划绑定顺序与整组 exact scope；独立 Review、`OWNER_ACCEPT`、Git、browser/device 与 external 不进入计划。
+- package grantee 可执行当前 action 或 `continuationPlan` 中预授予的写/测与最后一步组织 `REVIEW_ROUTE`，不改变 Owner/Work route/task identity。该路由只在写入及紧接的 `TEST_RUN` 后续接，计划绑定顺序与整组 exact scope；独立 `REVIEW_EXECUTE`、`OWNER_ACCEPT`、Git、browser/device 与 external 不进入计划。
 - `ADMIT_ACTION` 只消费 exact compact DISCOVER receipt，复检 task/Framework/catalog/project/correction/policy/custom identities，按 current exact object bytes 重跑 authorization observation，并校验 selected preparation；它不授予 action。
 - `FINALIZE_OUTPUT` 重验 sources 与 observable result/delivery；每个 exact path 必须有唯一且匹配 current object 的 `OBJECT_POSTIMAGE`。有未完成计划时才返回 `INSTRUCTION_BOUND`、`authorityGranted=false` 的 `AUTHORIZED_ACTION_CONTINUATION`，绑定原 package、source Discover identity/action/step、task/actor/repository/config/Controller/decision/protection、下一步骤与整组 postimage；不保存无法由 checker 复验的 finalize hash。
 
@@ -37,7 +37,7 @@ source composition、progressive selection 与 boundary decision identity 分离
 
 compact/continuation 留到最后消费者完成。上一步 compact 与 continuation 可能在下一 DISCOVER、ADMIT、FINALIZE 全部复验；先保存新的 successor continuation 再释放前序。失效/中止后在自然收尾释放已无消费者的 artifact；不用持久收据注册表。
 
-PROCESS_REQUIREMENTS_RESOLVE 可显式指定 `-CompactReceiptPath <absolute-path>`：仅 DISCOVER，保存既有 compactReceipt，完整选中正文仍在本次响应返回，不另存全文。输出增加 `savedCompactReceipt={path,identity}`；未指定时原响应形状不变。目录须已存在且精确为当前项目 `.ai-workspace/runtime/<task-or-request>/<actor-storage>/`，文件名安全、全部祖先非 reparse；CreateNew 拒绝任何已有对象，包括输入、旧收据及权威。保存失败整个调用失败，不报告保存成功；中途失败留下的部分文件不得消费。普通 evaluation 无后续边界时不要求保存。Maintenance 前门透传该参数，仍保留其 schema/repository 限制。
+PROCESS_REQUIREMENTS_RESOLVE 可显式指定 `-CompactReceiptPath <absolute-path>`：仅 DISCOVER，保存既有 compactReceipt。成功响应的 `selectedRuleBlocks[*].fullText` 是本次须读取的完整选中正文；`compactReceipt` 只承接后续 ADMIT/FINALIZE，不含正文，也不能用其中的 selectedObligations 冒充已完成证据。指定路径时输出另有 `savedCompactReceipt={path,identity}`，供后续边界引用所存收据；未指定时原响应形状不变，不另存全文。目录须已存在且精确为当前项目 `.ai-workspace/runtime/<task-or-request>/<actor-storage>/`，文件名安全、全部祖先非 reparse；CreateNew 拒绝任何已有对象，包括输入、旧收据及权威。保存失败整个调用失败，不报告保存成功；中途失败留下的部分文件不得消费。普通 evaluation 无后续边界时不要求保存。Maintenance 前门透传该参数，仍保留其 schema/repository 限制。
 
 actor-storage 仅用于保存和清理的目录定位，不改变认证 actor：匹配小写 `[a-z0-9][a-z0-9._-]*` 、不以点结尾、不是 Windows 保留设备名（含扩展名），且不以保留前缀 `actor-sha256-` 开始的身份沿用原段；其他身份使用 `actor-sha256-` 加真实身份精确 UTF-8 字节的完整 SHA-256 小写十六进制。大小写、斜杠和反斜杠不归一化、不替换字符，不创建身份注册表。输入创建、compact 保存、根采用/恢复收口和 Maintenance 专用清理共用实际绑定 runtime 的映射，authority/package 中始终保留原身份。原过程边界以原 receipt 的 runtime 为准，不因采用后当前 pin 来源变化而移动旧材料；原恢复 FINALIZE 也调用该 runtime 的 resolver。旧固定包仍使用其旧目录合同，不热改包、不将旧收据迁成新布局。
 
@@ -55,9 +55,11 @@ project policy rule 的正文可以继续内联为 `effectiveRule`，也可以�
 
 WORKFLOW_ROUTE_RESOLVE 的 DELIVERY 使用相同 deliveryContext 校验器，调用宿主发送并得到结果后可在同一确定性编排消费，不再唤起模型只做记账。FINALIZE 的 PASS 只表示相应阶段结构完整，delivery.delivered 单独说明是否送达；准备通过不是用户成果已送达。普通后续成果仍由 Owner 判断。
 
-有界修复复审使用原包的 repairReviewPlan 和新包 repairReviewBinding。后者精确引用 parentPackagePath/parentPackageIdentity、phase=REPAIR/REREVIEW、cycle、verdictPath/verdictIdentity，以及复审时的 repairFinalizeInputPath/repairFinalizeInputIdentity、repairFinalizeResultPath/repairFinalizeResultIdentity（修复阶段这些字段为 NOT_APPLICABLE）。verdict 保存 taskId、owner、reviewer、writer、cycle、CHANGES_REQUESTED、exactPaths/objectIdentities、findingPaths、scopeChanged/decisionChanged；后两者只能为 false 才可沿计划续作。WORKFLOW_ROUTE_RESOLVE 的 REPAIR_REVIEW 接收 repositoryRoot/binding，读取当前候选生成标准新包数据；checker 验计划、关系独立性、原 verdict/修复后像、当前任务和当前候选，原 DISCOVER/ADMIT 继续不可省略。证据仍为 INSTRUCTION_BOUND，不声称签名、语义证明、单次消费或物理撤权。
+有界修复复审使用原包的 repairReviewPlan 和新包 repairReviewBinding。后者精确引用 parentPackagePath/parentPackageIdentity、phase=REPAIR/REREVIEW、cycle、verdictPath/verdictIdentity，以及复审时的 repairFinalizeInputPath/repairFinalizeInputIdentity、repairFinalizeResultPath/repairFinalizeResultIdentity（修复阶段这些字段为 NOT_APPLICABLE）。原计划 Reviewer 为 DEFERRED_VISIBLE_REVIEWER 时，binding 另含 reviewerAssignment，绑定 `HOST_CREATE_THREAD_RESULT` 的已知threadId，或 `HOST_INITIAL_DELEGATION` 首审前的待绑定接收者及修复／复审时已自绑定的同一接收者，以及hostId、创建者、taskId和原包身份；已知 Reviewer 不携该字段。verdict 保存 taskId、owner、reviewer、writer、cycle、CHANGES_REQUESTED、exactPaths/objectIdentities、findingPaths、scopeChanged/decisionChanged；后两者只能为 false 才可沿计划续作。WORKFLOW_ROUTE_RESOLVE 的 REPAIR_REVIEW 接收 repositoryRoot/binding，读取当前候选生成标准新包数据；派生子包不继承原包的 receiverBinding，仍用 repairReviewBinding 锚定原包；checker 验计划、关系独立性、原 verdict/修复后像、当前任务和当前候选，原 DISCOVER/ADMIT 继续不可省略。证据仍为 INSTRUCTION_BOUND，不声称签名、语义证明、单次消费或物理撤权。
 
-同一 REPAIR_REVIEW 入口承接首次交审：binding.phase=INITIAL_REVIEW、cycle=0，verdictPath/verdictIdentity=NOT_APPLICABLE；原 repairFinalize 四字段绑定生产动作的实际 FINALIZE 输入/结果，生产包必须是 parentPackage 自身。当前候选必须等于该 FINALIZE 的完整后像，Reviewer仍按计划绑定且独立。REPAIR/REREVIEW从真实finding开始，cycle不得超出任务自定maxCycles；首次交审不伪造finding或修复历史。适用任务默认由原分派者配置计划、准入和材料，缺ID时先完成实际创建再连续绑定，不把组织动作转交已创建Reviewer。
+同一 REPAIR_REVIEW 入口承接首次交审：binding.phase=INITIAL_REVIEW、cycle=0，verdictPath/verdictIdentity=NOT_APPLICABLE；原 repairFinalize 四字段绑定生产动作的实际 FINALIZE 输入/结果，生产包必须是 parentPackage 自身。当前候选必须等于该 FINALIZE 的完整后像，Reviewer仍按计划绑定且独立。REPAIR/REREVIEW从真实finding开始，cycle不得超出任务自定maxCycles；首次交审不伪造finding或修复历史。交审材料与必要卡更新的先后依赖只取 REVIEW_AND_EVIDENCE，不在包工厂重复定义。适用任务默认由原 Owner 在生产包配置计划；Reviewer 可稍后创建。若当时真实ID未知，writer 用 `HOST_INITIAL_DELEGATION`、`threadId=UNBOUND_RECEIVER` 准备当前候选的待绑定 Reviewer 模板及完整材料，在创建提示一次交付；Reviewer 从宿主身份自绑定，保留原 Owner/issuer 和生产后像。真实finding后的修复和复审沿同一 assignment 填入已绑定的 Reviewer ID，不重发待绑定包。旧 `HOST_CREATE_THREAD_RESULT` 精确已绑定路径仍有效，临时 writer 不取得 Owner/issuer 身份。
+
+`AUTHORIZATION_RECEIVER_BIND` 使用 CONTROL 根、待绑定材料绝对路径、初始委派给出的原件 `length|SHA256` 和 delegationId；仅从宿主进程 `CODEX_THREAD_ID` 取实际主体，在 `.ai-workspace/runtime/<task>/<actor>/` 写精确包。原件为 `schemaVersion/delegationId/receiverRole/authorizationTemplate` 四字段；角色仅限 IMPLEMENTER 的写测、INVESTIGATOR 的 TEST_RUN 或独立 REVIEWER 的纯 REVIEW_EXECUTE。IMPLEMENTER 模板预先配置 repairReviewPlan 时，writer 必须明确为 UNBOUND_RECEIVER；binder 只把它和 grantee 同步派生为同一宿主真实 ID，其他角色不得借此携计划。checker 的 `receiverBinding` 逐字段核验原件身份与派生差异，拒绝原始 `UNBOUND_RECEIVER` 包、其他宿主主体、原件漂移、额外权限或不合格 Reviewer。接收者必须先核对实际收到的初始委派；此对应关系保持 INSTRUCTION_BOUND，上述工具结果不证明消息来源或实际模型执行。派生后仍需原 checker、DISCOVER/ADMIT 和实际结果 FINALIZE。
 
 PROJECT_READ_ONLY可使用当前真实的管理、执行或观察审核角色；临时观察者可按EXECUTOR表达实际只读职责，无须冒填管理身份或新建卡。它仅允许NONE与PLAN/USER_RESPONSE，REVIEWER标签也不授予正式Review、写入或越界读取。objective、authority context、标准文档数、纠正changes、Knowledge查询数和continuation步骤不设框架统一使用配额；任务仍绑定有限范围、具体计划及退出条件，结构、类型、唯一性和路径验证保持。
 
@@ -102,6 +104,8 @@ selectors 原有八字段保持兼容：profile、role、phase、action、result
 legacy schema1 process input 只用于 discovery/evaluation compatibility。它没有 bound authorization package 或 complete AuthorityContext，因此 categorical governed action 不能通过 ADMIT/FINALIZE，并返回 `LEGACY_AUTHORITY_CONTEXT_UNBOUND`。governed action boundary 必须使用 schema2。
 
 机械 PASS 只证明 current identities 与 supplied structural receipts，不证明 semantic correctness、model attention、host invocation 或独立 authorization/Review/Git/external gate。
+
+普通 TASK/PROJECT_READ_ONLY 的来源、授权与动作准入以当前项目根、配置、任务、精确对象和保护边界为准，`repositoryGitTop=NOT_APPLICABLE`；不调用 Git 程序。仅 GIT_STAGE/GIT_COMMIT/PUSH 或明确的多仓库拓扑核对 Git top；缺失或不符时停止相应 Git 动作。子目录项目、嵌套仓库和 worktree 的 Git 身份按实际动作目标分别验证，不能把项目根等同于任意父仓库。
 
 ## Target-before-pin adoption preflight
 

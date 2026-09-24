@@ -43,7 +43,8 @@
         ],
         "deterministicTriggers": {
           "actionKinds": [
-            "REVIEW_ROUTE"
+            "REVIEW_ROUTE",
+            "REVIEW_EXECUTE"
           ],
           "resultKinds": []
         }
@@ -179,6 +180,7 @@
           "*"
         ],
         "resultKinds": [
+          "PLAN",
           "USER_RESPONSE",
           "TERMINAL",
           "HANDOFF",
@@ -234,7 +236,14 @@
           "执行组织",
           "任务组织",
           "委派"
-        ]
+        ],
+        "deterministicTriggers": {
+          "actionKinds": [
+            "REVIEW_ROUTE",
+            "REVIEW_EXECUTE"
+          ],
+          "resultKinds": []
+        }
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_TASK_RESOURCE_SELECTION",
       "preparationRequirements": [

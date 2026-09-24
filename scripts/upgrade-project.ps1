@@ -230,7 +230,10 @@ function Assert-PilotProjectionCurrent([string]$RepositoryRoot,$Entry,[int]$Sche
     $relative=[string]$Entry.relative;Assert-ActorBoundLivePath $RepositoryRoot $relative
     $path=Join-ChildPath $RepositoryRoot $relative;$actual=Get-OptionalIdentity $path
     if($SchemaVersion-in@(4,5,6)-and$relative-ceq'.ai-workspace/BOOTSTRAP.md'){
-        if($actual-ceq'MISSING'-or-not(Test-PilotTextLayoutIdentity (Read-StrictUtf8NoBom $path) ([string]$Entry.managedIdentity) -Bootstrap)){throw ($ErrorCode+'|'+$relative)}
+        if($actual-ceq'MISSING') {throw ($ErrorCode+'|'+$relative)}
+        $projectPath=Join-ChildPath $RepositoryRoot '.ai-workspace/project.json';$projectRaw=Read-StrictUtf8NoBom $projectPath
+        try{$project=$projectRaw|ConvertFrom-Json}catch{throw 'LOCAL_CANDIDATE_PROJECT_JSON'}
+        $null=Assert-CurrentBootstrapBinding (Read-StrictUtf8NoBom $path) ([string]$project.id) ([string]$project.frameworkVersion) ([string]$project.controlPlaneLayout) $path
     }elseif($relative-ceq'AGENTS.md'){
         if($actual-ceq'MISSING'){throw ($ErrorCode+'|'+$relative)}
         $null=Get-PilotAgentsManagedIdentity (Read-StrictUtf8NoBom $path)
@@ -239,8 +242,10 @@ function Assert-PilotProjectionCurrent([string]$RepositoryRoot,$Entry,[int]$Sche
         # The target preflight/composer validates current rules; do not read historical rule bodies here.
         $raw=Read-StrictUtf8NoBom $path;Assert-StrictJsonMemberSet $raw 'LOCAL_CANDIDATE_PROJECT_AUTHORITY_JSON'
         try{$null=$raw|ConvertFrom-Json}catch{throw 'LOCAL_CANDIDATE_PROJECT_AUTHORITY_JSON'}
-    }elseif($actual-cne[string]$Entry.identity){
-        if($relative-cne'.ai-workspace/project.json'-or$actual-ceq'MISSING'-or-not(Test-PilotTextLayoutIdentity (Read-StrictUtf8NoBom $path) ([string]$Entry.identity))){throw ($ErrorCode+'|'+$relative)}
+    }elseif($relative-ceq'.ai-workspace/project.json'){
+        if($actual-ceq'MISSING'){throw ($ErrorCode+'|'+$relative)}
+        # Current project config is validated by the target preflight. The
+        # installation image remains recovery evidence, not a steady-state lock.
     }
 }
 
@@ -662,9 +667,8 @@ function Assert-LocalCandidateSamePinProjectProjection([string]$RepositoryRoot,[
     if([string]$project.id-cne$ProjectId-or[string]$project.frameworkVersion-cne$TargetVersion-or[string]$project.controlPlaneLayout-cne$Layout){throw 'LOCAL_CANDIDATE_SAME_PIN_PROJECT_BINDING'}
     Assert-TargetProjectCapabilities $projectRaw 'LOCAL_CANDIDATE_SAME_PIN_PROJECT'
     $templateRoot=if($Layout-ceq'framework-maintenance-sibling'){[string](Get-AiwMaintenanceOverlay $FrameworkWorkspace).Root}else{Join-ChildPath $TargetFramework 'project-starter'}
-    $templatePath=Join-ChildPath $templateRoot 'BOOTSTRAP.md';$template=Read-StrictUtf8NoBom $templatePath;$currentBootstrap=Read-StrictUtf8NoBom $BootstrapFile
-    $expectedBootstrap=Render-Bootstrap $template $project $TargetVersion;$currentBlock=Get-ManagedBootstrapBlock $currentBootstrap $BootstrapFile;$expectedBlock=Get-ManagedBootstrapBlock $expectedBootstrap $templatePath
-    if($currentBlock.Text-cne$expectedBlock.Text){throw 'LOCAL_CANDIDATE_SAME_PIN_BOOTSTRAP_PROJECTION_DRIFT'}
+    $currentBootstrap=Read-StrictUtf8NoBom $BootstrapFile
+    $null=Assert-CurrentBootstrapBinding $currentBootstrap $ProjectId $TargetVersion $Layout $BootstrapFile
     $policyPath=Join-ChildPath (Split-Path -Parent $ProjectFile) 'process-policy.json';$policyRaw=Read-StrictUtf8NoBom $policyPath;try{$policy=$policyRaw|ConvertFrom-Json}catch{throw 'LOCAL_CANDIDATE_SAME_PIN_POLICY_JSON'}
     Assert-MinimalExactFields $policy $policyRaw @('schemaVersion','contractVersion','projectId','selectedRulePackBytes','rules') 'local-candidate same-pin process policy'
     if(-not(Test-MinimalJsonInteger $policy.schemaVersion)-or[int]$policy.schemaVersion-ne1-or[string]$policy.contractVersion-cne(Get-ProcessCarrierContractVersion $TargetVersion $script:ActiveAdoptionProfile)-or[string]$policy.projectId-cne$ProjectId-or-not(Test-MinimalJsonInteger $policy.selectedRulePackBytes)-or[int]$policy.selectedRulePackBytes-lt1-or-not($policy.rules-is[Array])){throw 'LOCAL_CANDIDATE_SAME_PIN_POLICY_BINDING'}
@@ -705,7 +709,7 @@ function Get-LocalCandidateSamePinProjectionRefreshPlan([string]$RepositoryRoot,
     foreach($entry in @($contract.ProjectionRecords|Where-Object{[string]$_.relative-cne$historicalTaskRelative})){& $assertRefreshEntry $entry}
 
     $projectRaw=Read-StrictUtf8NoBom $ProjectFile;try{$project=$projectRaw|ConvertFrom-Json}catch{throw 'LOCAL_CANDIDATE_SAME_PIN_PROJECT_JSON'}
-    if([string]$project.id-cne$ProjectId-or[string]$project.frameworkVersion-cne$TargetVersion-or[string]$project.controlPlaneLayout-cne$Layout-or-not(Test-PilotTextLayoutIdentity (Read-StrictUtf8NoBom $ProjectFile) ([string]$stateEntries['.ai-workspace/project.json'].identity))){throw 'LOCAL_CANDIDATE_SAME_PIN_PROJECT_BINDING'}
+    if([string]$project.id-cne$ProjectId-or[string]$project.frameworkVersion-cne$TargetVersion-or[string]$project.controlPlaneLayout-cne$Layout){throw 'LOCAL_CANDIDATE_SAME_PIN_PROJECT_BINDING'}
     Assert-TargetProjectCapabilities $projectRaw 'LOCAL_CANDIDATE_SAME_PIN_PROJECT'
     $records=New-Object 'System.Collections.Generic.List[object]'
     $addProjection={param([string]$Relative,[string]$Path,$Content,[bool]$RequirePriorState)
@@ -719,7 +723,11 @@ function Get-LocalCandidateSamePinProjectionRefreshPlan([string]$RepositoryRoot,
     $templateRoot=if($Layout-ceq'framework-maintenance-sibling'){[string](Get-AiwMaintenanceOverlay $FrameworkWorkspace).Root}else{Join-ChildPath $TargetFramework 'project-starter'}
     $templatePath=Join-ChildPath $templateRoot 'BOOTSTRAP.md';$template=Read-StrictUtf8NoBom $templatePath;$currentBootstrap=Read-StrictUtf8NoBom $BootstrapFile
     $expectedBootstrap=Render-Bootstrap $template $project $TargetVersion;$currentBlock=Get-ManagedBootstrapBlock $currentBootstrap $BootstrapFile;$expectedBlock=Get-ManagedBootstrapBlock $expectedBootstrap $templatePath
-    $targetBootstrap=Replace-ManagedBootstrapBlock $currentBootstrap $expectedBlock.Text $currentBlock;$targetBootstrap=Merge-CorrectionBootstrapBlock $targetBootstrap $expectedBootstrap $templatePath
+    $targetBootstrap=$currentBootstrap
+    $installedBootstrapEntry=$stateEntries['.ai-workspace/BOOTSTRAP.md']
+    if($null-eq$installedBootstrapEntry-or$null-eq$installedBootstrapEntry.PSObject.Properties['managedIdentity']-or(Get-PilotBootstrapManagedIdentity $expectedBootstrap)-cne[string]$installedBootstrapEntry.managedIdentity){
+        $targetBootstrap=Replace-ManagedBootstrapBlock $currentBootstrap $expectedBlock.Text $currentBlock;$targetBootstrap=Merge-CorrectionBootstrapBlock $targetBootstrap $expectedBootstrap $templatePath
+    }
     & $addProjection '.ai-workspace/BOOTSTRAP.md' $BootstrapFile $targetBootstrap $true
 
     $policyPath=Join-ChildPath (Split-Path -Parent $ProjectFile) 'process-policy.json';$policyRaw=Read-StrictUtf8NoBom $policyPath;try{$policy=$policyRaw|ConvertFrom-Json}catch{throw 'LOCAL_CANDIDATE_SAME_PIN_POLICY_JSON'}
@@ -968,9 +976,8 @@ function Invoke-CompatibleProjectTransition([string]$RepositoryRoot,[string]$Con
     $targetBootstrapTemplate=Read-StrictUtf8NoBom (Join-ChildPath $targetFramework 'project-starter/BOOTSTRAP.md')
     $currentBootstrap=Read-StrictUtf8NoBom $bootstrapPath
     $expectedSource=Render-Bootstrap $sourceBootstrapTemplate $project $FromVersion
-    $currentBlock=Get-ManagedBootstrapBlock $currentBootstrap $bootstrapPath
+    $currentBlock=Assert-CurrentBootstrapBinding $currentBootstrap $ProjectId $FromVersion $Layout $bootstrapPath
     $sourceBlock=Get-ManagedBootstrapBlock $expectedSource 'source Bootstrap'
-    if($currentBlock.Text-cne$sourceBlock.Text){throw 'COMPATIBLE_TRANSITION_SOURCE_BOOTSTRAP_DRIFT'}
 
     $project.frameworkVersion=$TargetVersion
     $project.schemaVersion=[int]$script:ActiveAdoptionProfile.projectControl.schemaVersion
@@ -1271,6 +1278,14 @@ function Get-ManagedBootstrapBlock {
         End = $blockEnd
         Text = $Content.Substring($beginIndex, $blockEnd - $beginIndex)
     }
+}
+
+function Assert-CurrentBootstrapBinding([string]$Content,[string]$ProjectId,[string]$Version,[string]$Layout,[string]$Source) {
+    $block=Get-ManagedBootstrapBlock $Content $Source
+    $prefix=if($Layout-ceq'framework-maintenance-sibling'){'Project ID=`'+$ProjectId+'`；layout=`framework-maintenance-sibling`；control plane=`.ai-workspace/`；pinned Framework=`'+$Version+'`。'}else{'Project ID=`'+$ProjectId+'`；repo-local control plane=`.ai-workspace/`；pinned Framework=`'+$Version+'`。'}
+    $lines=@($block.Text -split '\r?\n'|Where-Object{$_.StartsWith('Project ID=`',[StringComparison]::Ordinal)})
+    if($lines.Count-ne1-or-not([string]$lines[0]).StartsWith($prefix,[StringComparison]::Ordinal)){throw 'LOCAL_CANDIDATE_BOOTSTRAP_CURRENT_BINDING'}
+    return $block
 }
 
 function Replace-ManagedBootstrapBlock {

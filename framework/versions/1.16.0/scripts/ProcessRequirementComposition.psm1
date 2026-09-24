@@ -76,7 +76,9 @@ function Read-AiwStrictJson {
         try { Assert-AiwNoDuplicateJsonMember -Element $document.RootElement } finally { $document.Dispose() }
         $value = $text | ConvertFrom-Json -Depth 100
     } catch { throw "${Label}_JSON|$($_.Exception.Message)" }
-    return [pscustomobject]@{ Value=$value; Text=$text; Identity=(Get-AiwFileIdentity $item.FullName); Path=$item.FullName }
+    # Bind the parsed value to the exact byte snapshot used above. A second read
+    # can pair an old parsed value with a newer identity after a concurrent edit.
+    return [pscustomobject]@{ Value=$value; Text=$text; Identity=($bytes.Length.ToString()+'|'+(Get-AiwSha256Hex $bytes)); Path=$item.FullName }
 }
 
 function Read-AiwStrictText {
@@ -329,10 +331,7 @@ function Get-AiwLocalCandidatePilotBinding {
         $relative=[string]$entry.relative;$expected=[string]$entry.identity;$full=[IO.Path]::GetFullPath((Join-Path $ProjectRoot $relative))
         if([int]$state.schemaVersion-in@(4,5,6)-and$relative-in@('.ai-workspace/BOOTSTRAP.md','.ai-workspace/process-policy.json','.ai-workspace/corrections.json')){
             $resolved=Resolve-AiwChildFile $ProjectRoot $relative 'LOCAL_CANDIDATE_PILOT_PROJECTION'
-            if($relative-ceq'.ai-workspace/BOOTSTRAP.md'){
-                $region=Get-AiwProjectCustomRegion $resolved
-                if(-not(Test-AiwInstalledTextLayout $region.ManagedText ([string]$entry.managedIdentity))){throw ('LOCAL_CANDIDATE_PILOT_PROJECTION_DRIFT|'+$relative)}
-            }
+            if($relative-ceq'.ai-workspace/BOOTSTRAP.md'){$null=Get-AiwProjectCustomRegion $resolved}
             # 项目规则由当前 composer 严格校验并绑定当前身份，不被历史安装快照永久冻结。
             continue
         }
@@ -343,15 +342,14 @@ function Get-AiwLocalCandidatePilotBinding {
             $null=Get-AiwAgentsManagedBlockIdentity $resolved
             continue
         }
-        if($expected-ceq'MISSING'){
-            if(Test-Path -LiteralPath $full){throw ('LOCAL_CANDIDATE_PILOT_PROJECTION_DRIFT|'+$relative)}
-        }else{
-            $resolved=Resolve-AiwChildFile $ProjectRoot $relative 'LOCAL_CANDIDATE_PILOT_PROJECTION'
-            if((Get-AiwFileIdentity $resolved)-cne$expected){
-                if($relative-cne'.ai-workspace/project.json'-or-not(Test-AiwInstalledTextLayout (Read-AiwStrictText $resolved 'PROJECT_CONFIG') $expected)){throw ('LOCAL_CANDIDATE_PILOT_PROJECTION_DRIFT|'+$relative)}
-            }
-        }
+        # Remaining projection entries are historical install evidence. Their
+        # current bytes are project-owned and are checked by their actual
+        # consumer, not by every ordinary Framework load.
     }
+    $currentConfig=Read-AiwStrictJson (Resolve-AiwChildFile $ProjectRoot '.ai-workspace/project.json' 'LOCAL_CANDIDATE_PROJECT') 'LOCAL_CANDIDATE_PROJECT'
+    if([string]$currentConfig.Value.id-cne$ProjectId-or[string]$currentConfig.Value.frameworkVersion-cne$Version){throw 'LOCAL_CANDIDATE_PROJECT_BINDING_DRIFT'}
+    $currentBootstrap=Get-AiwProjectCustomRegion (Resolve-AiwChildFile $ProjectRoot '.ai-workspace/BOOTSTRAP.md' 'LOCAL_CANDIDATE_BOOTSTRAP')
+    Assert-AiwBootstrapCurrentBinding $currentBootstrap.ManagedText $ProjectId $Version ([string]$currentConfig.Value.controlPlaneLayout)
     return [pscustomobject]@{
         Identity=$stateDoc.Identity
         Canonical=$facts.Canonical
@@ -376,7 +374,6 @@ function Get-AiwLocalCandidateSupportBinding {
     if($configDoc.Identity-cne$ExpectedProjectConfigIdentity){throw 'PROJECT_CONFIG_DRIFT'}
     $config=$configDoc.Value
     if(-not($config.id-is[string])-or[string]::IsNullOrWhiteSpace([string]$config.id)-or[string]$config.frameworkVersion-cne$Version-or[string]$config.frameworkToolBackend-cne'powershell7'){throw 'LOCAL_CANDIDATE_PROJECT_BINDING_DRIFT'}
-
     $versionDoc=Read-AiwStrictJson (Resolve-AiwChildFile $VersionDirectory 'VERSION.json' 'FRAMEWORK_VERSION') 'FRAMEWORK_VERSION'
     if([string]$versionDoc.Value.version-cne$Version){throw 'FRAMEWORK_VERSION_MISMATCH'}
     $manifestDoc=Read-AiwStrictJson (Resolve-AiwChildFile $VersionDirectory 'RELEASE_MANIFEST.json' 'RELEASE_MANIFEST') 'RELEASE_MANIFEST'
@@ -465,6 +462,16 @@ function Get-AiwProjectCustomRegion {
     $managedBytes=$script:Utf8Strict.GetBytes($text.Substring(0,$bodyStart)+$text.Substring($finish))
     $managedIdentity=$managedBytes.Length.ToString()+'|'+(Get-AiwSha256Hex $managedBytes)
     return [pscustomobject]@{ Identity=$identity; Text=$body; HasNormativeContent=(-not $defaultOnly); ManagedIdentity=$managedIdentity; ManagedText=$script:Utf8Strict.GetString($managedBytes) }
+}
+
+function Assert-AiwBootstrapCurrentBinding([string]$ManagedText,[string]$ProjectId,[string]$Version,[string]$Layout) {
+    $begin='<!-- FRAMEWORK-MANAGED:BEGIN -->';$end='<!-- FRAMEWORK-MANAGED:END -->'
+    $start=$ManagedText.IndexOf($begin,[StringComparison]::Ordinal);$finish=$ManagedText.IndexOf($end,[StringComparison]::Ordinal);$customStart=$ManagedText.IndexOf('<!-- PROJECT-CUSTOM:BEGIN -->',[StringComparison]::Ordinal)
+    if([regex]::Matches($ManagedText,[regex]::Escape($begin)).Count-ne1-or[regex]::Matches($ManagedText,[regex]::Escape($end)).Count-ne1-or$start-ge$finish-or$finish-ge$customStart){throw 'LOCAL_CANDIDATE_BOOTSTRAP_MARKERS'}
+    $prefix=if($Layout-ceq'framework-maintenance-sibling'){'Project ID=`'+$ProjectId+'`；layout=`framework-maintenance-sibling`；control plane=`.ai-workspace/`；pinned Framework=`'+$Version+'`。'}else{'Project ID=`'+$ProjectId+'`；repo-local control plane=`.ai-workspace/`；pinned Framework=`'+$Version+'`。'}
+    $managedBlock=$ManagedText.Substring($start,$finish+$end.Length-$start)
+    $bindingLines=@($managedBlock -split '\r?\n'|Where-Object{$_.StartsWith('Project ID=`',[StringComparison]::Ordinal)})
+    if($bindingLines.Count-ne1-or-not([string]$bindingLines[0]).StartsWith($prefix,[StringComparison]::Ordinal)){throw 'LOCAL_CANDIDATE_BOOTSTRAP_CURRENT_BINDING'}
 }
 
 function Get-AiwProjectAgentsIdentity {

@@ -17,7 +17,7 @@ AI Workspace Framework 帮助用户与 AI 在长期软件项目中持续协作�
 
 ## 开始使用
 
-当前实现与验证主要面向 **Windows、PowerShell 7 和 Codex**。目标项目需要是 Git 仓库；接入时安装或复用兼容的 Router Skill。
+当前实现与验证主要面向 **Windows、PowerShell 7 和 Codex**。当前注册/升级入口仍面向 Git 仓库；已配置的 repo-local 项目进行普通加载、分析、写测和审核时不以 Git 程序或 Git top 为前置，实际 Git 动作仍须核对 Git 身份。接入时安装或复用兼容的 Router Skill。
 
 1. 从 [发行页面](https://github.com/313715295/AI-Workspace/releases)选择版本，下载用户 ZIP 并解压到自己选择的目录。
 2. 在目标项目的 AI 会话中说明采用意图，提供解压目录和项目名称。

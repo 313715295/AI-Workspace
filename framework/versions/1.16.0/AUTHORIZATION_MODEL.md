@@ -11,9 +11,9 @@
 
 范围内安全读取不需要 implementation package；各副作用 action 保持独立。package 绑定 version、current whole-task identity/profile/lifecycle、Owner/issuer/grantee、action/exact path/whole-object、decision 与 `projectConfigIdentity`；Controller/repository 字段按 topology/issuer role 要求。严格 JSON、重复字段及 task/actor/action/path/object/decision/config/repository/Controller drift 均 fail closed。repository-bound package 必须先过 topology root adapter；backend 仍只由 project config 选择。
 
-`ObservedAction` array 只预检同一未变化 lease 中已授予的多个 action，不承接写后 drift。需要写入→测试→局部修复时，package 可选 `continuationPlan`：步骤只取已授予 `actions`，可重复，复用整组 exact scope，并要求 `CONTINUATION_RESULT_DRIFT`；计划外 action、不同 scope、第三方 actor、缺 receipt 或跳步拒绝。
+`ObservedAction` array 只预检同一未变化 lease 中已授予的多个 action，不承接写后 drift。需要写入→测试→局部修复或组织交审时，Owner 可在初始完整委派中预授予 `continuationPlan`：步骤只取已授予 `actions`，复用整组 exact scope，并要求 `CONTINUATION_RESULT_DRIFT`；预授予的 `REVIEW_ROUTE` 只可在已有写入和紧接的 `TEST_RUN` 后作为最后一步出现一次。计划外 action、不同 scope、第三方 actor、缺 receipt 或跳步拒绝。
 
-`FINALIZE_OUTPUT` 逐 path 核对 `OBJECT_POSTIMAGE` 后才生成 caller-managed `AUTHORIZED_ACTION_CONTINUATION`。checker 将该 receipt 精确绑定原 package、source Discover identity及其实际 action/`continuationStepIndex`、task/Owner/taskActor/action actor、repository/config/Controller/decision/protection、下一步骤和当前整组 postimage；旧包、错链、自报错误 hash 或 stale postimage 不能续权。Review、`OWNER_ACCEPT`、Git、browser/device、external、publication 与 adoption 始终另走独立 gate。
+`FINALIZE_OUTPUT` 逐 path 核对 `OBJECT_POSTIMAGE` 后才生成 caller-managed `AUTHORIZED_ACTION_CONTINUATION`。checker 将该 receipt 精确绑定原 package、source Discover identity及其实际 action/`continuationStepIndex`、task/Owner/taskActor/action actor、repository/config/Controller/decision/protection、下一步骤和当前整组 postimage；旧包、错链、自报错误 hash 或 stale postimage 不能续权。预授予的 `REVIEW_ROUTE` 只完成组织交审，不能代替生产/测试 FINALIZE，也不授予独立 `REVIEW_EXECUTE`。独立 Review、`OWNER_ACCEPT`、Git、browser/device、external、publication 与 adoption 始终另走独立 gate。
 
 FINALIZE_OUTPUT 可接 exact CONTROL_WRITE 的 corrections/process-policy/BOOTSTRAP custom 后像：验原包与全量 postimage，同一 composer 重组 source，满足原/新 obligations。managed 区不变；旧 receipt 由原授权整文件 preimage 补证，不改收据；其他 drift、无效来源拒绝。root helper 仅复证原 ADMIT 与 live old/new 后恢复中断迁移，原动作收口；第三方状态拒绝。
 
@@ -23,7 +23,7 @@ schema3 project-upgrade package 可包含 `targetFrameworkSnapshot={canonical,ma
 
 continuation receipt 是 `INSTRUCTION_BOUND` 的短生命周期结果载体，不是签名、host enforcement、authority 或消费 ledger；下一边界完成、失效或 abort 后删除。它只证明上述可复验关联，不声称 single consumption 或抗恶意伪造。
 
-需要独立审核且范围、writer、Reviewer 已明确的任务，Owner 默认在本地写测包配置 `repairReviewPlan`，把首次交审与修复—复审直接衔接；普通不需审核的任务不强制配置。计划限定原范围、决定、主体及任务选定的有限 maxCycles，不设框架统一轮数上限。生产结果 FINALIZE 后沿 TOOL_CONTRACT 准备首次审核包；真实 finding 后准备当前修复包及其 FINALIZE 后像绑定的复审包，各自 checker/DISCOVER/ADMIT，不沿用旧对象授权。Reviewer 排除 Owner、issuer、writer 和贡献者。超出任务计划、扩面、决定／主体变化或真实缺证据回 Owner；最终接受、Git、发布及采用仍独立。
+需要独立审核且范围、writer、Reviewer 已明确的任务，Owner 默认在初始写测包配置 `repairReviewPlan`；非 Owner writer 需要交审时，同包显式预授予最终 `REVIEW_ROUTE` 并按连续步骤准入，把首次交审与修复—复审直接衔接；普通不需审核的任务不强制配置。计划限定原范围、决定、主体及任务选定的有限 maxCycles，不设框架统一轮数上限。Reviewer 尚未创建时，Owner 可在原计划写 `reviewer=DEFERRED_VISIBLE_REVIEWER`，明确允许原 writer 在生产后按宿主真实创建结果绑定一名可见且独立的 Reviewer；派生包须携 `reviewerAssignment` 的 source、createdBy、threadId、hostId、taskId、parentPackageIdentity，checker 核对实际 grantee 和原包关系。此记录仍为 INSTRUCTION_BOUND，不能单凭模型自填 ID 当宿主证明；宿主结果和接收者自身身份由 HOST 核对。生产结果 FINALIZE 后沿 TOOL_CONTRACT 准备首次审核包；真实 finding 后准备当前修复包及其 FINALIZE 后像绑定的复审包，各自 checker/DISCOVER/ADMIT，不沿用旧对象授权。Reviewer 排除 Owner、issuer、writer 和贡献者。超出任务计划、扩面、决定／主体变化或真实缺证据回 Owner；最终接受、Git、发布及采用仍独立。
 <!-- AIW-REQUIREMENT:PR_ACTION_AUTHORIZATION_INDEPENDENT:END -->
 
 <!-- AIW-REQUIREMENT:PR_PROTECTED_PATH_FAIL_CLOSED:BEGIN -->
@@ -38,6 +38,10 @@ authority context 只能来自当前机械观察到的 project、Controller、ta
 controller.json唯一确定Controller ID/epoch；PROJECT_CONTROLLER issuer须匹配，DOMAIN_OWNER不得冒充。Controller/Owner是长期责任，identity/model仅随合法handoff/takeover改变；同actor可兼任，但issuance/acceptance/Review independence分离。effort与identity/model、Owner、role和authority分离；宿主接受、复用及失效处理由HOST_CODEX资源合同负责。调effort本身不转移责任、不授予权限，也不自动要求handoff、新任务或FULL_COLD。
 
 package grantee仅是当前有界 action 或显式 `continuationPlan` 批次的 temporary execution role，无Owner authority，也不改 Work route。DOMAIN_OWNER直接执行未变domain工作，或选temporary actor、发scoped package、收return；跨域actor不替Owner。
+
+未知接收者身份时，issuer 可先把已决定的标准包作为 `authorizationTemplate` 放进只读待绑定材料，`grantee=UNBOUND_RECEIVER`；外层精确记载 `schemaVersion=1`、`delegationId`、`receiverRole`（IMPLEMENTER/INVESTIGATOR/REVIEWER）。该原件不可准入。创建提示一次交付完整委派和原件路径/身份/编号；接收者从实际初始委派取得三项，宿主 `CODEX_THREAD_ID` 由 AUTHORIZATION_RECEIVER_BIND 读取，工具只据同一宿主真实自身 ID 填 grantee；IMPLEMENTER 模板预先明确 repairReviewPlan.writer=UNBOUND_RECEIVER 时同步填同一 writer，后建 Reviewer 同时只填 reviewerAssignment.threadId，不准借此改 Owner/issuer、动作、范围或候选，在自己的 runtime 目录生成精确包。后续修复／复审包不继承父包的 receiverBinding，沿原 repairReviewBinding 和已绑定 Reviewer ID 继续校验。checker 回读不可变原件、当前宿主身份和派生差异，仍逐项验证 task、owner/issuer、动作、范围、候选及独立性；绑定不构成接收者新授权。证据层级为 INSTRUCTION_BOUND：工具不能独立读取宿主初始提示并证明其来源，接收者必须亲自核对，错误或缺失即只读停住。已知主体新工作直接发精确包；同主体健康续作复用有效绑定，不重复自绑定。
+
+DOMAIN_OWNER 的普通 Git 闭环沿 GIT_AND_EXTERNAL 的精确责任完成。PUSH 须为单独动作，当前任务有对应仓库/远端/分支用户决定且已完成适用 Review/接受；接受证据的唯一 `AcceptedCommit` 必须等于待推送提交，`gitPushBinding` 与 checker 再核对当前提交、路径、index 和最新远端事实。`delegatedGitCloser` 不等于任意远端操作权；强推、删分支和共享历史改写仍须另行明确授权。
 
 Owner可直接发纯REVIEW_EXECUTE/收verdict；OWNER_ACCEPT须另包绑定current task/exact result且grantee为复证Owner；acceptance不增write/install/Git/external权。CRITICAL最终Reviewer排除Owner/issuer/candidate writer/全部material contributors（candidateWriter不重复列contributors）。
 

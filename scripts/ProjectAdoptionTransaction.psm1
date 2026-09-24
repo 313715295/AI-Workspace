@@ -459,8 +459,10 @@ function Invoke-AiwProjectRuleActionRecovery {
         $context=[pscustomobject]@{actor=$receipt.actor;taskId=$receipt.taskId;taskOwner=$receipt.taskOwner;taskActor=$receipt.taskActor;taskIdentity=$receipt.taskIdentity;projectRoot=$receipt.sourceLocators.projectRoot;gitTop=$binding.repositoryGitTop;paths=@($receipt.exactPaths);authorizationIdentity=$binding.authorizationIdentity;objective=$receipt.objective;action=$receipt.actionKind;result=$receipt.resultKind}
     }else{throw 'RULE_RECOVERY_RECEIPT_SCHEMA'}
     if([string]$receipt.status-cne'PASS'-or[string]$receipt.mode-cne'DISCOVER'-or[string]$context.action-cne'CONTROL_WRITE'-or[string]$context.actor-cne$ObservedActor-or[IO.Path]::GetFullPath([string]$context.projectRoot)-cne$root){throw 'RULE_RECOVERY_CONTEXT'}
-    $gitTop=@(& git -C $root rev-parse --show-toplevel 2>$null)
-    if($LASTEXITCODE-ne0-or$gitTop.Count-ne1-or[IO.Path]::GetFullPath([string]$gitTop[0])-cne[IO.Path]::GetFullPath([string]$context.gitTop)){throw 'RULE_RECOVERY_GIT_TOP'}
+    if([string]$context.gitTop-cne'NOT_APPLICABLE'){
+        $gitTop=@(& git -C $root rev-parse --show-toplevel 2>$null)
+        if($LASTEXITCODE-ne0-or$gitTop.Count-ne1-or[IO.Path]::GetFullPath([string]$gitTop[0])-cne[IO.Path]::GetFullPath([string]$context.gitTop)){throw 'RULE_RECOVERY_GIT_TOP'}
+    }
     $allowed=@('.ai-workspace/BOOTSTRAP.md','.ai-workspace/process-policy.json')
     if($context.paths.Count-ne2-or@($context.paths|Select-Object -Unique).Count-ne2-or@($context.paths|Where-Object{$_-cnotin$allowed}).Count-ne0){throw 'RULE_RECOVERY_EXACT_SCOPE'}
     $packageDoc=Read-AiwProjectJson ([string]$receipt.sourceLocators.authorizationPackagePath) 'RULE_RECOVERY_AUTHORIZATION'

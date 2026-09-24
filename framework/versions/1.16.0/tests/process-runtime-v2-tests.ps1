@@ -533,6 +533,26 @@ try{
   $toolingIds=@($toolingComposition.selectedRequirements|ForEach-Object{[string]$_.requirementId})
   $compositionArgs.Objective='Upgrade the project pin and managed control projection';$compositionArgs.ExactPaths=@('.ai-workspace/project.json');$adoptionComposition=Invoke-ProcessRequirementComposition @compositionArgs;$adoptionIds=@($adoptionComposition.selectedRequirements|ForEach-Object{[string]$_.requirementId})
   Assert-True ('framework:PR_PROJECT_UPGRADE_ACTOR_BOUND'-cnotin$toolingIds-and'framework:PR_PROJECT_UPGRADE_ACTOR_BOUND'-cin$adoptionIds) 'project-upgrade-rule-is-bound-to-project-control-path-not-tool-source-edit'
+
+  $gitDirectory=Join-Path $temp '.git';$heldGitDirectory=Join-Path $temp '.git-held'
+  if([IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($gitDirectory))-cne[IO.Path]::GetFullPath($temp)-or[IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($heldGitDirectory))-cne[IO.Path]::GetFullPath($temp)-or-not(Test-Path -LiteralPath $gitDirectory -PathType Container)-or(Test-Path -LiteralPath $heldGitDirectory)){throw 'NON_GIT_FIXTURE_BOUNDARY'}
+  Move-Item -LiteralPath $gitDirectory -Destination $heldGitDirectory
+  $originalPath=$env:Path;$env:Path=''
+  try{
+    $nonGitRead=$discover|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100
+    $nonGitRead.expectedTaskIdentity=Get-Identity $taskPath;$nonGitRead.observedActor='successor-fixture';$nonGitRead.recoveryState='CURRENT';$nonGitRead.evaluationOnly=$false
+    Write-Json $discoverPath $nonGitRead;$nonGitReadRun=Invoke-Resolver $resolver $discoverPath
+    Assert-True ($nonGitReadRun.Code-eq0-and[string]$nonGitReadRun.Value.compactReceipt.binding.repositoryGitTop-ceq'NOT_APPLICABLE') 'ordinary-read-only-governance-without-git-repository'
+    $nonGitPackage=$successorPackage|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100;$nonGitPackage.schemaVersion=2;$nonGitPackage|Add-Member -NotePropertyName repositoryId -NotePropertyValue 'CONTROL';$nonGitPackage.invalidatesOn=@($nonGitPackage.invalidatesOn)+@('REPOSITORY_CHANGE')
+    $nonGitPackagePath=Join-Path $control 'non-git-control-package.json';Write-Json $nonGitPackagePath $nonGitPackage
+    $nonGitWrite=$successorDiscover|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100;$nonGitWrite.authorizationPackagePath=$nonGitPackagePath;$nonGitWrite.expectedAuthorizationIdentity=Get-Identity $nonGitPackagePath;$nonGitWrite.recoveryState='CURRENT'
+    Write-Json $discoverPath $nonGitWrite;$nonGitWriteRun=Invoke-Resolver $resolver $discoverPath
+    if($nonGitWriteRun.Code-ne0){Write-Output ('DIAG|ordinary-authorized-control-write-without-git|'+$nonGitWriteRun.Text)}
+    Assert-True ($nonGitWriteRun.Code-eq0-and[string]$nonGitWriteRun.Value.compactReceipt.binding.repositoryGitTop-ceq'NOT_APPLICABLE') 'ordinary-authorized-control-write-without-git-repository'
+  }finally{
+    $env:Path=$originalPath
+    Move-Item -LiteralPath $heldGitDirectory -Destination $gitDirectory
+  }
 }finally{
   $docsLink=Join-Path $temp 'docs';$remainingDocsLink=Get-Item -LiteralPath $docsLink -Force -ErrorAction SilentlyContinue;if($null-ne$remainingDocsLink-and($remainingDocsLink.Attributes-band[IO.FileAttributes]::ReparsePoint)-ne0){Remove-FixtureJunction $docsLink $temp}
   if(Test-Path -LiteralPath $outsideTemp){$outsideRoot=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath([IO.Path]::GetTempPath()));$outsideResolved=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($outsideTemp));if(-not$outsideResolved.StartsWith($outsideRoot+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)-or[IO.Path]::GetFileName($outsideResolved)-cnotmatch'^aiw-process-v2-outside-[a-f0-9]{32}$'){throw 'OUTSIDE_TEMP_CLEANUP_BOUNDARY'};Remove-Item -LiteralPath $outsideResolved -Recurse -Force -ErrorAction SilentlyContinue}

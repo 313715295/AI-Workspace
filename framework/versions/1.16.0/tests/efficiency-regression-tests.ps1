@@ -89,8 +89,13 @@ try{
  Check ($metadata.Count-eq$catalog.requirements.Count-and@($metadata|Where-Object{$null-ne$_.PSObject.Properties['fullText']}).Count-eq0) 'intent-metadata-complete-without-rule-bodies'
  $sample=New-ExampleDiscover $discovery $intent
  [IO.File]::WriteAllText($inputPath,(ConvertTo-ExampleInputJson $sample),$utf8)
- $documented=Run $resolver @{InputPath=$inputPath;AsJson=$true}
- Check ($documented.Code-eq0-and($documented.Value.selectedRuleBlocks.requirementId-join'|')-ceq($ids-join'|')) 'documented-discover-real-consumer-equivalence'
+  $documented=Run $resolver @{InputPath=$inputPath;AsJson=$true}
+  Check ($documented.Code-eq0-and($documented.Value.selectedRuleBlocks.requirementId-join'|')-ceq($ids-join'|')) 'documented-discover-real-consumer-equivalence'
+  $readExample=Read-ExampleDiscoverOutput $documented.Value
+  Check (@($readExample.selectedRuleBlocks).Count-eq@($documented.Value.selectedRuleBlocks).Count-and@($readExample.selectedRuleBlocks|Where-Object{[string]::IsNullOrWhiteSpace([string]$_.fullText)}).Count-eq0-and-not($readExample.compactReceipt|ConvertTo-Json -Depth 100).Contains('fullText')) 'documented-output-reads-full-blocks-not-compact'
+  $badExample=$documented.Value|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100;$badExample.status='FAIL'
+  $badOutputRejected=$false;try{$null=Read-ExampleDiscoverOutput $badExample}catch{$badOutputRejected=$true}
+  Check $badOutputRejected 'documented-output-stops-on-failed-status'
  $exampleReceipt=Join-Path $runtime 'example-receipt.json';SaveJson $exampleReceipt $documented.Value.compactReceipt
  $emptyBoundary=New-ExampleBoundary $exampleReceipt (Id $exampleReceipt) 'ADMIT_ACTION' @() @() @() 'NOT_REQUIRED' 'BOUND'
  [IO.File]::WriteAllText($inputPath,(ConvertTo-ExampleInputJson $emptyBoundary),$utf8)
@@ -132,8 +137,44 @@ try{
  $discovery.intentEnvelope.requestedActionKind='REVIEW_EXECUTE';$discovery.intentEnvelope.requestedResultKind='REVIEW_VERDICT'
  $formalReview=DiscoverCase @('formal review')
  Check ('framework:PR_CRITICAL_REVIEW_INDEPENDENCE'-cin@($formalReview.selectedRuleBlocks.requirementId)-and'framework:PR_PERSPECTIVE_LENS_SELECTION'-cin@($formalReview.selectedRuleBlocks.requirementId)) 'formal-review-no-repair-keeps-independent-review-and-lenses'
+ $missingReviewRules=@(@('framework:PR_TASK_LAUNCH_AND_ROUTE','framework:PR_TASK_RESOURCE_SELECTION','framework:PR_CODEX_RESOURCE_ROUTE','framework:PR_CODEX_TOOL_OPERATION_RESOLUTION','framework:PR_COMPACT_NON_INTERRUPT_DELIVERY')|Where-Object{$_-cnotin@($formalReview.selectedRuleBlocks.requirementId)})
+ Check ($missingReviewRules.Count-eq0) 'formal-review-entry-loads-launch-resource-tool-and-return'
  SaveText $task $originalTask;$discovery.expectedTaskIdentity=Id $task
- $discovery.intentEnvelope.requestedActionKind='NONE';$discovery.intentEnvelope.requestedResultKind='USER_RESPONSE'
+ $discovery.intentEnvelope.requestedActionKind='NONE';$discovery.intentEnvelope.requestedResultKind='PLAN'
+ $planWait=DiscoverCase @('planning while another task runs')
+ Check ('framework:PR_TASK_SCOPE_AND_FORBIDDEN'-cin@($planWait.selectedRuleBlocks.requirementId)-and'framework:PR_FINAL_OUTPUT_CURRENT_RESULT'-cin@($planWait.selectedRuleBlocks.requirementId)-and'framework:PR_COMPACT_NON_INTERRUPT_DELIVERY'-cin@($planWait.selectedRuleBlocks.requirementId)) 'plan-wait-entry-loads-collaboration-and-terminal-rules'
+ # Replay the natural Maintenance sample's actual source/test intent. The
+ # isolated fixture supplies its own task and project bindings.
+ $naturalTaskBase=[IO.File]::ReadAllText($task);$naturalIntentBase=$discovery.intentEnvelope|ConvertTo-Json -Depth 30|ConvertFrom-Json -Depth 30
+ SaveText $task ($naturalTaskBase.Replace('role=DOMAIN_OWNER; phase=PLAN','role=EXECUTOR; phase=IMPLEMENT').Replace('profile=STANDARD','profile=CRITICAL'))
+ $discovery.expectedTaskIdentity=Id $task
+ $naturalCases=@(
+  @{Name='source';Action='SOURCE_WRITE';Result='IMPLEMENTATION_RESULT';Objective='在目标源码仓的三个限定文件内实现无依赖 CommonJS 耗时记录汇总工具、自动测试和使用说明；当前执行源码写入，后续执行本地测试并交由独立可见审核任务审核，最后交原 Owner 接受；不修改其他产品文件，不提交或发布。';Hints=@('耗时记录汇总','CommonJS 小工具实现','自动测试','限定交付文件','独立审核待后续')},
+  @{Name='test';Action='TEST_RUN';Result='TEST_RESULT';Objective='执行限定小工具的 Node 内置测试，验证混合、零、空集、未知、重复 ID、非法输入、溢出及输入不变；然后准备独立审核并交原 Owner 接受；不修改其他产品文件，不提交或发布。';Hints=@('耗时记录汇总','Node 自动测试','输入边界验证','累计溢出验证','独立审核待后续')}
+ )
+ foreach($case in $naturalCases){
+  if($case.Name-ceq'test'){SaveText $task (([IO.File]::ReadAllText($task)).Replace('phase=IMPLEMENT','phase=VERIFY'));$discovery.expectedTaskIdentity=Id $task}
+  $discovery.intentEnvelope.objective=$case.Objective;$discovery.intentEnvelope.requestedActionKind=$case.Action;$discovery.intentEnvelope.requestedResultKind=$case.Result
+  $actual=DiscoverCase $case.Hints;$actualIds=@($actual.selectedRuleBlocks.requirementId)
+  $scope=@($actual.selectedRuleBlocks|Where-Object requirementId -CEQ 'framework:PR_TASK_SCOPE_AND_FORBIDDEN')
+   Check ($scope.Count-eq1-and$scope[0].fullText.Contains('wait_threads')-and$scope[0].fullText.Contains('REVIEW_AND_EVIDENCE 的唯一交审顺序')-and'framework:PR_FINAL_OUTPUT_CURRENT_RESULT'-cnotin$actualIds-and'framework:PR_TASK_LAUNCH_AND_ROUTE'-cnotin$actualIds) ('natural-'+$case.Name+'-loads-single-collaboration-owner')
+ }
+ $discovery.intentEnvelope.objective='原写入包授权被拒绝；只报告当前阻塞和唯一下一动作。';$discovery.intentEnvelope.requestedActionKind='NONE';$discovery.intentEnvelope.requestedResultKind='USER_RESPONSE'
+ $missingAuthority=DiscoverCase @('authorization result');$missingIds=@($missingAuthority.selectedRuleBlocks.requirementId)
+ Check ('framework:PR_TASK_SCOPE_AND_FORBIDDEN'-cin$missingIds-and'framework:PR_FINAL_OUTPUT_CURRENT_RESULT'-cin$missingIds-and'framework:PR_TASK_LAUNCH_AND_ROUTE'-cnotin$missingIds) 'missing-authorization-return-keeps-collaboration-rule-without-new-launch'
+ $discovery.intentEnvelope.objective='生产与测试 FINALIZE 已完成；现在新建独立 Reviewer 并一次交付冻结候选。';$discovery.intentEnvelope.requestedActionKind='REVIEW_ROUTE';$discovery.intentEnvelope.requestedResultKind='HANDOFF'
+ $reviewRoute=DiscoverCase @('new assignment','formal review');$routeIds=@($reviewRoute.selectedRuleBlocks.requirementId)
+ $reviewBlock=@($reviewRoute.selectedRuleBlocks|Where-Object requirementId -CEQ 'framework:PR_CRITICAL_REVIEW_INDEPENDENCE')
+ $hostBlock=@($reviewRoute.selectedRuleBlocks|Where-Object requirementId -CEQ 'framework:PR_CODEX_TOOL_OPERATION_RESOLUTION')
+  Check ('framework:PR_TASK_LAUNCH_AND_ROUTE'-cin$routeIds-and'framework:PR_TASK_SCOPE_AND_FORBIDDEN'-cin$routeIds-and$reviewBlock.Count-eq1-and$reviewBlock[0].fullText.Contains('REVIEW_ROUTE + HANDOFF')-and$reviewBlock[0].fullText.Contains('不因卡内仍有生产前叙述')-and$hostBlock.Count-eq1-and$hostBlock[0].fullText.Contains('一次立即快照')-and$hostBlock[0].fullText.Contains('未就绪即结束当前轮')-and$hostBlock[0].fullText.Contains('超时或 commentary 不构成再次等待依据')) 'natural-review-route-loads-organization-review-and-bounded-host-observation'
+ foreach($finding in @($false,$true)){
+  $discovery.intentEnvelope.objective=if($finding){'独立审核当前候选并返回局部finding。'}else{'独立审核当前候选，无finding时返回通过结论。'}
+  $discovery.intentEnvelope.requestedActionKind='REVIEW_EXECUTE';$discovery.intentEnvelope.requestedResultKind='REVIEW_VERDICT'
+  $review=DiscoverCase @('formal review');$reviewIds=@($review.selectedRuleBlocks.requirementId)
+  Check ('framework:PR_TASK_SCOPE_AND_FORBIDDEN'-cin$reviewIds-and'framework:PR_CRITICAL_REVIEW_INDEPENDENCE'-cin$reviewIds-and'framework:PR_FINAL_OUTPUT_CURRENT_RESULT'-cin$reviewIds) ('natural-review-verdict-keeps-collaboration-and-review-'+$finding)
+ }
+ SaveText $task $naturalTaskBase;$discovery.expectedTaskIdentity=Id $task;$discovery.intentEnvelope=$naturalIntentBase
+ $discovery.intentEnvelope.requestedResultKind='USER_RESPONSE'
  # Legacy schema1 still consumes explicit selection text; bare ambiguous words intentionally narrow.
  foreach($term in @('assignment','task assignment')){
   $legacy=[ordered]@{schemaVersion=1;mode='DISCOVER';projectRoot=$project;frameworkRoot=$framework;taskPath=$task;expectedProjectConfigIdentity=$discovery.expectedProjectConfigIdentity;expectedCorrectionsIdentity=$discovery.expectedCorrectionsIdentity;expectedTaskIdentity=Id $task;observedActor='actor';capabilities=@();objective=$term;actionKind='NONE';resultKind='USER_RESPONSE';exactPaths=@();hostEnforcementGrade='INSTRUCTION_BOUND';evaluationOnly=$true}
@@ -232,7 +273,12 @@ try{
  $oldDirectory=[Environment]::CurrentDirectory;Push-Location $maintenance
  try{
   [Environment]::CurrentDirectory=$maintenance
-  SaveJson $ri $rootInput;$rd=Run $rootAdapter @{InputPath=$ri;CompactReceiptPath=$rr;DeleteInputOnExit=$true;AsJson=$true};if($rd.Code-ne0){throw ('ROOT_DISCOVER|'+$rd.Text)}
+   $targetExample=New-ExampleMaintenanceDiscover $rootInput $rootInput.intentEnvelope
+   Check ($targetExample.schemaVersion-eq2-and-not$targetExample.Contains('contextType')-and-not$targetExample.Contains('readOnlyContext')) 'documented-maintenance-target-omits-schema3-fields'
+   [IO.File]::WriteAllText($ri,(ConvertTo-ExampleInputJson $targetExample),$utf8)
+   $rd=Run $rootAdapter @{InputPath=$ri;CompactReceiptPath=$rr;DeleteInputOnExit=$true;AsJson=$true};if($rd.Code-ne0){throw ('ROOT_DISCOVER|'+$rd.Text)}
+   $targetOutput=Read-ExampleDiscoverOutput $rd.Value
+   Check (@($targetOutput.selectedRuleBlocks).Count-gt0-and@($targetOutput.selectedRuleBlocks|Where-Object{[string]::IsNullOrWhiteSpace([string]$_.fullText)}).Count-eq0-and-not($targetOutput.compactReceipt|ConvertTo-Json -Depth 100).Contains('fullText')-and$targetOutput.savedCompactReceipt.identity-ceq(Id $rr)) 'documented-maintenance-output-fulltext-and-saved-compact'
   Check ($rd.Value.compactReceipt.schemaVersion-eq1-and$rd.Value.savedCompactReceipt.identity-ceq(Id $rr)) 'maintenance-target-schema2-discovers-and-saves-schema1-compact'
   Check (-not(Test-Path -LiteralPath $ri)-and(Test-Path -LiteralPath $ap)-and(Test-Path -LiteralPath $rr)) 'cleanup-maintenance-target-discover-preserves-package-and-last-consumer-receipt'
   $rb=[ordered]@{schemaVersion=2;mode='ADMIT_ACTION';discoverReceiptPath=$rr;expectedDiscoverReceiptIdentity=Id $rr;preparationReceipts=@($rd.Value.compactReceipt.selectedObligations|ForEach-Object{$_.preparationRequirements}|Sort-Object -Unique);resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='BOUND'}

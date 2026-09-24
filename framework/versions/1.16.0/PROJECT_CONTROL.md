@@ -51,7 +51,7 @@ PROCESS_REQUIREMENTS_RESOLVE是受治理工作的唯一过程入口。DISCOVER�
 
 新项目以`.ai-workspace/process-policy.json`承载规则，selectedRulePackBytes仅保留历史／兼容数据，不限制完整规则包。真实bytes、规则数及选择结果用于查明无关加载、重复和异常增长，不新增阈值、调额或确认门。PROJECT-CUSTOM与policy各自绑定当前来源；不同职责可同时存在，不因两个位置直接拒绝。真正重复的有效正文拒绝，语义冲突由当前任务识别并正常整理，不能静默覆盖；保持唯一语义归属，不强制迁移或新增语义解析器。
 
-项目规则可内联或引用使用者维护的完整标准/唯一marked section及直接依赖。PROJECT_RELATIVE相对项目Git根；ABSOLUTE_FILE为显式本机非reparse绝对文件，可在项目外或独立checkout；省略kind保持PROJECT_RELATIVE。项目自行选择位置，多个项目绑定同一文件即可共享；不设全局注册或强制复制。policy保留selector、kind/locator、whole identity、section、dependency和decision evidence，原使用者拥有正文，读取不授予写权限。
+项目规则可内联或引用使用者维护的完整标准/唯一marked section及直接依赖。PROJECT_RELATIVE相对当前项目根；ABSOLUTE_FILE为显式本机非reparse绝对文件，可在项目外或独立checkout；省略kind保持PROJECT_RELATIVE。项目自行选择位置，多个项目绑定同一文件即可共享；不设全局注册或强制复制。policy保留selector、kind/locator、whole identity、section、dependency和decision evidence，原使用者拥有正文，读取不授予写权限。
 
 composer按TOOL_CONTRACT在选择前校验所有显式来源与禁读边界，不扫描目录、网络抓取或递归普通链接，未选正文不进模型。来源/章节/依赖漂移使旧receipt失效；正文漂移时不以旧selector/section排除，保守提供当前全文并公开ceiling，等待项目正常重绑。相同物理来源/当前身份/完整块的响应去重保留每条义务与全部依赖；不同来源不合并。
 

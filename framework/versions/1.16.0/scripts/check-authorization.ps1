@@ -211,6 +211,7 @@ $criticalReviewFields = @('candidateWriter','materialContributors')
 $boundedRereview=$null-ne$package.PSObject.Properties['repairReviewBinding']-and[string]$package.repairReviewBinding.phase-cin@('INITIAL_REVIEW','REREVIEW')
 $criticalReviewPackage = ([string]$package.profile -ceq 'CRITICAL' -and 'REVIEW_EXECUTE' -in @($package.actions)) -or $boundedRereview
 $domainExternalPackage = [string]$package.issuerRole -ceq 'DOMAIN_OWNER' -and 'EXTERNAL' -in @($package.actions)
+$domainPushPackage = [string]$package.issuerRole -ceq 'DOMAIN_OWNER' -and 'PUSH' -in @($package.actions)
 $actualFields = @($package.PSObject.Properties.Name)
 $expectedFields = @($baseFields) + @('projectConfigIdentity')
 if ([string]$package.issuerRole -ceq 'PROJECT_CONTROLLER') { $expectedFields += $controllerFields }
@@ -218,12 +219,14 @@ if ((Test-JsonInteger $package.schemaVersion) -and [int]$package.schemaVersion -
 if ($null -ne $package.PSObject.Properties['continuationPlan']) { $expectedFields += $continuationPlanFields }
 if ($null -ne $package.PSObject.Properties['repairReviewPlan']) { $expectedFields += 'repairReviewPlan' }
 if ($null -ne $package.PSObject.Properties['repairReviewBinding']) { $expectedFields += 'repairReviewBinding' }
+if ($null -ne $package.PSObject.Properties['receiverBinding']) { $expectedFields += 'receiverBinding' }
 if ((Test-JsonInteger $package.schemaVersion) -and [int]$package.schemaVersion -eq 3) {
     $expectedFields += $upgradePostimageFields
     if ($null -ne $package.PSObject.Properties['targetFrameworkSnapshot']) { $expectedFields += $upgradeSnapshotFields }
 }
 if ($criticalReviewPackage) { $expectedFields += $criticalReviewFields }
 if ($domainExternalPackage) { $expectedFields += @('externalBinding') }
+if ($domainPushPackage) { $expectedFields += @('gitPushBinding') }
 if ($actualFields.Count -ne $expectedFields.Count -or @($expectedFields | Where-Object { $_ -cnotin $actualFields }).Count -ne 0) {
     Add-Reason $reasons 'PACKAGE_FIELD_SET'
 }
@@ -241,18 +244,36 @@ function Assert-RepairPlan($Parent) {
     if($plan.writer-isnot[string]-or$plan.reviewer-isnot[string]-or[string]::IsNullOrWhiteSpace($plan.writer)-or[string]::IsNullOrWhiteSpace($plan.reviewer)-or
        -not(Test-JsonInteger $plan.maxCycles)-or$plan.maxCycles-lt1-or$plan.materialContributors-isnot[array]){throw 'REPAIR_REVIEW_PLAN_VALUES'}
     if($plan.writer-cne$Parent.grantee-or$plan.reviewer-cin@($Parent.owner,$Parent.issuer,$plan.writer)-or$plan.reviewer-cin@($plan.materialContributors)){throw 'REPAIR_REVIEW_INDEPENDENCE'}
-    if(@($Parent.actions|Where-Object{$_-cnotin@('SOURCE_WRITE','TEST_WRITE','TEST_RUN','CONTROL_WRITE')}).Count){throw 'REPAIR_REVIEW_PARENT_ACTION'}
+    if(@($Parent.actions|Where-Object{$_-cnotin@('SOURCE_WRITE','TEST_WRITE','TEST_RUN','CONTROL_WRITE','REVIEW_ROUTE')}).Count){throw 'REPAIR_REVIEW_PARENT_ACTION'}
+}
+function Get-RepairReviewer($Parent,$Binding,[string]$ParentIdentity) {
+    $plan=$Parent.repairReviewPlan
+    if([string]$plan.reviewer-cne'DEFERRED_VISIBLE_REVIEWER'){
+        if($null-ne$Binding.PSObject.Properties['reviewerAssignment']){throw 'REVIEWER_ASSIGNMENT_UNEXPECTED'}
+        return [string]$plan.reviewer
+    }
+    if($null-eq$Binding.PSObject.Properties['reviewerAssignment']){throw 'REVIEWER_ASSIGNMENT_REQUIRED'}
+    $assignment=$Binding.reviewerAssignment
+    Assert-RepairFields $assignment @('source','createdBy','threadId','hostId','taskId','parentPackageIdentity')
+    foreach($name in @('source','createdBy','threadId','hostId','taskId','parentPackageIdentity')){if($assignment.$name-isnot[string]-or[string]::IsNullOrWhiteSpace([string]$assignment.$name)){throw 'REVIEWER_ASSIGNMENT_TYPE'}}
+    $hostAssigned=[string]$assignment.source-ceq'HOST_CREATE_THREAD_RESULT'
+    $initialDelegation=[string]$assignment.source-ceq'HOST_INITIAL_DELEGATION'-and(($Binding.phase-ceq'INITIAL_REVIEW'-and$null-ne$package.PSObject.Properties['receiverBinding']-and[string]$assignment.threadId-ceq[string]$package.grantee)-or($Binding.phase-cin@('REPAIR','REREVIEW')-and$null-eq$package.PSObject.Properties['receiverBinding']-and[string]$assignment.threadId-cne'UNBOUND_RECEIVER'))
+    if(-not($hostAssigned-or$initialDelegation)-or[string]$assignment.createdBy-cne[string]$plan.writer-or[string]$assignment.taskId-cne[string]$Parent.taskId-or[string]$assignment.parentPackageIdentity-cne$ParentIdentity-or[string]$assignment.threadId-cin@($Parent.owner,$Parent.issuer,$plan.writer)-or[string]$assignment.threadId-cin@($plan.materialContributors)){throw 'REVIEWER_ASSIGNMENT_BINDING'}
+    return [string]$assignment.threadId
 }
 try {
     if($null-ne$package.PSObject.Properties['repairReviewPlan']){Assert-RepairPlan $package}
     if($null-ne$package.PSObject.Properties['repairReviewBinding']){
         if($null-ne$package.PSObject.Properties['repairReviewPlan']){throw 'REPAIR_REVIEW_NESTED_PLAN'}
         $b=$package.repairReviewBinding
-        Assert-RepairFields $b @('parentPackagePath','parentPackageIdentity','phase','cycle','verdictPath','verdictIdentity','repairFinalizeInputPath','repairFinalizeInputIdentity','repairFinalizeResultPath','repairFinalizeResultIdentity')
+        $bindingFields=@('parentPackagePath','parentPackageIdentity','phase','cycle','verdictPath','verdictIdentity','repairFinalizeInputPath','repairFinalizeInputIdentity','repairFinalizeResultPath','repairFinalizeResultIdentity')
+        if($null-ne$b.PSObject.Properties['reviewerAssignment']){$bindingFields+='reviewerAssignment'}
+        Assert-RepairFields $b $bindingFields
         $parent=Read-RepairEvidence $b.parentPackagePath $b.parentPackageIdentity
         if($null-ne$parent.PSObject.Properties['repairReviewBinding']){throw 'REPAIR_REVIEW_NESTED_PARENT'}
         Assert-RepairPlan $parent
         $plan=$parent.repairReviewPlan
+        $reviewerActor=Get-RepairReviewer $parent $b ([string]$b.parentPackageIdentity)
         $initialReview=$b.phase-ceq'INITIAL_REVIEW'
         if($b.phase-cnotin@('INITIAL_REVIEW','REPAIR','REREVIEW')-or-not(Test-JsonInteger $b.cycle)-or
            ($initialReview-and$b.cycle-ne0)-or(-not$initialReview-and($b.cycle-lt1-or$b.cycle-gt$plan.maxCycles))){throw 'REPAIR_REVIEW_CYCLE'}
@@ -268,7 +289,7 @@ try {
         }else{
         $verdict=Read-RepairEvidence $b.verdictPath $b.verdictIdentity
         Assert-RepairFields $verdict @('taskId','owner','reviewer','writer','cycle','verdict','exactPaths','objectIdentities','findingPaths','scopeChanged','decisionChanged')
-        if($verdict.taskId-cne$parent.taskId-or$verdict.owner-cne$parent.owner-or$verdict.reviewer-cne$plan.reviewer-or$verdict.writer-cne$plan.writer-or
+        if($verdict.taskId-cne$parent.taskId-or$verdict.owner-cne$parent.owner-or$verdict.reviewer-cne$reviewerActor-or$verdict.writer-cne$plan.writer-or
            $verdict.cycle-ne($b.cycle-1)-or$verdict.verdict-cne'CHANGES_REQUESTED'-or$verdict.scopeChanged-isnot[bool]-or$verdict.scopeChanged-or$verdict.decisionChanged-isnot[bool]-or$verdict.decisionChanged){throw 'REPAIR_REVIEW_VERDICT_BOUNDARY'}
         if($verdict.findingPaths-isnot[array]-or$verdict.findingPaths.Count-eq0-or@($verdict.findingPaths|Where-Object{$_-cnotin$parent.exactPaths}).Count-or
            (@($verdict.exactPaths|Sort-Object)-join"`n")-cne(@($parent.exactPaths|Sort-Object)-join"`n")){throw 'REPAIR_REVIEW_FINDING_SCOPE'}
@@ -279,7 +300,7 @@ try {
             $candidateRows=@($verdict.objectIdentities|ForEach-Object{$_.path+'='+$_.identity}|Sort-Object)
             if(($candidateRows-join"`n")-cne(@($package.objectIdentities|ForEach-Object{$_.path+'='+$_.identity}|Sort-Object)-join"`n")){throw 'REPAIR_REVIEW_CANDIDATE_DRIFT'}
         }else{
-            if($package.grantee-cne$plan.reviewer-or@($package.actions).Count-ne1-or$package.actions[0]-cne'REVIEW_EXECUTE'-or$package.candidateWriter-cne$plan.writer-or
+            if($package.grantee-cne$reviewerActor-or@($package.actions).Count-ne1-or$package.actions[0]-cne'REVIEW_EXECUTE'-or$package.candidateWriter-cne$plan.writer-or
                (@($package.materialContributors|Sort-Object)-join"`n")-cne(@($plan.materialContributors|Sort-Object)-join"`n")){throw 'REPAIR_REVIEW_REVIEWER_ACTION'}
             $finalInput=Read-RepairEvidence $b.repairFinalizeInputPath $b.repairFinalizeInputIdentity
             $finalResult=Read-RepairEvidence $b.repairFinalizeResultPath $b.repairFinalizeResultIdentity
@@ -307,6 +328,7 @@ try {
             if($null-eq$finalDelivery-and$intent.requestedResultKind-cin@('USER_RESPONSE','TERMINAL','HANDOFF','REVIEW_VERDICT','OWNER_ACCEPTANCE')-and@($finalInput.deliveryReceipts).Count-eq0){throw 'REPAIR_REVIEW_FINALIZE_INCOMPLETE'}
             $repairPackage=Read-RepairEvidence $discover.sourceLocators.authorizationPackagePath $context.authorizationIdentity
             if($repairPackage.grantee-cne$plan.writer-or$repairPackage.taskIdentity-cne$package.taskIdentity){throw 'REPAIR_REVIEW_REPAIR_SOURCE'}
+            if([string]$intent.requestedActionKind-cnotin@('SOURCE_WRITE','TEST_WRITE','TEST_RUN','CONTROL_WRITE')){throw 'REPAIR_REVIEW_PRODUCTION_FINALIZE_REQUIRED'}
             if($initialReview){
                 if($context.authorizationIdentity-cne$b.parentPackageIdentity-or
                    $null-ne$repairPackage.PSObject.Properties['repairReviewBinding']-or
@@ -334,6 +356,7 @@ if ($criticalReviewPackage) {
     if (-not ($package.materialContributors -is [System.Array])) { Add-Reason $reasons 'FIELD_TYPE_materialContributors_ARRAY' }
 }
 if ($domainExternalPackage -and -not ($package.externalBinding -is [pscustomobject])) { Add-Reason $reasons 'FIELD_TYPE_externalBinding_OBJECT' }
+if ($domainPushPackage -and -not ($package.gitPushBinding -is [pscustomobject])) { Add-Reason $reasons 'FIELD_TYPE_gitPushBinding_OBJECT' }
 if ($reasons.Count -gt 0) {
     Write-Output ('FAIL|' + ($reasons -join ','))
     exit 2
@@ -348,11 +371,38 @@ if ([string]$package.profile -cnotin @('MICRO','STANDARD','CRITICAL')) { Add-Rea
 if ([string]$package.issuerRole -cnotin @('PROJECT_CONTROLLER','DOMAIN_OWNER')) { Add-Reason $reasons 'ISSUER_ROLE' }
 if ([string]$package.decisionClass -cnotin @('ROUTINE_LOCAL','PRODUCT_RESULT','MAJOR_ARCHITECTURE','EXTERNAL_ACTION')) { Add-Reason $reasons 'DECISION_CLASS' }
 if ([string]$package.grantee -cne $ObservedActor) { Add-Reason $reasons 'GRANTEE_DRIFT' }
+if ([string]$package.grantee -ceq 'UNBOUND_RECEIVER') { Add-Reason $reasons 'PENDING_RECEIVER_NOT_ACTIONABLE' }
 if ([string]$package.taskId -cne $ObservedTaskId) { Add-Reason $reasons 'TASK_DRIFT' }
 if ([string]$package.owner -cne $ObservedOwner) { Add-Reason $reasons 'OWNER_DRIFT' }
 if ([string]::IsNullOrWhiteSpace([string]$package.taskId) -or [string]::IsNullOrWhiteSpace([string]$package.owner)) { Add-Reason $reasons 'TASK_OR_OWNER_EMPTY' }
 if ([string]::IsNullOrWhiteSpace([string]$package.issuer)) { Add-Reason $reasons 'ISSUER_EMPTY' }
 if ([string]::IsNullOrWhiteSpace([string]$package.grantee)) { Add-Reason $reasons 'GRANTEE_EMPTY' }
+
+if($null-ne$package.PSObject.Properties['receiverBinding']){
+    try{
+        $binding=$package.receiverBinding;$fields=@('pendingPath','pendingIdentity','delegationId','hostActor','receiverRole')
+        if($binding-isnot[pscustomobject]-or@($binding.PSObject.Properties).Count-ne$fields.Count-or@($fields|Where-Object{$_-cnotin@($binding.PSObject.Properties.Name)}).Count){throw 'RECEIVER_BINDING_FIELDS'}
+        if([string]$binding.pendingIdentity-cnotmatch'^\d+\|[A-F0-9]{64}$'-or[string]$binding.delegationId-cnotmatch'^[A-Za-z0-9._-]{8,128}$'-or[string]$binding.hostActor-cne[string]$package.grantee-or[string]$binding.hostActor-cne$ObservedActor-or[string]$binding.hostActor-cne[Environment]::GetEnvironmentVariable('CODEX_THREAD_ID','Process')){throw 'RECEIVER_HOST_IDENTITY'}
+        $controlRoot=[IO.Path]::GetFullPath((Get-Location).Path);$runtimeRoot=[IO.Path]::GetFullPath((Join-Path $controlRoot '.ai-workspace/runtime'))
+        $pendingFull=[IO.Path]::GetFullPath([string]$binding.pendingPath)
+        if(-not$pendingFull.StartsWith($runtimeRoot+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)-or-not(Test-Path -LiteralPath $pendingFull -PathType Leaf)-or(Get-FileIdentity $pendingFull)-cne[string]$binding.pendingIdentity){throw 'RECEIVER_PENDING_DRIFT'}
+        $cursor=$pendingFull;while($cursor.StartsWith($runtimeRoot,[StringComparison]::OrdinalIgnoreCase)){
+            if(((Get-Item -LiteralPath $cursor -Force).Attributes-band[IO.FileAttributes]::ReparsePoint)-ne0){throw 'RECEIVER_PENDING_REPARSE'}
+            if($cursor-ceq$runtimeRoot){break};$cursor=Split-Path -Parent $cursor
+        }
+        $pendingRaw=Read-StrictUtf8 $pendingFull;Assert-StrictJsonMembers $pendingRaw;$pending=$pendingRaw|ConvertFrom-Json -Depth 100
+        $pendingFields=@('schemaVersion','delegationId','receiverRole','authorizationTemplate')
+        if($pending-isnot[pscustomobject]-or@($pending.PSObject.Properties).Count-ne$pendingFields.Count-or@($pendingFields|Where-Object{$_-cnotin@($pending.PSObject.Properties.Name)}).Count-or[int]$pending.schemaVersion-ne1-or[string]$pending.delegationId-cne[string]$binding.delegationId-or[string]$pending.receiverRole-cne[string]$binding.receiverRole-or[string]$pending.authorizationTemplate.grantee-cne'UNBOUND_RECEIVER'-or$null-ne$pending.authorizationTemplate.PSObject.Properties['receiverBinding']){throw 'RECEIVER_PENDING_CONTRACT'}
+        $derived=$package|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100;$derived.PSObject.Properties.Remove('receiverBinding');$derived.grantee='UNBOUND_RECEIVER'
+        if($null-ne$pending.authorizationTemplate.PSObject.Properties['repairReviewPlan']){
+            $pendingPlan=$pending.authorizationTemplate.repairReviewPlan
+            if([string]$binding.receiverRole-cne'IMPLEMENTER'-or$pendingPlan-isnot[pscustomobject]-or$null-eq$pendingPlan.PSObject.Properties['writer']-or[string]$pendingPlan.writer-cne'UNBOUND_RECEIVER'-or$null-eq$derived.PSObject.Properties['repairReviewPlan']){throw 'RECEIVER_REPAIR_WRITER_TEMPLATE'}
+            $derived.repairReviewPlan.writer='UNBOUND_RECEIVER'
+        }
+        if($null-ne$derived.PSObject.Properties['repairReviewBinding']-and$null-ne$derived.repairReviewBinding.PSObject.Properties['reviewerAssignment']-and[string]$derived.repairReviewBinding.reviewerAssignment.source-ceq'HOST_INITIAL_DELEGATION'){$derived.repairReviewBinding.reviewerAssignment.threadId='UNBOUND_RECEIVER'}
+        if(($derived|ConvertTo-Json -Depth 100 -Compress)-cne($pending.authorizationTemplate|ConvertTo-Json -Depth 100 -Compress)){throw 'RECEIVER_AUTHORITY_EXPANDED'}
+    }catch{Add-Reason $reasons ([string]$_.Exception.Message)}
+}
 
 try {
     if ([string]::IsNullOrWhiteSpace($TaskPath) -or [string]::IsNullOrWhiteSpace($ExpectedTaskIdentity)) { throw 'TASK_BINDING_REQUIRED' }
@@ -370,7 +420,7 @@ try {
     if($taskIdMatches.Count-ne1-or$taskOwnerMatches.Count-ne1-or$taskRouteMatches.Count-ne1-or$taskProfileMatches.Count-ne1){throw 'TASK_BINDING_FIELDS'}
     if([string]$taskProfileMatches[0].Groups['profile'].Value-cne[string]$package.profile){throw 'TASK_PROFILE_DRIFT'}
     $taskRouteActor=[string]$taskRouteMatches[0].Groups['actor'].Value
-    $temporaryActionKinds=@('CONTROL_WRITE','SOURCE_WRITE','TEST_WRITE','TEST_RUN','REVIEW_EXECUTE','GIT_STAGE','GIT_COMMIT','PUSH','BROWSER_RUN','DEVICE_RUN','EXTERNAL')
+    $temporaryActionKinds=@('CONTROL_WRITE','SOURCE_WRITE','TEST_WRITE','TEST_RUN','REVIEW_ROUTE','REVIEW_EXECUTE','GIT_STAGE','GIT_COMMIT','PUSH','BROWSER_RUN','DEVICE_RUN','EXTERNAL')
     $temporaryActionGrantee=@($package.actions).Count-gt0-and@($package.actions|Where-Object{[string]$_-cnotin$temporaryActionKinds}).Count-eq0
     if([string]$taskIdMatches[0].Groups['id'].Value-cne$ObservedTaskId-or[string]$taskOwnerMatches[0].Groups['owner'].Value-cne$ObservedOwner-or(-not$temporaryActionGrantee-and[string]$taskRouteMatches[0].Groups['actor'].Value-cne$ObservedActor)){throw 'TASK_BINDING_DRIFT'}
     if([string]$package.actions[0]-ceq'REVIEW_EXECUTE'-and[string]$taskRouteMatches[0].Groups['actor'].Value-ceq$ObservedActor){throw 'REVIEW_GRANTEE_NOT_TEMPORARY'}
@@ -480,13 +530,16 @@ if ($observedActions.Count -ne @($observedActions | Select-Object -Unique).Count
 if ($actions.Count -ne @($actions | Select-Object -Unique).Count) { Add-Reason $reasons 'ACTION_DUPLICATE' }
 if($hasContinuationPlan){
     $continuationPlan=@($package.continuationPlan)
-    $continuableActions=@('CONTROL_WRITE','SOURCE_WRITE','TEST_WRITE','TEST_RUN')
+    $continuableActions=@('CONTROL_WRITE','SOURCE_WRITE','TEST_WRITE','TEST_RUN','REVIEW_ROUTE')
     if([int]$package.schemaVersion-eq3-or$continuationPlan.Count-lt2){Add-Reason $reasons 'CONTINUATION_PLAN_SHAPE'}
     foreach($action in $continuationPlan){
         if(-not($action-is[string])-or[string]$action-cnotin$continuableActions-or[string]$action-cnotin$actions){Add-Reason $reasons 'CONTINUATION_PLAN_ACTION'}
     }
     $planActions=@($continuationPlan|Select-Object -Unique)
     if($planActions.Count-ne$actions.Count-or@($actions|Where-Object{$_-cnotin$planActions}).Count-ne0){Add-Reason $reasons 'CONTINUATION_PLAN_ACTION_SET'}
+    if('REVIEW_ROUTE'-cin$continuationPlan){
+        if(@($continuationPlan|Where-Object{$_-ceq'REVIEW_ROUTE'}).Count-ne1-or[string]$continuationPlan[-1]-cne'REVIEW_ROUTE'-or[string]$continuationPlan[-2]-cne'TEST_RUN'-or@($continuationPlan|Where-Object{$_-cin@('SOURCE_WRITE','TEST_WRITE')}).Count-eq0){Add-Reason $reasons 'CONTINUATION_REVIEW_ROUTE_ORDER'}
+    }
 }
 if ([int]$package.schemaVersion -eq 3) {
     if ([string]$package.bundle -cne 'ACTOR_BOUND_PROJECT_UPGRADE' -or $actions.Count -ne 1 -or [string]$actions[0] -cne 'CONTROL_WRITE') { Add-Reason $reasons 'SCHEMA3_UPGRADE_BUNDLE_ACTION' }
@@ -512,11 +565,59 @@ if (-not $requiresUser -and [string]$package.userConfirmation -cne 'NOT_REQUIRED
 
 if ([string]$package.issuerRole -ceq 'DOMAIN_OWNER') {
     if ([string]$package.issuer -cne [string]$package.owner) { Add-Reason $reasons 'DOMAIN_OWNER_MUST_OWN_TASK' }
-    if ('PUSH' -in $actions) { Add-Reason $reasons 'DOMAIN_OWNER_EXTERNAL_DENIED' }
+    if ('PUSH' -in $actions -and -not $domainPushPackage) { Add-Reason $reasons 'DOMAIN_OWNER_EXTERNAL_DENIED' }
     if ('EXTERNAL' -in $actions -and -not $domainExternalPackage) { Add-Reason $reasons 'DOMAIN_OWNER_EXTERNAL_DENIED' }
-    if (@($actions | Where-Object { $_ -in @('GIT_STAGE','GIT_COMMIT') }).Count -gt 0 -and -not [bool]$package.delegatedGitCloser) {
+    if (@($actions | Where-Object { $_ -in @('GIT_STAGE','GIT_COMMIT','PUSH') }).Count -gt 0 -and -not [bool]$package.delegatedGitCloser) {
         Add-Reason $reasons 'DOMAIN_OWNER_GIT_NOT_DELEGATED'
     }
+}
+
+if ($domainPushPackage) {
+    try {
+        if ([int]$package.schemaVersion -ne 2) { throw 'DOMAIN_PUSH_SCHEMA2_REQUIRED' }
+        if ($actions.Count -ne 1 -or [string]$actions[0] -cne 'PUSH' -or -not [bool]$package.delegatedGitCloser) { throw 'DOMAIN_PUSH_PURE_CLOSER_REQUIRED' }
+        if ($taskRouteMatches.Count -ne 1 -or [string]$taskRouteMatches[0].Groups['role'].Value -cne 'DOMAIN_OWNER' -or [string]$taskRouteMatches[0].Groups['phase'].Value -cne 'GIT') { throw 'DOMAIN_PUSH_TASK_ROUTE' }
+        $binding=$package.gitPushBinding
+        $fields=@('remote','branch','remoteUrlIdentity','expectedRemoteCommit','localCommit','acceptanceEvidencePath','acceptanceEvidenceIdentity')
+        if ($binding -isnot [pscustomobject] -or @($binding.PSObject.Properties).Count -ne $fields.Count -or @($fields|Where-Object{$_-cnotin@($binding.PSObject.Properties.Name)}).Count) { throw 'DOMAIN_PUSH_BINDING_FIELDS' }
+        foreach($field in $fields){if($binding.$field -isnot [string] -or [string]::IsNullOrWhiteSpace([string]$binding.$field)){throw 'DOMAIN_PUSH_BINDING_TYPE'}}
+        $remote=[string]$binding.remote;$branch=[string]$binding.branch
+        if($remote-cnotmatch'^[A-Za-z0-9][A-Za-z0-9._-]*$' -or $branch-cnotmatch'^[A-Za-z0-9][A-Za-z0-9._/-]*$' -or $branch.Contains('..') -or $branch.Contains('//') -or $branch.EndsWith('.lock') -or $branch.EndsWith('/') -or $branch.Contains('@{')){throw 'DOMAIN_PUSH_TARGET_INVALID'}
+        foreach($field in @('expectedRemoteCommit','localCommit')){if([string]$binding.$field -cnotmatch '^(?:[A-F0-9]{40}|[A-F0-9]{64})$'){throw 'DOMAIN_PUSH_COMMIT_IDENTITY'}}
+        if([string]$binding.remoteUrlIdentity -cnotmatch '^\d+\|[A-F0-9]{64}$' -or [string]$binding.acceptanceEvidenceIdentity -cnotmatch '^\d+\|[A-F0-9]{64}$'){throw 'DOMAIN_PUSH_EVIDENCE_IDENTITY'}
+        $evidenceRelative=Normalize-RelativePath ([string]$binding.acceptanceEvidencePath)
+        if(-not($evidenceRelative.StartsWith('.ai-workspace/reports/',[StringComparison]::Ordinal) -or $evidenceRelative.StartsWith('.ai-workspace/tasks/',[StringComparison]::Ordinal))){throw 'DOMAIN_PUSH_ACCEPTANCE_LOCATOR'}
+        $evidencePath=Join-Path (Get-Location).Path $evidenceRelative
+        if(-not(Test-Path -LiteralPath $evidencePath -PathType Leaf) -or (Get-FileIdentity $evidencePath) -cne [string]$binding.acceptanceEvidenceIdentity){throw 'DOMAIN_PUSH_ACCEPTANCE_DRIFT'}
+        $evidenceText=Read-StrictUtf8 $evidencePath
+        $reviewReady=$evidenceText.Contains('Review=APPROVED') -or ([string]$package.profile -cne 'CRITICAL' -and $evidenceText.Contains('Review=NOT_REQUIRED'))
+        if(-not $reviewReady -or -not $evidenceText.Contains('OwnerAccept=ACCEPTED')){throw 'DOMAIN_PUSH_ACCEPTANCE_UNPROVEN'}
+        $acceptedCommitLines=@($evidenceText -split '\r?\n' | Where-Object { $_ -clike 'AcceptedCommit=*' })
+        if($acceptedCommitLines.Count -ne 1 -or [string]$acceptedCommitLines[0] -cne ('AcceptedCommit='+[string]$binding.localCommit)){throw 'DOMAIN_PUSH_ACCEPTED_COMMIT_DRIFT'}
+        $decisionLine='Push authorization: repositoryId='+[string]$package.repositoryId+'; remote='+$remote+'; branch='+$branch+'; decision='+[string]$package.userConfirmation
+        if(-not $taskRaw.Contains($decisionLine)){throw 'DOMAIN_PUSH_USER_SCOPE_UNPROVEN'}
+        $controlRoot=Get-FullDirectoryPath (Get-Location).Path
+        $repositoryRoot=$controlRoot
+        if([string]$package.repositoryId -cne 'CONTROL'){
+            if($null-eq$config.frameworkTarget -or [string]$config.frameworkTarget.repositoryId -cne [string]$package.repositoryId){throw 'DOMAIN_PUSH_REPOSITORY_BINDING'}
+            $repositoryRoot=Get-FullDirectoryPath (Join-Path (Split-Path -Parent $controlRoot) ([string]$config.frameworkTarget.siblingDirectory))
+        }
+        foreach($name in @('GIT_DIR','GIT_WORK_TREE','GIT_COMMON_DIR')){if(-not [string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($name,'Process'))){throw 'DOMAIN_PUSH_GIT_ENVIRONMENT_OVERRIDE'}}
+        $gitTop=@(& git -C $repositoryRoot rev-parse --show-toplevel 2>$null);if($LASTEXITCODE -ne 0 -or $gitTop.Count -ne 1 -or (Get-FullDirectoryPath ([string]$gitTop[0])) -cne $repositoryRoot){throw 'DOMAIN_PUSH_GIT_TOP'}
+        $head=@(& git -C $repositoryRoot rev-parse HEAD 2>$null);if($LASTEXITCODE -ne 0 -or $head.Count -ne 1 -or ([string]$head[0]).ToUpperInvariant() -cne [string]$binding.localCommit){throw 'DOMAIN_PUSH_LOCAL_COMMIT_DRIFT'}
+        $activeBranch=@(& git -C $repositoryRoot symbolic-ref --quiet --short HEAD 2>$null);if($LASTEXITCODE -ne 0 -or $activeBranch.Count -ne 1 -or [string]$activeBranch[0] -cne $branch){throw 'DOMAIN_PUSH_BRANCH_DRIFT'}
+        $parent=@(& git -C $repositoryRoot rev-parse HEAD^ 2>$null);if($LASTEXITCODE -ne 0 -or $parent.Count -ne 1 -or ([string]$parent[0]).ToUpperInvariant() -cne [string]$binding.expectedRemoteCommit){throw 'DOMAIN_PUSH_COMMIT_PARENT'}
+        $staged=@(& git -C $repositoryRoot diff --cached --name-only 2>$null);if($LASTEXITCODE -ne 0 -or $staged.Count -gt 0){throw 'DOMAIN_PUSH_SHARED_INDEX_NOT_CLEAR'}
+        $commitPaths=@(& git -C $repositoryRoot diff-tree --no-commit-id --name-only -r HEAD 2>$null);if($LASTEXITCODE -ne 0){throw 'DOMAIN_PUSH_COMMIT_PATHS'}
+        $commitSorted=@($commitPaths|Sort-Object -CaseSensitive);$exactSorted=@($package.exactPaths|Sort-Object -CaseSensitive)
+        if([string]::Join("`n",$commitSorted) -cne [string]::Join("`n",$exactSorted)){throw 'DOMAIN_PUSH_COMMIT_PATHSET_DRIFT'}
+        $urls=@(& git -C $repositoryRoot remote get-url --push $remote 2>$null);if($LASTEXITCODE -ne 0 -or $urls.Count -ne 1){throw 'DOMAIN_PUSH_REMOTE_UNAVAILABLE'}
+        $urlBytes=[Text.UTF8Encoding]::new($false).GetBytes([string]$urls[0]);$urlIdentity=$urlBytes.Length.ToString()+'|'+[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($urlBytes))
+        if($urlIdentity -cne [string]$binding.remoteUrlIdentity){throw 'DOMAIN_PUSH_REMOTE_DRIFT'}
+        $oldPrompt=[Environment]::GetEnvironmentVariable('GIT_TERMINAL_PROMPT','Process');[Environment]::SetEnvironmentVariable('GIT_TERMINAL_PROMPT','0','Process')
+        try{$remoteRef=@(& git -C $repositoryRoot ls-remote --exit-code --heads $remote ('refs/heads/'+$branch) 2>$null);$remoteCode=$LASTEXITCODE}finally{[Environment]::SetEnvironmentVariable('GIT_TERMINAL_PROMPT',$oldPrompt,'Process')}
+        if($remoteCode -ne 0 -or $remoteRef.Count -ne 1 -or ([string]$remoteRef[0]).Split([char]9)[0].ToUpperInvariant() -cne [string]$binding.expectedRemoteCommit){throw 'DOMAIN_PUSH_REMOTE_REF_DRIFT'}
+    } catch { Add-Reason $reasons ([string]$_.Exception.Message) }
 }
 
 if ($domainExternalPackage) {

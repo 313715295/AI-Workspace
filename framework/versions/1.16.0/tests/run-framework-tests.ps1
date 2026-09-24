@@ -556,7 +556,7 @@ $toolchain=Get-Content -LiteralPath (Join-Path $candidateRoot 'TOOLCHAIN.json') 
 $toolContract=Get-Content -LiteralPath (Join-Path $candidateRoot 'TOOL_CONTRACT.md') -Raw -Encoding utf8
 $backend=@($toolchain.officialBackends)[0]
 $declaredPlatforms=@($backend.platforms|ForEach-Object{[string]$_})
-$expectedOperations=@('AUTHORIZATION_CHECK','CORRECTIONS_CHECK','KNOWLEDGE_IMPACT_CHECK','KNOWLEDGE_QUERY','LOAD_PLAN_RESOLVE','PROCESS_REQUIREMENTS_RESOLVE','PROTECTED_SAFE_GIT','TASK_CARD_CHECK','WORKFLOW_ROUTE_RESOLVE')
+$expectedOperations=@('AUTHORIZATION_CHECK','AUTHORIZATION_RECEIVER_BIND','CORRECTIONS_CHECK','KNOWLEDGE_IMPACT_CHECK','KNOWLEDGE_QUERY','LOAD_PLAN_RESOLVE','PROCESS_REQUIREMENTS_RESOLVE','PROTECTED_SAFE_GIT','TASK_CARD_CHECK','WORKFLOW_ROUTE_RESOLVE')
 $actualOperations=@($backend.entrypoints.PSObject.Properties.Name);[Array]::Sort($expectedOperations,[StringComparer]::Ordinal);[Array]::Sort($actualOperations,[StringComparer]::Ordinal)
 Assert-True ([int]$toolchain.schemaVersion-eq1-and[string]$toolchain.frameworkVersion-ceq'1.16.0'-and[string]$toolchain.contractVersion-ceq'1'-and[string]$toolchain.projectSelectionField-ceq'frameworkToolBackend'-and@($toolchain.officialBackends).Count-eq1) 'toolchain-single-project-selected-backend'
 Assert-True ([int]$toolchain.routerCompatibility.schemaVersion-eq1-and[string]$toolchain.routerCompatibility.skillName-ceq'ai-workspace-router'-and[string]$toolchain.routerCompatibility.status-ceq'COMPATIBLE'-and[string]$toolchain.routerCompatibility.canonicalSkillPath-ceq'skills/ai-workspace-router/SKILL.md'-and[string]$toolchain.routerCompatibility.versionContractPath-ceq'host/skills/ai-workspace-router/SKILL.md'-and[string]::Join('|',@($toolchain.routerCompatibility.requiredOperations))-ceq'LOAD_PLAN_RESOLVE|PROCESS_REQUIREMENTS_RESOLVE|WORKFLOW_ROUTE_RESOLVE'-and[int]$toolchain.routerCompatibility.processCatalogSchemaVersion-eq2-and[string]$toolchain.routerCompatibility.processCatalogVersion-ceq'3'-and[string]$toolchain.routerCompatibility.nativeRuleBodySource-ceq'MARKDOWN_EXACT_BLOCK') 'toolchain-router-compatibility-exact'
@@ -694,8 +694,8 @@ Assert-True ($fallbackLoad.Code-eq0-and$fallbackLoad.Text.Contains('fallback=PER
 $candidateLoadRoot=Join-Path $temp 'candidate-runtime\1.16.0';New-Item -ItemType Directory -Path (Split-Path -Parent $candidateLoadRoot) -Force|Out-Null;Copy-Item -LiteralPath $candidateRoot -Destination $candidateLoadRoot -Recurse
 $candidateLoadFacts=Approve-CandidateReleaseFixture $candidateLoadRoot
 $candidateLoadProject=Join-Path $temp 'candidate-load-project';$candidateLoadControl=Join-Path $candidateLoadProject '.ai-workspace';New-Item -ItemType Directory -Path $candidateLoadControl -Force|Out-Null
-$candidateLoadConfigPath=Join-Path $candidateLoadControl 'project.json';$candidateLoadConfig=[ordered]@{schemaVersion=4;id='candidate-load-fixture';frameworkVersion='1.16.0';frameworkToolBackend='powershell7'};Write-Utf8 $candidateLoadConfigPath ($candidateLoadConfig|ConvertTo-Json -Depth 20)
-$candidateLoadBootstrapPath=Join-Path $candidateLoadControl 'BOOTSTRAP.md';$candidateLoadBootstrap="<!-- FRAMEWORK-MANAGED:BEGIN -->`nCandidate load fixture.`n<!-- FRAMEWORK-MANAGED:END -->`n<!-- PROJECT-CUSTOM:BEGIN -->`n`n<!-- PROJECT-CUSTOM:END -->`n";Write-Utf8 $candidateLoadBootstrapPath $candidateLoadBootstrap
+$candidateLoadConfigPath=Join-Path $candidateLoadControl 'project.json';$candidateLoadConfig=[ordered]@{schemaVersion=4;id='candidate-load-fixture';displayName='Candidate Load Fixture';controlPlaneLayout='repo-local';repositoryRoot='..';frameworkVersion='1.16.0';frameworkToolBackend='powershell7';routineExcludedPaths=@();frameworkCapabilities=[ordered]@{};processPolicy=[ordered]@{schemaVersion=1;locator='.ai-workspace/process-policy.json'}};Write-Utf8 $candidateLoadConfigPath ($candidateLoadConfig|ConvertTo-Json -Depth 20)
+$candidateLoadBootstrapPath=Join-Path $candidateLoadControl 'BOOTSTRAP.md';$candidateLoadBootstrap="<!-- FRAMEWORK-MANAGED:BEGIN -->`nProject ID=``candidate-load-fixture``；repo-local control plane=``.ai-workspace/``；pinned Framework=``1.16.0``。`n<!-- FRAMEWORK-MANAGED:END -->`n<!-- PROJECT-CUSTOM:BEGIN -->`n`n<!-- PROJECT-CUSTOM:END -->`n";Write-Utf8 $candidateLoadBootstrapPath $candidateLoadBootstrap
 $candidateLoadCustomBegin='<!-- PROJECT-CUSTOM:BEGIN -->';$candidateLoadCustomEnd='<!-- PROJECT-CUSTOM:END -->';$candidateLoadCustomStart=$candidateLoadBootstrap.IndexOf($candidateLoadCustomBegin,[StringComparison]::Ordinal)+$candidateLoadCustomBegin.Length;$candidateLoadCustomFinish=$candidateLoadBootstrap.IndexOf($candidateLoadCustomEnd,[StringComparison]::Ordinal);$candidateLoadManagedText=$candidateLoadBootstrap.Substring(0,$candidateLoadCustomStart)+$candidateLoadBootstrap.Substring($candidateLoadCustomFinish);$candidateLoadManagedIdentity=Get-BytesIdentity ($utf8.GetBytes($candidateLoadManagedText))
 $candidateLoadTaskRelative='.ai-workspace/tasks/active/CANDIDATE-LOAD-001.md';$candidateLoadTaskPath=Join-Path $candidateLoadProject $candidateLoadTaskRelative;Write-Utf8 $candidateLoadTaskPath "# candidate load fixture`n"
 $candidateLoadManifestPath=Join-Path $candidateLoadRoot 'RELEASE_MANIFEST.json';$candidateLoadStatePath=Join-Path $candidateLoadControl 'upgrade-recovery\1.16.0\state.json'
@@ -1540,7 +1540,7 @@ exit $LASTEXITCODE
     Write-Utf8 (Join-Path $pilotProject '.ai-workspace\controller.json') (([ordered]@{schemaVersion=1;projectId='local-candidate-recovery-fixture';controllerId='pilot-controller';controllerEpoch=1;state='CURRENT'})|ConvertTo-Json -Depth 10)
     Write-Utf8 (Join-Path $pilotProject '.ai-workspace\corrections.json') (([ordered]@{schemaVersion=2;contractVersion='1.16.0';projectId='local-candidate-recovery-fixture';corrections=@()})|ConvertTo-Json -Depth 10)
     Write-Utf8 (Join-Path $pilotProject '.ai-workspace\process-policy.json') (([ordered]@{schemaVersion=1;contractVersion='1.16.0';projectId='local-candidate-recovery-fixture';selectedRulePackBytes=32768;rules=@()})|ConvertTo-Json -Depth 10)
-    Write-Utf8 (Join-Path $pilotProject '.ai-workspace\BOOTSTRAP.md') "<!-- PROJECT-CUSTOM:BEGIN -->`n此 legacy region 当前没有 permanent project process rule。structured rules 位于 `.ai-workspace/process-policy.json`。`n<!-- PROJECT-CUSTOM:END -->`n"
+    Write-Utf8 (Join-Path $pilotProject '.ai-workspace\BOOTSTRAP.md') "<!-- FRAMEWORK-MANAGED:BEGIN -->`nProject ID=``local-candidate-recovery-fixture``；repo-local control plane=``.ai-workspace/``；pinned Framework=``1.16.0``。`n<!-- FRAMEWORK-MANAGED:END -->`n<!-- PROJECT-CUSTOM:BEGIN -->`n此 legacy region 当前没有 permanent project process rule。structured rules 位于 `.ai-workspace/process-policy.json`。`n<!-- PROJECT-CUSTOM:END -->`n"
     $pilotTaskPath=Join-Path $pilotProject '.ai-workspace\tasks\active\PILOT-RECOVERY-001.md';Write-Utf8 $pilotTaskPath "# PILOT-RECOVERY-001 - candidate recovery fixture`n`n- Task schema: 1.16.0`n- Owner: pilot-controller`n- Work route: actor=pilot-controller; role=CONTROLLER; phase=RECOVER`n- Range summary: profile=STANDARD; lifecycle=ACTIVE; expected_paths=[]; actual_paths=[]`n"
     $pilotResolver=Join-Path $pilotVersionRoot 'scripts\resolve-process-requirements.ps1';$pilotInputPath=Join-Path $temp 'local-candidate-recovery-discover.json';$pilotInput=[ordered]@{schemaVersion=1;mode='DISCOVER';projectRoot=$pilotProject;frameworkRoot=$correctionFrameworkRoot;taskPath=$pilotTaskPath;expectedProjectConfigIdentity=(Get-Identity $pilotConfigPath);expectedCorrectionsIdentity=(Get-Identity (Join-Path $pilotProject '.ai-workspace\corrections.json'));expectedTaskIdentity=(Get-Identity $pilotTaskPath);observedActor='pilot-controller';capabilities=@();objective='Recover the already admitted local candidate pilot';actionKind='NONE';resultKind='PLAN';exactPaths=@();hostEnforcementGrade='FRAMEWORK_GATED';evaluationOnly=$false};Write-Utf8 $pilotInputPath ($pilotInput|ConvertTo-Json -Depth 20)
     $pilotMissingState=Invoke-Ps $pilotResolver @('-InputPath',$pilotInputPath,'-AsJson')
@@ -1554,8 +1554,8 @@ exit $LASTEXITCODE
     $pilotSchema3Recovery=Invoke-Ps $pilotResolver @('-InputPath',$pilotInputPath,'-AsJson');if($pilotSchema3Recovery.Code-ne0){throw ('ASSERT_FAIL|local-candidate-schema3-managed-projection-recovery|'+$pilotSchema3Recovery.Code+'|'+$pilotSchema3Recovery.Text)};$pilotSchema3Result=$pilotSchema3Recovery.Output[-1]|ConvertFrom-Json;$pilotReceipt=$pilotSchema3Result.compactReceipt
     Assert-True ($pilotSchema3Recovery.Code-eq0-and[string]$pilotReceipt.sourceBindings.candidatePilotStateIdentity-ceq(Get-Identity $pilotStatePath)) 'local-candidate-schema3-managed-projection-recovery-allows-current-task-progress'
     $pilotPolicyPath=Join-Path $pilotProject '.ai-workspace\process-policy.json';$pilotPolicyBytes=[IO.File]::ReadAllBytes($pilotPolicyPath);Write-Utf8 $pilotPolicyPath ((Get-Content -Raw -Encoding utf8 -LiteralPath $pilotPolicyPath)+"`n")
-    $pilotProjectionDrift=Invoke-Ps $pilotResolver @('-InputPath',$pilotInputPath,'-AsJson');[IO.File]::WriteAllBytes($pilotPolicyPath,$pilotPolicyBytes)
-    Assert-True ($pilotProjectionDrift.Code-ne0-and$pilotProjectionDrift.Text.Contains('LOCAL_CANDIDATE_PILOT_PROJECTION_DRIFT|.ai-workspace/process-policy.json')) 'local-candidate-schema3-rejects-managed-projection-drift'
+    $pilotProjectionChange=Invoke-Ps $pilotResolver @('-InputPath',$pilotInputPath,'-AsJson');[IO.File]::WriteAllBytes($pilotPolicyPath,$pilotPolicyBytes)
+    Assert-True ($pilotProjectionChange.Code-eq0-and$pilotProjectionChange.Text.Contains('PROCESS_REQUIREMENTS_DISCOVER_RESULT')) 'local-candidate-schema3-accepts-valid-current-policy-by-current-binding'
     $pilotProjectionObjects=@($pilotState.projectionObjects);$pilotState.projectionObjects=@($pilotProjectionObjects|Where-Object{[string]$_.relative-cne'.ai-workspace/project.json'});Write-Utf8 $pilotStatePath ($pilotState|ConvertTo-Json -Depth 20)
     $pilotProjectionMissing=Invoke-Ps $pilotResolver @('-InputPath',$pilotInputPath,'-AsJson');$pilotState.projectionObjects=$pilotProjectionObjects;Write-Utf8 $pilotStatePath ($pilotState|ConvertTo-Json -Depth 20)
     Assert-True ($pilotProjectionMissing.Code-ne0-and$pilotProjectionMissing.Text.Contains('LOCAL_CANDIDATE_PILOT_PROJECTION_OBJECT_MISSING|.ai-workspace/project.json')) 'local-candidate-schema3-requires-original-object-projection-coverage'
@@ -1619,9 +1619,14 @@ exit $LASTEXITCODE
     Move-Item -LiteralPath $archivedPilotTask -Destination $pilotTaskPath;Remove-Item -LiteralPath $businessTaskPath
     $pilotInput.taskPath=$pilotTaskPath;$pilotInput.expectedTaskIdentity=Get-Identity $pilotTaskPath;Write-Utf8 $pilotInputPath ($pilotInput|ConvertTo-Json -Depth 30)
     $pilotMigratedBootstrap=Get-Content -Raw -Encoding utf8 -LiteralPath $pilotBootstrapPath
-    Write-Utf8 $pilotBootstrapPath ($pilotMigratedBootstrap+"框架管理区意外变化。`n")
-    $pilotManagedDrift=Invoke-Ps $pilotResolver @('-InputPath',$pilotInputPath,'-AsJson')
-    Assert-True ($pilotManagedDrift.Code-ne0-and$pilotManagedDrift.Text.Contains('LOCAL_CANDIDATE_PILOT_PROJECTION_DRIFT|.ai-workspace/BOOTSTRAP.md')) 'local-candidate-schema4-still-rejects-framework-bootstrap-drift'
+    Write-Utf8 $pilotBootstrapPath ($pilotMigratedBootstrap+"框架管理区说明更新。`n")
+    $pilotManagedEvolution=Invoke-Ps $pilotResolver @('-InputPath',$pilotInputPath,'-AsJson')
+    Assert-True ($pilotManagedEvolution.Code-eq0-and(Get-Identity $pilotStatePath)-ceq$pilotSchema4Identity) 'local-candidate-schema4-valid-current-bootstrap-prose-not-locked-by-installation'
+    $pilotWrongPinBootstrap=$pilotMigratedBootstrap.Replace('pinned Framework=`1.16.0`','pinned Framework=`1.15.1`')
+    Assert-True ($pilotWrongPinBootstrap-cne$pilotMigratedBootstrap) 'local-candidate-schema4-wrong-pin-fixture-changes-current-binding'
+    Write-Utf8 $pilotBootstrapPath $pilotWrongPinBootstrap
+    $pilotWrongPin=Invoke-Ps $pilotResolver @('-InputPath',$pilotInputPath,'-AsJson')
+    Assert-True ($pilotWrongPin.Code-ne0-and$pilotWrongPin.Text.Contains('LOCAL_CANDIDATE_BOOTSTRAP_CURRENT_BINDING')) 'local-candidate-schema4-wrong-current-pin-rejected'
     Write-Utf8 $pilotBootstrapPath $pilotMigratedBootstrap
     $pilotPolicy.selectedRulePackBytes=0;Write-Utf8 $pilotPolicyPath ($pilotPolicy|ConvertTo-Json -Depth 30)
     $pilotInvalidPolicy=Invoke-Ps $pilotResolver @('-InputPath',$pilotInputPath,'-AsJson')
@@ -2306,7 +2311,6 @@ exit $LASTEXITCODE
     $malformedImpactArgs=@('-ProjectRoot',$knowledgeRoot,'-ExpectedProjectConfigIdentity',$knowledgeConfigIdentity,'-ExpectedIndexIdentity',(Get-Identity $knowledgeIndexPath),'-ChangedAuthorityPath','unrelated.md','-AsJson')
     $malformedImpact=Invoke-PsHost $script:pwshExecutable $knowledgeImpact $malformedImpactArgs
     Assert-True ($malformedImpact.Code -eq 3 -and $malformedImpact.Text.Contains('ENTRY_VALUES')) 'knowledge-impact-pwsh7-primary-malformed-dependency-index-fails-closed'
-    if($null-ne$pwsh){$malformedImpact7=Invoke-PsHost $pwsh.Source $knowledgeImpact $malformedImpactArgs;Assert-True ($malformedImpact7.Code -eq 3 -and $malformedImpact7.Text.Contains('ENTRY_VALUES')) 'knowledge-impact-ps7-malformed-dependency-index-fails-closed'}
 
     $duplicateImpactIndex=$schema2Index|ConvertTo-Json -Depth 20|ConvertFrom-Json
     $duplicateImpactIndex.entries=@($duplicateImpactIndex.entries)+@($duplicateImpactIndex.entries[0])
@@ -2314,7 +2318,6 @@ exit $LASTEXITCODE
     $duplicateImpactArgs=@('-ProjectRoot',$knowledgeRoot,'-ExpectedProjectConfigIdentity',$knowledgeConfigIdentity,'-ExpectedIndexIdentity',(Get-Identity $knowledgeIndexPath),'-ChangedAuthorityPath','unrelated.md','-AsJson')
     $duplicateImpact=Invoke-PsHost $script:pwshExecutable $knowledgeImpact $duplicateImpactArgs
     Assert-True ($duplicateImpact.Code -eq 3 -and $duplicateImpact.Text.Contains('ENTRY_ID_DUPLICATE')) 'knowledge-impact-pwsh7-primary-duplicate-id-index-fails-closed'
-    if($null-ne$pwsh){$duplicateImpact7=Invoke-PsHost $pwsh.Source $knowledgeImpact $duplicateImpactArgs;Assert-True ($duplicateImpact7.Code -eq 3 -and $duplicateImpact7.Text.Contains('ENTRY_ID_DUPLICATE')) 'knowledge-impact-ps7-duplicate-id-index-fails-closed'}
 
     $unknownFieldImpactIndex=$schema2Index|ConvertTo-Json -Depth 20|ConvertFrom-Json
     $unknownFieldImpactIndex.entries[0]|Add-Member -NotePropertyName unexpected -NotePropertyValue $true
@@ -2342,7 +2345,6 @@ exit $LASTEXITCODE
     $reparseImpactArgs=@('-ProjectRoot',$knowledgeRoot,'-ExpectedProjectConfigIdentity',$knowledgeConfigIdentity,'-ExpectedIndexIdentity',(Get-Identity $knowledgeIndexPath),'-ChangedAuthorityPath','unrelated.md','-AsJson')
     $reparseImpact=Invoke-PsHost $script:pwshExecutable $knowledgeImpact $reparseImpactArgs
     Assert-True ($reparseImpact.Code -eq 3 -and $reparseImpact.Text.Contains('LOCATOR_REPARSE|linked-authority/outside.md')) 'knowledge-impact-pwsh7-primary-dependency-junction-fails-closed'
-    if($null-ne$pwsh){$reparseImpact7=Invoke-PsHost $pwsh.Source $knowledgeImpact $reparseImpactArgs;Assert-True ($reparseImpact7.Code -eq 3 -and $reparseImpact7.Text.Contains('LOCATOR_REPARSE|linked-authority/outside.md')) 'knowledge-impact-ps7-dependency-junction-fails-closed'}
     Remove-TestJunction $impactJunction
 
     $schema1Index=[ordered]@{schemaVersion=1;projectId='knowledge-fixture';entries=@([ordered]@{id='REF-LEGACY';state='CURRENT';title='Legacy Reference';summary='Legacy reference only';locator='knowledge/reference-1.md';identity=Get-Identity (Join-Path $knowledgeRoot 'knowledge\reference-1.md');authorityLocator='authority-1.md';authorityIdentity=Get-Identity (Join-Path $knowledgeRoot 'authority-1.md');verifiedAt='2026-08-17T00:00:00Z';invalidatesOn=@('LOCATOR_IDENTITY_CHANGE','AUTHORITY_IDENTITY_CHANGE');tokenEstimate=10})}
@@ -2355,12 +2357,10 @@ exit $LASTEXITCODE
     $typeArgs=@('-ProjectRoot',$knowledgeRoot,'-ExpectedProjectConfigIdentity',$knowledgeConfigIdentity,'-ExpectedIndexIdentity',(Get-Identity $knowledgeIndexPath),'-Operation','DISCOVER','-AsJson')
     $primaryPwshType=Invoke-PsHost $script:pwshExecutable $knowledgeChecker $typeArgs
     Assert-True ($primaryPwshType.Code -eq 3 -and $primaryPwshType.Text.Contains('ENTRY_VALUES')) 'knowledge-pwsh7-primary-rejects-timestamp-type-drift'
-    if($null-ne$pwsh){$ps7Type=Invoke-PsHost $pwsh.Source $knowledgeChecker $typeArgs;Assert-True ($ps7Type.Code -eq 3 -and $ps7Type.Text.Contains('ENTRY_VALUES')) 'knowledge-ps7-rejects-timestamp-type-drift'}
     $invalidIndex=$schema1Index|ConvertTo-Json -Depth 20|ConvertFrom-Json;$invalidIndex.entries[0].verifiedAt='2026-08-17 00:00:00';Write-Utf8 $knowledgeIndexPath ($invalidIndex|ConvertTo-Json -Depth 20)
     $invalidArgs=@('-ProjectRoot',$knowledgeRoot,'-ExpectedProjectConfigIdentity',$knowledgeConfigIdentity,'-ExpectedIndexIdentity',(Get-Identity $knowledgeIndexPath),'-Operation','DISCOVER','-AsJson')
     $primaryPwshInvalid=Invoke-PsHost $script:pwshExecutable $knowledgeChecker $invalidArgs
     Assert-True ($primaryPwshInvalid.Code -eq 3 -and $primaryPwshInvalid.Text.Contains('ENTRY_VALUES')) 'knowledge-pwsh7-primary-rejects-invalid-timestamp'
-    if($null-ne$pwsh){$ps7Invalid=Invoke-PsHost $pwsh.Source $knowledgeChecker $invalidArgs;Assert-True ($ps7Invalid.Code -eq 3 -and $ps7Invalid.Text.Contains('ENTRY_VALUES')) 'knowledge-ps7-rejects-invalid-timestamp'}
 
     if (-not $SkipBaseline) {
         Assert-True $true 'historical-release-seals-are-git-history-not-1.16-runtime-regression'

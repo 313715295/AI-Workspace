@@ -158,6 +158,19 @@ try{New-Item -ItemType Directory -Path $temp|Out-Null
         $delivery=Invoke-WorkflowCase $workflowResolver $temp ('delivery-'+$outcome) ([ordered]@{operation='DELIVERY';deliveryContext=[ordered]@{channel='TASK_MESSAGE';stage='OBSERVE';expectedRecipient='owner';observedRecipient='owner';outcome=$outcome;evidence='fixture:host-result'}})
         Assert-True ($delivery.Run.Code-eq0-and[bool]$delivery.Value.delivered-eq($outcome-ceq'SUCCESS')-and-not$delivery.Value.retryAllowed) ('workflow-consumes-actual-send-'+$outcome)
     }
+    $routeProject=[ordered]@{};foreach($key in $routeBase.Keys){$routeProject[$key]=$routeBase[$key]};$routeProject.Remove('cwdGitTopMatch');$routeProject.cwdProjectRootMatch=$true
+    $projectReuse=Invoke-WorkflowCase $workflowResolver $temp 'route-project-root' $routeProject
+    $routeProject.cwdProjectRootMatch=$false
+    $projectBlocked=Invoke-WorkflowCase $workflowResolver $temp 'route-project-root-mismatch' $routeProject
+    Assert-True ($projectReuse.Run.Code-eq0-and$projectReuse.Value.decision-ceq'REUSE'-and$projectBlocked.Value.reason-ceq'CWD_PROJECT_ROOT_MISMATCH') 'workflow-route-project-root-without-git-top'
+    foreach($outcome in @('NOT_SENT','SUCCESS','FAILURE','UNKNOWN')){
+        $prepare=$outcome-ceq'NOT_SENT'
+        $context=[ordered]@{channel='TASK_MESSAGE';stage=$(if($prepare){'PREPARE'}else{'OBSERVE'});expectedRecipient='owner';observedRecipient=$(if($prepare){'NOT_APPLICABLE'}else{'owner'});outcome=$outcome;evidence=$(if($prepare){'NOT_APPLICABLE'}else{'fixture:host-result'})}
+        $input=[ordered]@{operation='DELIVERY';deliveryContext=$context};$path=Join-Path $temp ('workflow-delivery-text-'+$outcome+'.json');Write-Utf8 $path ($input|ConvertTo-Json -Depth 12)
+        $json=Invoke-Ps $workflowResolver @('-InputPath',$path,'-AsJson');$plain=Invoke-Ps $workflowResolver @('-InputPath',$path)
+        $value=$json.Text|ConvertFrom-Json
+        Assert-True ($json.Code-eq0-and$plain.Code-eq0-and$plain.Text.Contains('status='+[string]$value.status)-and$plain.Text.Contains('delivered='+[string]$value.delivered)-and$plain.Text.Contains('retryAllowed='+[string]$value.retryAllowed)-and$plain.Text.Contains('evidenceCeiling='+[string]$value.evidenceCeiling)) ('workflow-delivery-json-text-equivalent-'+$outcome)
+    }
  Write-Output ('RESULT|'+$script:passed+'/'+$script:passed+' passed|scope=workflow-route')
 }finally{
  $full=[IO.Path]::GetFullPath($temp);$parent=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetTempPath())

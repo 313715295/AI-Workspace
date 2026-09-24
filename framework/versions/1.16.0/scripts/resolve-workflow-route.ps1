@@ -64,8 +64,22 @@ switch ($operation) {
         $candidate=$parentDoc.Value
         if($null-eq$candidate.PSObject.Properties['repairReviewPlan']-or$binding.phase-cnotin@('INITIAL_REVIEW','REPAIR','REREVIEW')){throw 'REPAIR_REVIEW_PLAN_REQUIRED'}
         $plan=$candidate.repairReviewPlan
+        # A child is anchored to the original through repairReviewBinding. Its
+        # parent-only receiver binding cannot be reused by another grantee.
+        $candidate.PSObject.Properties.Remove('receiverBinding')
+        $reviewerActor=[string]$plan.reviewer
+        if($reviewerActor-ceq'DEFERRED_VISIBLE_REVIEWER'){
+            if($null-eq$binding.PSObject.Properties['reviewerAssignment']){throw 'REVIEWER_ASSIGNMENT_REQUIRED'}
+            $assignment=$binding.reviewerAssignment
+            Assert-ExactFields $assignment @($assignment.PSObject.Properties.Name) @('source','createdBy','threadId','hostId','taskId','parentPackageIdentity')
+            foreach($name in @('source','createdBy','threadId','hostId','taskId','parentPackageIdentity')){Assert-String $assignment.$name $name}
+            $hostAssigned=$assignment.source-ceq'HOST_CREATE_THREAD_RESULT'
+            $initialDelegation=$assignment.source-ceq'HOST_INITIAL_DELEGATION'-and(($assignment.threadId-ceq'UNBOUND_RECEIVER'-and$binding.phase-ceq'INITIAL_REVIEW')-or($assignment.threadId-cne'UNBOUND_RECEIVER'-and$binding.phase-cin@('REPAIR','REREVIEW')))
+            if(-not($hostAssigned-or$initialDelegation)-or$assignment.createdBy-cne$plan.writer-or$assignment.taskId-cne$candidate.taskId-or$assignment.parentPackageIdentity-cne$identity-or$assignment.threadId-cin@($candidate.owner,$candidate.issuer,$plan.writer)-or$assignment.threadId-cin@($plan.materialContributors)){throw 'REVIEWER_ASSIGNMENT_BINDING'}
+            $reviewerActor=[string]$assignment.threadId
+        }elseif($null-ne$binding.PSObject.Properties['reviewerAssignment']){throw 'REVIEWER_ASSIGNMENT_UNEXPECTED'}
         $candidate.PSObject.Properties.Remove('repairReviewPlan')
-        $candidate.grantee=if($binding.phase-ceq'REPAIR'){$plan.writer}else{$plan.reviewer}
+        $candidate.grantee=if($binding.phase-ceq'REPAIR'){$plan.writer}else{$reviewerActor}
         if($binding.phase-cin@('INITIAL_REVIEW','REREVIEW')){
             $candidate.PSObject.Properties.Remove('continuationPlan')
             $candidate.actions=@('REVIEW_EXECUTE');$candidate.reviewIndependence='INDEPENDENT'
@@ -104,16 +118,17 @@ switch ($operation) {
         }
     }
     'ROUTE' {
-        $fields = @('operation','projectMatch','cwdGitTopMatch','outcomeMatch','taskOwnerMatch','actorEligible','lineageMatch','resourceRouteAvailable','protectionBoundaryMatch','gitDeviceExternalMatch','publicDecisionMatch','requiresDistinctOutcome','requiresIndependentContext','standingCreateAuthorized')
+        $rootField=if($inputMemberNames -ccontains 'cwdProjectRootMatch'){'cwdProjectRootMatch'}else{'cwdGitTopMatch'}
+        $fields = @('operation','projectMatch',$rootField,'outcomeMatch','taskOwnerMatch','actorEligible','lineageMatch','resourceRouteAvailable','protectionBoundaryMatch','gitDeviceExternalMatch','publicDecisionMatch','requiresDistinctOutcome','requiresIndependentContext','standingCreateAuthorized')
         Assert-ExactFields $inputObject $inputMemberNames $fields
         foreach ($field in $fields[1..($fields.Count - 1)]) { Assert-Bool $inputObject.$field $field }
-        $boundaryMatch = [bool]$inputObject.projectMatch -and [bool]$inputObject.cwdGitTopMatch -and [bool]$inputObject.taskOwnerMatch -and
+        $boundaryMatch = [bool]$inputObject.projectMatch -and [bool]$inputObject.$rootField -and [bool]$inputObject.taskOwnerMatch -and
             [bool]$inputObject.actorEligible -and [bool]$inputObject.lineageMatch -and [bool]$inputObject.protectionBoundaryMatch -and
             [bool]$inputObject.gitDeviceExternalMatch -and [bool]$inputObject.publicDecisionMatch
         if (-not $boundaryMatch) {
             $decision = 'BLOCKED'
             $standingCreate = $false
-            if (-not [bool]$inputObject.cwdGitTopMatch) { $reason = 'CWD_GIT_TOP_MISMATCH' }
+            if (-not [bool]$inputObject.$rootField) { $reason = $(if($rootField-ceq'cwdGitTopMatch'){'CWD_GIT_TOP_MISMATCH'}else{'CWD_PROJECT_ROOT_MISMATCH'}) }
             elseif (-not [bool]$inputObject.publicDecisionMatch) { $reason = 'PUBLIC_DECISION_MISMATCH' }
             elseif (-not [bool]$inputObject.taskOwnerMatch) { $reason = 'TASK_OWNER_MISMATCH' }
             elseif (-not [bool]$inputObject.actorEligible) { $reason = 'ACTOR_NOT_ELIGIBLE' }
@@ -204,5 +219,9 @@ switch ($operation) {
 
 if ($AsJson) { Write-Output ($result | ConvertTo-Json -Depth 8 -Compress) }
 else {
-    foreach ($entry in $result.GetEnumerator()) { Write-Output ($entry.Key + '=' + [string]$entry.Value) }
+    if ($result -is [System.Collections.IDictionary]) {
+        foreach ($entry in $result.GetEnumerator()) { Write-Output ($entry.Key + '=' + [string]$entry.Value) }
+    } else {
+        foreach ($entry in $result.PSObject.Properties) { Write-Output ($entry.Name + '=' + [string]$entry.Value) }
+    }
 }

@@ -40,7 +40,7 @@ project policy 的既有 inline rule 保持有效；项目可在自身 Review/�
 
 ## 本地试点中的项目规则演进
 
-已完成的试点以 recovery state schema4 区分安装证据与项目当前规则：`objects` 及 old/new 材料保留原事务；`projectionObjects.identity` 保留投影时的全文身份，Bootstrap 另有 `managedIdentity`，只固定 PROJECT-CUSTOM 正文之外的字节。task、PROJECT-CUSTOM、process-policy 和 corrections 的后续合法更新不要求回退到安装时内容；当前 composer 仍严格检查其 schema、唯一权威、规则、预算和当前身份。
+已完成的试点以 recovery state schema4 区分安装证据与项目当前规则：`objects` 及 old/new 材料保留原事务；`projectionObjects.identity` 和 Bootstrap 的 `managedIdentity` 保留安装时后像，不作为日常当前字节锁。task、Bootstrap 受管说明与 PROJECT-CUSTOM、process-policy、corrections 的后续合法更新不要求回退到安装时内容；当前 composer 严格检查 Bootstrap 标记顺序和项目 ID/pin/control plane 绑定，以及现行 schema、唯一权威、规则、预算和当前身份。未完成事务仍以原始材料及前后像恢复，拒绝并发覆盖。
 
 这不是免授权入口。项目规则迁移仍由项目按当前任务、全文 preimage、Review 与接受边界实施；只改变试点历史绑定的复核口径。规则改变后旧 DISCOVER receipt 失效，正式交付用当前规则重新 DISCOVER；不得伪造收据或手改试点 state。框架管理区、project pin、候选 canonical/manifest 或其他受管理对象漂移仍停止。
 

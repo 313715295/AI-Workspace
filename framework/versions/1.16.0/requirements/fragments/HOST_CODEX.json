@@ -42,7 +42,14 @@
           "执行组织",
           "任务组织",
           "委派"
-        ]
+        ],
+        "deterministicTriggers": {
+          "actionKinds": [
+            "REVIEW_ROUTE",
+            "REVIEW_EXECUTE"
+          ],
+          "resultKinds": []
+        }
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_CODEX_RESOURCE_ROUTE",
       "preparationRequirements": [
@@ -78,6 +85,7 @@
           "*"
         ],
         "resultKinds": [
+          "PLAN",
           "TERMINAL",
           "HANDOFF",
           "REVIEW_VERDICT",
@@ -96,6 +104,7 @@
         "deterministicTriggers": {
           "actionKinds": [],
           "resultKinds": [
+            "PLAN",
             "TERMINAL",
             "HANDOFF",
             "REVIEW_VERDICT",
@@ -151,7 +160,14 @@
           "execution environment",
           "新分派",
           "执行环境"
-        ]
+        ],
+        "deterministicTriggers": {
+          "actionKinds": [
+            "REVIEW_ROUTE",
+            "REVIEW_EXECUTE"
+          ],
+          "resultKinds": []
+        }
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_CODEX_TOOL_OPERATION_RESOLUTION",
       "preparationRequirements": [

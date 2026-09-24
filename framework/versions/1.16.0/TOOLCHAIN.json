@@ -26,6 +26,7 @@
       "platforms": ["windows"],
       "entrypoints": {
         "AUTHORIZATION_CHECK": "scripts/check-authorization.ps1",
+        "AUTHORIZATION_RECEIVER_BIND": "scripts/bind-receiver-authorization.ps1",
         "CORRECTIONS_CHECK": "scripts/check-project-corrections.ps1",
         "KNOWLEDGE_IMPACT_CHECK": "scripts/check-knowledge-impact.ps1",
         "KNOWLEDGE_QUERY": "scripts/check-knowledge-entry.ps1",
