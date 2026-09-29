@@ -4,9 +4,11 @@ param(
     [string]$SeedFrameworkRoot,
     [string]$SeedTransactionPath,
     [string]$ExpectedSeedTransactionIdentity,
+    [string]$SeedControllerPath,
     [switch]$ActorStorageOnly,
     [switch]$EntryTemplatesOnly,
     [switch]$AdoptionPackageOnly,
+    [switch]$CoreOnly,
     [string]$LegacyRuntimeRoot
 )
 
@@ -198,23 +200,41 @@ try {
     }
     $custom = "# Project conventions`nOnly the approved project goal is delegated.`n"
     Assert-True ((Get-AiwStandingDelegationProjection -Text $custom) -ceq $custom) 'viewing-does-not-create-adoption'
-    foreach($templatePath in @((Join-Path (Split-Path -Parent $scriptsRoot) 'framework/versions/1.16.0/project-starter/AGENTS.md'),(Join-Path (Split-Path -Parent $scriptsRoot) 'framework/maintenance-overlay/AGENTS.md'))){
-        $delegated=Get-AiwStandingDelegationProjection -Text $custom -AdoptionRequested $true -TemplatePath $templatePath
+    $sourceRoot=Split-Path -Parent $scriptsRoot
+    $entryCases=@(
+        @{version='1.16.0';template='framework/versions/1.16.0/project-starter/AGENTS.md'},
+        @{version='2.0.0';template='framework/versions/2.0.0/project-starter/AGENTS.md'},
+        @{version='1.16.0';template='framework/maintenance-overlay/AGENTS.md'},
+        @{version='2.0.0';template='framework/maintenance-overlay/AGENTS.md'}
+    )
+    foreach($entryCase in $entryCases){
+        $templatePath=Join-Path $sourceRoot $entryCase.template
+        $navigation=Get-AiwNavigationContract (Get-Content -LiteralPath (Join-Path $sourceRoot ('framework/versions/'+$entryCase.version+'/TOOLCHAIN.json')) -Raw|ConvertFrom-Json)
+        $routerName=[string]$navigation.SkillName
+        $delegated=Get-AiwStandingDelegationProjection -Text $custom -AdoptionRequested $true -TemplatePath $templatePath -RouterSkillName $routerName
         $block=Get-AiwAgentsTemplateBlock $delegated
+        Assert-True ($block.Contains('`'+$routerName+'`')-and-not$block.Contains('{{ROUTER_SKILL_NAME}}')) ('entry-name-from-target-contract-'+$entryCase.version+'-'+$entryCase.template)
         Assert-True ($delegated.StartsWith($custom)-and$block.Contains('在本项目内，AI 根据当前采用的 Framework、当前生效的项目纠正及永久规则作出的具体工作决定，均视为用户明确决定')-and-not$block.Contains('BOOTSTRAP.md')-and-not$delegated.Contains('AI-WORKSPACE-USER-DECISION')) 'registration-managed-delegation-preserves-outside'
-        Assert-True ((Get-AiwStandingDelegationProjection -Text $delegated -AdoptionRequested $true -TemplatePath $templatePath)-ceq$delegated) 'template-projection-idempotent'
+        Assert-True ((Get-AiwStandingDelegationProjection -Text $delegated -AdoptionRequested $true -TemplatePath $templatePath -RouterSkillName $routerName)-ceq$delegated) 'template-projection-idempotent'
         $changed=$delegated.Replace('在本项目内，AI','HAND_EDITED_MANAGED')+"`n用户撤回持续委托。`n"
-        $updated=Get-AiwStandingDelegationProjection -Text $changed -AdoptionRequested $true -TemplatePath $templatePath
+        $updated=Get-AiwStandingDelegationProjection -Text $changed -AdoptionRequested $true -TemplatePath $templatePath -RouterSkillName $routerName
         Assert-True (-not$updated.Contains('HAND_EDITED_MANAGED')-and$updated.EndsWith("`n用户撤回持续委托。`n")-and$updated.StartsWith($custom)) 'managed-hand-edit-overwritten-outside-revocation-retained'
         $default=@($block-split"`n"|Where-Object{$_-like'在本项目内，AI*'})[0]
         $legacy=$custom+"<!-- AI-WORKSPACE-FRAMEWORK:BEGIN -->`nold template`n<!-- AI-WORKSPACE-FRAMEWORK:END -->`n<!-- AI-WORKSPACE-USER-DECISION:BEGIN -->`n$default`n用户将委托收窄为只读分析。`n<!-- AI-WORKSPACE-USER-DECISION:END -->`n"
-        $migrated=Get-AiwStandingDelegationProjection -Text $legacy -AdoptionRequested $true -TemplatePath $templatePath
+        $migrated=Get-AiwStandingDelegationProjection -Text $legacy -AdoptionRequested $true -TemplatePath $templatePath -RouterSkillName $routerName
         $managedPattern='(?s)<!-- AI-WORKSPACE-FRAMEWORK:BEGIN -->.*?<!-- AI-WORKSPACE-FRAMEWORK:END -->'
         Assert-True ([regex]::Replace($migrated,$managedPattern,'')-ceq[regex]::Replace($legacy,$managedPattern,'')) 'upgrade-keeps-complete-outside-declaration-and-project-restriction'
-        Assert-True ((Get-AiwStandingDelegationProjection -Text $migrated -AdoptionRequested $true -TemplatePath $templatePath)-ceq$migrated) 'legacy-migration-idempotent'
-        $rejected=$false;try{$null=Get-AiwStandingDelegationProjection -Text ($custom+'<!-- AI-WORKSPACE-FRAMEWORK:BEGIN -->') -AdoptionRequested $true -TemplatePath $templatePath}catch{$rejected=$_.ToString().Contains('AGENTS_MANAGED_MARKERS_MALFORMED')}
+        Assert-True ((Get-AiwStandingDelegationProjection -Text $migrated -AdoptionRequested $true -TemplatePath $templatePath -RouterSkillName $routerName)-ceq$migrated) 'legacy-migration-idempotent'
+        $rejected=$false;try{$null=Get-AiwStandingDelegationProjection -Text ($custom+'<!-- AI-WORKSPACE-FRAMEWORK:BEGIN -->') -AdoptionRequested $true -TemplatePath $templatePath -RouterSkillName $routerName}catch{$rejected=$_.ToString().Contains('AGENTS_MANAGED_MARKERS_MALFORMED')}
         Assert-True $rejected 'malformed-managed-markers-rejected'
     }
+    $oldTemplate=Join-Path $sourceRoot 'framework/versions/1.16.0/project-starter/AGENTS.md'
+    foreach($badName in @('', '../router', 'Router')){
+        $rejected=$false;try{$null=Get-AiwStandingDelegationProjection -Text $custom -AdoptionRequested $true -TemplatePath $oldTemplate -RouterSkillName $badName}catch{$rejected=$_.ToString().Contains('AGENTS_ROUTER_NAME_REQUIRED')}
+        Assert-True $rejected 'missing-or-invalid-router-name-rejected'
+    }
+    $rejected=$false;try{$null=Get-AiwStandingDelegationProjection -Text $custom -AdoptionRequested $true -TemplatePath $oldTemplate -RouterSkillName 'ai-workspace-router-v2'}catch{$rejected=$_.ToString().Contains('AGENTS_ROUTER_TEMPLATE_MISMATCH')}
+    Assert-True $rejected 'fixed-old-template-cannot-claim-v2'
     if($EntryTemplatesOnly){Write-Output ('PASS|entry-template-projections|'+$passed+'/'+$passed);return}
     Reset-TestProject
     $format = Get-AiwProjectFormat $fixtureRoot
@@ -517,11 +537,12 @@ try {
         -not (Test-Path -LiteralPath $noTransactionPath)
     ) 'no-op-no-transaction'
 
+    if($CoreOnly){Write-Output ('PASS|project-adoption-core|' + $passed + '/' + $passed);return}
     $selfUpdateTest = Join-Path $PSScriptRoot 'maintenance-self-update-tests.ps1'
     # A completed historical transaction exercises the legacy self-update route;
     # the same suite separately tests fixed-runtime adoption and relocation.
     $seedArguments=@()
-    foreach($name in @('SeedControlRoot','SeedFrameworkRoot','SeedTransactionPath','ExpectedSeedTransactionIdentity')){
+    foreach($name in @('SeedControlRoot','SeedFrameworkRoot','SeedTransactionPath','ExpectedSeedTransactionIdentity','SeedControllerPath')){
         $value=Get-Variable -Name $name -ValueOnly
         if(-not[string]::IsNullOrEmpty($value)){$seedArguments+=@(('-'+$name),$value)}
     }

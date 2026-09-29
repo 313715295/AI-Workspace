@@ -3,35 +3,287 @@
   "title": "AI-Workspace Framework Maintenance sibling configuration",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "id", "displayName", "controlPlaneLayout", "repositoryRoot", "frameworkVersion", "frameworkToolBackend", "routineExcludedPaths", "frameworkCapabilities", "processPolicy", "frameworkTarget"],
+  "required": [
+    "schemaVersion",
+    "id",
+    "displayName",
+    "controlPlaneLayout",
+    "repositoryRoot",
+    "frameworkVersion",
+    "frameworkToolBackend",
+    "routineExcludedPaths",
+    "frameworkCapabilities",
+    "processPolicy",
+    "frameworkTarget"
+  ],
   "properties": {
-    "schemaVersion": { "const": 4 },
-    "id": { "type": "string", "minLength": 1 },
-    "displayName": { "type": "string", "minLength": 1 },
-    "controlPlaneLayout": { "const": "framework-maintenance-sibling" },
-    "repositoryRoot": { "const": ".." },
-    "frameworkVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
-    "frameworkToolBackend": { "const": "powershell7" },
-    "routineExcludedPaths": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
-    "frameworkCapabilities": { "type": "object", "additionalProperties": false, "maxProperties": 0 },
+    "schemaVersion": {
+      "enum": [
+        4,
+        5
+      ]
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "displayName": {
+      "type": "string",
+      "minLength": 1
+    },
+    "controlPlaneLayout": {
+      "const": "framework-maintenance-sibling"
+    },
+    "repositoryRoot": {
+      "const": ".."
+    },
+    "frameworkVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "frameworkToolBackend": {
+      "const": "powershell7"
+    },
+    "routineExcludedPaths": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "frameworkCapabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "KNOWLEDGE_REFERENCE": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "enabled",
+            "sources"
+          ],
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "sources": {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "id",
+                      "root",
+                      "indexLocator",
+                      "selectionHints",
+                      "updatePolicy"
+                    ],
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                      },
+                      "root": {
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "kind",
+                              "locator"
+                            ],
+                            "properties": {
+                              "kind": {
+                                "const": "PROJECT"
+                              },
+                              "locator": {
+                                "const": "."
+                              }
+                            }
+                          },
+                          {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "kind",
+                              "locator"
+                            ],
+                            "properties": {
+                              "kind": {
+                                "const": "LOCAL_DIRECTORY"
+                              },
+                              "locator": {
+                                "type": "string",
+                                "minLength": 1,
+                                "pattern": "^[A-Za-z]:[\\\\/]"
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "indexLocator": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "selectionHints": {
+                        "type": "array",
+                        "uniqueItems": true,
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "updatePolicy": {
+                        "const": "FOLLOW"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "id",
+                      "root",
+                      "indexLocator",
+                      "selectionHints",
+                      "updatePolicy",
+                      "indexIdentity"
+                    ],
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                      },
+                      "root": {
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "kind",
+                              "locator"
+                            ],
+                            "properties": {
+                              "kind": {
+                                "const": "PROJECT"
+                              },
+                              "locator": {
+                                "const": "."
+                              }
+                            }
+                          },
+                          {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "kind",
+                              "locator"
+                            ],
+                            "properties": {
+                              "kind": {
+                                "const": "LOCAL_DIRECTORY"
+                              },
+                              "locator": {
+                                "type": "string",
+                                "minLength": 1,
+                                "pattern": "^[A-Za-z]:[\\\\/]"
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "indexLocator": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "selectionHints": {
+                        "type": "array",
+                        "uniqueItems": true,
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "updatePolicy": {
+                        "const": "PINNED"
+                      },
+                      "indexIdentity": {
+                        "type": "string",
+                        "pattern": "^\\d+\\|[A-F0-9]{64}$"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
     "processPolicy": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schemaVersion", "locator"],
+      "required": [
+        "schemaVersion",
+        "locator"
+      ],
       "properties": {
-        "schemaVersion": { "const": 1 },
-        "locator": { "const": ".ai-workspace/process-policy.json" }
+        "schemaVersion": {
+          "const": 1
+        },
+        "locator": {
+          "const": ".ai-workspace/process-policy.json"
+        }
       }
     },
     "frameworkTarget": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["repositoryId", "siblingDirectory", "routineExcludedPaths"],
+      "required": [
+        "repositoryId",
+        "siblingDirectory",
+        "routineExcludedPaths"
+      ],
       "properties": {
-        "repositoryId": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
-        "siblingDirectory": { "type": "string", "minLength": 1, "pattern": "^[^\\\\/:*?\"<>|]+$" },
-        "routineExcludedPaths": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+        "repositoryId": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "siblingDirectory": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\\\/:*?\"<>|]+$"
+        },
+        "routineExcludedPaths": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "schemaVersion": {
+            "const": 4
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "frameworkCapabilities": {
+            "maxProperties": 0
+          }
+        }
+      }
+    }
+  ]
 }

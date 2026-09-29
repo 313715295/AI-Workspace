@@ -1,6 +1,6 @@
 # AI Workspace {{DISTRIBUTION_ID}} 用户发行包
 
-这个目录是单版本、可直接解压使用的 Framework 发行包，不是 Framework 开发仓。发行包目录本身不要求是 Git 仓库；准备接入的用户项目必须已经是 Git 仓库，并使用 Windows PowerShell 7。
+这个目录是单版本、可直接解压使用的 Framework 发行包，不是 Framework 开发仓。发行包目录本身不要求是 Git 仓库；随包工具当前支持 Windows 上的 PowerShell 7。
 
 {{DISTRIBUTION_NOTICE}}
 
@@ -8,7 +8,7 @@
 
 ## 使用与接入
 
-按用户需求或已授权任务注册、升级项目，操作步骤和 Router 安装、宿主发现、兼容性收尾统一见 [项目接入与升级](framework/PROJECT_ADOPTION.md)。目标项目必须是 Git 仓库；发行包目录无需 Git。
+按用户需求或已授权任务注册、升级项目，操作步骤和 Router 安装、宿主发现、兼容性收尾统一见 [项目接入与升级](framework/PROJECT_ADOPTION.md)。2.0普通项目无需 Git；维护双仓拓扑、真实 Git 动作及旧版本要求按所选版本合同验证。发行包目录无需 Git。
 
 版本资格以 [VERSION.json](framework/versions/{{FRAMEWORK_VERSION}}/VERSION.json)、[RELEASE_MANIFEST.json](framework/versions/{{FRAMEWORK_VERSION}}/RELEASE_MANIFEST.json) 和 [版本说明](framework/versions/{{FRAMEWORK_VERSION}}/README.md) 为准。
 项目标准由用户选择保存位置，可直接复用已有文档；项目规则支持引用项目内文件或本机绝对文件，多个项目可指向同一份外部标准。提取规则、精炼或改造文档均为可选，不是接入前置条件，也不要求把标准正文抄回 Framework 或初始化入口。

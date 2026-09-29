@@ -99,6 +99,7 @@ function New-AiwMaintenanceProjectConfig {
         [Parameter(Mandatory=$true)][string]$ProjectId,
         [Parameter(Mandatory=$true)][string]$DisplayName,
         [Parameter(Mandatory=$true)][string]$FrameworkVersion,
+        [ValidateSet(4,5)][int]$ProjectSchemaVersion=4,
         [Parameter(Mandatory=$true)][string]$TargetRepositoryId,
         [Parameter(Mandatory=$true)][string]$TargetSiblingDirectory,
         [string[]]$ControlRoutineExcludedPaths=@(),
@@ -109,7 +110,7 @@ function New-AiwMaintenanceProjectConfig {
     $sibling=ConvertTo-AiwSafeSibling $TargetSiblingDirectory
     $controlPaths=@(ConvertTo-AiwRoutinePaths $ControlRoutineExcludedPaths 'CONTROL_ROUTINE_PATH')
     $targetPaths=@(ConvertTo-AiwRoutinePaths $TargetRoutineExcludedPaths 'TARGET_ROUTINE_PATH')
-    $config=[ordered]@{schemaVersion=4;id=$ProjectId;displayName=$DisplayName;controlPlaneLayout='framework-maintenance-sibling';repositoryRoot='..';frameworkVersion=$FrameworkVersion;frameworkToolBackend='powershell7';routineExcludedPaths=$controlPaths;frameworkCapabilities=[ordered]@{};processPolicy=[ordered]@{schemaVersion=1;locator='.ai-workspace/process-policy.json'};frameworkTarget=[ordered]@{repositoryId=$TargetRepositoryId;siblingDirectory=$sibling;routineExcludedPaths=$targetPaths}}
+    $config=[ordered]@{schemaVersion=$ProjectSchemaVersion;id=$ProjectId;displayName=$DisplayName;controlPlaneLayout='framework-maintenance-sibling';repositoryRoot='..';frameworkVersion=$FrameworkVersion;frameworkToolBackend='powershell7';routineExcludedPaths=$controlPaths;frameworkCapabilities=[ordered]@{};processPolicy=[ordered]@{schemaVersion=1;locator='.ai-workspace/process-policy.json'};frameworkTarget=[ordered]@{repositoryId=$TargetRepositoryId;siblingDirectory=$sibling;routineExcludedPaths=$targetPaths}}
     return (($config|ConvertTo-Json -Depth 20)+"`n")
 }
 

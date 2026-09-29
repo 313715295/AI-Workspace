@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 2,
+  "frameworkVersion": "2.0.0",
+  "registrationEligible": true,
+  "localCandidatePilotEligible": true,
+  "sourceCompatibility": {
+    "projectFormats": ["repo-local/project-config-4"],
+    "requiredCapabilities": []
+  },
+  "projectControl": {
+    "schemaVersion": 5,
+    "processCarrierContractVersion": "2.0.0",
+    "frameworkToolBackend": "powershell7",
+    "navigationProjection": "ROOT_CANONICAL_SKILL_MANAGED_AGENTS",
+    "taskLastWriteRequired": true,
+    "capabilityBinding": "EXACT_ENABLED_IDS",
+    "runtimeArtifactRoot": ".ai-workspace/runtime",
+    "runtimeGitIgnoreRule": "/.ai-workspace/runtime/"
+  },
+  "processBudget": {
+    "defaultSelectedRulePackBytes": 32768,
+    "absoluteSelectedRulePackBytes": 98304
+  }
+}

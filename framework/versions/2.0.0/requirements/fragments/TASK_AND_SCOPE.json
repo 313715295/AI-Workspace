@@ -1,0 +1,404 @@
+{
+  "schemaVersion": 2,
+  "frameworkVersion": "2.0.0",
+  "ownerModule": "TASK_AND_SCOPE.md",
+  "requirements": [
+    {
+      "requirementId": "PR_TASK_LAUNCH_AND_ROUTE",
+      "legacyAliases": [],
+      "title": "Task launch and direct route",
+      "description": "Choose one legal, net-beneficial organization carrier while preserving task routing and governance boundaries.",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "*"
+        ],
+        "actionKinds": [
+          "*"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": [
+          "task assignment",
+          "new assignment",
+          "task launch",
+          "organization change",
+          "新分派",
+          "创建任务",
+          "组织调整",
+          "execution organization",
+          "task organization",
+          "delegation",
+          "执行组织",
+          "任务组织",
+          "委派",
+          "followup task",
+          "task creation",
+          "application task",
+          "internal subagent",
+          "subagent",
+          "review",
+          "reviewer",
+          "任务续派",
+          "任务协作",
+          "内部代理",
+          "子代理",
+          "子agent",
+          "审核",
+          "审查"
+        ],
+        "deterministicTriggers": {
+          "actionKinds": [
+            "REVIEW_ROUTE",
+            "REVIEW_EXECUTE"
+          ],
+          "resultKinds": []
+        },
+        "semanticMatch": "TOKEN"
+      },
+      "exactBlockLocator": "AIW-REQUIREMENT:PR_TASK_LAUNCH_AND_ROUTE",
+      "preparationRequirements": [
+        "TASK_ROUTE_DECISION_BOUND"
+      ],
+      "resultRequirements": [
+        "UNIQUE_NEXT_ROUTE_BOUND"
+      ]
+    },
+    {
+      "requirementId": "PR_WORKFLOW_TRANSITION_MECHANICAL_BOUNDARY",
+      "legacyAliases": [],
+      "title": "Mechanical workflow transition",
+      "description": "Resolve governed task transitions from current authenticated facts without creating authority.",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "RECOVER",
+          "DISCOVER",
+          "PLAN",
+          "IMPLEMENT",
+          "VERIFY",
+          "REVIEW",
+          "GIT",
+          "EXTERNAL"
+        ],
+        "actionKinds": [
+          "*"
+        ],
+        "resultKinds": [
+          "TERMINAL",
+          "HANDOFF",
+          "REVIEW_VERDICT",
+          "RESULT_ACCEPTANCE",
+          "IMPLEMENTATION_RESULT",
+          "GIT_RESULT",
+          "EXTERNAL_RESULT"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": [
+          "transition",
+          "message",
+          "handoff",
+          "terminal"
+        ],
+        "deterministicTriggers": {
+          "actionKinds": [],
+          "resultKinds": [
+            "TERMINAL",
+            "HANDOFF",
+            "REVIEW_VERDICT",
+            "RESULT_ACCEPTANCE"
+          ]
+        }
+      },
+      "exactBlockLocator": "AIW-REQUIREMENT:PR_WORKFLOW_TRANSITION_MECHANICAL_BOUNDARY",
+      "preparationRequirements": [
+        "WORKFLOW_INPUT_BOUND"
+      ],
+      "resultRequirements": [
+        "WORKFLOW_DECISION_OBSERVED"
+      ]
+    },
+    {
+      "requirementId": "PR_TASK_SCOPE_AND_FORBIDDEN",
+      "legacyAliases": [],
+      "title": "Task scope closure",
+      "description": "Keep objective, exact scope, forbidden boundaries, current route and evidence ceiling current.",
+      "selectors": {
+        "profiles": [
+          "STANDARD",
+          "CRITICAL"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "PLAN",
+          "IMPLEMENT",
+          "VERIFY",
+          "REVIEW"
+        ],
+        "actionKinds": [
+          "*"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": []
+      },
+      "exactBlockLocator": "AIW-REQUIREMENT:PR_TASK_SCOPE_AND_FORBIDDEN",
+      "preparationRequirements": [
+        "TASK_SCOPE_CURRENT"
+      ],
+      "resultRequirements": [
+        "SCOPE_READBACK_COMPLETE"
+      ]
+    },
+    {
+      "requirementId": "PR_FINAL_OUTPUT_CURRENT_RESULT",
+      "legacyAliases": [],
+      "title": "Final output completeness",
+      "description": "Deliver the accepted current result, evidence ceiling, material limitations and unique next action.",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "RECOVER",
+          "DISCOVER",
+          "PLAN",
+          "IMPLEMENT",
+          "VERIFY",
+          "REVIEW",
+          "GIT",
+          "EXTERNAL"
+        ],
+        "actionKinds": [
+          "*"
+        ],
+        "resultKinds": [
+          "PLAN",
+          "USER_RESPONSE",
+          "TERMINAL",
+          "HANDOFF",
+          "REVIEW_VERDICT",
+          "RESULT_ACCEPTANCE"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": []
+      },
+      "exactBlockLocator": "AIW-REQUIREMENT:PR_FINAL_OUTPUT_CURRENT_RESULT",
+      "preparationRequirements": [],
+      "resultRequirements": [
+        "REQUEST_COVERAGE_READBACK",
+        "EVIDENCE_CEILING_STATED",
+        "UNIQUE_NEXT_ACTION_STATED"
+      ]
+    },
+    {
+      "requirementId": "PR_TASK_RESOURCE_SELECTION",
+      "legacyAliases": [],
+      "title": "Task resource selection and revision",
+      "description": "Select sufficient model then supported effort on initial assignment or new selection-relevant evidence; reuse healthy bindings.",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "*"
+        ],
+        "actionKinds": [
+          "*"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": [
+          "task assignment",
+          "new assignment",
+          "resource selection",
+          "resource change",
+          "新分派",
+          "资源选择",
+          "资源调整",
+          "execution organization",
+          "task organization",
+          "delegation",
+          "执行组织",
+          "任务组织",
+          "委派",
+          "followup task",
+          "task creation",
+          "application task",
+          "internal subagent",
+          "subagent",
+          "review",
+          "reviewer",
+          "任务续派",
+          "任务协作",
+          "内部代理",
+          "子代理",
+          "子agent",
+          "审核",
+          "审查"
+        ],
+        "deterministicTriggers": {
+          "actionKinds": [
+            "REVIEW_ROUTE",
+            "REVIEW_EXECUTE"
+          ],
+          "resultKinds": []
+        },
+        "semanticMatch": "TOKEN"
+      },
+      "exactBlockLocator": "AIW-REQUIREMENT:PR_TASK_RESOURCE_SELECTION",
+      "preparationRequirements": [
+        "RESOURCE_ROUTE_CLASSIFIED"
+      ],
+      "resultRequirements": [
+        "RESOURCE_AUTHORITY_SEPARATION_STATED"
+      ]
+    },
+    {
+      "requirementId": "PR_TASK_CHANGED_OUTPUT_DISPOSITION",
+      "legacyAliases": [],
+      "title": "Disposition of changed deliverables",
+      "description": "After owned byte changes, carry pending artifact and Git disposition through later NONE replies until resolved.",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "*"
+        ],
+        "actionKinds": [
+          "*"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": [
+          "changed output disposition",
+          "pending git disposition",
+          "写后收尾",
+          "产物处置",
+          "Git处置",
+          "temporary task archive",
+          "task archive",
+          "git disposition",
+          "artifact disposition",
+          "临时任务归档",
+          "成果Git去向",
+          "成果处置",
+          "任务关闭",
+          "pending git closure",
+          "待提交收口"
+        ],
+        "deterministicTriggers": {
+          "actionKinds": [
+            "SOURCE_WRITE",
+            "TEST_WRITE",
+            "CONTROL_WRITE"
+          ],
+          "resultKinds": []
+        }
+      },
+      "exactBlockLocator": "AIW-REQUIREMENT:PR_TASK_CHANGED_OUTPUT_DISPOSITION",
+      "preparationRequirements": [],
+      "resultRequirements": [
+        "CHANGED_OUTPUT_DISPOSITION_STATED"
+      ]
+    },
+    {
+      "requirementId": "PR_TASK_IMPLEMENTATION_JUDGMENT",
+      "legacyAliases": [],
+      "title": "Proportional implementation judgment",
+      "description": "For every profile choose a sufficient implementation against accepted outcomes, actual consumers and failure cases; do not replace the requested artifact with analysis.",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "*"
+        ],
+        "actionKinds": [
+          "*"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": []
+      },
+      "exactBlockLocator": "AIW-REQUIREMENT:PR_TASK_IMPLEMENTATION_JUDGMENT",
+      "preparationRequirements": [
+        "TASK_SCOPE_CURRENT"
+      ],
+      "resultRequirements": [
+        "SCOPE_READBACK_COMPLETE"
+      ]
+    },
+    {
+      "requirementId": "PR_TASK_COLLABORATION_BOUNDARY",
+      "legacyAliases": [],
+      "title": "Shared collaboration and waiting boundary",
+      "description": "Keep asynchronous collaboration and the incremental review-routing boundary available to every actor, including MICRO, without requiring a new organization decision.",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "*"
+        ],
+        "actionKinds": [
+          "*"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": []
+      },
+      "exactBlockLocator": "AIW-REQUIREMENT:PR_TASK_COLLABORATION_BOUNDARY",
+      "preparationRequirements": [],
+      "resultRequirements": []
+    }
+  ]
+}

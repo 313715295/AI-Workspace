@@ -116,7 +116,8 @@ function Invoke-RuntimeRelocationFinalize($Boundary, $Receipt, $Resolved) {
        [string]$intent.requestedActionKind-cne'CONTROL_WRITE'-or[string]$intent.ambiguityState-cne'CLEAR'-or
        @($context.exactScope).Count-ne1-or[string]$context.exactScope[0]-cne$relative-or
        'CONTROL_WRITE'-cnotin@($context.authorizedActions)-or
-       [IO.Path]::GetFullPath([string]$context.repositoryGitTop)-cne[string]$Resolved.controlRoot){throw 'RUNTIME_RELOCATION_EXACT_CONTEXT'}
+       [IO.Path]::GetFullPath([string]$context.projectRoot)-cne[string]$Resolved.controlRoot-or
+       ([string]$context.repositoryGitTop-cne'NOT_APPLICABLE'-and[IO.Path]::GetFullPath([string]$context.repositoryGitTop)-cne[string]$Resolved.controlRoot)){throw 'RUNTIME_RELOCATION_EXACT_CONTEXT'}
     foreach($name in @('preparationReceipts','resultReceipts','deliveryReceipts')){Assert-StringArray $Boundary.$name $name}
     if([string]$Boundary.protectionState-cne'BOUND'-or([string]$Boundary.publicDecisionIdentity-cne'NOT_REQUIRED'-and[string]$Boundary.publicDecisionIdentity-cnotmatch'^\d+\|[A-F0-9]{64}$')){throw 'RUNTIME_RELOCATION_PROTECTION'}
     $documents=@{}
@@ -253,7 +254,7 @@ try {
         if($null-eq$receipt-or[string]$input.mode-cnotin@('ADMIT_ACTION','FINALIZE_OUTPUT')){throw 'ADOPTION_PROCESS_BOUNDARY_MODE'}
         Import-Module (Join-Path $PSScriptRoot 'ProjectAdoptionTransaction.psm1') -Force
         $actor=if($receipt.schemaVersion-eq1){$receipt.actor}else{$receipt.binding.actor}
-        $result=Invoke-AiwAdoptionProcessBoundary -RepositoryRoot $controlRoot -InputPath $inputFull -ExpectedInputIdentity (Get-Identity $inputFull) -PreparationPath $AdoptionPreparationPath -ExpectedPreparationIdentity $ExpectedAdoptionPreparationIdentity -AdmitResultPath $AdmitResultPath -ExpectedAdmitResultIdentity $ExpectedAdmitResultIdentity -AuthorizationPackagePath $AdoptionAuthorizationPackagePath -ExpectedAuthorizationPackageIdentity $ExpectedAdoptionAuthorizationIdentity -ExpectedTransactionIdentity $ExpectedAdoptionTransactionIdentity -ObservedActor $actor -ExpectedMode $input.mode -DeleteInputOnExit:$DeleteInputOnExit
+        $result=Invoke-AiwAdoptionProcessBoundary -RepositoryRoot $controlRoot -InputPath $inputFull -ExpectedInputIdentity (Get-Identity $inputFull) -PreparationPath $AdoptionPreparationPath -ExpectedPreparationIdentity $ExpectedAdoptionPreparationIdentity -AdmitInputPath $AdmitInputPath -ExpectedAdmitInputIdentity $ExpectedAdmitInputIdentity -AdmitResultPath $AdmitResultPath -ExpectedAdmitResultIdentity $ExpectedAdmitResultIdentity -AuthorizationPackagePath $AdoptionAuthorizationPackagePath -ExpectedAuthorizationPackageIdentity $ExpectedAdoptionAuthorizationIdentity -ExpectedTransactionIdentity $ExpectedAdoptionTransactionIdentity -ObservedActor $actor -ExpectedMode $input.mode -DeleteInputOnExit:$DeleteInputOnExit
         $result|ConvertTo-Json -Depth 100 -Compress
         exit 0
     }
@@ -261,8 +262,13 @@ try {
         if([string]$input.mode-cne'FINALIZE_OUTPUT'-or$null-eq$receipt){throw 'MAINTENANCE_PROCESS_ROOT_DRIFT'}
         if($DeleteInputOnExit){Assert-SelfUpdateCleanupPath $receipt}
         $customHandled=$true
-        $result=Invoke-RuntimeRelocationFinalize $input $receipt $resolved
-        if($AsJson){$result|ConvertTo-Json -Depth 50 -Compress}else{Write-Output 'PASS|FINALIZE_OUTPUT|ORIGINAL_RUNTIME_RELOCATION_FINALIZED'}
+        $receiptVersion=if([int]$receipt.schemaVersion-eq1){[string]$receipt.authorityContext.frameworkVersion}else{[string]$receipt.binding.frameworkVersion}
+        if($receiptVersion-ceq'2.0.0'-and[string]$resolved.frameworkVersion-ceq'2.0.0'){
+            Import-Module (Join-Path $PSScriptRoot 'ProjectAdoptionTransaction.psm1') -Force
+            $actor=if([int]$receipt.schemaVersion-eq1){[string]$receipt.authorityContext.actor}else{[string]$receipt.binding.actor}
+            $result=Invoke-AiwAdoptionProcessBoundary -RepositoryRoot $controlRoot -InputPath $inputFull -ExpectedInputIdentity (Get-Identity $inputFull) -AdmitInputPath $AdmitInputPath -ExpectedAdmitInputIdentity $ExpectedAdmitInputIdentity -AdmitResultPath $AdmitResultPath -ExpectedAdmitResultIdentity $ExpectedAdmitResultIdentity -AuthorizationPackagePath $AdoptionAuthorizationPackagePath -ExpectedAuthorizationPackageIdentity $ExpectedAdoptionAuthorizationIdentity -ExpectedTransactionIdentity $ExpectedAdoptionTransactionIdentity -ObservedActor $actor -ExpectedMode FINALIZE_OUTPUT -DeleteInputOnExit:$DeleteInputOnExit
+        }else{$result=Invoke-RuntimeRelocationFinalize $input $receipt $resolved}
+        if($AsJson){$result|ConvertTo-Json -Depth 50 -Compress}else{Write-Output ('PASS|FINALIZE_OUTPUT|'+[string]$result.reason)}
         exit 0
     }
     if ($null -ne $receipt -and [int64]$receipt.schemaVersion -eq 2) {

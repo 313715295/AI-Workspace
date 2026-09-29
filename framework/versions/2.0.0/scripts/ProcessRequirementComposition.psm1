@@ -1,0 +1,1100 @@
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+Import-Module (Join-Path $PSScriptRoot 'KnowledgeSources.psm1')
+$script:Utf8Strict = [Text.UTF8Encoding]::new($false,$true)
+$script:ProcessCarrierContractVersion = '2.0.0'
+$script:AbsoluteSelectedRulePackBytes = 98304
+
+function Get-AiwRuntimeActorStorageKey([string]$Actor) {
+    if([string]::IsNullOrWhiteSpace($Actor)){throw 'RUNTIME_ACTOR_EMPTY'}
+    if($Actor-cmatch'^[a-z0-9][a-z0-9._-]*$'-and-not$Actor.EndsWith('.')-and$Actor-cnotmatch'^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)'-and-not$Actor.StartsWith('actor-sha256-',[StringComparison]::Ordinal)){return $Actor}
+    return 'actor-sha256-'+[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($script:Utf8Strict.GetBytes($Actor))).ToLowerInvariant()
+}
+Export-ModuleMember -Function Get-AiwRuntimeActorStorageKey
+
+function Get-AiwProcessSemanticText {
+    param([Parameter(Mandatory)]$IntentEnvelope)
+    # The consumed version owns the IntentEnvelope-to-selection projection.
+    return [string]::Join(' ', @($IntentEnvelope.semanticHints))
+}
+
+function Get-AiwProcessDecisionIdentity($Receipt,$Boundary,[string]$PostimageSourceIdentity='NO_SOURCE_POSTIMAGE_TRANSITION',[string[]]$ChangedBindings=@()) {
+    $authority=if($null-ne$Receipt.PSObject.Properties['binding']){$Receipt.binding}else{$Receipt.authorityContext}
+    $intent=$Receipt.intentEnvelope
+    $material=@($Receipt.sourceCompositionIdentity,$Receipt.selectionIdentity,$Receipt.contextIdentity,[string]$Boundary.mode,[string]$intent.objective,[string]$intent.requestedActionKind,[string]$intent.requestedResultKind,[string]::Join(',',@($authority.exactScope)),[string]$authority.authorizationIdentity,[string]::Join(',',@($Boundary.preparationReceipts)),[string]::Join(',',@($Boundary.resultReceipts)),[string]::Join(',',@($Boundary.deliveryReceipts)),[string]$Boundary.publicDecisionIdentity,[string]$Boundary.protectionState,$PostimageSourceIdentity,[string]::Join(',',@($ChangedBindings|Sort-Object)))-join"`n"
+    if($null-ne$Boundary.PSObject.Properties['deliveryContext']){$material+=($Boundary.deliveryContext|ConvertTo-Json -Compress)}
+    if($null-ne$Boundary.PSObject.Properties['evidenceRefs']){$material+=($Boundary.evidenceRefs|ConvertTo-Json -Depth 30 -Compress)}
+    return Get-AiwSha256Hex $script:Utf8Strict.GetBytes($material)
+}
+Export-ModuleMember -Function Get-AiwProcessDecisionIdentity
+
+function Test-AiwJsonInteger($Value) {
+    return $Value -is [byte] -or $Value -is [sbyte] -or $Value -is [int16] -or $Value -is [uint16] -or $Value -is [int32] -or $Value -is [uint32] -or $Value -is [int64] -or $Value -is [uint64]
+}
+
+function Get-AiwSha256Hex {
+    param([Parameter(Mandatory)][byte[]]$Bytes)
+    $sha=[Security.Cryptography.SHA256]::Create()
+    try{return ([BitConverter]::ToString($sha.ComputeHash($Bytes))).Replace('-','')}
+    finally{$sha.Dispose()}
+}
+
+function New-AiwDisplayPart([string]$SourceLocator,[string]$SourceIdentity,[string]$FullText) {
+    return [pscustomobject]@{sourceLocator=$SourceLocator;sourceIdentity=$SourceIdentity;fullText=$FullText}
+}
+
+# Historical installation checks may accept layout alone; receipts still bind raw bytes.
+function Test-AiwInstalledTextLayout([string]$Text,[string]$ExpectedIdentity) {
+    $lf=$Text.Replace("`r`n","`n")
+    $withoutFinal=if($lf.EndsWith("`n")){$lf.Substring(0,$lf.Length-1)}else{$lf}
+    foreach($variant in @($Text,$withoutFinal,($withoutFinal+"`n"),$withoutFinal.Replace("`n","`r`n"),($withoutFinal+"`n").Replace("`n","`r`n"))){
+        $bytes=$script:Utf8Strict.GetBytes($variant)
+        if(($bytes.Length.ToString()+'|'+(Get-AiwSha256Hex $bytes))-ceq$ExpectedIdentity){return $true}
+    }
+    return $false
+}
+
+function Get-AiwFileIdentity {
+    param([Parameter(Mandatory)][string]$Path)
+    $bytes = [IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $Path))
+    return $bytes.Length.ToString() + '|' + (Get-AiwSha256Hex $bytes)
+}
+
+function Assert-AiwNoDuplicateJsonMember {
+    param([Parameter(Mandatory)]$Element,[string]$Locator='$')
+    if ([string]$Element.ValueKind -ceq 'Object') {
+        $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        foreach ($property in $Element.EnumerateObject()) {
+            if (-not $seen.Add($property.Name)) { throw "JSON_DUPLICATE_FIELD|$Locator.$($property.Name)" }
+            Assert-AiwNoDuplicateJsonMember -Element $property.Value -Locator "$Locator.$($property.Name)"
+        }
+    } elseif ([string]$Element.ValueKind -ceq 'Array') {
+        $index = 0
+        foreach ($item in $Element.EnumerateArray()) {
+            Assert-AiwNoDuplicateJsonMember -Element $item -Locator "$Locator[$index]"
+            $index++
+        }
+    }
+}
+
+function Read-AiwStrictJson {
+    param([Parameter(Mandatory)][string]$Path,[Parameter(Mandatory)][string]$Label)
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "${Label}_MISSING" }
+    $item = Get-Item -LiteralPath $Path -Force
+    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw "${Label}_REPARSE" }
+    try { $bytes = [IO.File]::ReadAllBytes($item.FullName) } catch { throw "${Label}_UNREADABLE" }
+    if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) { throw "${Label}_BOM" }
+    try { $text = $script:Utf8Strict.GetString($bytes) } catch { throw "${Label}_UTF8" }
+    if ($text.Contains([char]0) -or $text.Contains([char]0xFFFD)) { throw "${Label}_TEXT_FORMAT" }
+    try {
+        $document = [System.Text.Json.JsonDocument]::Parse($text)
+        try { Assert-AiwNoDuplicateJsonMember -Element $document.RootElement } finally { $document.Dispose() }
+        $value = $text | ConvertFrom-Json -Depth 100
+    } catch { throw "${Label}_JSON|$($_.Exception.Message)" }
+    # Bind the parsed value to the exact byte snapshot used above. A second read
+    # can pair an old parsed value with a newer identity after a concurrent edit.
+    return [pscustomobject]@{ Value=$value; Text=$text; Identity=($bytes.Length.ToString()+'|'+(Get-AiwSha256Hex $bytes)); Path=$item.FullName }
+}
+
+function Read-AiwStrictText {
+    param([Parameter(Mandatory)][string]$Path,[Parameter(Mandatory)][string]$Label)
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "${Label}_MISSING" }
+    $item = Get-Item -LiteralPath $Path -Force
+    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw "${Label}_REPARSE" }
+    $bytes = [IO.File]::ReadAllBytes($item.FullName)
+    if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) { throw "${Label}_BOM" }
+    try { $text = $script:Utf8Strict.GetString($bytes) } catch { throw "${Label}_UTF8" }
+    if ($text.Contains([char]0) -or $text.Contains([char]0xFFFD)) { throw "${Label}_TEXT_FORMAT" }
+    return $text
+}
+
+function Get-AiwNativeRuleBlock {
+    param(
+        [Parameter(Mandatory)][string]$VersionDirectory,
+        [Parameter(Mandatory)][string]$OwnerModule,
+        [Parameter(Mandatory)][string]$RequirementId,
+        [Parameter(Mandatory)][string]$ExactBlockLocator,
+        [Parameter(Mandatory)][hashtable]$OwnerTextCache
+    )
+    if ($OwnerModule -cnotmatch '^[A-Z0-9_]+\.md$' -or $ExactBlockLocator -cne ('AIW-REQUIREMENT:' + $RequirementId)) { throw ('NATIVE_REQUIREMENT_LOCATOR|' + $RequirementId) }
+    if (-not $OwnerTextCache.ContainsKey($OwnerModule)) {
+        $ownerPath = Resolve-AiwChildFile $VersionDirectory $OwnerModule 'NATIVE_REQUIREMENT_OWNER'
+        $OwnerTextCache[$OwnerModule] = Read-AiwStrictText $ownerPath 'NATIVE_REQUIREMENT_OWNER'
+    }
+    $ownerText = [string]$OwnerTextCache[$OwnerModule]
+    $beginMarker = '<!-- ' + $ExactBlockLocator + ':BEGIN -->'
+    $endMarker = '<!-- ' + $ExactBlockLocator + ':END -->'
+    $begin = $ownerText.IndexOf($beginMarker, [StringComparison]::Ordinal)
+    $end = $ownerText.IndexOf($endMarker, [StringComparison]::Ordinal)
+    if ($begin -lt 0 -or $end -le $begin -or $ownerText.IndexOf($beginMarker, $begin + 1, [StringComparison]::Ordinal) -ge 0 -or $ownerText.IndexOf($endMarker, $end + 1, [StringComparison]::Ordinal) -ge 0) { throw ('NATIVE_REQUIREMENT_BLOCK_CARDINALITY|' + $RequirementId) }
+    $bodyStart = $begin + $beginMarker.Length
+    if ($bodyStart -ge $ownerText.Length -or $ownerText[$bodyStart] -cne "`n" -or $end -le $bodyStart + 1 -or $ownerText[$end - 1] -cne "`n") { throw ('NATIVE_REQUIREMENT_BLOCK_LAYOUT|' + $RequirementId) }
+    $body = $ownerText.Substring($bodyStart + 1, $end - $bodyStart - 2)
+    if ([string]::IsNullOrWhiteSpace($body) -or $body.Contains('<!-- AIW-REQUIREMENT:')) { throw ('NATIVE_REQUIREMENT_BLOCK_BODY|' + $RequirementId) }
+    return $body
+}
+
+function Assert-AiwExactFields {
+    param($Object,[string[]]$Expected,[string]$Label)
+    if (-not ($Object -is [pscustomobject])) { throw "${Label}_TYPE" }
+    $actual = @($Object.PSObject.Properties.Name)
+    if ($actual.Count -ne $Expected.Count -or @($Expected | Where-Object { $_ -cnotin $actual }).Count -ne 0) { throw "${Label}_FIELDS" }
+}
+
+function ConvertTo-AiwSafeRelativePath {
+    param([Parameter(Mandatory)][string]$Value,[Parameter(Mandatory)][string]$Label)
+    if ([string]::IsNullOrWhiteSpace($Value) -or $Value -cne $Value.Trim()) { throw "${Label}_EMPTY" }
+    $path = $Value.Replace('\','/')
+    if ([IO.Path]::IsPathRooted($path) -or $path.StartsWith('/') -or $path.Contains(':') -or [regex]::IsMatch($path,'[<>"|?*]')) { throw "${Label}_PATH" }
+    if (-not [string]::Equals($path,$path.Normalize([Text.NormalizationForm]::FormC),[StringComparison]::Ordinal)) { throw "${Label}_NFC" }
+    foreach ($part in $path.Split('/')) {
+        if ([string]::IsNullOrEmpty($part) -or $part -in @('.','..') -or $part.EndsWith('.') -or $part.EndsWith(' ') -or [regex]::IsMatch($part,'[\x00-\x1F]')) { throw "${Label}_COMPONENT" }
+    }
+    return $path
+}
+
+function Resolve-AiwChildFile {
+    param([Parameter(Mandatory)][string]$Root,[Parameter(Mandatory)][string]$Relative,[Parameter(Mandatory)][string]$Label,[switch]$AllowMissing)
+    $safe = ConvertTo-AiwSafeRelativePath $Relative $Label
+    $rootFull = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($Root))
+    $candidate = [IO.Path]::GetFullPath((Join-Path $rootFull $safe))
+    if (-not $candidate.StartsWith($rootFull + [IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)) { throw "${Label}_ESCAPE" }
+    $parts = @($safe.Split('/'))
+    $current = $rootFull
+    for ($index = 0; $index -lt $parts.Count; $index++) {
+        $current = Join-Path $current $parts[$index]
+        $item = Get-Item -LiteralPath $current -Force -ErrorAction SilentlyContinue
+        if ($null -eq $item) {
+            if ($AllowMissing -and $index -eq ($parts.Count - 1)) { return $null }
+            throw "${Label}_MISSING"
+        }
+        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw "${Label}_REPARSE" }
+        if ($index -lt ($parts.Count - 1) -and -not $item.PSIsContainer) { throw "${Label}_MISSING" }
+        if ($index -eq ($parts.Count - 1) -and $item.PSIsContainer) { throw "${Label}_MISSING" }
+    }
+    return $candidate
+}
+
+function Assert-AiwProjectStandardReadAllowed {
+    param(
+        [Parameter(Mandatory)][string]$ProjectRoot,
+        [Parameter(Mandatory)][string]$CandidatePath,
+        [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$ForbiddenPaths,
+        [Parameter(Mandatory)][string]$Label
+    )
+    $project = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($ProjectRoot))
+    $candidate = [IO.Path]::GetFullPath($CandidatePath)
+    $projectPrefix = $project + [IO.Path]::DirectorySeparatorChar
+    if (-not $candidate.StartsWith($projectPrefix,[StringComparison]::OrdinalIgnoreCase)) { return }
+    $relative = $candidate.Substring($projectPrefix.Length).Replace('\','/')
+    foreach ($forbiddenPath in @($ForbiddenPaths)) {
+        $normalized = ConvertTo-AiwSafeRelativePath (([string]$forbiddenPath).TrimEnd('/')) 'FORBIDDEN_SOURCE_PREFIX'
+        if ([string]::Equals($relative,$normalized,[StringComparison]::OrdinalIgnoreCase) -or $relative.StartsWith($normalized + '/',[StringComparison]::OrdinalIgnoreCase)) {
+            throw ($Label + '_FORBIDDEN')
+        }
+    }
+}
+
+function Resolve-AiwProjectStandardFile {
+    param(
+        [Parameter(Mandatory)][string]$ProjectRoot,
+        [Parameter(Mandatory)][string]$Locator,
+        [Parameter(Mandatory)][ValidateSet('PROJECT_RELATIVE','ABSOLUTE_FILE')][string]$LocatorKind,
+        [Parameter(Mandatory)][string]$Label,
+        [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$ForbiddenPaths
+    )
+    if ($LocatorKind -ceq 'PROJECT_RELATIVE') {
+        $relative = ConvertTo-AiwSafeRelativePath $Locator ($Label + '_LOCATOR')
+        if ($relative.StartsWith('.ai-workspace/runtime/',[StringComparison]::OrdinalIgnoreCase)) { throw ($Label + '_PROTECTED') }
+        $candidate = [IO.Path]::GetFullPath((Join-Path ([IO.Path]::GetFullPath($ProjectRoot)) $relative))
+        Assert-AiwProjectStandardReadAllowed -ProjectRoot $ProjectRoot -CandidatePath $candidate -ForbiddenPaths $ForbiddenPaths -Label $Label
+        return [pscustomobject]@{ Path=(Resolve-AiwChildFile $ProjectRoot $relative $Label); Locator=$relative; LocatorKind=$LocatorKind; ProjectionRelativePath=$relative }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($Locator) -or $Locator -cne $Locator.Trim() -or
+        -not [string]::Equals($Locator,$Locator.Normalize([Text.NormalizationForm]::FormC),[StringComparison]::Ordinal) -or
+        [regex]::IsMatch($Locator,'[\x00-\x1F<>"|?*]') -or
+        -not [IO.Path]::IsPathFullyQualified($Locator) -or $Locator -cnotmatch '^[A-Za-z]:[\\/]') { throw ($Label + '_PATH') }
+    $full = [IO.Path]::GetFullPath($Locator)
+    Assert-AiwProjectStandardReadAllowed -ProjectRoot $ProjectRoot -CandidatePath $full -ForbiddenPaths $ForbiddenPaths -Label $Label
+    $pathRoot = [IO.Path]::GetPathRoot($full)
+    $segments = @($full.Substring($pathRoot.Length) -split '[\\/]' | Where-Object { -not [string]::IsNullOrEmpty($_) })
+    for ($index=0; $index -lt ($segments.Count-1); $index++) {
+        if ([string]::Equals($segments[$index],'.ai-workspace',[StringComparison]::OrdinalIgnoreCase) -and
+            [string]::Equals($segments[$index+1],'runtime',[StringComparison]::OrdinalIgnoreCase)) { throw ($Label + '_PROTECTED') }
+    }
+    $current = $pathRoot
+    for ($index=0; $index -lt $segments.Count; $index++) {
+        $current = Join-Path $current $segments[$index]
+        $item = Get-Item -LiteralPath $current -Force -ErrorAction SilentlyContinue
+        if ($null -eq $item) { throw ($Label + '_MISSING') }
+        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw ($Label + '_REPARSE') }
+        if ($index -lt ($segments.Count-1) -and -not $item.PSIsContainer) { throw ($Label + '_MISSING') }
+        if ($index -eq ($segments.Count-1) -and $item.PSIsContainer) { throw ($Label + '_MISSING') }
+    }
+    return [pscustomobject]@{ Path=$full; Locator=$full; LocatorKind=$LocatorKind; ProjectionRelativePath='NOT_APPLICABLE' }
+}
+
+function Get-AiwReleasePayloadFacts {
+    param([Parameter(Mandatory)][string]$VersionDirectory,[Parameter(Mandatory)][string]$ManifestPath)
+    $resolvedManifest=[IO.Path]::GetFullPath((Resolve-Path -LiteralPath $ManifestPath))
+    $paths=@(Get-ChildItem -LiteralPath $VersionDirectory -Recurse -File -Force|Where-Object{[IO.Path]::GetFullPath($_.FullName)-cne$resolvedManifest}|ForEach-Object{$_.FullName.Substring($VersionDirectory.Length+1).Replace('\','/')})
+    [Array]::Sort($paths,[StringComparer]::Ordinal)
+    $rows=@();[int64]$total=0
+    foreach($relative in $paths){$full=Join-Path $VersionDirectory $relative;$identity=(Get-AiwFileIdentity $full).Split('|');$total+=[int64]$identity[0];$rows+=($relative+'|'+$identity[0]+'|'+$identity[1])}
+    $canonical=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($script:Utf8Strict.GetBytes(($rows-join"`n"))))
+    return [pscustomobject]@{FileCount=$paths.Count;TotalBytes=$total;Canonical=$canonical}
+}
+
+function Assert-AiwSealedRelease {
+    param([Parameter(Mandatory)][string]$VersionDirectory,[Parameter(Mandatory)][string]$Version)
+    $manifestDoc=Read-AiwStrictJson (Join-Path $VersionDirectory 'RELEASE_MANIFEST.json') 'RELEASE_MANIFEST'
+    $manifest=$manifestDoc.Value
+    if([string]$manifest.version-cne$Version-or[string]$manifest.lifecycle-cne'STABLE'-or[string]$manifest.sourceReview-cne'APPROVED'-or[string]$manifest.canonical-cnotmatch'^[A-F0-9]{64}$'){throw 'FRAMEWORK_RELEASE_NOT_SEALED'}
+    $facts=Get-AiwReleasePayloadFacts $VersionDirectory $manifestDoc.Path
+    if([int64]$manifest.fileCount-ne$facts.FileCount-or[int64]$manifest.totalBytes-ne$facts.TotalBytes-or[string]$manifest.canonical-cne$facts.Canonical){throw 'FRAMEWORK_RELEASE_MANIFEST_DRIFT'}
+}
+
+function Get-AiwAgentsManagedBlockIdentity {
+    param([Parameter(Mandatory)][string]$AgentsPath)
+    $bytes=[IO.File]::ReadAllBytes($AgentsPath)
+    try{$text=$script:Utf8Strict.GetString($bytes)}catch{throw 'AGENTS_UTF8'}
+    if($text.Contains([char]0)-or$text.Contains([char]0xFFFD)){throw 'AGENTS_TEXT_FORMAT'}
+    $begin='<!-- AI-WORKSPACE-FRAMEWORK:BEGIN -->';$end='<!-- AI-WORKSPACE-FRAMEWORK:END -->'
+    $start=$text.IndexOf($begin,[StringComparison]::Ordinal);$finish=$text.IndexOf($end,[StringComparison]::Ordinal)
+    if($start-lt0-or$finish-le$start-or$text.IndexOf($begin,$start+1,[StringComparison]::Ordinal)-ge0-or$text.IndexOf($end,$finish+1,[StringComparison]::Ordinal)-ge0){throw 'AGENTS_MANAGED_MARKERS'}
+    $managedBytes=$script:Utf8Strict.GetBytes($text.Substring($start,$finish+$end.Length-$start))
+    return $managedBytes.Length.ToString()+'|'+(Get-AiwSha256Hex $managedBytes)
+}
+
+function Get-AiwLocalCandidatePilotBinding {
+    param(
+        [Parameter(Mandatory)][string]$ProjectRoot,
+        [Parameter(Mandatory)][string]$ProjectId,
+        [Parameter(Mandatory)][string]$VersionDirectory,
+        [Parameter(Mandatory)][string]$Version,
+        [Parameter(Mandatory)]$VersionObject,
+        [Parameter(Mandatory)]$ManifestDoc,
+        [switch]$ProspectiveAdoptionProjection
+    )
+    if([string]$VersionObject.lifecycle-cne'CANDIDATE'-or[bool]$VersionObject.consumable-or[bool]$VersionObject.projectPinEligible){throw 'FRAMEWORK_LOCAL_CANDIDATE_STATE_REQUIRED'}
+    $profileDoc=Read-AiwStrictJson (Resolve-AiwChildFile $VersionDirectory 'ADOPTION_PROFILE.json' 'ADOPTION_PROFILE') 'ADOPTION_PROFILE'
+    if([string]$profileDoc.Value.frameworkVersion-cne$Version-or-not($profileDoc.Value.localCandidatePilotEligible-is[bool])-or-not[bool]$profileDoc.Value.localCandidatePilotEligible){throw 'FRAMEWORK_LOCAL_CANDIDATE_PROFILE_REQUIRED'}
+    $manifest=$ManifestDoc.Value
+    if([string]$manifest.version-cne$Version-or[string]$manifest.lifecycle-cne'CANDIDATE'-or[string]$manifest.sourceReview-cne'APPROVED'-or[string]$manifest.canonical-cnotmatch'^[A-F0-9]{64}$'){throw 'FRAMEWORK_LOCAL_CANDIDATE_MANIFEST_STATE'}
+    $facts=Get-AiwReleasePayloadFacts $VersionDirectory $ManifestDoc.Path
+    if([int64]$manifest.fileCount-ne$facts.FileCount-or[int64]$manifest.totalBytes-ne$facts.TotalBytes-or[string]$manifest.canonical-cne$facts.Canonical){throw 'FRAMEWORK_LOCAL_CANDIDATE_MANIFEST_DRIFT'}
+    $statePath=Resolve-AiwChildFile $ProjectRoot ('.ai-workspace/upgrade-recovery/'+$Version+'/state.json') 'LOCAL_CANDIDATE_PILOT_STATE'
+    $stateDoc=Read-AiwStrictJson $statePath 'LOCAL_CANDIDATE_PILOT_STATE';$state=$stateDoc.Value
+    if(-not(Test-AiwJsonInteger $state.schemaVersion)-or[int]$state.schemaVersion-notin@(2,3,4,5,6)){throw 'LOCAL_CANDIDATE_PILOT_BINDING_DRIFT'}
+    $stateFields=@('schemaVersion','projectId','fromVersion','toVersion','targetReleaseCanonical','targetReleaseManifestIdentity','actor','taskId','taskOwner','taskRelative','authorizationIdentity','objects')
+    if([int]$state.schemaVersion-in@(3,4,5,6)){$stateFields+=@('projectionMode','projectionObjects')}
+    if([int]$state.schemaVersion-in@(4,5,6)){$stateFields+='transactionComplete'}
+    if([int]$state.schemaVersion-in@(5,6)){$stateFields+=@('projectFormat','projectCapabilities','rootToolRevision','rootToolDependencies')}
+    if([int]$state.schemaVersion-eq6){$stateFields+='distributionBinding'}
+    $major=$null-ne$state.PSObject.Properties['majorTransition']
+    if($major){$stateFields+='majorTransition'}
+    Assert-AiwExactFields $state $stateFields 'LOCAL_CANDIDATE_PILOT_STATE'
+    if([int]$state.schemaVersion-eq6){
+        $runtimeRoot=[IO.Path]::GetFullPath((Join-Path $VersionDirectory '../../..'))
+        $runtimeModule=Join-Path $runtimeRoot 'scripts/ProjectAdoptionState.psm1'
+        Import-Module $runtimeModule -ErrorAction Stop
+    }
+    if($major){
+        Assert-AiwExactFields $state.majorTransition @('fromVersion','fromDistributionId','toVersion','transactionRelativePath') 'LOCAL_CANDIDATE_MAJOR_TRANSITION'
+        if($Version-cne'2.0.0'-or$state.schemaVersion-ne6-or$state.fromVersion-cne'1.16.0'-or$state.majorTransition.fromVersion-cne'1.16.0'-or
+           $state.majorTransition.fromDistributionId-cne'1.16.0-snapshot.12'-or$state.majorTransition.toVersion-cne'2.0.0'-or
+           $state.majorTransition.transactionRelativePath-cne'.ai-workspace/runtime/project-adoption/upgrade/state.json'){throw 'LOCAL_CANDIDATE_MAJOR_TRANSITION_PAIR'}
+        if(-not$ProspectiveAdoptionProjection){
+            $transaction=Read-AiwStrictJson (Resolve-AiwChildFile $ProjectRoot $state.majorTransition.transactionRelativePath 'LOCAL_CANDIDATE_MAJOR_TRANSACTION') 'LOCAL_CANDIDATE_MAJOR_TRANSACTION'
+            $t=$transaction.Value
+            if($t.schemaVersion-ne1-or$t.state-cne'COMPLETE'-or$t.transactionComplete-ne$true-or$t.metadata.operation-cne'UPGRADE_SNAPSHOT12_TO_2'-or
+               [IO.Path]::GetFullPath($t.repositoryRoot)-cne[IO.Path]::GetFullPath($ProjectRoot)){throw 'LOCAL_CANDIDATE_MAJOR_TRANSACTION_INCOMPLETE'}
+            Assert-AiwMajorRecoveryOrigin $state $t
+        }
+    }
+    if([int]$state.schemaVersion-eq6){
+        $null=Assert-AiwDistributionBinding $state.distributionBinding $runtimeRoot $Version
+    }
+    if([int]$state.schemaVersion-in@(4,5,6)){
+        if(-not($state.transactionComplete-is[bool])){throw 'LOCAL_CANDIDATE_PILOT_BINDING_DRIFT'}
+        if(-not[bool]$state.transactionComplete){throw 'LOCAL_CANDIDATE_PILOT_TRANSACTION_INCOMPLETE'}
+    }
+    if([int]$state.schemaVersion-in@(5,6)){
+        if([string]$state.projectFormat-cnotmatch'^repo-local/project-config-[1-9][0-9]*$'-or-not($state.projectCapabilities-is[Array])-or[string]$state.rootToolRevision-cnotmatch'^[A-F0-9]{64}$'-or-not($state.rootToolDependencies-is[Array])){throw 'LOCAL_CANDIDATE_PILOT_BINDING_DRIFT'}
+    }
+    if([string]$state.projectId-cne$ProjectId-or[string]$state.toVersion-cne$Version-or[string]$state.targetReleaseCanonical-cne$facts.Canonical-or[string]$state.targetReleaseManifestIdentity-cne$ManifestDoc.Identity-or[string]$state.authorizationIdentity-cnotmatch'^\d+\|[A-F0-9]{64}$'-or-not($state.objects-is[Array])){throw 'LOCAL_CANDIDATE_PILOT_BINDING_DRIFT'}
+    $taskRelative=ConvertTo-AiwSafeRelativePath ([string]$state.taskRelative) 'LOCAL_CANDIDATE_PILOT_TASK'
+    if(-not$taskRelative.StartsWith('.ai-workspace/tasks/',[StringComparison]::Ordinal)-or[string]::IsNullOrWhiteSpace([string]$state.actor)-or[string]::IsNullOrWhiteSpace([string]$state.taskId)-or[string]::IsNullOrWhiteSpace([string]$state.taskOwner)){throw 'LOCAL_CANDIDATE_PILOT_BINDING_DRIFT'}
+    $objectRecords=New-Object 'System.Collections.Generic.List[object]';$objectSeen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach($entry in @($state.objects)){
+        Assert-AiwExactFields $entry @('relative','oldIdentity','newIdentity') 'LOCAL_CANDIDATE_PILOT_OBJECT'
+        $relative=ConvertTo-AiwSafeRelativePath ([string]$entry.relative) 'LOCAL_CANDIDATE_PILOT_OBJECT'
+        if(-not$objectSeen.Add($relative)-or([string]$entry.oldIdentity-cne'MISSING'-and[string]$entry.oldIdentity-cnotmatch'^\d+\|[A-F0-9]{64}$')-or([string]$entry.newIdentity-cne'ABSENT'-and[string]$entry.newIdentity-cnotmatch'^\d+\|[A-F0-9]{64}$')){throw 'LOCAL_CANDIDATE_PILOT_BINDING_DRIFT'}
+        $objectRecords.Add([pscustomobject]@{relative=$relative;newIdentity=[string]$entry.newIdentity})
+    }
+    $projectRecord=@($objectRecords|Where-Object{[string]$_.relative-ceq'.ai-workspace/project.json'});$taskRecord=@($objectRecords|Where-Object{[string]$_.relative-ceq$taskRelative})
+    if($projectRecord.Count-ne1-or$taskRecord.Count-ne1-or[string]$projectRecord[0].newIdentity-cnotmatch'^\d+\|[A-F0-9]{64}$'-or[string]$taskRecord[0].newIdentity-cnotmatch'^\d+\|[A-F0-9]{64}$'-or[string]$objectRecords[-1].relative-cne$taskRelative){throw 'LOCAL_CANDIDATE_PILOT_BINDING_DRIFT'}
+    $projectionRecords=New-Object 'System.Collections.Generic.List[object]'
+    if([int]$state.schemaVersion-eq2){
+        foreach($entry in $objectRecords){$projectionRecords.Add([pscustomobject]@{relative=[string]$entry.relative;identity=$(if([string]$entry.newIdentity-ceq'ABSENT'){'MISSING'}else{[string]$entry.newIdentity})})}
+    }else{
+        if([string]$state.projectionMode-cne'LOCAL_CANDIDATE_MANAGED'-or-not($state.projectionObjects-is[Array])){throw 'LOCAL_CANDIDATE_PILOT_BINDING_DRIFT'}
+        $projectionSeen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        foreach($entry in @($state.projectionObjects)){
+            $relative=ConvertTo-AiwSafeRelativePath ([string]$entry.relative) 'LOCAL_CANDIDATE_PILOT_PROJECTION_OBJECT'
+            $entryFields=@('relative','identity')
+            if([int]$state.schemaVersion-in@(4,5,6)-and$relative-ceq'.ai-workspace/BOOTSTRAP.md'){$entryFields+='managedIdentity'}
+            if([int]$state.schemaVersion-in@(4,5,6)-and$relative-ceq'AGENTS.md'-and$null-ne$entry.PSObject.Properties['managedIdentity']){$entryFields+='managedIdentity'}
+            Assert-AiwExactFields $entry $entryFields 'LOCAL_CANDIDATE_PILOT_PROJECTION_OBJECT'
+            if(-not$projectionSeen.Add($relative)-or([string]$entry.identity-cne'MISSING'-and[string]$entry.identity-cnotmatch'^\d+\|[A-F0-9]{64}$')){throw 'LOCAL_CANDIDATE_PILOT_BINDING_DRIFT'}
+            $projection=[ordered]@{relative=$relative;identity=[string]$entry.identity}
+            if($entryFields-ccontains'managedIdentity'){
+                if([string]$entry.managedIdentity-cnotmatch'^\d+\|[A-F0-9]{64}$'){throw 'LOCAL_CANDIDATE_PILOT_BINDING_DRIFT'}
+                $projection.managedIdentity=[string]$entry.managedIdentity
+            }
+            $projectionRecords.Add([pscustomobject]$projection)
+        }
+        if([int]$state.schemaVersion-in@(4,5,6)-and-not$projectionSeen.Contains('.ai-workspace/BOOTSTRAP.md')){throw 'LOCAL_CANDIDATE_PILOT_BOOTSTRAP_BINDING_REQUIRED'}
+        foreach($relative in $objectSeen){if(-not$projectionSeen.Contains($relative)){throw ('LOCAL_CANDIDATE_PILOT_PROJECTION_OBJECT_MISSING|'+$relative)}}
+        $projectProjection=@($projectionRecords|Where-Object{[string]$_.relative-ceq'.ai-workspace/project.json'});$taskProjection=@($projectionRecords|Where-Object{[string]$_.relative-ceq$taskRelative})
+        if($projectProjection.Count-ne1-or$taskProjection.Count-ne1-or[string]$projectProjection[0].identity-cnotmatch'^\d+\|[A-F0-9]{64}$'-or[string]$taskProjection[0].identity-cnotmatch'^\d+\|[A-F0-9]{64}$'-or[string]$projectionRecords[-1].relative-cne$taskRelative){throw 'LOCAL_CANDIDATE_PILOT_BINDING_DRIFT'}
+    }
+    foreach($entry in @($projectionRecords|Where-Object{[string]$_.relative-cne$taskRelative})){
+        $relative=[string]$entry.relative;$expected=[string]$entry.identity;$full=[IO.Path]::GetFullPath((Join-Path $ProjectRoot $relative))
+        if([int]$state.schemaVersion-in@(4,5,6)-and$relative-in@('.ai-workspace/BOOTSTRAP.md','.ai-workspace/process-policy.json','.ai-workspace/corrections.json')){
+            $resolved=Resolve-AiwChildFile $ProjectRoot $relative 'LOCAL_CANDIDATE_PILOT_PROJECTION'
+            if($relative-ceq'.ai-workspace/BOOTSTRAP.md'){$null=Get-AiwProjectCustomRegion $resolved}
+            # 项目规则由当前 composer 严格校验并绑定当前身份，不被历史安装快照永久冻结。
+            continue
+        }
+        if($relative-ceq'AGENTS.md'){
+            $resolved=Resolve-AiwChildFile $ProjectRoot $relative 'LOCAL_CANDIDATE_PILOT_PROJECTION'
+            # Installation records retain the installed image; current user decisions
+            # are bound independently by projectAgentsIdentity on every discovery.
+            $null=Get-AiwAgentsManagedBlockIdentity $resolved
+            continue
+        }
+        # Remaining projection entries are historical install evidence. Their
+        # current bytes are project-owned and are checked by their actual
+        # consumer, not by every ordinary Framework load.
+    }
+    $currentConfig=Read-AiwStrictJson (Resolve-AiwChildFile $ProjectRoot '.ai-workspace/project.json' 'LOCAL_CANDIDATE_PROJECT') 'LOCAL_CANDIDATE_PROJECT'
+    if([string]$currentConfig.Value.id-cne$ProjectId-or[string]$currentConfig.Value.frameworkVersion-cne$Version){throw 'LOCAL_CANDIDATE_PROJECT_BINDING_DRIFT'}
+    $currentBootstrap=Get-AiwProjectCustomRegion (Resolve-AiwChildFile $ProjectRoot '.ai-workspace/BOOTSTRAP.md' 'LOCAL_CANDIDATE_BOOTSTRAP')
+    Assert-AiwBootstrapCurrentBinding $currentBootstrap.ManagedText $ProjectId $Version ([string]$currentConfig.Value.controlPlaneLayout)
+    return [pscustomobject]@{
+        Identity=$stateDoc.Identity
+        Canonical=$facts.Canonical
+        SchemaVersion=[int]$state.schemaVersion
+        TransactionComplete=$(if([int]$state.schemaVersion-in@(4,5,6)){[bool]$state.transactionComplete}else{$false})
+        ProjectionMode=$(if([int]$state.schemaVersion-in@(3,4,5,6)){[string]$state.projectionMode}else{'LEGACY'})
+    }
+}
+
+function Get-AiwLocalCandidateSupportBinding {
+    param(
+        [Parameter(Mandatory)][string]$ProjectRoot,
+        [Parameter(Mandatory)][string]$ExpectedProjectConfigIdentity,
+        [Parameter(Mandatory)][string]$ExpectedCandidatePilotStateIdentity,
+        [Parameter(Mandatory)][string]$VersionDirectory,
+        [Parameter(Mandatory)][string]$Version,
+        [switch]$ProspectiveAdoptionProjection
+    )
+
+    if($ExpectedCandidatePilotStateIdentity-cnotmatch'^\d+\|[A-F0-9]{64}$'){throw 'LOCAL_CANDIDATE_PILOT_STATE_IDENTITY_INVALID'}
+    $project=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Resolve-Path -LiteralPath $ProjectRoot)))
+    $configDoc=Read-AiwStrictJson (Resolve-AiwChildFile $project '.ai-workspace/project.json' 'PROJECT_CONFIG') 'PROJECT_CONFIG'
+    if($configDoc.Identity-cne$ExpectedProjectConfigIdentity){throw 'PROJECT_CONFIG_DRIFT'}
+    $config=$configDoc.Value
+    if(-not($config.id-is[string])-or[string]::IsNullOrWhiteSpace([string]$config.id)-or[string]$config.frameworkVersion-cne$Version-or[string]$config.frameworkToolBackend-cne'powershell7'){throw 'LOCAL_CANDIDATE_PROJECT_BINDING_DRIFT'}
+    $versionDoc=Read-AiwStrictJson (Resolve-AiwChildFile $VersionDirectory 'VERSION.json' 'FRAMEWORK_VERSION') 'FRAMEWORK_VERSION'
+    if([string]$versionDoc.Value.version-cne$Version){throw 'FRAMEWORK_VERSION_MISMATCH'}
+    $manifestDoc=Read-AiwStrictJson (Resolve-AiwChildFile $VersionDirectory 'RELEASE_MANIFEST.json' 'RELEASE_MANIFEST') 'RELEASE_MANIFEST'
+    $binding=Get-AiwLocalCandidatePilotBinding -ProjectRoot $project -ProjectId ([string]$config.id) -VersionDirectory $VersionDirectory -Version $Version -VersionObject $versionDoc.Value -ManifestDoc $manifestDoc -ProspectiveAdoptionProjection:$ProspectiveAdoptionProjection
+    if([string]$binding.Identity-cne$ExpectedCandidatePilotStateIdentity){throw 'LOCAL_CANDIDATE_PILOT_STATE_DRIFT'}
+    if([int]$binding.SchemaVersion-notin@(4,5,6)-or-not[bool]$binding.TransactionComplete-or[string]$binding.ProjectionMode-cne'LOCAL_CANDIDATE_MANAGED'){throw 'LOCAL_CANDIDATE_SUPPORT_COMPLETION_REQUIRED'}
+    return [pscustomobject]@{
+        lifecycle='CANDIDATE'
+        evidenceCeiling='LOCAL_CANDIDATE_PILOT'
+        candidatePilotStateIdentity=[string]$binding.Identity
+        canonical=[string]$binding.Canonical
+        manifestIdentity=[string]$manifestDoc.Identity
+    }
+}
+
+function Get-AiwCanonicalCorrectionRecordIdentityV1 {
+    param([Parameter(Mandatory)]$Record)
+    $fields = @('correctionId','introducedAgainstFramework','requirementReason','effectiveRule','applicability','decisionLocator')
+    Assert-AiwExactFields $Record $fields 'CORRECTION_RECORD'
+    $buffer = [Collections.Generic.List[byte]]::new()
+    $prefix = $script:Utf8Strict.GetBytes("AIW-CORRECTION-RECORD-V1`n")
+    $buffer.AddRange($prefix)
+    foreach ($field in $fields) {
+        $value = $Record.$field
+        if (-not ($value -is [string])) { throw "CORRECTION_RECORD_STRING|$field" }
+        $fieldBytes = $script:Utf8Strict.GetBytes($field)
+        $valueBytes = $script:Utf8Strict.GetBytes([string]$value)
+        $buffer.AddRange($script:Utf8Strict.GetBytes($fieldBytes.Length.ToString() + ':'))
+        $buffer.AddRange($fieldBytes)
+        $buffer.AddRange($script:Utf8Strict.GetBytes($valueBytes.Length.ToString() + ':'))
+        $buffer.AddRange($valueBytes)
+    }
+    $bytes = $buffer.ToArray()
+    return $bytes.Length.ToString() + '|' + (Get-AiwSha256Hex $bytes)
+}
+
+function Get-AiwCanonicalCorrectionRecordIdentityV2 {
+    param([Parameter(Mandatory)]$Record)
+    $fields = @('correctionId','introducedAgainstFramework','requirementReason','effectiveRule','applicability','decisionLocator','selectors','preparationRequirements','resultRequirements','requiredFacts','mechanicalCheckRefs')
+    if($null-ne$Record.PSObject.Properties['history']){
+        $fields+='history'
+        Assert-AiwExactFields $Record.history @('locator','identity') 'CORRECTION_HISTORY'
+        $history=ConvertTo-AiwSafeRelativePath $Record.history.locator 'CORRECTION_HISTORY'
+        if(-not$history.StartsWith('.ai-workspace/upgrade-recovery/corrections/'+$Record.correctionId+'/',[StringComparison]::Ordinal)-or
+           -not$history.EndsWith('/history.json',[StringComparison]::Ordinal)-or$Record.history.identity-cnotmatch'^\d+\|[A-F0-9]{64}$'){throw 'CORRECTION_HISTORY_VALUES'}
+    }
+    if($null-ne$Record.PSObject.Properties['lifecycle']){
+        $fields+='lifecycle'
+        Assert-AiwExactFields $Record.lifecycle @('state','installation','decisionLocator') 'CORRECTION_LIFECYCLE'
+        if($Record.lifecycle.state-cnotin@('ACTIVE','PAUSED','UNINSTALLED')-or
+           [string]::IsNullOrWhiteSpace($Record.lifecycle.decisionLocator)){throw 'CORRECTION_LIFECYCLE_VALUES'}
+        if($Record.lifecycle.installation-isnot[string]-or$Record.lifecycle.installation-cne'NOT_APPLICABLE'){
+            Assert-AiwExactFields $Record.lifecycle.installation @('locator','identity') 'CORRECTION_INSTALLATION'
+            if($Record.lifecycle.installation.identity-cnotmatch'^\d+\|[A-F0-9]{64}$'){throw 'CORRECTION_LIFECYCLE_VALUES'}
+            $locator=ConvertTo-AiwSafeRelativePath $Record.lifecycle.installation.locator 'CORRECTION_INSTALLATION'
+            if(-not$locator.StartsWith('.ai-workspace/upgrade-recovery/corrections/',[StringComparison]::Ordinal)){throw 'CORRECTION_INSTALLATION_LOCATOR'}
+        }
+    }
+    Assert-AiwExactFields $Record $fields 'CORRECTION_RECORD_V2'
+    $ordered = [ordered]@{}
+    foreach ($field in $fields) { $ordered[$field] = $Record.$field }
+    $json = ($ordered | ConvertTo-Json -Depth 50 -Compress).Replace("`r`n", "`n").Replace("`r", "`n")
+    $bytes = $script:Utf8Strict.GetBytes("AIW-CORRECTION-RECORD-V2`n" + $json)
+    return $bytes.Length.ToString() + '|' + (Get-AiwSha256Hex $bytes)
+}
+
+function Get-AiwProjectCustomRegion {
+    param([Parameter(Mandatory)][string]$BootstrapPath)
+    $bytes = [IO.File]::ReadAllBytes($BootstrapPath)
+    try{$text = $script:Utf8Strict.GetString($bytes)}catch{throw 'BOOTSTRAP_UTF8'}
+    if($text.Contains([char]0)-or$text.Contains([char]0xFFFD)){throw 'BOOTSTRAP_TEXT_FORMAT'}
+    $begin = '<!-- PROJECT-CUSTOM:BEGIN -->'
+    $end = '<!-- PROJECT-CUSTOM:END -->'
+    $start = $text.IndexOf($begin,[StringComparison]::Ordinal)
+    $finish = $text.IndexOf($end,[StringComparison]::Ordinal)
+    if ($start -lt 0 -or $finish -le $start -or $text.IndexOf($begin,$start + 1,[StringComparison]::Ordinal) -ge 0 -or $text.IndexOf($end,$finish + 1,[StringComparison]::Ordinal) -ge 0) { throw 'PROJECT_CUSTOM_MARKERS' }
+    $bodyStart = $start + $begin.Length
+    $body = $text.Substring($bodyStart,$finish - $bodyStart)
+    $bodyBytes = $script:Utf8Strict.GetBytes($body)
+    $identity = $bodyBytes.Length.ToString() + '|' + (Get-AiwSha256Hex $bodyBytes)
+    $trimmed = $body.Trim()
+    $defaultOnly = [string]::IsNullOrWhiteSpace($trimmed) -or
+        $trimmed -ceq 'No permanent project process rule is active in this legacy region. Structured rules belong to `.ai-workspace/process-policy.json`.' -or
+        $trimmed -ceq 'Project-specific stable entry facts may be written only here. Do not copy generic Framework rules. Upgrade preserves this region byte for byte.' -or
+        $trimmed -ceq '此 legacy region 当前没有 permanent project process rule。structured rules 位于 `.ai-workspace/process-policy.json`。'
+    $managedBytes=$script:Utf8Strict.GetBytes($text.Substring(0,$bodyStart)+$text.Substring($finish))
+    $managedIdentity=$managedBytes.Length.ToString()+'|'+(Get-AiwSha256Hex $managedBytes)
+    return [pscustomobject]@{ Identity=$identity; Text=$body; HasNormativeContent=(-not $defaultOnly); ManagedIdentity=$managedIdentity; ManagedText=$script:Utf8Strict.GetString($managedBytes) }
+}
+
+function Assert-AiwBootstrapCurrentBinding([string]$ManagedText,[string]$ProjectId,[string]$Version,[string]$Layout) {
+    $begin='<!-- FRAMEWORK-MANAGED:BEGIN -->';$end='<!-- FRAMEWORK-MANAGED:END -->'
+    $start=$ManagedText.IndexOf($begin,[StringComparison]::Ordinal);$finish=$ManagedText.IndexOf($end,[StringComparison]::Ordinal);$customStart=$ManagedText.IndexOf('<!-- PROJECT-CUSTOM:BEGIN -->',[StringComparison]::Ordinal)
+    if([regex]::Matches($ManagedText,[regex]::Escape($begin)).Count-ne1-or[regex]::Matches($ManagedText,[regex]::Escape($end)).Count-ne1-or$start-ge$finish-or$finish-ge$customStart){throw 'LOCAL_CANDIDATE_BOOTSTRAP_MARKERS'}
+    $prefix=if($Layout-ceq'framework-maintenance-sibling'){'Project ID=`'+$ProjectId+'`；layout=`framework-maintenance-sibling`；control plane=`.ai-workspace/`；pinned Framework=`'+$Version+'`。'}else{'Project ID=`'+$ProjectId+'`；repo-local control plane=`.ai-workspace/`；pinned Framework=`'+$Version+'`。'}
+    $managedBlock=$ManagedText.Substring($start,$finish+$end.Length-$start)
+    $bindingLines=@($managedBlock -split '\r?\n'|Where-Object{$_.StartsWith('Project ID=`',[StringComparison]::Ordinal)})
+    if($bindingLines.Count-ne1-or-not([string]$bindingLines[0]).StartsWith($prefix,[StringComparison]::Ordinal)){throw 'LOCAL_CANDIDATE_BOOTSTRAP_CURRENT_BINDING'}
+}
+
+function Get-AiwProjectAgentsIdentity {
+    param([string]$ProjectRoot, [AllowEmptyCollection()][string[]]$ForbiddenPaths=@())
+    # User decisions stay separate from Bootstrap custom and project standards.
+    Assert-AiwProjectStandardReadAllowed -ProjectRoot $ProjectRoot -CandidatePath (Join-Path $ProjectRoot 'AGENTS.md') -ForbiddenPaths $ForbiddenPaths -Label 'PROJECT_AGENTS'
+    $agents = Resolve-AiwChildFile $ProjectRoot 'AGENTS.md' 'PROJECT_AGENTS' -AllowMissing
+    if ($null -eq $agents) { return 'MISSING' }
+    return Get-AiwFileIdentity $agents
+}
+
+function Get-AiwProcessBindingSnapshot {
+    param(
+        [Parameter(Mandatory)][string]$ProjectRoot,
+        [Parameter(Mandatory)][string]$FrameworkRoot,
+        [Parameter(Mandatory)][string]$TargetVersion,
+        [Parameter(Mandatory)][string]$TaskRelativePath,
+        [AllowEmptyCollection()][string[]]$ForbiddenPaths=@()
+    )
+    $project=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Resolve-Path -LiteralPath $ProjectRoot)))
+    $framework=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Resolve-Path -LiteralPath $FrameworkRoot)))
+    $taskRelative=$TaskRelativePath;$taskPath=$null
+    if($taskRelative-cne'NOT_APPLICABLE'){
+        $taskRelative=ConvertTo-AiwSafeRelativePath $TaskRelativePath 'TASK_LOCATOR'
+        if(-not $taskRelative.StartsWith('.ai-workspace/tasks/',[StringComparison]::Ordinal)){throw 'TASK_LOCATOR_SCOPE'}
+        $taskPath=Resolve-AiwChildFile $project $taskRelative 'TASK'
+    }
+    $configPath=Resolve-AiwChildFile $project '.ai-workspace/project.json' 'PROJECT_CONFIG'
+    $configDoc=Read-AiwStrictJson $configPath 'PROJECT_CONFIG';$config=$configDoc.Value
+    $runtimeStateModule=Join-Path $framework 'scripts/ProjectAdoptionState.psm1'
+    if(Test-Path -LiteralPath $runtimeStateModule -PathType Leaf){
+        Import-Module $runtimeStateModule -ErrorAction Stop
+        if($null-ne(Get-Command Get-AiwAdoptedDistributionBinding -ErrorAction SilentlyContinue)){
+            $adopted=Get-AiwAdoptedDistributionBinding $project $TargetVersion
+            if($null-ne$adopted){$null=Assert-AiwDistributionBinding $adopted $framework $TargetVersion}
+        }
+    }
+    $versionDirectory=Join-Path $framework ('framework/versions/'+$TargetVersion)
+    $versionPath=Resolve-AiwChildFile $framework ('framework/versions/'+$TargetVersion+'/VERSION.json') 'FRAMEWORK_VERSION'
+    $manifestPath=Resolve-AiwChildFile $framework ('framework/versions/'+$TargetVersion+'/RELEASE_MANIFEST.json') 'RELEASE_MANIFEST'
+    $catalogPath=Resolve-AiwChildFile $framework ('framework/versions/'+$TargetVersion+'/PROCESS_REQUIREMENTS.json') 'PROCESS_REQUIREMENTS'
+    $correctionsPath=Resolve-AiwChildFile $project '.ai-workspace/corrections.json' 'CORRECTIONS' -AllowMissing
+    $controllerPath=Resolve-AiwChildFile $project '.ai-workspace/controller.json' 'CONTROLLER' -AllowMissing
+    $bootstrapPath=Resolve-AiwChildFile $project '.ai-workspace/BOOTSTRAP.md' 'BOOTSTRAP'
+    $custom=Get-AiwProjectCustomRegion $bootstrapPath
+    $versionDoc=Read-AiwStrictJson $versionPath 'FRAMEWORK_VERSION'
+    $manifestDoc=Read-AiwStrictJson $manifestPath 'RELEASE_MANIFEST'
+    $candidatePilotStateIdentity='MISSING'
+    if([string]$versionDoc.Value.lifecycle-ceq'CANDIDATE'){
+        $candidatePilot=Get-AiwLocalCandidatePilotBinding -ProjectRoot $project -ProjectId ([string]$config.id) -VersionDirectory $versionDirectory -Version $TargetVersion -VersionObject $versionDoc.Value -ManifestDoc $manifestDoc
+        $candidatePilotStateIdentity=[string]$candidatePilot.Identity
+    }
+    $policyIdentity='MISSING';$projectStandardsIdentity='MISSING'
+    if($null-ne$config.PSObject.Properties['processPolicy']){
+        Assert-AiwExactFields $config.processPolicy @('schemaVersion','locator') 'PROCESS_POLICY_LOCATOR'
+        if([int]$config.processPolicy.schemaVersion-ne1){throw 'PROCESS_POLICY_LOCATOR_SCHEMA'}
+        $policyLocator=ConvertTo-AiwSafeRelativePath ([string]$config.processPolicy.locator) 'PROCESS_POLICY_LOCATOR'
+        if($policyLocator-cne'.ai-workspace/process-policy.json'){throw 'PROCESS_POLICY_LOCATOR_CANONICAL'}
+        $policyPath=Resolve-AiwChildFile $project $policyLocator 'PROCESS_POLICY'
+        $policyDoc=Read-AiwStrictJson $policyPath 'PROCESS_POLICY';$policyIdentity=$policyDoc.Identity
+        if($null-eq$policyDoc.Value.PSObject.Properties['rules']-or-not($policyDoc.Value.rules-is[Array])){throw 'PROCESS_POLICY_VALUES'}
+        $projectStandardsIdentity=(Get-AiwProjectStandardsSnapshot -ProjectRoot $project -Rules @($policyDoc.Value.rules) -ForbiddenPaths $ForbiddenPaths).Identity
+    }
+    return [pscustomobject]@{
+        projectConfigIdentity=$configDoc.Identity
+        controllerIdentity=$(if($null-eq$controllerPath){'MISSING'}else{Get-AiwFileIdentity $controllerPath})
+        correctionsIdentity=$(if($null-eq$correctionsPath){'MISSING'}else{Get-AiwFileIdentity $correctionsPath})
+        policyIdentity=$policyIdentity
+        bootstrapManagedIdentity=$custom.ManagedIdentity;projectCustomIdentity=$custom.Identity;projectAgentsIdentity=(Get-AiwProjectAgentsIdentity $project $ForbiddenPaths)
+        projectStandardsIdentity=$projectStandardsIdentity
+        taskIdentity=$(if($null-eq$taskPath){'NOT_APPLICABLE'}else{Get-AiwFileIdentity $taskPath})
+        frameworkVersionIdentity=Get-AiwFileIdentity $versionPath
+        releaseManifestIdentity=Get-AiwFileIdentity $manifestPath
+        candidatePilotStateIdentity=$candidatePilotStateIdentity
+        nativeCatalogIdentity=Get-AiwFileIdentity $catalogPath
+    }
+}
+
+function Test-AiwSelectorValue {
+    param([object[]]$Allowed,[string]$Actual)
+    if ($null -eq $Allowed -or @($Allowed).Count -eq 0) { return $true }
+    return @($Allowed | Where-Object { [string]$_ -ceq '*' -or [string]$_ -ceq $Actual }).Count -gt 0
+}
+
+function Assert-AiwStringArray {
+    param($Value,[Parameter(Mandatory)][string]$Label)
+    if (-not ($Value -is [Array])) { throw "${Label}_TYPE" }
+    $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($item in @($Value)) {
+        if (-not ($item -is [string]) -or [string]::IsNullOrWhiteSpace([string]$item) -or -not $seen.Add([string]$item)) { throw "${Label}_ITEM" }
+    }
+}
+
+function Assert-AiwSelectorContract {
+    param($Selectors,[Parameter(Mandatory)][string]$Label)
+    $names=@('profiles','roles','phases','actionKinds','resultKinds','pathPrefixes','capabilities','semanticTerms')
+    $optional=@('deterministicTriggers','semanticMatch')
+    $present=@($optional|Where-Object{$null-ne$Selectors.PSObject.Properties[$_]})
+    Assert-AiwExactFields $Selectors @($names+$present) $Label
+    foreach($name in $names){Assert-AiwStringArray $Selectors.$name ($Label+'_'+$name)}
+    foreach($value in @($Selectors.profiles)){if([string]$value-cnotin@('*','MICRO','STANDARD','CRITICAL')){throw "${Label}_PROFILE"}}
+    foreach($value in @($Selectors.roles)){if([string]$value-cnotin@('*','CONTROLLER','TASK_OWNER','EXECUTOR','REVIEWER','FRAMEWORK_MAINTAINER')){throw "${Label}_ROLE"}}
+    foreach($value in @($Selectors.phases)){if([string]$value-cnotin@('*','DISCOVER','PLAN','IMPLEMENT','VERIFY','REVIEW','GIT','EXTERNAL','RECOVER')){throw "${Label}_PHASE"}}
+    foreach($value in @($Selectors.actionKinds)){if([string]$value-cnotmatch '^(\*|NONE|CONTROL_WRITE|SOURCE_WRITE|TEST_WRITE|TEST_RUN|REVIEW_ROUTE|REVIEW_EXECUTE|RESULT_ACCEPT|GIT_STAGE|GIT_COMMIT|PUSH|BROWSER_RUN|DEVICE_RUN|EXTERNAL)$'){throw "${Label}_ACTION"}}
+    foreach($value in @($Selectors.resultKinds)){if([string]$value-cnotmatch '^(\*|NONE|PLAN|USER_RESPONSE|TERMINAL|HANDOFF|REVIEW_VERDICT|RESULT_ACCEPTANCE|IMPLEMENTATION_RESULT|TEST_RESULT|GIT_RESULT|EXTERNAL_RESULT)$'){throw "${Label}_RESULT"}}
+    foreach($value in @($Selectors.pathPrefixes)){if([string]$value-cne([string]$value).Replace('\','/')-or[IO.Path]::IsPathRooted([string]$value)-or([string]$value).Contains('..')){throw "${Label}_PATH"}}
+    if($null-ne$Selectors.PSObject.Properties['semanticMatch']-and[string]$Selectors.semanticMatch-cne'TOKEN'){throw "${Label}_SEMANTIC_MATCH"}
+    if($null-ne$Selectors.PSObject.Properties['deterministicTriggers']){
+        $triggers=$Selectors.deterministicTriggers
+        Assert-AiwExactFields $triggers @('actionKinds','resultKinds') ($Label+'_TRIGGERS')
+        foreach($axis in @('actionKinds','resultKinds')){
+            Assert-AiwStringArray $triggers.$axis ($Label+'_TRIGGERS_'+$axis)
+            foreach($value in @($triggers.$axis)){
+                $allowed=if($axis-ceq'actionKinds'){@('CONTROL_WRITE','SOURCE_WRITE','TEST_WRITE','TEST_RUN','REVIEW_ROUTE','REVIEW_EXECUTE','RESULT_ACCEPT','GIT_STAGE','GIT_COMMIT','PUSH','BROWSER_RUN','DEVICE_RUN','EXTERNAL')}else{@('PLAN','USER_RESPONSE','TERMINAL','HANDOFF','REVIEW_VERDICT','RESULT_ACCEPTANCE','IMPLEMENTATION_RESULT','TEST_RESULT','GIT_RESULT','EXTERNAL_RESULT')}
+                if([string]$value-cnotin$allowed-or-not(Test-AiwSelectorValue @($Selectors.$axis) ([string]$value))){throw "${Label}_TRIGGER_OUTSIDE_BOUNDARY"}
+            }
+        }
+        if(@($triggers.actionKinds).Count+@($triggers.resultKinds).Count-eq0){throw "${Label}_TRIGGERS_EMPTY"}
+    }
+}
+
+function Test-AiwRuleMatch {
+    param($Selectors,[string]$Profile,[string]$Role,[string]$Phase,[string]$ActionKind,[string]$ResultKind,[string[]]$Paths,[string[]]$Capabilities,[string]$Objective,[bool]$SemanticApplicabilityUnknown)
+    if (-not (Test-AiwSelectorValue @($Selectors.profiles) $Profile)) { return [pscustomobject]@{Match=$false;Semantic='NOT_EVALUATED'} }
+    if (-not (Test-AiwSelectorValue @($Selectors.roles) $Role)) { return [pscustomobject]@{Match=$false;Semantic='NOT_EVALUATED'} }
+    if (-not (Test-AiwSelectorValue @($Selectors.phases) $Phase)) { return [pscustomobject]@{Match=$false;Semantic='NOT_EVALUATED'} }
+    if (-not (Test-AiwSelectorValue @($Selectors.actionKinds) $ActionKind)) { return [pscustomobject]@{Match=$false;Semantic='NOT_EVALUATED'} }
+    if (-not (Test-AiwSelectorValue @($Selectors.resultKinds) $ResultKind)) { return [pscustomobject]@{Match=$false;Semantic='NOT_EVALUATED'} }
+    foreach ($required in @($Selectors.capabilities)) { if ([string]$required -cne '*' -and [string]$required -cnotin $Capabilities) { return [pscustomobject]@{Match=$false;Semantic='NOT_EVALUATED'} } }
+    if (@($Selectors.pathPrefixes).Count -gt 0 -and @($Selectors.pathPrefixes | Where-Object { $prefix=[string]$_; @($Paths | Where-Object { $_.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase) }).Count -gt 0 }).Count -eq 0) { return [pscustomobject]@{Match=$false;Semantic='NOT_EVALUATED'} }
+    if($null-ne$Selectors.PSObject.Properties['deterministicTriggers']){
+        $triggers=$Selectors.deterministicTriggers
+        if($ActionKind-cin@($triggers.actionKinds)-or$ResultKind-cin@($triggers.resultKinds)){return [pscustomobject]@{Match=$true;Semantic='DETERMINISTIC'}}
+    }
+    $terms = @($Selectors.semanticTerms)
+    if ($terms.Count -eq 0) { return [pscustomobject]@{Match=$true;Semantic='DETERMINISTIC'} }
+    $tokenMatch=$null-ne$Selectors.PSObject.Properties['semanticMatch']-and[string]$Selectors.semanticMatch-ceq'TOKEN'
+    foreach($term in $terms){
+        $matched=if($tokenMatch){
+            $left=if(([string]$term)-cmatch'^[A-Za-z0-9_]'){'(?<![A-Za-z0-9_])'}else{''}
+            $right=if(([string]$term)-cmatch'[A-Za-z0-9_]$'){'(?![A-Za-z0-9_])'}else{''}
+            [regex]::IsMatch($Objective,$left+[regex]::Escape([string]$term)+$right,[Text.RegularExpressions.RegexOptions]::IgnoreCase-bor[Text.RegularExpressions.RegexOptions]::CultureInvariant)
+        }else{$Objective.IndexOf([string]$term,[StringComparison]::OrdinalIgnoreCase)-ge0}
+        if($matched){return [pscustomobject]@{Match=$true;Semantic='DESCRIPTION_MATCH'}}
+    }
+    if ($SemanticApplicabilityUnknown) { return [pscustomobject]@{Match=$true;Semantic='UNKNOWN_CONSERVATIVE_LOAD'} }
+    return [pscustomobject]@{Match=$false;Semantic='DESCRIPTION_NO_MATCH'}
+}
+
+function Get-AiwProjectSourceRule {
+    param(
+        [Parameter(Mandatory)][string]$ProjectRoot,
+        [Parameter(Mandatory)]$Rule,
+        [Parameter(Mandatory)][string]$Label,
+        [AllowEmptyCollection()][string[]]$ForbiddenPaths=@()
+    )
+    $source=$Rule.source
+    Assert-AiwExactFields $source @('rootSourceId','documents') ($Label+'_SOURCE')
+    if(-not($source.rootSourceId-is[string])-or[string]$source.rootSourceId-cnotmatch'^[A-Z][A-Z0-9_]*$'-or-not($source.documents-is[Array])-or@($source.documents).Count-lt1){throw ($Label+'_SOURCE_VALUES')}
+    $byId=@{};$pathSeen=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach($document in @($source.documents)){
+        $documentFields=@('sourceId','locator','identity','mode','sectionStart','sectionEnd','dependencies')
+        $locatorKind='PROJECT_RELATIVE'
+        if($null-ne$document.PSObject.Properties['locatorKind']){
+            $locatorKind=[string]$document.locatorKind
+            if($locatorKind-cnotin@('PROJECT_RELATIVE','ABSOLUTE_FILE')){throw ($Label+'_LOCATOR_KIND')}
+            $documentFields+=@('locatorKind')
+        }
+        Assert-AiwExactFields $document $documentFields ($Label+'_DOCUMENT')
+        if(-not($document.sourceId-is[string])-or[string]$document.sourceId-cnotmatch'^[A-Z][A-Z0-9_]*$'-or$byId.ContainsKey([string]$document.sourceId)){throw ($Label+'_SOURCE_ID')}
+        if([string]$document.identity-cnotmatch'^\d+\|[A-F0-9]{64}$'-or[string]$document.mode-cnotin@('FULL_FILE','MARKED_SECTION')){throw ($Label+'_SOURCE_BINDING')}
+        Assert-AiwStringArray $document.dependencies ($Label+'_DEPENDENCIES')
+        if([string]$document.mode-ceq'FULL_FILE'){
+            if([string]$document.sectionStart-cne'NOT_APPLICABLE'-or[string]$document.sectionEnd-cne'NOT_APPLICABLE'){throw ($Label+'_FULL_FILE_MARKERS')}
+        }elseif(-not($document.sectionStart-is[string])-or-not($document.sectionEnd-is[string])-or[string]::IsNullOrWhiteSpace([string]$document.sectionStart)-or[string]::IsNullOrWhiteSpace([string]$document.sectionEnd)-or[string]$document.sectionStart-ceq[string]$document.sectionEnd){throw ($Label+'_SECTION_MARKERS')}
+        $resolved=Resolve-AiwProjectStandardFile -ProjectRoot $ProjectRoot -Locator ([string]$document.locator) -LocatorKind ([string]$locatorKind) -Label ($Label+'_SOURCE_FILE') -ForbiddenPaths $ForbiddenPaths
+        $path=[string]$resolved.Path;$locator=[string]$resolved.Locator
+        if(-not$pathSeen.Add($path)){throw ($Label+'_LOCATOR_DUPLICATE')}
+        $text=Read-AiwStrictText $path ($Label+'_SOURCE_FILE')
+        [byte[]]$snapshotBytes=$script:Utf8Strict.GetBytes($text)
+        $actualIdentity=$snapshotBytes.Length.ToString()+'|'+(Get-AiwSha256Hex $snapshotBytes)
+        $byId[[string]$document.sourceId]=[pscustomobject]@{Document=$document;Locator=$locator;LocatorKind=[string]$resolved.LocatorKind;SourcePath=$path;ProjectionRelativePath=[string]$resolved.ProjectionRelativePath;Text=$text;SnapshotBytes=$snapshotBytes;ActualIdentity=$actualIdentity;Drift=($actualIdentity-cne[string]$document.identity)}
+    }
+    if(-not$byId.ContainsKey([string]$source.rootSourceId)){throw ($Label+'_ROOT_SOURCE')}
+    foreach($node in @($byId.Values)){foreach($dependency in @($node.Document.dependencies)){if(-not$byId.ContainsKey([string]$dependency)){throw ($Label+'_DEPENDENCY_UNKNOWN')}}}
+    $visiting=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal);$visited=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal);$order=New-Object 'System.Collections.Generic.List[string]'
+    function Visit-AiwProjectSourceNode([string]$Id){
+        if($visited.Contains($Id)){return}
+        if(-not$visiting.Add($Id)){throw ($Label+'_DEPENDENCY_CYCLE')}
+        foreach($dependency in @($byId[$Id].Document.dependencies)){Visit-AiwProjectSourceNode ([string]$dependency)}
+        $null=$visiting.Remove($Id);$null=$visited.Add($Id);$order.Add($Id)
+    }
+    Visit-AiwProjectSourceNode ([string]$source.rootSourceId)
+    if($visited.Count-ne$byId.Count){throw ($Label+'_ORPHAN_SOURCE')}
+    $blockParts=New-Object 'System.Collections.Generic.List[object]';$blocks=New-Object 'System.Collections.Generic.List[string]';$rows=New-Object 'System.Collections.Generic.List[string]';$drift=$false
+    foreach($id in @($order)){
+        $node=$byId[$id];$document=$node.Document;$body=[string]$node.Text
+        if([bool]$node.Drift){$drift=$true}
+        elseif([string]$document.mode-ceq'MARKED_SECTION'){
+            $body=$body.Replace("`r`n","`n")
+            $start=[string]$document.sectionStart;$end=[string]$document.sectionEnd
+            $startIndex=$body.IndexOf($start,[StringComparison]::Ordinal);$endIndex=$body.IndexOf($end,[StringComparison]::Ordinal)
+            if($startIndex-lt0-or$endIndex-le$startIndex-or$body.IndexOf($start,$startIndex+1,[StringComparison]::Ordinal)-ge0-or$body.IndexOf($end,$endIndex+1,[StringComparison]::Ordinal)-ge0){throw ($Label+'_SECTION_CARDINALITY')}
+            $bodyStart=$startIndex+$start.Length
+            if($bodyStart-ge$body.Length-or$body[$bodyStart]-cne"`n"-or$endIndex-le$bodyStart+1-or$body[$endIndex-1]-cne"`n"){throw ($Label+'_SECTION_LAYOUT')}
+            $body=$body.Substring($bodyStart+1,$endIndex-$bodyStart-2)
+        }
+        if([string]::IsNullOrWhiteSpace($body)){throw ($Label+'_SOURCE_EMPTY')}
+        $sourceLabel=[string]$node.LocatorKind+':'+[string]$node.Locator
+        $blocks.Add(('<!-- PROJECT-SOURCE:'+$sourceLabel+':BEGIN -->'+"`n"+$body.TrimEnd("`n")+"`n"+'<!-- PROJECT-SOURCE:'+$sourceLabel+':END -->'))
+        $key=[string]$node.SourcePath+'|'+[string]$node.ActualIdentity+'|'+(Get-AiwSha256Hex $script:Utf8Strict.GetBytes($body))
+        $blockParts.Add([pscustomobject]@{Key=$key;Text=$blocks[$blocks.Count-1];Locator=$sourceLabel;SourcePath=[string]$node.SourcePath;SourceIdentity=[string]$node.ActualIdentity})
+        $rows.Add(([string]$id+'|'+[string]$node.LocatorKind+'|'+[string]$node.Locator+'|'+[string]$document.identity+'|'+[string]$node.ActualIdentity+'|'+[string]$document.mode+'|'+[string]::Join(',',@($document.dependencies))))
+    }
+    $identityBytes=$script:Utf8Strict.GetBytes(([string]::Join("`n",@($rows))))
+    $documents=@($order|ForEach-Object{$node=$byId[[string]$_];[pscustomobject]@{locatorKind=[string]$node.LocatorKind;locator=[string]$node.Locator;relativePath=[string]$node.ProjectionRelativePath;sourcePath=[string]$node.SourcePath;identity=[string]$node.ActualIdentity;bytes=[byte[]]$node.SnapshotBytes}})
+    return [pscustomobject]@{Blocks=$blockParts.ToArray();FullText=[string]::Join("`n`n",@($blocks));Identity=($identityBytes.Length.ToString()+'|'+(Get-AiwSha256Hex $identityBytes));Drift=$drift;Bindings=@($rows);Documents=$documents}
+}
+
+function Get-AiwProjectPolicySourceClosure {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$ProjectRoot,
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Rules,
+        [AllowEmptyCollection()][string[]]$ForbiddenPaths=@()
+    )
+
+    $documents=New-Object 'System.Collections.Generic.List[object]'
+    $byLocator=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal)
+    foreach($rule in @($Rules)){
+        if($null-eq$rule.PSObject.Properties['source']){continue}
+        $label='PROCESS_POLICY_'+[string]$rule.ruleId
+        $validated=Get-AiwProjectSourceRule -ProjectRoot $ProjectRoot -Rule $rule -Label $label -ForbiddenPaths $ForbiddenPaths
+        foreach($document in @($validated.Documents)){
+            $key=[string]$document.locatorKind+'|'+[string]$document.sourcePath
+            if($byLocator.ContainsKey($key)){
+                if([string]$byLocator[$key].identity-cne[string]$document.identity){throw ('PROJECT_SOURCE_CLOSURE_DRIFT|'+[string]$document.locator)}
+                continue
+            }
+            $item=[pscustomobject]@{locatorKind=[string]$document.locatorKind;locator=[string]$document.locator;relativePath=[string]$document.relativePath;sourcePath=[string]$document.sourcePath;identity=[string]$document.identity;bytes=[byte[]]$document.bytes}
+            $byLocator[$key]=$item
+            $documents.Add($item)
+        }
+    }
+    [string[]]$rows=@($documents|ForEach-Object{[string]$_.locatorKind+'|'+[string]$_.locator+'|'+[string]$_.identity})
+    [Array]::Sort($rows,[StringComparer]::Ordinal)
+    if($rows.Count-eq0){return [pscustomobject]@{Identity='MISSING';Documents=@()}}
+    $identityBytes=$script:Utf8Strict.GetBytes(([string]::Join("`n",$rows)))
+    return [pscustomobject]@{Identity=($identityBytes.Length.ToString()+'|'+(Get-AiwSha256Hex $identityBytes));Documents=[object[]]$documents.ToArray()}
+}
+
+function Get-AiwProjectStandardsSnapshot {
+    param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Rules,[AllowEmptyCollection()][string[]]$ForbiddenPaths=@())
+    $resolved=@{};$rows=New-Object 'System.Collections.Generic.List[string]'
+    foreach($rule in @($Rules)){
+        if($null-eq$rule.PSObject.Properties['source']){continue}
+        $label='PROCESS_POLICY_'+[string]$rule.ruleId
+        try {
+            $item=Get-AiwProjectSourceRule -ProjectRoot $ProjectRoot -Rule $rule -Label $label -ForbiddenPaths $ForbiddenPaths
+            $item|Add-Member -NotePropertyName Unavailable -NotePropertyValue $false
+            $item|Add-Member -NotePropertyName Error -NotePropertyValue 'NONE'
+        } catch {
+            $reason=[string]$_.Exception.Message
+            $recoverable='^'+[regex]::Escape($label)+'_(?:SOURCE_FILE_(?:MISSING|REPARSE|UNREADABLE|BOM|UTF8|TEXT_FORMAT)|SECTION_(?:CARDINALITY|LAYOUT)|SOURCE_EMPTY)$'
+            if($reason-cnotmatch$recoverable){throw}
+            $declared=$rule.source|ConvertTo-Json -Depth 20 -Compress
+            $errorMaterial=$declared+"`nUNAVAILABLE="+$reason
+            $errorBytes=$script:Utf8Strict.GetBytes($errorMaterial)
+            $item=[pscustomobject]@{FullText='';Identity=($errorBytes.Length.ToString()+'|'+(Get-AiwSha256Hex $errorBytes));Drift=$false;Bindings=@();Unavailable=$true;Error=$reason}
+        }
+        $resolved[[string]$rule.ruleId]=$item
+        $rows.Add(([string]$rule.ruleId+'|'+[string]$item.Identity))
+    }
+    if($rows.Count-eq0){return [pscustomobject]@{Identity='MISSING';Rules=$resolved;Drift=$false}}
+    [string[]]$sorted=@($rows);[Array]::Sort($sorted,[StringComparer]::Ordinal)
+    $bytes=$script:Utf8Strict.GetBytes(([string]::Join("`n",$sorted)))
+    return [pscustomobject]@{Identity=($bytes.Length.ToString()+'|'+(Get-AiwSha256Hex $bytes));Rules=$resolved;Drift=(@($resolved.Values|Where-Object{[bool]$_.Drift}).Count-gt0)}
+}
+
+function Invoke-ProcessRequirementComposition {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$ProjectRoot,
+        [Parameter(Mandatory)][string]$FrameworkRoot,
+        [Parameter(Mandatory)][string]$TargetVersion,
+        [string]$ComposerVersion=$TargetVersion,
+        [Parameter(Mandatory)][string]$ExpectedProjectConfigIdentity,
+        [string]$ExpectedCorrectionsIdentity,
+        [Parameter(Mandatory)][string]$Profile,
+        [Parameter(Mandatory)][string]$Role,
+        [Parameter(Mandatory)][string]$Phase,
+        [Parameter(Mandatory)][string]$Actor,
+        [Parameter(Mandatory)][string]$TaskIdentity,
+        [string[]]$Capabilities=@(),
+        [string]$Objective='UNKNOWN',
+        [string]$ActionKind='NONE',
+        [string]$ResultKind='NONE',
+        [string[]]$ExactPaths=@(),
+        [AllowEmptyCollection()][string[]]$ForbiddenPaths=@(),
+        [switch]$SemanticApplicabilityUnknown,
+        [switch]$AllowProjectPinMismatch,
+        [switch]$UseDeclaredCapabilities,
+        [switch]$EvaluationOnly
+    )
+    $project = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Resolve-Path -LiteralPath $ProjectRoot)))
+    $framework = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Resolve-Path -LiteralPath $FrameworkRoot)))
+    $configPath = Resolve-AiwChildFile $project '.ai-workspace/project.json' 'PROJECT_CONFIG'
+    $configDoc = Read-AiwStrictJson $configPath 'PROJECT_CONFIG'
+    if ($configDoc.Identity -cne $ExpectedProjectConfigIdentity) { throw 'PROJECT_CONFIG_DRIFT' }
+    $config = $configDoc.Value
+    if (-not $AllowProjectPinMismatch -and -not $EvaluationOnly -and [string]$config.frameworkVersion -cne $TargetVersion) { throw 'PROJECT_PIN_TARGET_MISMATCH' }
+    $projectId = [string]$config.id
+    Assert-AiwStringArray $Capabilities 'OBSERVED_CAPABILITIES'
+    if(-not(Test-AiwJsonInteger $config.schemaVersion)-or$config.schemaVersion-ne5){throw 'PROJECT_CONFIG_SCHEMA'}
+    if($null-eq$config.PSObject.Properties['frameworkCapabilities']){throw 'PROJECT_CAPABILITIES_MISSING'}
+    $declaredCapabilities=@(Assert-AiwFrameworkCapabilities $config.frameworkCapabilities)
+    $declaredSorted=@($declaredCapabilities|Sort-Object)
+    if($UseDeclaredCapabilities){$Capabilities=@($declaredSorted)}else{$observedSorted=@($Capabilities|Sort-Object);if([string]::Join("`n",$declaredSorted)-cne[string]::Join("`n",$observedSorted)){throw 'PROJECT_CAPABILITY_DRIFT'}}
+
+    $versionPath = Resolve-AiwChildFile $framework ("framework/versions/$TargetVersion/VERSION.json") 'FRAMEWORK_VERSION'
+    $versionDoc = Read-AiwStrictJson $versionPath 'FRAMEWORK_VERSION'
+    $versionObject = $versionDoc.Value
+    if ([string]$versionObject.version -cne $TargetVersion) { throw 'FRAMEWORK_VERSION_MISMATCH' }
+    $versionDirectory = Split-Path -Parent $versionPath
+    $releaseManifestDoc=Read-AiwStrictJson (Resolve-AiwChildFile $versionDirectory 'RELEASE_MANIFEST.json' 'RELEASE_MANIFEST') 'RELEASE_MANIFEST'
+    $stable = [string]$versionObject.lifecycle -ceq 'STABLE' -and [bool]$versionObject.consumable -and [bool]$versionObject.projectPinEligible
+    $candidateShape = [string]$versionObject.lifecycle -ceq 'CANDIDATE' -and -not [bool]$versionObject.consumable -and -not [bool]$versionObject.projectPinEligible
+    $candidateEvaluation = $EvaluationOnly -and $candidateShape
+    $candidatePilotStateIdentity='MISSING'
+    if(-not$stable-and-not$candidateEvaluation-and$candidateShape){
+        $candidatePilot=Get-AiwLocalCandidatePilotBinding -ProjectRoot $project -ProjectId $projectId -VersionDirectory $versionDirectory -Version $TargetVersion -VersionObject $versionObject -ManifestDoc $releaseManifestDoc
+        $candidatePilotStateIdentity=[string]$candidatePilot.Identity
+    }elseif(-not$stable-and-not$candidateEvaluation){throw 'FRAMEWORK_VERSION_NOT_ADMITTED'}
+    if($stable){Assert-AiwSealedRelease $versionDirectory $TargetVersion}
+    $releaseManifestIdentity=$releaseManifestDoc.Identity
+    $composerVersionPath=Resolve-AiwChildFile $framework ("framework/versions/$ComposerVersion/VERSION.json") 'COMPOSER_VERSION'
+    $composerVersionDirectory=Split-Path -Parent $composerVersionPath
+    if($ComposerVersion-cne$TargetVersion){$composerVersionDoc=Read-AiwStrictJson $composerVersionPath 'COMPOSER_VERSION';if([string]$composerVersionDoc.Value.version-cne$ComposerVersion-or[string]$composerVersionDoc.Value.lifecycle-cne'STABLE'-or-not[bool]$composerVersionDoc.Value.consumable-or-not[bool]$composerVersionDoc.Value.projectPinEligible){throw 'COMPOSER_VERSION_NOT_ADMITTED'};Assert-AiwSealedRelease $composerVersionDirectory $ComposerVersion}
+    $catalogPath = Resolve-AiwChildFile $composerVersionDirectory 'PROCESS_REQUIREMENTS.json' 'PROCESS_REQUIREMENTS'
+    $catalogDoc = Read-AiwStrictJson $catalogPath 'PROCESS_REQUIREMENTS'
+    $catalog = $catalogDoc.Value
+    Assert-AiwExactFields $catalog @('schemaVersion','frameworkVersion','catalogVersion','requirements') 'PROCESS_REQUIREMENTS'
+    if ([int]$catalog.schemaVersion -ne 2 -or [string]$catalog.catalogVersion -cne '3' -or [string]$catalog.frameworkVersion -cne $ComposerVersion -or -not ($catalog.requirements -is [Array])) { throw 'PROCESS_REQUIREMENTS_VALUES' }
+    $nativeById = @{}
+    $nativeByAlias = @{}
+    foreach ($requirement in @($catalog.requirements)) {
+        Assert-AiwExactFields $requirement @('requirementId','legacyAliases','title','description','ownerModule','selectors','exactBlockLocator','preparationRequirements','resultRequirements') 'NATIVE_REQUIREMENT'
+        $nativeId='framework:'+[string]$requirement.requirementId
+        if ([string]$requirement.requirementId -cnotmatch '^PR_[A-Z0-9_]+$' -or $nativeById.ContainsKey($nativeId)) { throw 'NATIVE_REQUIREMENT_ID' }
+        Assert-AiwStringArray $requirement.legacyAliases 'NATIVE_REQUIREMENT_ALIASES'
+        Assert-AiwSelectorContract $requirement.selectors 'NATIVE_REQUIREMENT_SELECTORS'
+        Assert-AiwStringArray $requirement.preparationRequirements 'NATIVE_REQUIREMENT_PREPARATION'
+        Assert-AiwStringArray $requirement.resultRequirements 'NATIVE_REQUIREMENT_RESULT'
+        foreach($field in @('title','description','ownerModule','exactBlockLocator')){if(-not($requirement.$field-is[string])-or[string]::IsNullOrWhiteSpace([string]$requirement.$field)){throw 'NATIVE_REQUIREMENT_TEXT'}}
+        if ([string]$requirement.exactBlockLocator -cne ('AIW-REQUIREMENT:' + [string]$requirement.requirementId)) { throw 'NATIVE_REQUIREMENT_LOCATOR' }
+        foreach ($alias in @($requirement.legacyAliases)) {
+            if ([string]$alias -cnotmatch '^correction:[a-z0-9][a-z0-9-]*:[A-Z][A-Z0-9_]*$' -or $nativeByAlias.ContainsKey([string]$alias)) { throw 'NATIVE_REQUIREMENT_ALIAS' }
+            $nativeByAlias[[string]$alias]=$nativeId
+        }
+        $nativeById[$nativeId]=$requirement
+    }
+
+    $correctionsPath = Resolve-AiwChildFile $project '.ai-workspace/corrections.json' 'CORRECTIONS' -AllowMissing
+    $controllerPath = Resolve-AiwChildFile $project '.ai-workspace/controller.json' 'CONTROLLER' -AllowMissing
+    $controllerIdentity = if ($null -eq $controllerPath) { 'MISSING' } else { Get-AiwFileIdentity $controllerPath }
+    $correctionsIdentity = if ($null -eq $correctionsPath) { 'MISSING' } else { Get-AiwFileIdentity $correctionsPath }
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedCorrectionsIdentity) -and $correctionsIdentity -cne $ExpectedCorrectionsIdentity) { throw 'CORRECTIONS_DRIFT' }
+    $records = @()
+    if ($null -ne $correctionsPath) {
+        $correctionsDoc = Read-AiwStrictJson $correctionsPath 'CORRECTIONS'
+        $corrections = $correctionsDoc.Value
+        Assert-AiwExactFields $corrections @('schemaVersion','contractVersion','projectId','corrections') 'CORRECTIONS'
+        if ([int]$corrections.schemaVersion -notin @(1,2) -or [string]$corrections.projectId -cne $projectId -or -not ($corrections.corrections -is [Array])) { throw 'CORRECTIONS_VALUES' }
+        if ([int]$corrections.schemaVersion -eq 1 -and [string]$corrections.contractVersion -cne '1.10.0') { throw 'CORRECTIONS_CONTRACT' }
+        if ([int]$corrections.schemaVersion -eq 2 -and [string]$corrections.contractVersion -cne $script:ProcessCarrierContractVersion) { throw 'CORRECTIONS_CONTRACT' }
+        $seenCorrection = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        foreach ($record in @($corrections.corrections)) {
+            $v1Record = if ([int]$corrections.schemaVersion -eq 1) { $record } else { [pscustomobject][ordered]@{correctionId=$record.correctionId;introducedAgainstFramework=$record.introducedAgainstFramework;requirementReason=$record.requirementReason;effectiveRule=$record.effectiveRule;applicability=$record.applicability;decisionLocator=$record.decisionLocator} }
+            $canonical = Get-AiwCanonicalCorrectionRecordIdentityV1 $v1Record
+            if ([string]$record.correctionId -cnotmatch '^[A-Z][A-Z0-9_]*$' -or -not $seenCorrection.Add([string]$record.correctionId)) { throw 'CORRECTION_ID' }
+            $v2Identity = 'NOT_APPLICABLE'
+            if ([int]$corrections.schemaVersion -eq 2) {
+                $null=Get-AiwCanonicalCorrectionRecordIdentityV2 $record
+                Assert-AiwSelectorContract $record.selectors 'CORRECTION_V2_SELECTORS'
+                foreach ($name in @('preparationRequirements','resultRequirements','requiredFacts','mechanicalCheckRefs')) { Assert-AiwStringArray $record.$name ('CORRECTION_V2_' + $name) }
+                $registeredChecks=@('CURRENT_AUTHORITY_BOUND','ACTION_PACKAGE_VALID','EXACT_SCOPE_BOUND','TASK_SCOPE_CURRENT','PROTECTION_BOUNDARY_PROVEN','REVIEWER_INDEPENDENCE_PROVEN','SAFE_GIT_STATE_PROVEN','EXTERNAL_BOUNDARY_AUTHORIZED','DOMAIN_EXTERNAL_PACKAGE_VALID','EXTERNAL_PAYLOAD_IDENTITIES_BOUND','USER_EXTERNAL_DECISION_BOUND')
+                foreach ($check in @($record.mechanicalCheckRefs)) { if ([string]$check -cnotin $registeredChecks) { throw 'CORRECTION_V2_MECHANICAL_CHECK_UNREGISTERED' } }
+                $v2Identity = Get-AiwCanonicalCorrectionRecordIdentityV2 $record
+            }
+            $records += [pscustomobject]@{ Record=$record; SchemaVersion=[int]$corrections.schemaVersion; Alias=('correction:'+$projectId+':'+[string]$record.correctionId); SourceRecordIdentity=$canonical; V2WholeRecordIdentity=$v2Identity }
+        }
+    }
+
+    # Current correction lifecycle is project-owned; no central semantic suppression.
+    $legacyEffective = @(); $legacyConflicts = @(); $inactiveCorrections=@()
+    foreach ($item in $records) {
+        if($null-ne$item.Record.PSObject.Properties['lifecycle']-and$item.Record.lifecycle.state-cne'ACTIVE'){
+            $inactiveCorrections+=[pscustomobject]@{correctionId=$item.Record.correctionId;state=$item.Record.lifecycle.state;decisionLocator=$item.Record.lifecycle.decisionLocator}
+            continue
+        }
+        $view = [ordered]@{correctionId=[string]$item.Record.correctionId;requirementReason=[string]$item.Record.requirementReason;effectiveRule=[string]$item.Record.effectiveRule;applicability=[string]$item.Record.applicability;decisionLocator=[string]$item.Record.decisionLocator;sourceSchemaVersion=[int]$item.SchemaVersion;legacyRequirementId=[string]$item.Alias;legacySourceRecordIdentity=[string]$item.SourceRecordIdentity;v2WholeRecordIdentity=[string]$item.V2WholeRecordIdentity}
+        $legacyEffective += [pscustomobject]$view
+    }
+
+    $bootstrapPath = Resolve-AiwChildFile $project '.ai-workspace/BOOTSTRAP.md' 'BOOTSTRAP'
+    $custom = Get-AiwProjectCustomRegion $bootstrapPath
+    $policyRules = @(); $policyIdentity='MISSING'; $policyLocator='NONE'; $selectedRulePackBytes=0
+    if ($null -ne $config.PSObject.Properties['processPolicy']) {
+        Assert-AiwExactFields $config.processPolicy @('schemaVersion','locator') 'PROCESS_POLICY_LOCATOR'
+        if ([int]$config.processPolicy.schemaVersion -ne 1) { throw 'PROCESS_POLICY_LOCATOR_SCHEMA' }
+        $policyLocator = ConvertTo-AiwSafeRelativePath ([string]$config.processPolicy.locator) 'PROCESS_POLICY_LOCATOR'
+        if ($policyLocator -cne '.ai-workspace/process-policy.json') { throw 'PROCESS_POLICY_LOCATOR_CANONICAL' }
+        $policyPath = Resolve-AiwChildFile $project $policyLocator 'PROCESS_POLICY'
+        $policyDoc = Read-AiwStrictJson $policyPath 'PROCESS_POLICY'
+        $policyIdentity = $policyDoc.Identity
+        $policy = $policyDoc.Value
+        Assert-AiwExactFields $policy @('schemaVersion','contractVersion','projectId','selectedRulePackBytes','rules') 'PROCESS_POLICY'
+        if ([int]$policy.schemaVersion -ne 1 -or [string]$policy.contractVersion -cne $script:ProcessCarrierContractVersion -or [string]$policy.projectId -cne $projectId -or -not (Test-AiwJsonInteger $policy.selectedRulePackBytes) -or [int]$policy.selectedRulePackBytes -lt 1 -or -not ($policy.rules -is [Array])) { throw 'PROCESS_POLICY_VALUES' }
+        $selectedRulePackBytes=[int]$policy.selectedRulePackBytes
+        $policyRules = @($policy.rules)
+    }
+    foreach ($rule in $policyRules) {
+        $bodyFields=@($rule.PSObject.Properties.Name|Where-Object{$_-in@('effectiveRule','source')})
+        if($bodyFields.Count-ne1){throw 'PROCESS_POLICY_RULE_BODY'}
+        Assert-AiwExactFields $rule @('ruleId','requirementReason','selectors','preparationRequirements','resultRequirements','decisionLocator',$bodyFields[0]) 'PROCESS_POLICY_RULE'
+        if ([string]$rule.ruleId -cnotmatch '^[A-Z][A-Z0-9_]*$') { throw 'PROCESS_POLICY_RULE_ID' }
+        Assert-AiwSelectorContract $rule.selectors 'PROCESS_POLICY_SELECTORS'
+        Assert-AiwStringArray $rule.preparationRequirements 'PROCESS_POLICY_PREPARATION'
+        Assert-AiwStringArray $rule.resultRequirements 'PROCESS_POLICY_RESULT'
+        foreach($field in @('requirementReason','decisionLocator')){if(-not($rule.$field-is[string])-or[string]::IsNullOrWhiteSpace([string]$rule.$field)){throw 'PROCESS_POLICY_TEXT'}}
+        if($bodyFields[0]-ceq'effectiveRule'-and(-not($rule.effectiveRule-is[string])-or[string]::IsNullOrWhiteSpace([string]$rule.effectiveRule))){throw 'PROCESS_POLICY_TEXT'}
+    }
+    $projectStandards=Get-AiwProjectStandardsSnapshot -ProjectRoot $project -Rules $policyRules -ForbiddenPaths $ForbiddenPaths
+    $effectiveRuleOwners=@{};$effectiveSharedKeys=@{}
+    foreach($entry in (@($legacyEffective|ForEach-Object{[pscustomobject]@{Source='PROJECT_CORRECTION';SharedKey='';Id=[string]$_.legacyRequirementId;Text=[string]$_.effectiveRule}})+@($policyRules|Where-Object{$null-eq$_.PSObject.Properties['source']-or-not[bool]$projectStandards.Rules[[string]$_.ruleId].Unavailable}|ForEach-Object{$text=if($null-ne$_.PSObject.Properties['source']){[string]$projectStandards.Rules[[string]$_.ruleId].FullText}else{[string]$_.effectiveRule};[pscustomobject]@{Source='PROJECT_POLICY';SharedKey=$(if($null-ne$_.PSObject.Properties['source']){[string]::Join(';',@($projectStandards.Rules[[string]$_.ruleId].Blocks|ForEach-Object{$_.Key}))}else{''});Id=[string]$_.ruleId;Text=$text}})+$(if($custom.HasNormativeContent){@([pscustomobject]@{Source='LEGACY_PROJECT_CUSTOM';SharedKey='';Id=('project-custom:'+$projectId);Text=[string]$custom.Text})}else{@()}))){
+        $normalized=([string]$entry.Text).Replace("`r`n","`n").Replace("`r","`n").Trim()
+        $identity=$script:Utf8Strict.GetByteCount($normalized).ToString()+'|'+(Get-AiwSha256Hex $script:Utf8Strict.GetBytes($normalized))
+        if($effectiveRuleOwners.ContainsKey($identity)-and-not([string]$entry.SharedKey-and$effectiveSharedKeys[$identity]-ceq[string]$entry.SharedKey)){throw ('CONFLICT_PROJECT_RULE_DUPLICATE_EFFECTIVE_RULE|'+[string]$effectiveRuleOwners[$identity]+'|'+[string]$entry.Source)}
+        $effectiveRuleOwners[$identity]=[string]$entry.Source+':'+[string]$entry.Id;$effectiveSharedKeys[$identity]=[string]$entry.SharedKey
+    }
+
+    $selected = @(); $seenRequirement = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal); $ownerTextCache=@{}
+    foreach ($requirement in @($catalog.requirements)) {
+        $id='framework:'+[string]$requirement.requirementId
+        if (-not $seenRequirement.Add($id)) { throw 'NATIVE_REQUIREMENT_ID' }
+        $match=Test-AiwRuleMatch $requirement.selectors $Profile $Role $Phase $ActionKind $ResultKind $ExactPaths $Capabilities $Objective ([bool]$SemanticApplicabilityUnknown)
+        if ($match.Match) {
+            $blockText=Get-AiwNativeRuleBlock -VersionDirectory $composerVersionDirectory -OwnerModule ([string]$requirement.ownerModule) -RequirementId ([string]$requirement.requirementId) -ExactBlockLocator ([string]$requirement.exactBlockLocator) -OwnerTextCache $ownerTextCache
+            $ownerBytes=$script:Utf8Strict.GetBytes([string]$ownerTextCache[[string]$requirement.ownerModule])
+            $ownerIdentity=$ownerBytes.Length.ToString()+'|'+(Get-AiwSha256Hex $ownerBytes)
+            $selected += [pscustomobject]@{requirementId=$id;source='FRAMEWORK';ownerModule=[string]$requirement.ownerModule;semanticApplicability=$match.Semantic;fullText=$blockText;preparationRequirements=@($requirement.preparationRequirements);resultRequirements=@($requirement.resultRequirements);displayParts=@((New-AiwDisplayPart (Join-Path $composerVersionDirectory ([string]$requirement.ownerModule)) $ownerIdentity $blockText))}
+        }
+    }
+    foreach ($item in $legacyEffective) {
+        if ([int]$item.sourceSchemaVersion -eq 1) {
+            $selected += [pscustomobject]@{requirementId=[string]$item.legacyRequirementId;source='PROJECT_CORRECTION';ownerModule='PROJECT_CORRECTIONS_V1';semanticApplicability='LEGACY_PROGRESSIVE_SELECTION_UNPROVEN';fullText=[string]$item.effectiveRule;preparationRequirements=@();resultRequirements=@();displayParts=@((New-AiwDisplayPart $correctionsPath $correctionsIdentity ([string]$item.effectiveRule)))}
+        } else {
+            $record=@($records|Where-Object{[string]$_.Alias-ceq[string]$item.legacyRequirementId})[0].Record
+            $match=Test-AiwRuleMatch $record.selectors $Profile $Role $Phase $ActionKind $ResultKind $ExactPaths $Capabilities $Objective ([bool]$SemanticApplicabilityUnknown)
+            if ($match.Match) {
+                $prep=@($record.preparationRequirements)+@($record.requiredFacts)+@($record.mechanicalCheckRefs)
+                $selected += [pscustomobject]@{requirementId=[string]$item.legacyRequirementId;source='PROJECT_CORRECTION';ownerModule='PROJECT_CORRECTIONS_V2';semanticApplicability=$match.Semantic;fullText=[string]$item.effectiveRule;preparationRequirements=@($prep|Sort-Object -Unique);resultRequirements=@($record.resultRequirements);displayParts=@((New-AiwDisplayPart $correctionsPath $correctionsIdentity ([string]$item.effectiveRule)))}
+            }
+        }
+    }
+    foreach ($rule in $policyRules) {
+        $id='project:'+$projectId+':'+[string]$rule.ruleId
+        if ([string]$rule.ruleId -cnotmatch '^[A-Z][A-Z0-9_]*$' -or -not $seenRequirement.Add($id)) { throw 'PROCESS_POLICY_RULE_ID' }
+        $sourceRule=if($null-ne$rule.PSObject.Properties['source']){$projectStandards.Rules[[string]$rule.ruleId]}else{$null}
+        $match=Test-AiwRuleMatch $rule.selectors $Profile $Role $Phase $ActionKind $ResultKind $ExactPaths $Capabilities $Objective ([bool]$SemanticApplicabilityUnknown)
+        if($null-ne$sourceRule-and[bool]$sourceRule.Unavailable){if($match.Match){throw ('PROJECT_STANDARD_SOURCE_UNAVAILABLE|'+[string]$rule.ruleId+'|'+[string]$sourceRule.Error)}else{continue}}
+        if($null-ne$sourceRule-and[bool]$sourceRule.Drift){$match=[pscustomobject]@{Match=$true;Semantic='SOURCE_DRIFT_CONSERVATIVE_LOAD'}}
+        if ($match.Match) {
+            # The machine result retains every complete body. Deduplication is
+            # a projection of this result, never a mutation of its rule set.
+            $parts=@()
+            if($null-ne$sourceRule){foreach($part in @($sourceRule.Blocks)){$parts+=New-AiwDisplayPart ([string]$part.SourcePath) ([string]$part.SourceIdentity) ([string]$part.Text)}}
+            else{$parts+=New-AiwDisplayPart $policyPath $policyIdentity ([string]$rule.effectiveRule)}
+            $selected += [pscustomobject]@{requirementId=$id;source='PROJECT_POLICY';ownerModule=$(if($null-ne$sourceRule){'PROJECT_STANDARD_SOURCE'}else{'PROJECT_PROCESS_POLICY'});semanticApplicability=$match.Semantic;fullText=$(if($null-ne$sourceRule){[string]$sourceRule.FullText}else{[string]$rule.effectiveRule});preparationRequirements=@($rule.preparationRequirements);resultRequirements=@($rule.resultRequirements);displayParts=@($parts)}
+        }
+    }
+    if ($custom.HasNormativeContent) {
+        $selected += [pscustomobject]@{requirementId=('project-custom:'+$projectId);source='LEGACY_PROJECT_CUSTOM';ownerModule='BOOTSTRAP_PROJECT_CUSTOM';semanticApplicability='LEGACY_PROGRESSIVE_SELECTION_UNPROVEN';fullText=$custom.Text;preparationRequirements=@();resultRequirements=@();displayParts=@((New-AiwDisplayPart (Join-Path $project '.ai-workspace/BOOTSTRAP.md') $custom.Identity $custom.Text))}
+    }
+    if ($legacyConflicts.Count -gt 0) { throw 'PROJECT_CORRECTION_CONFLICT' }
+
+    $sourceMaterial = @(
+        "framework=$TargetVersion",
+        "composer=$ComposerVersion",
+        "version=$($versionDoc.Identity)",
+        "manifest=$releaseManifestIdentity",
+        "candidatePilot=$candidatePilotStateIdentity",
+        "catalog=$($catalogDoc.Identity)",
+        "project=$($configDoc.Identity)",
+        "controller=$controllerIdentity",
+        "corrections=$correctionsIdentity",
+        "policy=$policyIdentity",
+        "projectStandards=$($projectStandards.Identity)",
+        "custom=$($custom.Identity)",
+        "agents=$(Get-AiwProjectAgentsIdentity $project $ForbiddenPaths)",
+        "task=$TaskIdentity",
+        "actor=$Actor", "role=$Role", "phase=$Phase", "profile=$Profile",
+        "capabilities=$([string]::Join(',',@($Capabilities|Sort-Object)))"
+    ) -join "`n"
+    $sourceKey=Get-AiwSha256Hex $script:Utf8Strict.GetBytes($sourceMaterial)
+    $evidenceCeilings=@()
+    if($candidatePilotStateIdentity-cne'MISSING'){$evidenceCeilings+='LOCAL_CANDIDATE_PILOT'}
+    if(@($legacyEffective|Where-Object{[int]$_.sourceSchemaVersion-eq1}).Count-gt0){$evidenceCeilings+='LEGACY_CORRECTIONS_FULL_LOAD'}
+    if($custom.HasNormativeContent){$evidenceCeilings+='LEGACY_PROJECT_CUSTOM_FULL_LOAD'}
+    if([bool]$projectStandards.Drift){$evidenceCeilings+='PROJECT_STANDARD_SOURCE_DRIFT_CONSERVATIVE_LOAD'}
+    return [pscustomobject]@{
+        status=$(if($candidateEvaluation){'EVALUATION_ONLY'}else{'PASS'}); projectId=$projectId; targetVersion=$TargetVersion; sourceCompositionIdentity=$sourceKey
+        projectConfigIdentity=$configDoc.Identity; controllerIdentity=$controllerIdentity; correctionsIdentity=$correctionsIdentity; policyIdentity=$policyIdentity; bootstrapManagedIdentity=$custom.ManagedIdentity;projectCustomIdentity=$custom.Identity;projectAgentsIdentity=(Get-AiwProjectAgentsIdentity $project $ForbiddenPaths); projectStandardsIdentity=$projectStandards.Identity
+        frameworkVersionIdentity=$versionDoc.Identity; releaseManifestIdentity=$releaseManifestIdentity; nativeCatalogIdentity=$catalogDoc.Identity
+        candidatePilotStateIdentity=$candidatePilotStateIdentity
+        stillEffective=@($legacyEffective); conflicts=@($legacyConflicts); inactive=@($inactiveCorrections)
+        selectedRequirements=@($selected); selectedRulePackBytes=$selectedRulePackBytes; absoluteSelectedRulePackBytes=$script:AbsoluteSelectedRulePackBytes; evidenceCeilings=@($evidenceCeilings)
+        sourceBuildCount=1; legacyCorrectionsFullReadCount=$(if(@($legacyEffective|Where-Object{[int]$_.sourceSchemaVersion-eq1}).Count-gt0){1}else{0}); legacyProjectCustomFullReadCount=$(if($custom.HasNormativeContent){1}else{0})
+    }
+}
+
+Export-ModuleMember -Function Get-AiwProcessSemanticText,Get-AiwProjectCustomRegion,Invoke-ProcessRequirementComposition,Get-AiwCanonicalCorrectionRecordIdentityV1,Get-AiwCanonicalCorrectionRecordIdentityV2,Get-AiwFileIdentity,Get-AiwProcessBindingSnapshot,Get-AiwProjectPolicySourceClosure,Get-AiwLocalCandidateSupportBinding
+function Get-AiwDeliveryObservation {
+    param([Parameter(Mandatory)]$Context)
+    $fields=@('channel','stage','expectedRecipient','observedRecipient','outcome','evidence')
+    foreach($optional in @('reviewPackageRef','reviewerAssignment','userDecisionRef')){if($null-ne$Context.PSObject.Properties[$optional]){$fields+=$optional}}
+    Assert-AiwExactFields $Context $fields 'DELIVERY_CONTEXT'
+    foreach($name in @('channel','stage','expectedRecipient','observedRecipient','outcome','evidence')){
+        if($Context.$name-isnot[string]-or[string]::IsNullOrWhiteSpace($Context.$name)){throw 'DELIVERY_CONTEXT_TYPE'}
+    }
+    if($Context.channel-cnotin@('NATIVE_RESPONSE','TASK_MESSAGE')-or$Context.stage-cnotin@('PREPARE','OBSERVE')){throw 'DELIVERY_CONTEXT_VALUES'}
+    if($Context.stage-ceq'PREPARE'){
+        if($Context.outcome-cne'NOT_SENT'-or$Context.observedRecipient-cne'NOT_APPLICABLE'-or$Context.evidence-cne'NOT_APPLICABLE'){throw 'DELIVERY_FUTURE_EVIDENCE'}
+        return [pscustomobject]@{status='READY_TO_SEND';delivered=$false;retryAllowed=$false;evidenceCeiling='PRE_SEND_ONLY'}
+    }
+    if($Context.channel-cne'TASK_MESSAGE'-or$Context.outcome-cnotin@('SUCCESS','FAILURE','UNKNOWN')){throw 'DELIVERY_OBSERVATION_VALUES'}
+    if($Context.outcome-ceq'SUCCESS'){
+        if($Context.expectedRecipient-cne$Context.observedRecipient-or$Context.evidence-ceq'NOT_APPLICABLE'){throw 'DELIVERY_SUCCESS_UNBOUND'}
+        return [pscustomobject]@{status='DELIVERED';delivered=$true;retryAllowed=$false;evidenceCeiling='HOST_RESULT_CALLER_BOUND'}
+    }
+    return [pscustomobject]@{status=$(if($Context.outcome-ceq'FAILURE'){'NOT_DELIVERED'}else{'UNKNOWN'});delivered=$false;retryAllowed=$false;evidenceCeiling='HOST_RESULT_CALLER_BOUND'}
+}
+Export-ModuleMember -Function Get-AiwDeliveryObservation
+
+function Expand-AiwProcessPreset {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][ValidatePattern('^[a-z][a-z0-9-]*$')][string]$PresetId,
+        [Parameter(Mandatory)][string]$ProjectRoot,
+        [Parameter(Mandatory)][string]$DecisionLocator,
+        [AllowEmptyCollection()][string[]]$ForbiddenPaths=@()
+    )
+    # Expansion is data preparation only. The project owns the decision and the
+    # policy write; the runtime continues to consume ordinary policy rules.
+    if([string]::IsNullOrWhiteSpace($DecisionLocator)){throw 'PRESET_DECISION_REQUIRED'}
+    $versionRoot=Split-Path -Parent $PSScriptRoot
+    $presetPath=Resolve-AiwChildFile $versionRoot ('standards/presets/'+$PresetId+'.json') 'PRESET'
+    $preset=(Read-AiwStrictJson $presetPath 'PRESET').Value
+    Assert-AiwExactFields $preset @('schemaVersion','frameworkVersion','presetId','rules') 'PRESET'
+    if(-not(Test-AiwJsonInteger $preset.schemaVersion)-or$preset.schemaVersion-ne1-or
+        [string]$preset.frameworkVersion-cne$script:ProcessCarrierContractVersion-or
+        [string]$preset.presetId-cne$PresetId-or$preset.rules-isnot[Array]-or$preset.rules.Count-eq0){throw 'PRESET_VALUES'}
+    $ids=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $expanded=[Collections.Generic.List[object]]::new()
+    foreach($rule in $preset.rules){
+        Assert-AiwExactFields $rule @('ruleId','requirementReason','selectors','preparationRequirements','resultRequirements','source') 'PRESET_RULE'
+        if($rule.ruleId-isnot[string]-or$rule.ruleId-cnotmatch'^[A-Z][A-Z0-9_]*$'-or
+            -not$ids.Add($rule.ruleId)-or$rule.requirementReason-isnot[string]-or
+            [string]::IsNullOrWhiteSpace($rule.requirementReason)){throw 'PRESET_RULE_VALUES'}
+        Assert-AiwSelectorContract $rule.selectors 'PRESET_SELECTORS'
+        foreach($axis in @('preparationRequirements','resultRequirements')){
+            Assert-AiwStringArray $rule.$axis ('PRESET_'+$axis)
+            foreach($obligation in $rule.$axis){if($obligation-cnotmatch'^[A-Z][A-Z0-9_]*$'){throw 'PRESET_OBLIGATION'}}
+        }
+        Assert-AiwExactFields $rule.source @('rootSourceId','documents') 'PRESET_SOURCE'
+        if($rule.source.documents-isnot[Array]-or$rule.source.documents.Count-eq0){throw 'PRESET_SOURCE_DOCUMENTS'}
+        foreach($document in $rule.source.documents){
+            Assert-AiwExactFields $document @('sourceId','locator','mode','sectionStart','sectionEnd','dependencies') 'PRESET_DOCUMENT'
+            if($document.locator-isnot[string]-or-not$document.locator.StartsWith('standards/software/',[StringComparison]::Ordinal)){throw 'PRESET_SOURCE_OUTSIDE_STANDARDS'}
+            $path=Resolve-AiwChildFile $versionRoot $document.locator 'PRESET_DOCUMENT'
+            $resolved=Resolve-AiwProjectStandardFile -ProjectRoot $ProjectRoot -Locator $path -LocatorKind ABSOLUTE_FILE -Label PRESET_DOCUMENT -ForbiddenPaths $ForbiddenPaths
+            $document.locator=$resolved.Path
+            $document|Add-Member -NotePropertyName locatorKind -NotePropertyValue ABSOLUTE_FILE
+            $document|Add-Member -NotePropertyName identity -NotePropertyValue (Get-AiwFileIdentity $resolved.Path)
+        }
+        $rule|Add-Member -NotePropertyName decisionLocator -NotePropertyValue $DecisionLocator
+        $null=Get-AiwProjectSourceRule -ProjectRoot $ProjectRoot -Rule $rule -Label PRESET_EXPANDED -ForbiddenPaths $ForbiddenPaths
+        $expanded.Add($rule)
+    }
+    return $expanded.ToArray()
+}
+Export-ModuleMember -Function Expand-AiwProcessPreset

@@ -4,7 +4,7 @@
 
 ## 从用户入口开始
 
-用户包从包内 README/AGENTS 导航，开发仓从 [README](../README.md) 导航。接入和升级由用户需求或已授权任务启动；已有项目按已接入 Router 导航当前治理事实。首次注册尚无 Bootstrap 时，先检查所选版本的 VERSION、RELEASE_MANIFEST、ADOPTION_PROFILE 和 TOOLCHAIN，再运行 [register-project.ps1](../scripts/register-project.ps1) 预览。注册必须显式给出内部 `FrameworkVersion`、项目 `RepositoryPath`、项目 ID 与 `ControllerId`，在已有项目写授权范围内应用并完成下面的宿主接入收尾。用户包目录无需 Git，目标项目必须是 Git 仓库。
+用户包从包内 README/AGENTS 导航，开发仓从 [README](../README.md) 导航。接入和升级由用户需求或已授权任务启动；已有项目按已接入 Router 导航当前治理事实。首次注册尚无 Bootstrap 时，先检查所选版本的 VERSION、RELEASE_MANIFEST、ADOPTION_PROFILE 和 TOOLCHAIN，再运行 [register-project.ps1](../scripts/register-project.ps1) 预览。注册必须显式给出内部 `FrameworkVersion`、项目 `RepositoryPath`、项目 ID 与 `ControllerId`，在已有项目写授权范围内应用并完成下面的宿主接入收尾。开发中的新根入口以明确项目目录为根，普通项目和用户包不要求Git程序或.git；不自动git init，也不扩大到父仓。旧发行包仍以原随包行为为准。
 
 升级使用 [upgrade-project.ps1](../scripts/upgrade-project.ps1) 预览及目标版本声明的兼容范围；目标未声明支持当前 Project Format/capability 时停止，不按发行名称推断兼容。普通项目使用版本通用 starter。恢复和动作门禁只由当前项目 Bootstrap 与其 pin 对应的 runtime 合同维护，本入口不复制。
 
@@ -22,7 +22,11 @@
 6. 中断后只按已绑定恢复材料继续回退或完成，不覆盖第三方新字节。
 7. 成功结果同时报告 Framework pin、实际 Project Format 和 Root Tool Revision。
 
-初始化只创建必要控制入口、薄项目/Review 指针与 current task 目录；`RELATIONSHIPS.md` 保留为按需模板，不是默认必需对象。注册脚本不判断产品文档权威，也不搬迁、拆分或改写用户资料。初始化 AI 根据用户指定及项目已有入口确认用途后建立引用；已有项目是否精炼历史资料、调整文档结构或迁移永久规则，由项目另行选择，不是采用新版的前置条件。
+2.0初始化只创建必要控制入口、稳定项目资料入口与current task目录，不生成专门REVIEW_PROFILE或RELATIONSHIPS。旧版本仍按其自身starter物化；旧项目已有文件不按名称删除，其有效要求在项目迁移中纳入标准、任务或普通资料后才解除固定依赖。PROJECT保存稳定目标/责任及标准知识入口，policy保存采用，任务保存当前成果，STATUS保存全局阶段，index只定位。已知taskId直接读卡和必要项目事实。注册脚本不判断产品文档权威，也不搬迁或改写用户资料。
+
+普通项目无本地Git元数据时不生成或改写.gitignore，不把忽略是否生效作为运行门；有本地Git元数据时按既有规则投影runtime忽略项，元数据存在本身不证明Git身份。实际Git操作及Maintenance sibling CONTROL/TARGET仍按原门验证Git top。预检使用普通隔离目录，只有Maintenance特殊拓扑夹具需要Git。恢复继续校验原精确前后像和事务身份。
+
+所选版本的可选标准和preset只提供通用来源。项目沿自己的决定将展开的规则写入自身policy；未采用不载入，采用信息不回传、不由Framework或Maintenance集中登记。2.0版本说明导航到standards/README.md中的软件正文及纯数据展开入口，旧版包不因此包含或启用这些新能力。
 
 逻辑提交不是 Git commit，也不承诺多文件瞬时原子。安全保证是：任何未能完成 Postcheck 的尝试都不得开放新的有效行为；能够安全恢复时，旧 pin、旧受管对象和旧有效三源行为全部恢复。
 
@@ -59,6 +63,10 @@ process-policy 可以显式引用项目内文件或当前受支持宿主上的�
 
 同一宿主供多个项目使用时只收尾一次，不逐项目重复安装。Router 安装、宿主可发现及与采用版本兼容均属于接入收尾。缺失、不可发现或不兼容时，在宿主写授权内安装或修复兼容副本，按宿主支持的方式使其可发现后继续；不转为无 Skill 的正常 Bootstrap 路线。注册和升级脚本本身不安装全局 Skill，也不从项目写授权推导宿主写权限。
 
+项目 AGENTS 的短导航由目标 TOOLCHAIN 的 `routerCompatibility.skillName` 生成；普通 starter 和 Maintenance overlay 使用同一投影，保留区外内容。这个名称是采用版本的投影，不是独立 Skill pin。宿主先提供项目入口与 Skill 目录信息，模型据此读取匹配的 Skill 正文；description 说明用途，项目入口和实际采用来源确定版本。已接入且匹配但本轮正文缺失时补读正文，误选版本时纠正入口，不改变项目采用。
+
+分批升级可在同宿主并存旧、新入口：目标入口先完成独立接入准备，正在升级的项目仍用原入口完成原准入与原 FINALIZE；随后重读更新后的 AGENTS、目标 Skill 完整正文并按新版本恢复，才开始普通工作。事务中断沿原事务继续或回退，不以部分文件更新推断完成。其他项目按自己的入口和采用来源继续。只有实际旧项目及在途升级均不再依赖旧入口时，才在宿主权限内退役旧 Skill；旧运行包与恢复材料按实际依赖保留。Framework 不登记消费者采用信息，也不建立每项目 Skill 副本或通用版本适配层。
+
 同步后按宿主支持的发现与加载方式使用，并在既有交付结果中简记安装位置、来源身份及兼容可发现／已同步／待处理状态；磁盘副本一致不等于运行中会话已重载正文。只有宿主接入未完成时保留该项，不重开已完成的项目采用事务，不新增同步服务或台账。
 
 ## 试点与发布
@@ -82,7 +90,9 @@ BOOTSTRAP project-custom 迁移至 process-policy 是同一精确 CONTROL_WRITE 
 1. 按既有 upgrader preview 取得写集，普通项目可用原 schema1 或 schema2 过程包，Maintenance 必须使用 schema2；在旧健康 runtime 执行真实 DISCOVER，读取完整规则。保存 schema2 ADMIT boundary input，尚不执行 ADMIT。PREPARE 与最终收口复用同一包格式、身份、动作及范围检查，不到安装完成后才发现格式不适用。
 2. 对同一个升级预览调用 `upgrade-project.ps1 -AdoptionProcessMode PREPARE -CurrentProcessInputPath <原ADMIT输入> -ExpectedCurrentProcessInputIdentity <identity>`，其余 project、目标 WorkspaceRoot、actor/task、LocalCandidatePilot 参数与真实 preview 相同，禁止 `-Apply`。保存返回的完整 JSON；它包含实际投影、目标命名包身份与同一动作的目标完整规则。读取其中 selectedRuleBlocks 的 fullText，完成原/目标准备义务，并把 `ADOPTION_TARGET_RULES_LOADED|<该JSON的文件identity>` 加入原 ADMIT input 的 preparationReceipts。
 3. 普通项目通过 `upgrade-project.ps1 -AdoptionProcessMode ADMIT_ACTION`，提供上述 CurrentProcessInputPath/当前 identity、`-AdoptionPreparationPath/-ExpectedAdoptionPreparationIdentity`、project/version/actor 参数及 `-DeleteProcessInputOnExit`。根入口重验准备投影，原版本入口仅执行一次真实 ADMIT，成功 JSON 内保留原输入和目标准备证据；保存这个结果。正文读取与准备完成仍是 INSTRUCTION_BOUND，机械 PASS 不证明模型 attention。
-4. 使用独立 schema3 包执行原 upgrader Apply。实际事务 COMPLETE 后，普通项目以 `-AdoptionProcessMode FINALIZE_OUTPUT` 提供原 FINALIZE boundary、`-AdmitResultPath/-ExpectedAdmitResultIdentity`、原 schema3 `-AuthorizationPackagePath/-ExpectedAuthorizationPackageIdentity`、`-ExpectedAdoptionTransactionIdentity`。FINALIZE 输入保留原/目标 preparationReceipts，提供双方结果义务、每项 OBJECT_POSTIMAGE 与适用 deliveryReceipts。
+4. 使用独立 schema3 包执行原 upgrader Apply，同时提供原 `-AdmitResultPath/-ExpectedAdmitResultIdentity`。新根工具在写入前重验该结果内的原 ADMIT、PREPARE、投影、目标分发与 schema3 包，并把 ADMIT 结果身份绑定进采用事务。实际事务 COMPLETE 后，普通项目以 `-AdoptionProcessMode FINALIZE_OUTPUT` 提供原 FINALIZE boundary、同一 ADMIT 结果、原 schema3 `-AuthorizationPackagePath/-ExpectedAuthorizationPackageIdentity`、`-ExpectedAdoptionTransactionIdentity`。旧成功结果未内嵌原 ADMIT 输入时，另提供仍保留的 `-AdmitInputPath/-ExpectedAdmitInputIdentity`；不得重建该输入。FINALIZE 输入保留原/目标 preparationReceipts，提供双方结果义务、每项 OBJECT_POSTIMAGE 与适用 deliveryReceipts；送达由采用版本的绑定消费者和宿主回执机制验证，未确认送达不能结清。
+
+已经完成写入、但旧根工具未在 Apply 强制绑定 PREPARE/原 ADMIT 的历史刷新，仅当原采用 state 的 rootToolRevision 与保留的旧固定包实际根工具修订均属于已核实的旧桥修订、事务没有新式 ADMIT 绑定、原 ADMIT 输入和结果均仍可核对、实际写集仅为采用 state、目标版本 payload 与规则来源未变、state 其他字段保持且政策投影只对齐原 DISCOVER 已绑定的当前政策身份时，允许只读结清原动作。仍须完整核对旧过程包、schema3 包、双方固定分发、完成事务、逐对象前后像、当前来源及适用送达；任何新根工具产生的无 PREPARE 事务、新规则、新受管投影写入或无法证明的准备义务均拒绝。旧工具虽提供 PREPARE 入口，原动作实际没有使用它；此恢复例外不替代以后刷新在真实 ADMIT 前进行 PREPARE。
 
 收口不执行 Apply、恢复或 live 写入。它核对原准入、双方固定包、实际采用事务、精确前后像及当前完整组合；第三方来源漂移、未完成事务、缺失原输入证据、缺准备或无效来源组合均拒绝。正常清理仅删除有界 runtime 内的本次 boundary input。原 compact、成功 ADMIT 与准备材料留至最后消费者完成，不从 DISCOVER 或新的 ADMIT 补造历史。后续任务/项目规则变化应在原采用流程收口之后进行；历史采用成功与无法收口的旧过程分别记录，不重新采用以制造成功。
 
@@ -113,3 +123,11 @@ historyRelativePath 使用 `.ai-workspace/upgrade-recovery/corrections/<ID>/<bat
 ## 采用与过程材料
 
 upgrade-recovery 中仍有效的采用 state/distributionBinding 用于定位当前运行来源；未完成事务的前像、授权和恢复材料保留到原事务收口。已完成事务、纠正 history/installation 和原验证证据保留为历史，不再充当当前任务权限。runtime 中也可能保存仍有消费者的收据或证据；只清理已完成用途且无有效引用的临时输入，不按目录名称批量删除。
+
+## 2.0 知识配置
+
+2.0普通项目与Maintenance目标配置都使用ADOPTION_PROFILE声明的project schema5。能力结构由目标版本同一KnowledgeSources校验；来源由项目自行管理，不在Framework记录消费者采用。新注册不自动启用知识库。启用后，未选中来源只验证声明结构，不要求目录在线；选择时才验证索引、内容和当前保护范围。包内可选方法说明位于目标版本knowledge/README.md。
+
+已有project4与单索引不能仅改schema数字后继续使用。snapshot.12到2.0的唯一根桥将project5、index3、当前任务及有效规则纳入精确事务，具体范围、项目映射和恢复顺序取目标2.0分发内的MIGRATION_MATRIX.md。实现候选尚须整版验证和独立审收，不能把结构校验或隔离fixture当作live采用；旧固定运行包保持可恢复。
+
+跨版本操作沿用上面的PREPARE、真实旧ADMIT、schema3 Apply和原FINALIZE，普通与Maintenance分别走原健康版本入口。第一次查询只提供项目/目标/当前任务参数，返回UPGRADE_SCOPE_ONLY供构造旧DISCOVER，不生成后像或准入。需要项目自定映射时，用MajorAdoptionOverridesPath/ExpectedMajorAdoptionOverridesIdentity绑定当前配置和任务，明确taskText/policy/corrections；目标预检不能替项目判断语义覆盖。两个版本state链接同一事务，链接仍有效时该runtime材料不得清理；目标state的true标记须与真实COMPLETE共同核验。其余项目、旧历史证据及任务不批量重写。

@@ -1,0 +1,221 @@
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory,ParameterSetName='Path')][string]$InputPath,
+    [Parameter(Mandatory,ParameterSetName='Json')][string]$InputJson,
+    [switch]$AsJson
+)
+
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+
+if ($PSVersionTable.PSEdition -cne 'Core' -or $PSVersionTable.PSVersion.Major -lt 7) {
+    Write-Output 'FAIL|tool-runtime|POWERSHELL7_REQUIRED'
+    exit 4
+}
+
+Import-Module (Join-Path $PSScriptRoot 'StrictJsonInput.psm1') -Force
+
+function Assert-ExactFields($Object, [string[]]$MemberNames, [string[]]$Fields) {
+    if (-not ($Object -is [pscustomobject])) { throw 'INPUT_OBJECT_TYPE' }
+    $actual = @($Object.PSObject.Properties | ForEach-Object { $_.Name })
+    if ($actual.Count -ne $Fields.Count) { throw 'INPUT_FIELDS' }
+    $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
+    foreach ($name in $MemberNames) {
+        if (-not $seen.Add($name)) { throw "INPUT_FIELD_COUNT|$name" }
+        if ($Fields -cnotcontains $name) { throw 'INPUT_FIELDS' }
+    }
+    if ($MemberNames.Count -ne $Fields.Count) { throw 'INPUT_FIELDS' }
+    foreach ($field in $Fields) {
+        if ($actual -cnotcontains $field) { throw 'INPUT_FIELDS' }
+        if (-not $seen.Contains($field)) { throw 'INPUT_FIELDS' }
+    }
+}
+
+function Assert-Bool($Value, [string]$Name) {
+    if (-not ($Value -is [bool])) { throw "INPUT_BOOL|$Name" }
+}
+
+function Assert-String($Value, [string]$Name) {
+    if (-not ($Value -is [string]) -or [string]::IsNullOrWhiteSpace([string]$Value)) { throw "INPUT_STRING|$Name" }
+}
+
+function Test-JsonInteger($Value) {
+    return $Value -is [byte] -or $Value -is [sbyte] -or $Value -is [int16] -or $Value -is [uint16] -or
+        $Value -is [int32] -or $Value -is [uint32] -or $Value -is [int64] -or $Value -is [uint64]
+}
+
+$inputDocument = if($PSCmdlet.ParameterSetName -ceq 'Json'){ConvertFrom-AiwStrictInputJson $InputJson}else{Read-AiwStrictInputJson $InputPath}
+$inputMemberNames = [string[]]@($inputDocument.MemberNames)
+$inputObject = $inputDocument.Value
+if (-not ($inputObject -is [pscustomobject]) -or $inputObject.PSObject.Properties.Name -cnotcontains 'operation') { throw 'INPUT_OPERATION' }
+if (@($inputMemberNames | Where-Object { $_ -ceq 'operation' }).Count -ne 1) { throw 'INPUT_FIELD_COUNT|operation' }
+Assert-String $inputObject.operation 'operation'
+$operation = [string]$inputObject.operation
+$result = $null
+
+switch ($operation) {
+    'REPAIR_REVIEW' {
+        Assert-ExactFields $inputObject $inputMemberNames @('operation','repositoryRoot','binding')
+        $binding=$inputObject.binding
+        $parentDoc=Read-AiwStrictInputJson $binding.parentPackagePath
+        $bytes=[IO.File]::ReadAllBytes($binding.parentPackagePath)
+        $identity=$bytes.Length.ToString()+'|'+[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes))
+        if($identity-cne$binding.parentPackageIdentity){throw 'REPAIR_REVIEW_PARENT_DRIFT'}
+        $candidate=$parentDoc.Value
+        if($null-eq$candidate.PSObject.Properties['repairReviewPlan']-or$binding.phase-cnotin@('INITIAL_REVIEW','REPAIR','REREVIEW')){throw 'REPAIR_REVIEW_PLAN_REQUIRED'}
+        $plan=$candidate.repairReviewPlan
+        # A child is anchored to the original through repairReviewBinding. Its
+        # parent-only receiver binding cannot be reused by another grantee.
+        $candidate.PSObject.Properties.Remove('receiverBinding')
+        $reviewerActor=[string]$plan.reviewer
+        if($reviewerActor-ceq'DEFERRED_VISIBLE_REVIEWER'){
+            if($null-eq$binding.PSObject.Properties['reviewerAssignment']){throw 'REVIEWER_ASSIGNMENT_REQUIRED'}
+            $assignment=$binding.reviewerAssignment
+            Assert-ExactFields $assignment @($assignment.PSObject.Properties.Name) @('source','createdBy','threadId','hostId','taskId','parentPackageIdentity')
+            foreach($name in @('source','createdBy','threadId','hostId','taskId','parentPackageIdentity')){Assert-String $assignment.$name $name}
+            $hostAssigned=$assignment.source-ceq'HOST_CREATE_THREAD_RESULT'
+            $initialDelegation=$assignment.source-ceq'HOST_INITIAL_DELEGATION'-and(($assignment.threadId-ceq'UNBOUND_RECEIVER'-and$binding.phase-ceq'INITIAL_REVIEW')-or($assignment.threadId-cne'UNBOUND_RECEIVER'-and$binding.phase-cin@('REPAIR','REREVIEW')))
+            if(-not($hostAssigned-or$initialDelegation)-or$assignment.createdBy-cne$plan.writer-or$assignment.taskId-cne$candidate.taskId-or$assignment.parentPackageIdentity-cne$identity-or$assignment.threadId-cin@($candidate.owner,$candidate.issuer,$plan.writer)-or$assignment.threadId-cin@($plan.materialContributors)){throw 'REVIEWER_ASSIGNMENT_BINDING'}
+            $reviewerActor=[string]$assignment.threadId
+        }elseif($null-ne$binding.PSObject.Properties['reviewerAssignment']){throw 'REVIEWER_ASSIGNMENT_UNEXPECTED'}
+        $candidate.PSObject.Properties.Remove('repairReviewPlan')
+        $candidate.grantee=if($binding.phase-ceq'REPAIR'){$plan.writer}else{$reviewerActor}
+        if($binding.phase-cin@('INITIAL_REVIEW','REREVIEW')){
+            $candidate.PSObject.Properties.Remove('continuationPlan')
+            $candidate.actions=@('REVIEW_EXECUTE');$candidate.reviewIndependence='INDEPENDENT'
+            if('CONTRIBUTOR_SET_CHANGE'-cnotin$candidate.invalidatesOn){$candidate.invalidatesOn+=@('CONTRIBUTOR_SET_CHANGE')}
+            $candidate|Add-Member candidateWriter $plan.writer
+            $candidate|Add-Member materialContributors @($plan.materialContributors)
+        }
+        $root=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($inputObject.repositoryRoot))
+        $candidate.objectIdentities=@(foreach($path in $candidate.exactPaths){
+            if([IO.Path]::IsPathRooted($path)-or$path.Contains(':')-or$path.Contains('\')-or@($path.Split('/')|Where-Object{$_-in@('','..','.')}).Count){throw 'REPAIR_REVIEW_PATH'}
+            $full=Join-Path $root $path;$cursor=$root
+            foreach($part in $path.Split('/')){$cursor=Join-Path $cursor $part;if((Test-Path -LiteralPath $cursor)-and((Get-Item -LiteralPath $cursor -Force).Attributes-band[IO.FileAttributes]::ReparsePoint)){throw 'REPAIR_REVIEW_REPARSE'}}
+            $value='NEW'
+            if(Test-Path -LiteralPath $full -PathType Leaf){$data=[IO.File]::ReadAllBytes($full);$value=$data.Length.ToString()+'|'+[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($data))}
+            [pscustomobject]@{path=$path;identity=$value}
+        })
+        $candidate|Add-Member repairReviewBinding $binding
+        $result=[ordered]@{status='PREPARED';authorityGranted=$false;requiresCurrentAdmission=$true;package=$candidate}
+    }
+    'DELIVERY' {
+        Import-Module (Join-Path $PSScriptRoot 'ProcessRequirementComposition.psm1') -Force
+        if($null-ne$inputObject.PSObject.Properties['boundaryInputRef']){
+            Assert-ExactFields $inputObject $inputMemberNames @('operation','boundaryInputRef')
+            Import-Module (Join-Path $PSScriptRoot 'WorkflowDelivery.psm1') -Force
+            $result=Invoke-AiwDeliveryBoundary $inputObject.boundaryInputRef
+        }else{
+            Assert-ExactFields $inputObject $inputMemberNames @('operation','deliveryContext')
+            $result=Get-AiwDeliveryObservation $inputObject.deliveryContext
+            $result|Add-Member consumerBound $false
+            $result|Add-Member userAuthorizationProven $false
+        }
+    }
+    'LAUNCH' {
+        Assert-ExactFields $inputObject $inputMemberNames @('operation','recoveryComplete','packageValid','bindingsMatch')
+        Assert-Bool $inputObject.recoveryComplete 'recoveryComplete'
+        Assert-Bool $inputObject.packageValid 'packageValid'
+        Assert-Bool $inputObject.bindingsMatch 'bindingsMatch'
+        $ready = [bool]$inputObject.recoveryComplete -and [bool]$inputObject.packageValid -and [bool]$inputObject.bindingsMatch
+        $result = [ordered]@{
+            operation = $operation
+            status = $(if ($ready) { 'IMPLEMENTATION_READY' } else { 'RECOVERY_READY' })
+            writerActive = $ready
+            recoveryIsAuthority = $false
+        }
+    }
+    'ROUTE' {
+        $rootField=if($inputMemberNames -ccontains 'cwdProjectRootMatch'){'cwdProjectRootMatch'}else{'cwdGitTopMatch'}
+        $fields = @('operation','projectMatch',$rootField,'outcomeMatch','taskOwnerMatch','actorEligible','lineageMatch','resourceRouteAvailable','protectionBoundaryMatch','gitDeviceExternalMatch','publicDecisionMatch','requiresDistinctOutcome','requiresIndependentContext','standingCreateAuthorized')
+        Assert-ExactFields $inputObject $inputMemberNames $fields
+        foreach ($field in $fields[1..($fields.Count - 1)]) { Assert-Bool $inputObject.$field $field }
+        $boundaryMatch = [bool]$inputObject.projectMatch -and [bool]$inputObject.$rootField -and [bool]$inputObject.taskOwnerMatch -and
+            [bool]$inputObject.actorEligible -and [bool]$inputObject.lineageMatch -and [bool]$inputObject.protectionBoundaryMatch -and
+            [bool]$inputObject.gitDeviceExternalMatch -and [bool]$inputObject.publicDecisionMatch
+        if (-not $boundaryMatch) {
+            $decision = 'BLOCKED'
+            $standingCreate = $false
+            if (-not [bool]$inputObject.$rootField) { $reason = $(if($rootField-ceq'cwdGitTopMatch'){'CWD_GIT_TOP_MISMATCH'}else{'CWD_PROJECT_ROOT_MISMATCH'}) }
+            elseif (-not [bool]$inputObject.publicDecisionMatch) { $reason = 'PUBLIC_DECISION_MISMATCH' }
+            elseif (-not [bool]$inputObject.taskOwnerMatch) { $reason = 'TASK_OWNER_MISMATCH' }
+            elseif (-not [bool]$inputObject.actorEligible) { $reason = 'ACTOR_NOT_ELIGIBLE' }
+            else { $reason = 'BOUNDARY_MISMATCH' }
+        }
+        elseif ([bool]$inputObject.requiresDistinctOutcome -or -not [bool]$inputObject.outcomeMatch -or
+            [bool]$inputObject.requiresIndependentContext -or -not [bool]$inputObject.resourceRouteAvailable) {
+            $decision = 'MUST_NEW'
+            $standingCreate = [bool]$inputObject.standingCreateAuthorized
+            if (-not [bool]$inputObject.resourceRouteAvailable) { $reason = 'RESOURCE_ROUTE_REQUIRES_NEW_CONTEXT' }
+            elseif ([bool]$inputObject.requiresIndependentContext) { $reason = 'INDEPENDENT_CONTEXT_REQUIRED' }
+            else { $reason = $(if ($standingCreate) { 'STANDING_CREATE_AUTHORIZED' } else { 'CREATE_AUTHORIZATION_REQUIRED' }) }
+        }
+        else {
+            $decision = 'REUSE'
+            $standingCreate = $false
+            $reason = 'SAME_AUTHORITY_AND_OUTCOME'
+        }
+        $result = [ordered]@{ operation=$operation; decision=$decision; reason=$reason; standingCreate=$standingCreate }
+    }
+    'TERMINAL' {
+        Assert-ExactFields $inputObject $inputMemberNames @('operation','boundaryInputRef')
+        Import-Module (Join-Path $PSScriptRoot 'WorkflowDelivery.psm1') -Force
+        $result=Invoke-AiwDeliveryBoundary $inputObject.boundaryInputRef
+    }
+    'MESSAGE' {
+        $fields = @('operation','hostAuthenticated','expectedTaskId','observedTaskId','expectedSender','observedSender','expectedControllerEpoch','observedControllerEpoch','expectedEnvelope','observedEnvelope')
+        Assert-ExactFields $inputObject $inputMemberNames $fields
+        Assert-Bool $inputObject.hostAuthenticated 'hostAuthenticated'
+        foreach ($field in @('expectedTaskId','observedTaskId','expectedSender','observedSender','expectedEnvelope','observedEnvelope')) { Assert-String $inputObject.$field $field }
+        foreach ($field in @('expectedControllerEpoch','observedControllerEpoch')) { if (-not (Test-JsonInteger $inputObject.$field) -or [int64]$inputObject.$field -lt 1) { throw "INPUT_INTEGER|$field" } }
+        $matches = [string]$inputObject.expectedTaskId -ceq [string]$inputObject.observedTaskId -and
+            [string]$inputObject.expectedSender -ceq [string]$inputObject.observedSender -and
+            [int64]$inputObject.expectedControllerEpoch -eq [int64]$inputObject.observedControllerEpoch -and
+            [string]$inputObject.expectedEnvelope -ceq [string]$inputObject.observedEnvelope
+        if (-not [bool]$inputObject.hostAuthenticated) { $status='REJECT'; $reason='HOST_AUTHENTICITY_UNAVAILABLE' }
+        elseif (-not $matches) { $status='REJECT'; $reason='STALE_OR_MISROUTED_ENVELOPE' }
+        else { $status='ACCEPT'; $reason='HOST_ENVELOPE_MATCH' }
+        $result = [ordered]@{ operation=$operation; status=$status; reason=$reason }
+    }
+    'HANDOFF' {
+        $fields = @('operation','predecessorControllerId','successorControllerId','previousEpoch','newEpoch','controllerWrittenLast','controllerState','takeoverRecorded','retirementAuthorized')
+        Assert-ExactFields $inputObject $inputMemberNames $fields
+        foreach ($field in @('predecessorControllerId','successorControllerId','controllerState')) { Assert-String $inputObject.$field $field }
+        foreach ($field in @('previousEpoch','newEpoch')) { if (-not (Test-JsonInteger $inputObject.$field) -or [int64]$inputObject.$field -lt 1) { throw "INPUT_INTEGER|$field" } }
+        foreach ($field in @('controllerWrittenLast','takeoverRecorded','retirementAuthorized')) { Assert-Bool $inputObject.$field $field }
+        $valid = [string]$inputObject.predecessorControllerId -cne [string]$inputObject.successorControllerId -and
+            [int64]$inputObject.newEpoch -eq ([int64]$inputObject.previousEpoch + 1) -and [bool]$inputObject.controllerWrittenLast -and
+            [string]$inputObject.controllerState -ceq 'CURRENT' -and [bool]$inputObject.takeoverRecorded
+        $result = [ordered]@{
+            operation = $operation
+            status = $(if ($valid) { 'TAKEOVER_COMPLETE' } else { 'REJECT' })
+            reason = $(if ($valid) { 'HANDOFF_BOUNDARIES_CLOSED' } else { 'INVALID_HANDOFF' })
+            readOnlyGrace = $valid
+            retired = $valid -and [bool]$inputObject.retirementAuthorized
+        }
+    }
+    'HOT_STATE' {
+        $fields = @('operation','currentCardCurrentOnly','supersededHistoryArchived','taskLifecycleChanged','routingChanged','stableProjectPhaseChanged','longLivedOwnerChanged','protectedSetChanged','uniqueNextActionChanged','routineActorChanged')
+        Assert-ExactFields $inputObject $inputMemberNames $fields
+        foreach ($field in $fields[1..($fields.Count - 1)]) { Assert-Bool $inputObject.$field $field }
+        $valid = [bool]$inputObject.currentCardCurrentOnly -and [bool]$inputObject.supersededHistoryArchived
+        $result = [ordered]@{
+            operation = $operation
+            status = $(if ($valid) { 'ACCEPT' } else { 'REJECT' })
+            reason = $(if ($valid) { 'LAYERED_HOT_STATE' } else { 'ACTIVE_ARCHIVE_BOUNDARY_INVALID' })
+            taskCardUpdate = $valid -and ([bool]$inputObject.taskLifecycleChanged -or [bool]$inputObject.routingChanged -or [bool]$inputObject.uniqueNextActionChanged -or [bool]$inputObject.routineActorChanged)
+            taskIndexUpdate = $valid -and ([bool]$inputObject.taskLifecycleChanged -or [bool]$inputObject.routingChanged)
+            statusUpdate = $valid -and ([bool]$inputObject.stableProjectPhaseChanged -or [bool]$inputObject.longLivedOwnerChanged -or [bool]$inputObject.protectedSetChanged -or [bool]$inputObject.uniqueNextActionChanged)
+        }
+    }
+    default { throw 'INPUT_OPERATION_UNSUPPORTED' }
+}
+
+if ($AsJson) { Write-Output ($result | ConvertTo-Json -Depth 8 -Compress) }
+else {
+    if ($result -is [System.Collections.IDictionary]) {
+        foreach ($entry in $result.GetEnumerator()) { Write-Output ($entry.Key + '=' + [string]$entry.Value) }
+    } else {
+        foreach ($entry in $result.PSObject.Properties) { Write-Output ($entry.Name + '=' + [string]$entry.Value) }
+    }
+}

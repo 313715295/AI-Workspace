@@ -33,6 +33,7 @@ Framework 负责项目治理与协作规则，复用现有模块约束任务、�
 - `ROOT_MAINTENANCE`：不改变 sealed payload 的 root docs、license、checkout policy、release procedure 或 integration tooling；使用 exact-path validation 与 affected tests，但不是 version release。
 - `PATCH`：兼容且边界明确的修正，不新增 public capability、authority action、schema migration、role、backend 或 consumer requirement。
 - `MINOR`：新增 Framework capability 或 public process/schema behavior，并保留兼容 adoption。
+- `MAJOR`：改变既有公开责任、授权动作或不兼容的项目/schema合同；先冻结迁移边界，保留旧健康来源，经目标专项、完整套件和独立审核接受后，使用显式采用事务迁移。新版本不自动授予旧项目采用权，也不要求建立永久历史兼容层。
 
 unknown impact、新 authority boundary 或 migration requirement 不能归为 PATCH。candidate freeze 前 classification change 会重开 scope/authorization。
 
@@ -119,6 +120,8 @@ platform support 由 evidence 限定。release 只声称 sealed Tool Contract �
 本流程不增加 release service、registry、queue、ledger、persistent receipt、第二 authority 或 automatic consumer operation。
 
 不同命名包的原 CONTROL_WRITE 采用过程收口，使用[项目接入的显式根边界](PROJECT_ADOPTION.md#原过程的跨命名包收口)。在真实 ADMIT 前通过既有升级投影取得并消费目标规则，成功结果保留原输入；采用后核对原准入、双方包和实际事务。原同包 state-only 迁址 helper 保留其严格包相同约束。此根级集成不改变 version resolver 或既有版本证据；没有原始准入材料的历史流程不能补造。根工具增量须经受影响测试及独立 Review 后以新分发号交付，不能覆盖旧包或已采用目录。
+
+2.0跨版本根桥仅声明健康固定1.16.0-snapshot.12到已审固定2.0候选；实现和逐点恢复合同取目标2.0分发内的MIGRATION_MATRIX.md。旧runtime执行真实原准入，目标投影校验和schema3包不替代它；原FINALIZE完成后才进行新任务。根桥、版本正文及真实依赖一起进入最终Source Review，之后才具备交付条件。普通与Maintenance隔离fixture、测试构包、源码审核、正式打包、宿主安装和项目采用必须分别报告，不从任何单项推断后续已完成。
 
 ## Maintenance 根来源自更新
 

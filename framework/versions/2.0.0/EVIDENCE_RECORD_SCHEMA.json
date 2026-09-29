@@ -1,0 +1,194 @@
+{
+  "required": [
+    "schemaVersion",
+    "taskId",
+    "actor",
+    "candidateObjects",
+    "requirementsRef",
+    "outcome",
+    "checks",
+    "evidenceLocators"
+  ],
+  "type": "object",
+  "title": "AI Workspace typed evidence record 1",
+  "$defs": {
+    "objectRef": {
+      "required": [
+        "path",
+        "identity"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "identity": {
+          "type": "string",
+          "pattern": "^\\d+\\|[A-F0-9]{64}$"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "type": "object"
+    },
+    "requirementsRef": {
+      "required": [
+        "path",
+        "identity"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "identity": {
+          "type": "string",
+          "pattern": "^\\d+\\|[A-F0-9]{64}$"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "section": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9:._-]*$"
+        }
+      },
+      "type": "object"
+    },
+    "evidenceRef": {
+      "required": [
+        "path",
+        "identity",
+        "kind"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "identity": {
+          "type": "string",
+          "pattern": "^\\d+\\|[A-F0-9]{64}$"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "SELF_CHECK",
+            "REVIEW_VERDICT",
+            "RESULT_ACCEPTANCE"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "candidateRef": {
+      "required": [
+        "path",
+        "identity"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "identity": {
+          "type": "string",
+          "pattern": "^(?:\\d+\\|[A-F0-9]{64}|MISSING)$"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "authorizationRef": {
+      "$ref": "#/$defs/objectRef"
+    },
+    "requirementsRef": {
+      "$ref": "#/$defs/requirementsRef"
+    },
+    "outcome": {
+      "enum": [
+        "PASS",
+        "FAIL",
+        "INCOMPLETE",
+        "APPROVED",
+        "CHANGES_REQUESTED",
+        "REJECTED",
+        "ACCEPTED"
+      ]
+    },
+    "checks": {
+      "items": {
+        "required": [
+          "id",
+          "method",
+          "outcome",
+          "reason",
+          "evidenceLocators"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          },
+          "evidenceLocators": {
+            "items": {
+              "$ref": "#/$defs/objectRef"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "outcome": {
+            "enum": [
+              "PASS",
+              "FAIL",
+              "INCOMPLETE"
+            ]
+          },
+          "method": {
+            "enum": [
+              "COMMAND",
+              "MODEL_JUDGMENT"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "acceptedCommit": {
+      "type": "string",
+      "pattern": "^(?:[A-F0-9]{40}|[A-F0-9]{64})$"
+    },
+    "schemaVersion": {
+      "const": 1
+    },
+    "candidateObjects": {
+      "items": {
+        "$ref": "#/$defs/candidateRef"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "evidenceLocators": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/objectRef"
+      }
+    },
+    "actor": {
+      "type": "string",
+      "minLength": 1
+    },
+    "taskId": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

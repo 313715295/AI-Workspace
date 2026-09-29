@@ -257,7 +257,14 @@ function Test-CrossDistributionAdoption {
             if($LegacyRuntimeRoot-and$iteration-eq1){
                 $missing=$base.Clone();$missing.Remove('AdoptionCorrectionsPlanPath');$missing.Remove('ExpectedAdoptionCorrectionsPlanIdentity')
                 $rejected=Invoke-Tool $upgrade $missing -Reject
-                Confirm ($rejected.code-ne0-and$rejected.text.Contains('ADOPTION_CORRECTIONS_DISPOSITION_REQUIRED')) ($CrossLayout+'-old-suppressed-rules-require-explicit-project-disposition')
+                $oldEvaluator=Join-Path $oldRuntime 'framework/versions/1.16.0/scripts/check-project-corrections.ps1'
+                $oldEvaluation=Json-Tool $oldEvaluator @{ProjectRoot=$project;FrameworkRoot=$oldRuntime;TargetVersion='1.16.0';ExpectedProjectConfigIdentity=(Identity "$project/.ai-workspace/project.json");ExpectedCorrectionsIdentity=(Identity "$project/.ai-workspace/corrections.json");Operation='PRECHECK';AsJson=$true}
+                $incorporated=@(if($null-ne$oldEvaluation.PSObject.Properties['incorporated']){$oldEvaluation.incorporated})
+                if($incorporated.Count){
+                    Confirm ($rejected.code-ne0-and$rejected.text.Contains('ADOPTION_CORRECTIONS_DISPOSITION_REQUIRED')) ($CrossLayout+'-old-suppressed-rules-require-explicit-project-disposition')
+                }else{
+                    Confirm ($oldEvaluation.status-ceq'PASS'-and@($oldEvaluation.stillEffective).Count-eq@($legacyRecords).Count-and$rejected.code-eq0-and$rejected.text.Contains('WHAT_IF|')) ($CrossLayout+'-old-project-owned-rules-remain-effective-without-disposition')
+                }
             }
             if($iteration-eq1-and-not$CrossProjectRoot){
                 $entryPath=Join-Path $project 'AGENTS.md';$entryText=[IO.File]::ReadAllText($entryPath)
@@ -430,7 +437,15 @@ function Test-CrossDistributionAdoption {
                     elseif($fault-ceq'budget'){$v=Get-Content -Raw $path|ConvertFrom-Json -Depth 100;$v.selectedRulePackBytes=2;Save $path $v}
                     else{[IO.File]::AppendAllText($path,"`n",[Text.UTF8Encoding]::new($false))}
                     $before=@($plan.paths|ForEach-Object{Identity (Join-Path $project $_)})+(Identity $txn)
-                    try{$bad=Invoke-Tool $entry $probe -Reject;Confirm ($bad.code-ne0) ($CrossLayout+'-schema'+$schema+'-reject-'+$fault);Confirm (($before-join';')-ceq((@($plan.paths|ForEach-Object{Identity (Join-Path $project $_)})+(Identity $txn))-join';')) ($CrossLayout+'-rejection-zero-live-write-'+$fault)}finally{[IO.File]::WriteAllBytes($path,$bytes)}
+                    try{
+                        $bad=Invoke-Tool $entry $probe -Reject
+                        $historyInCurrentWriteSet=$fault-ceq'history'-and'.ai-workspace/upgrade-recovery/corrections/COVERED_FIXTURE/adoption/history.json'-cin@($plan.paths)
+                        if($fault-ceq'history'-and-not$historyInCurrentWriteSet){
+                            $unrelatedResult=try{$bad.text|ConvertFrom-Json}catch{$null}
+                            Confirm ($bad.code-eq0-and$null-ne$unrelatedResult-and$unrelatedResult.status-ceq'PASS'-and$unrelatedResult.reason-ceq'ORIGINAL_CROSS_DISTRIBUTION_ADOPTION_FINALIZED') ($CrossLayout+'-schema'+$schema+'-unrelated-history-not-current-write-lock')
+                        }else{Confirm ($bad.code-ne0) ($CrossLayout+'-schema'+$schema+'-reject-'+$fault)}
+                        Confirm (($before-join';')-ceq((@($plan.paths|ForEach-Object{Identity (Join-Path $project $_)})+(Identity $txn))-join';')) ($CrossLayout+'-fault-probe-zero-live-write-'+$fault)
+                    }finally{[IO.File]::WriteAllBytes($path,$bytes)}
                 }
                 if(-not$internal){$raw=Invoke-Tool $resolver @{InputPath=$fp;AsJson=$true} -Reject;Confirm ($raw.code-ne0-and$raw.text.Contains('DISTRIBUTION_RUNTIME_ROOT_DRIFT')) 'repo-local-raw-version-remains-fail-closed'}
             }

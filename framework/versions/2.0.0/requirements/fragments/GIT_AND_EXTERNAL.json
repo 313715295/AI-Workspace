@@ -1,0 +1,153 @@
+{
+  "schemaVersion": 2,
+  "frameworkVersion": "2.0.0",
+  "ownerModule": "GIT_AND_EXTERNAL.md",
+  "requirements": [
+    {
+      "requirementId": "PR_GIT_PUSH_SEPARATE",
+      "legacyAliases": [],
+      "title": "Git and push separation",
+      "description": "Keep stage, commit and remote push as separate exact repository actions.",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "*"
+        ],
+        "actionKinds": [
+          "GIT_STAGE",
+          "GIT_COMMIT",
+          "PUSH"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": []
+      },
+      "exactBlockLocator": "AIW-REQUIREMENT:PR_GIT_PUSH_SEPARATE",
+      "preparationRequirements": [
+        "SAFE_GIT_STATE_PROVEN",
+        "GIT_ACTION_AUTHORIZED"
+      ],
+      "resultRequirements": [
+        "GIT_RESULT_OBSERVED"
+      ]
+    },
+    {
+      "requirementId": "PR_EXTERNAL_DEVICE_BROWSER_SEPARATE",
+      "legacyAliases": [],
+      "title": "External side effects remain separate",
+      "description": "Require a current independent boundary for browser, device and external actions.",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "*"
+        ],
+        "actionKinds": [
+          "BROWSER_RUN",
+          "DEVICE_RUN",
+          "EXTERNAL"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": []
+      },
+      "exactBlockLocator": "AIW-REQUIREMENT:PR_EXTERNAL_DEVICE_BROWSER_SEPARATE",
+      "preparationRequirements": [
+        "EXTERNAL_BOUNDARY_AUTHORIZED"
+      ],
+      "resultRequirements": [
+        "EXTERNAL_RESULT_OBSERVED"
+      ]
+    },
+    {
+      "requirementId": "PR_TASK_OWNER_DIRECT_DOMAIN_EXTERNAL",
+      "legacyAliases": [],
+      "title": "Bounded domain-owner external action",
+      "description": "Permit one exact free domain-local external batch while preserving Controller exception boundaries.",
+      "selectors": {
+        "profiles": [
+          "STANDARD",
+          "CRITICAL"
+        ],
+        "roles": [
+          "TASK_OWNER"
+        ],
+        "phases": [
+          "EXTERNAL"
+        ],
+        "actionKinds": [
+          "EXTERNAL"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": []
+      },
+      "exactBlockLocator": "AIW-REQUIREMENT:PR_TASK_OWNER_DIRECT_DOMAIN_EXTERNAL",
+      "preparationRequirements": [
+        "DOMAIN_EXTERNAL_PACKAGE_VALID",
+        "EXTERNAL_PAYLOAD_IDENTITIES_BOUND",
+        "USER_EXTERNAL_DECISION_BOUND"
+      ],
+      "resultRequirements": [
+        "DOMAIN_EXTERNAL_BATCH_RESULT_OBSERVED"
+      ]
+    },
+    {
+      "requirementId": "PR_GIT_PLANNING_BOUNDARY",
+      "legacyAliases": [],
+      "title": "Git planning and disposition boundary",
+      "description": "Discussing Git or handing off changed artifacts never grants stage, commit or push authority.",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "PLAN",
+          "IMPLEMENT",
+          "VERIFY",
+          "REVIEW"
+        ],
+        "actionKinds": [
+          "NONE",
+          "CONTROL_WRITE"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": [
+          "git",
+          "commit",
+          "push",
+          "提交",
+          "推送"
+        ]
+      },
+      "exactBlockLocator": "AIW-REQUIREMENT:PR_GIT_PLANNING_BOUNDARY",
+      "preparationRequirements": [],
+      "resultRequirements": []
+    }
+  ]
+}

@@ -36,8 +36,13 @@ param(
     [ValidateSet('PREPARE','ADMIT_ACTION','FINALIZE_OUTPUT')][string]$AdoptionProcessMode,
     [string]$AdoptionPreparationPath,
     [string]$ExpectedAdoptionPreparationIdentity,
+    [string]$AdmitInputPath,
+    [string]$ExpectedAdmitInputIdentity,
     [string]$AdmitResultPath,
     [string]$ExpectedAdmitResultIdentity,
+    [string]$MajorAdoptionOverridesPath,
+    [string]$ExpectedMajorAdoptionOverridesIdentity,
+    [int]$InterruptBeforeAdoptionJournalWrite = -1,
     [switch]$DeleteProcessInputOnExit,
 
     [ValidateRange(1, [int]::MaxValue)]
@@ -109,18 +114,21 @@ if($ProjectCorrectionLifecyclePath){
 if($AdoptionProcessMode-and($Apply-or$RecoverRuntimeAdoption-or$ProjectRuleRecoveryPlanPath)){throw 'ADOPTION_PROCESS_READ_ONLY_BOUNDARY'}
 if($AdoptionProcessMode){
     $processProject=(Read-AiwProjectJson (Get-AiwContainedPath (Resolve-AiwRepositoryRoot $RepositoryPath) '.ai-workspace/project.json') 'ADOPTION_PROCESS_PROJECT').Value
-    if($processProject.id-cne$ProjectId-or$processProject.frameworkVersion-cne$ToVersion-or$ToVersion-cne'1.16.0'){throw 'ADOPTION_PROCESS_PROJECT_BINDING'}
+    $processPair=($ToVersion-ceq'1.16.0'-and$processProject.frameworkVersion-ceq'1.16.0')-or
+        ($ToVersion-ceq'2.0.0'-and$processProject.frameworkVersion-cin@('1.16.0','2.0.0'))
+    if($processProject.id-cne$ProjectId-or-not$processPair){throw 'ADOPTION_PROCESS_PROJECT_BINDING'}
 }
 if($AdoptionProcessMode-cin@('ADMIT_ACTION','FINALIZE_OUTPUT')){
     try {
-        $result=Invoke-AiwAdoptionProcessBoundary -RepositoryRoot $RepositoryPath -InputPath $CurrentProcessInputPath -ExpectedInputIdentity $ExpectedCurrentProcessInputIdentity -PreparationPath $AdoptionPreparationPath -ExpectedPreparationIdentity $ExpectedAdoptionPreparationIdentity -AdmitResultPath $AdmitResultPath -ExpectedAdmitResultIdentity $ExpectedAdmitResultIdentity -AuthorizationPackagePath $AuthorizationPackagePath -ExpectedAuthorizationPackageIdentity $ExpectedAuthorizationPackageIdentity -ExpectedTransactionIdentity $ExpectedAdoptionTransactionIdentity -ObservedActor $ActorRouteActor -ExpectedMode $AdoptionProcessMode -DeleteInputOnExit:$DeleteProcessInputOnExit
+        $result=Invoke-AiwAdoptionProcessBoundary -RepositoryRoot $RepositoryPath -InputPath $CurrentProcessInputPath -ExpectedInputIdentity $ExpectedCurrentProcessInputIdentity -PreparationPath $AdoptionPreparationPath -ExpectedPreparationIdentity $ExpectedAdoptionPreparationIdentity -AdmitInputPath $AdmitInputPath -ExpectedAdmitInputIdentity $ExpectedAdmitInputIdentity -AdmitResultPath $AdmitResultPath -ExpectedAdmitResultIdentity $ExpectedAdmitResultIdentity -AuthorizationPackagePath $AuthorizationPackagePath -ExpectedAuthorizationPackageIdentity $ExpectedAuthorizationPackageIdentity -ExpectedTransactionIdentity $ExpectedAdoptionTransactionIdentity -ObservedActor $ActorRouteActor -ExpectedMode $AdoptionProcessMode -DeleteInputOnExit:$DeleteProcessInputOnExit
         $result|ConvertTo-Json -Depth 100 -Compress
         exit 0
     }catch{[ordered]@{status='FAIL';reason=$_.Exception.Message}|ConvertTo-Json -Compress;exit 2}
 }
 if($RecoverRuntimeAdoption-or-not[string]::IsNullOrWhiteSpace($ProjectRuleRecoveryPlanPath)){
     $recoveryConfig=(Read-AiwProjectJson (Get-AiwContainedPath (Resolve-AiwRepositoryRoot $RepositoryPath) '.ai-workspace/project.json') 'RECOVERY_PROJECT').Value
-    if([string]$recoveryConfig.id-cne$ProjectId-or[string]$recoveryConfig.frameworkVersion-cne$ToVersion){throw 'RECOVERY_PROJECT_BINDING'}
+    $recoveringMajor=$RecoverRuntimeAdoption-and$ToVersion-ceq'2.0.0'-and$recoveryConfig.frameworkVersion-ceq'1.16.0'
+    if([string]$recoveryConfig.id-cne$ProjectId-or([string]$recoveryConfig.frameworkVersion-cne$ToVersion-and-not$recoveringMajor)){throw 'RECOVERY_PROJECT_BINDING'}
 }
 if($RecoverRuntimeAdoption){
     Resume-AiwRuntimeAdoption -RepositoryRoot $RepositoryPath -ExpectedTransactionIdentity $ExpectedAdoptionTransactionIdentity -AuthorizationPackagePath $AuthorizationPackagePath -ExpectedAuthorizationPackageIdentity $ExpectedAuthorizationPackageIdentity -ObservedActor $ActorRouteActor -Direction $AdoptionRecoveryDirection -Apply:$Apply
@@ -134,6 +142,7 @@ if(-not[string]::IsNullOrWhiteSpace($ProjectRuleRecoveryPlanPath)){
 function Get-OptionalIdentity([string]$Path){if(Test-Path -LiteralPath $Path -PathType Leaf){return Get-MinimalFileIdentity $Path};return 'MISSING'}
 function Write-ProjectedText([string]$Path,[string]$Content){[IO.File]::WriteAllText($Path,$Content,$utf8NoBom)}
 function Get-RuntimeGitIgnoreProjection([string]$RepositoryRoot,[string]$Rule){
+    if(-not(Test-AiwProjectGitMetadata $RepositoryRoot)){return [pscustomobject]@{Path=(Join-Path $RepositoryRoot '.gitignore');OldIdentity='NOT_APPLICABLE';Content='';Changed=$false}}
     $path=Join-Path $RepositoryRoot '.gitignore';$oldIdentity=Get-OptionalIdentity $path;$content=''
     if($oldIdentity-cne'MISSING'){$bytes=[IO.File]::ReadAllBytes($path);if($bytes.Length-ge3-and$bytes[0]-eq239-and$bytes[1]-eq187-and$bytes[2]-eq191){throw 'RUNTIME_GITIGNORE_BOM'};try{$content=$utf8Strict.GetString($bytes)}catch{throw 'RUNTIME_GITIGNORE_UTF8'};if($content.Contains([char]0)){throw 'RUNTIME_GITIGNORE_NUL'}}
     $normalizedRule=$Rule.Trim().TrimStart('!').TrimStart('/').TrimEnd('/');$lines=[regex]::Split($content,"`r?`n");$matches=@();$negated=@()
@@ -168,6 +177,7 @@ function Get-ProcessCarrierContractVersion([string]$FrameworkVersion,$AdoptionPr
 function Test-GlobalRouterProjection([string]$FrameworkVersion,$AdoptionProfile=$null){if($null-ne$AdoptionProfile-and[string]$AdoptionProfile.frameworkVersion-ceq$FrameworkVersion){return [string]$AdoptionProfile.projectControl.navigationProjection-ceq'ROOT_CANONICAL_SKILL_MANAGED_AGENTS'};if(Test-AdoptionProfileVersion $FrameworkVersion){return [string]$script:ActiveAdoptionProfile.projectControl.navigationProjection-ceq'ROOT_CANONICAL_SKILL_MANAGED_AGENTS'};throw 'ADOPTION_PROFILE_VERSION_UNBOUND'}
 
 function Get-AiwUpgradeRootToolRevision([string]$FrameworkWorkspace,[string]$TargetVersion,[string]$Layout){
+    $navigation=Get-AiwNavigationContract (Read-AiwProjectJson (Join-ChildPath $FrameworkWorkspace ('framework/versions/'+$TargetVersion+'/TOOLCHAIN.json')) 'TARGET_TOOLCHAIN').Value
     $additional=@(
         "framework/versions/$TargetVersion/VERSION.json",
         "framework/versions/$TargetVersion/RELEASE_MANIFEST.json",
@@ -179,7 +189,8 @@ function Get-AiwUpgradeRootToolRevision([string]$FrameworkWorkspace,[string]$Tar
         "framework/versions/$TargetVersion/project-starter/process-policy.json",
         "framework/versions/$TargetVersion/scripts/check-project-corrections.ps1",
         "framework/versions/$TargetVersion/scripts/check-task-card.ps1",
-        'skills/ai-workspace-router/SKILL.md'
+        "framework/versions/$TargetVersion/TOOLCHAIN.json",
+        [string]$navigation.CanonicalSkillPath
     )
     if($Layout-ceq'framework-maintenance-sibling'){
         $additional+=@(
@@ -266,7 +277,18 @@ function Get-ActorBoundRecoveryContract([string]$RepositoryRoot,[string]$Recover
     if([int]$State.schemaVersion-in@(4,5,6)){$stateFields+='transactionComplete'}
     if([int]$State.schemaVersion-in@(5,6)){$stateFields+=@('projectFormat','projectCapabilities','rootToolRevision','rootToolDependencies')}
     if([int]$State.schemaVersion-eq6){$stateFields+='distributionBinding'}
+    $major=$null-ne$State.PSObject.Properties['majorTransition']
+    if($major){$stateFields+='majorTransition'}
     Assert-MinimalExactFields $State $StateRaw $stateFields 'actor-bound upgrade recovery'
+    $majorTransaction=$null
+    if($major){
+        Assert-MinimalExactFields $State.majorTransition ($State.majorTransition|ConvertTo-Json -Compress) @('fromVersion','fromDistributionId','toVersion','transactionRelativePath') 'major recovery link'
+        if($TargetVersion-cne'2.0.0'-or$State.fromVersion-cne'1.16.0'-or$State.majorTransition.fromVersion-cne'1.16.0'-or$State.majorTransition.fromDistributionId-cne'1.16.0-snapshot.12'-or$State.majorTransition.toVersion-cne'2.0.0'-or$State.majorTransition.transactionRelativePath-cne'.ai-workspace/runtime/project-adoption/upgrade/state.json'){throw 'MAJOR_ADOPTION_VERSION_PAIR'}
+        $majorTransaction=(Read-AiwProjectJson (Get-AiwContainedPath $RepositoryRoot $State.majorTransition.transactionRelativePath) 'MAJOR_RECOVERY_TRANSACTION').Value
+        $null=Assert-AiwProjectionContract $RepositoryRoot $majorTransaction.projection
+        if($majorTransaction.state-cne'COMPLETE'-or$majorTransaction.transactionComplete-ne$true-or$majorTransaction.metadata.operation-cne'UPGRADE_SNAPSHOT12_TO_2'){throw 'MAJOR_ADOPTION_RECOVERY_STATE_DRIFT'}
+        Assert-AiwMajorRecoveryOrigin $State $majorTransaction
+    }
     if([int]$State.schemaVersion-in@(4,5,6)-and-not($State.transactionComplete-is[bool])){throw 'ACTOR_BOUND_UPGRADE_RECOVERY_SCHEMA'}
     if([int]$State.schemaVersion-in@(5,6)-and([string]$State.projectFormat-cnotmatch'^repo-local/project-config-[1-9][0-9]*$'-or-not($State.projectCapabilities-is[Array])-or[string]$State.rootToolRevision-cnotmatch'^[A-F0-9]{64}$'-or-not($State.rootToolDependencies-is[Array]))){throw 'ACTOR_BOUND_UPGRADE_RECOVERY_RUNTIME_IDENTITY'}
     if([int]$State.schemaVersion-eq6){$null=Assert-AiwDistributionBinding $State.distributionBinding ([string]$State.distributionBinding.runtimeRoot) ([string]$State.toVersion)}
@@ -281,6 +303,11 @@ function Get-ActorBoundRecoveryContract([string]$RepositoryRoot,[string]$Recover
         $entryRaw=$entry|ConvertTo-Json -Compress;Assert-MinimalExactFields $entry $entryRaw @('relative','oldIdentity','newIdentity') 'actor-bound upgrade object'
         if(-not($entry.relative-is[string])-or-not$seen.Add([string]$entry.relative)-or([string]$entry.oldIdentity-cne'MISSING'-and[string]$entry.oldIdentity-cnotmatch'^\d+\|[A-F0-9]{64}$')-or([string]$entry.newIdentity-cne'ABSENT'-and[string]$entry.newIdentity-cnotmatch'^\d+\|[A-F0-9]{64}$')){throw 'ACTOR_BOUND_UPGRADE_RECOVERY_OBJECT'}
         $record=[pscustomobject]@{relative=[string]$entry.relative;path=(Join-ChildPath $RepositoryRoot ([string]$entry.relative));oldIdentity=[string]$entry.oldIdentity;newIdentity=[string]$entry.newIdentity};$records.Add($record)
+        if($major){
+            $saved=@($majorTransaction.projection.objects|Where-Object{$_.path-ceq$record.relative})
+            if($saved.Count-ne1-or$saved[0].oldIdentity-cne$record.oldIdentity-or$saved[0].newIdentity-cne$record.newIdentity){throw 'MAJOR_ADOPTION_RECOVERY_MATERIAL_DRIFT'}
+            continue
+        }
         foreach($kind in @('old','new')){
             $expected=if($kind-ceq'old'){[string]$record.oldIdentity}else{[string]$record.newIdentity};$missing=$expected-in@('MISSING','ABSENT');$material=Join-ChildPath (Join-Path $RecoveryRoot $kind) ([string]$record.relative)
             if($missing){if(Test-Path -LiteralPath $material){throw 'ACTOR_BOUND_UPGRADE_RECOVERY_UNEXPECTED_MATERIAL'}}else{if((Get-OptionalIdentity $material)-cne$expected){throw 'ACTOR_BOUND_UPGRADE_RECOVERY_MATERIAL'};$materialFiles.Add($kind+'/'+[string]$record.relative)}
@@ -289,10 +316,10 @@ function Get-ActorBoundRecoveryContract([string]$RepositoryRoot,[string]$Recover
     if(-not$seen.Contains($historicalTaskRelative)-or[string]@($State.objects)[-1].relative-cne$historicalTaskRelative){throw 'ACTOR_BOUND_UPGRADE_TASK_NOT_LAST'}
     $historicalTaskRecord=@($records|Where-Object{[string]$_.relative-ceq$historicalTaskRelative})
     if($historicalTaskRecord.Count-ne1-or[string]$historicalTaskRecord[0].newIdentity-ceq'ABSENT'){throw 'ACTOR_BOUND_UPGRADE_RECOVERY_BINDING_DRIFT'}
-    $historicalTaskRaw=Read-StrictUtf8NoBom (Join-ChildPath (Join-Path $RecoveryRoot 'new') $historicalTaskRelative)
+    $historicalTaskRaw=if($major){$utf8NoBom.GetString([Convert]::FromBase64String(@($majorTransaction.projection.objects|Where-Object{$_.path-ceq$historicalTaskRelative})[0].newBase64))}else{Read-StrictUtf8NoBom (Join-ChildPath (Join-Path $RecoveryRoot 'new') $historicalTaskRelative)}
     $historicalHeader=[regex]::Matches($historicalTaskRaw,'(?m)^#\s+(?<task>[0-9A-Za-z][0-9A-Za-z._-]*)\s+[-—]')
     $historicalOwner=[regex]::Matches($historicalTaskRaw,'(?m)^- Owner:\s*`?(?<owner>[^`\r\n]+?)`?\s*$')
-    $historicalRoute=[regex]::Matches($historicalTaskRaw,'(?m)^- Work route:\s*actor=(?<actor>[^;\s]+);\s*role=(?:CONTROLLER|DOMAIN_OWNER|EXECUTOR|REVIEWER|FRAMEWORK_MAINTAINER);\s*phase=(?:DISCOVER|PLAN|IMPLEMENT|VERIFY|REVIEW|GIT|EXTERNAL|RECOVER)\s*$')
+    $historicalRoute=[regex]::Matches($historicalTaskRaw,'(?m)^- Work route:\s*actor=(?<actor>[^;\s]+);\s*role=(?:CONTROLLER|DOMAIN_OWNER|TASK_OWNER|EXECUTOR|REVIEWER|FRAMEWORK_MAINTAINER);\s*phase=(?:DISCOVER|PLAN|IMPLEMENT|VERIFY|REVIEW|GIT|EXTERNAL|RECOVER)\s*$')
     if($historicalHeader.Count-ne1-or[string]$historicalHeader[0].Groups['task'].Value-cne[string]$State.taskId-or$historicalOwner.Count-ne1-or[string]$historicalOwner[0].Groups['owner'].Value-cne[string]$State.taskOwner-or$historicalRoute.Count-ne1-or[string]$historicalRoute[0].Groups['actor'].Value-cne[string]$State.actor){throw 'ACTOR_BOUND_UPGRADE_RECOVERY_BINDING_DRIFT'}
     Assert-ExactTransactionTree $RecoveryRoot (@('state.json')+@($materialFiles)) ([string[]]@()) 'ACTOR_BOUND_UPGRADE_RECOVERY_TREE_CLOSURE'
 
@@ -364,7 +391,7 @@ function Get-ActorRouteMigration([string]$RepositoryRoot,[string]$TargetVersion,
     $schemaPattern=if($snapshotRebindRequired-or$projectionState){'(?m)^- Task schema:\s*(?<version>'+[regex]::Escape($TargetVersion)+')\s*$'}else{'(?m)^- Task schema:\s*(?<version>\d+\.\d+\.\d+)\s*$'}
     $schema=[regex]::Matches($raw,$schemaPattern)
     $legacy=[regex]::Matches($raw,'(?m)^- Work route:\s*role=(?<role>CONTROLLER|DOMAIN_OWNER|EXECUTOR|REVIEWER|FRAMEWORK_MAINTAINER);\s*phase=(?<phase>DISCOVER|PLAN|IMPLEMENT|VERIFY|REVIEW|GIT|EXTERNAL|RECOVER)\s*$')
-    $current=[regex]::Matches($raw,'(?m)^- Work route:\s*actor=(?<actor>[^;\s]+);\s*role=(?<role>CONTROLLER|DOMAIN_OWNER|EXECUTOR|REVIEWER|FRAMEWORK_MAINTAINER);\s*phase=(?<phase>DISCOVER|PLAN|IMPLEMENT|VERIFY|REVIEW|GIT|EXTERNAL|RECOVER)\s*$')
+    $current=[regex]::Matches($raw,'(?m)^- Work route:\s*actor=(?<actor>[^;\s]+);\s*role=(?<role>CONTROLLER|DOMAIN_OWNER|TASK_OWNER|EXECUTOR|REVIEWER|FRAMEWORK_MAINTAINER);\s*phase=(?<phase>DISCOVER|PLAN|IMPLEMENT|VERIFY|REVIEW|GIT|EXTERNAL|RECOVER)\s*$')
     $fileTask=[IO.Path]::GetFileNameWithoutExtension($RelativePath)
     if($header.Count-ne1-or[string]$header[0].Groups['task'].Value-cne$fileTask-or$owner.Count-ne1-or[string]::IsNullOrWhiteSpace([string]$owner[0].Groups['owner'].Value)-or$range.Count-ne1-or[string]$range[0].Groups['lifecycle'].Value-cne'ACTIVE'){throw 'ACTOR_ROUTE_CURRENT_TASK_BINDING_REQUIRED'}
     if($schema.Count-ne1){throw 'ACTOR_ROUTE_SOURCE_SCHEMA_REQUIRED'}
@@ -375,6 +402,7 @@ function Get-ActorRouteMigration([string]$RepositoryRoot,[string]$TargetVersion,
         $target=$raw
     }else{throw 'ACTOR_ROUTE_SOURCE_BINDING_REQUIRED'}
     $target=$target.Substring(0,$schema[0].Index)+'- Task schema: '+$TargetVersion+$target.Substring($schema[0].Index+$schema[0].Length)
+    if($TargetVersion-ceq'2.0.0'){$target=[regex]::Replace($target,'(?m)^(- Work route: actor=[^;\s]+; role=)DOMAIN_OWNER(; phase=)','$1TASK_OWNER$2')}
     $actualPaths=if([string]::IsNullOrWhiteSpace([string]$range[0].Groups['actual'].Value)){@()}else{@([string]$range[0].Groups['actual'].Value -split '\|')}
     $directory=[IO.Path]::GetDirectoryName($RelativePath).Replace('\','/')
     $atomicRelative=$directory+'/.'+[IO.Path]::GetFileName($RelativePath)+'.actor-route-new'
@@ -498,6 +526,9 @@ function Assert-ActorBoundProjectUpgradeAuthorization([string]$RepositoryRoot,[s
     try{[Environment]::CurrentDirectory=$RepositoryRoot;$result=@(& $checker @args 2>&1|ForEach-Object{[string]$_});$checkerExit=$LASTEXITCODE}finally{[Environment]::CurrentDirectory=$previousCurrentDirectory;Pop-Location}
     $samePinProjectionRefresh=$null-ne$Plan.PSObject.Properties['StatePreimage']-and$null-ne$Plan.PSObject.Properties['ProjectedPreflight']-and[bool]$script:ActiveTargetSnapshot.LocalCandidate-and$Plan.Records.Count-ge0
     if($samePinProjectionRefresh-and$checkerExit-eq2-and$result.Count-eq1-and[string]$result[0]-ceq'FAIL|POST_IDENTITY_RECOVERY_PATH'){
+        # This exact rejection is discharged by the root projection checks.
+        # Do not leak the nested checker's failure as the successful tool result.
+        $global:LASTEXITCODE=0
         Write-Output ('AUTHORIZATION_ROOT_EXCEPTION|reason=SAME_PIN_CANDIDATE_MANAGED_PROJECTION_REFRESH|recovery='+[string]$Plan.StateRelative)
         return
     }
@@ -507,6 +538,7 @@ function Assert-ActorBoundProjectUpgradeAuthorization([string]$RepositoryRoot,[s
         $samePinStateRebind=$exact.Count-eq1-and$pre.Count-eq1-and$post.Count-eq1-and[string]$Plan.StateRelative-ceq$expectedStateRelative-and[string]$exact[0]-ceq$expectedStateRelative-and[string]$pre[0].path-ceq$expectedStateRelative-and[string]$post[0].path-ceq$expectedStateRelative-and[string]$pre[0].identity-ceq[string]$Plan.Preimage-and[string]$post[0].identity-ceq[string]$Plan.Postimage
     }
     if($samePinStateRebind-and$checkerExit-eq2-and$result.Count-eq1-and[string]$result[0]-ceq'FAIL|POST_IDENTITY_RECOVERY_PATH'){
+        $global:LASTEXITCODE=0
         Write-Output ('AUTHORIZATION_ROOT_EXCEPTION|reason=SAME_VERSION_CANDIDATE_STATE_REBIND|recovery='+[string]$Plan.StateRelative)
         return
     }
@@ -768,7 +800,8 @@ function Get-LocalCandidateSamePinProjectionRefreshPlan([string]$RepositoryRoot,
 
     $agentsPath=Join-Path $RepositoryRoot 'AGENTS.md';$agentsRaw=Read-StrictUtf8NoBom $agentsPath
     $null=Get-AiwAgentsTemplateBlock $agentsRaw
-    $targetAgents=Get-AiwStandingDelegationProjection -Text $agentsRaw -AdoptionRequested $true -TemplatePath (Join-ChildPath $templateRoot 'AGENTS.md')
+    $navigation=Get-AiwNavigationContract (Read-AiwProjectJson (Join-ChildPath $TargetFramework 'TOOLCHAIN.json') 'TARGET_TOOLCHAIN').Value
+    $targetAgents=Get-AiwStandingDelegationProjection -Text $agentsRaw -AdoptionRequested $true -TemplatePath (Join-ChildPath $templateRoot 'AGENTS.md') -RouterSkillName $navigation.SkillName
     & $addProjection 'AGENTS.md' $agentsPath $targetAgents $true
     $skillRelative='.agents/skills/ai-workspace-router/SKILL.md';$skillPath=Join-ChildPath $RepositoryRoot $skillRelative;if(Test-Path -LiteralPath $skillPath -PathType Leaf){& $addProjection $skillRelative $skillPath $null $true}
     $gitIgnore=Get-RuntimeGitIgnoreProjection $RepositoryRoot ([string]$script:ActiveAdoptionProfile.projectControl.runtimeGitIgnoreRule);if([bool]$gitIgnore.Changed){& $addProjection '.gitignore' ([string]$gitIgnore.Path) ([string]$gitIgnore.Content) ([bool]$stateEntries.ContainsKey('.gitignore'))}
@@ -790,6 +823,7 @@ function Get-LocalCandidateSamePinProjectionRefreshPlan([string]$RepositoryRoot,
     $format=Get-AiwProjectFormat $RepositoryRoot
     $newState=[ordered]@{schemaVersion=5;transactionComplete=$true;projectId=$ProjectId;fromVersion=[string]$state.fromVersion;toVersion=$TargetVersion;targetReleaseCanonical=[string]$script:ActiveTargetSnapshot.Canonical;targetReleaseManifestIdentity=[string]$script:ActiveTargetSnapshot.ManifestIdentity;actor=[string]$state.actor;taskId=[string]$state.taskId;taskOwner=[string]$state.taskOwner;taskRelative=$historicalTaskRelative;authorizationIdentity=[string]$state.authorizationIdentity;objects=$originalObjects;projectionMode='LOCAL_CANDIDATE_MANAGED';projectionObjects=[object[]]$projectionObjects.ToArray();projectFormat=[string]$format.projectFormat;projectCapabilities=@($format.capabilities);rootToolRevision=[string]$script:ActiveRootToolRevision.revision;rootToolDependencies=@($script:ActiveRootToolRevision.dependencies)}
     if($null-ne$script:ActiveDistributionBinding){$newState.schemaVersion=6;$newState.distributionBinding=$script:ActiveDistributionBinding}
+    if($null-ne$state.PSObject.Properties['majorTransition']){$newState.majorTransition=$state.majorTransition}
     $stateText=Normalize-Text ($newState|ConvertTo-Json -Depth 30)
     $statePreimage=Get-MinimalFileIdentity $statePath
     $statePostimage=Get-MinimalBytesIdentity ($utf8NoBom.GetBytes($stateText))
@@ -824,7 +858,18 @@ function Invoke-LocalCandidateSamePinProjectionRefresh([string]$RepositoryRoot,[
     Write-Output ('UPGRADE_TARGET_MODE|lifecycle='+[string]$script:ActiveTargetSnapshot.Lifecycle+'|localCandidate=True');Write-Output ('UPGRADE_TARGET_RELEASE|canonical='+[string]$Plan.State.targetReleaseCanonical+'|manifest='+[string]$Plan.State.targetReleaseManifestIdentity);foreach($entry in $Plan.Preimages){Write-Output ('UPGRADE_PREIMAGE|'+[string]$entry.path+'='+[string]$entry.identity)};foreach($entry in $Plan.Postimages){Write-Output ('UPGRADE_POSTIMAGE|'+[string]$entry.path+'='+[string]$entry.identity)};Write-Output ('UPGRADE_WRITESET|'+[string]::Join('|',@($Plan.ExactPaths)))
     if(-not$ApplyChange){Write-Output ('WHAT_IF|from='+$TargetVersion+'|to='+$TargetVersion+'|objects='+($Plan.Records.Count+1)+'|transaction=local-candidate-managed-projection-refresh');return}
     Assert-ActorBoundProjectUpgradeAuthorization $RepositoryRoot $TargetFramework $ProjectFile $Migration $Plan
+    $samePinAdmitIdentity=$null
     if($null-ne$script:ActiveDistributionBinding){
+        if($TargetVersion-ceq'2.0.0'){
+            if([string]::IsNullOrWhiteSpace($AdmitResultPath)-or[string]::IsNullOrWhiteSpace($ExpectedAdmitResultIdentity)){throw 'SAME_PIN_ADMIT_ORIGINAL_EVIDENCE_REQUIRED'}
+            $admitDoc=Read-AiwProjectJson $AdmitResultPath 'SAME_PIN_ADMIT'
+            if($admitDoc.Identity-cne$ExpectedAdmitResultIdentity){throw 'SAME_PIN_ADMIT_ORIGINAL_EVIDENCE_DRIFT'}
+            $proof=Get-AiwSamePinAdoptionAdmission $admitDoc $RepositoryRoot $Plan.Projection $script:ActiveDistributionBinding $Migration.Actor
+            $authorization=Read-AiwProjectJson $AuthorizationPackagePath 'SAME_PIN_AUTHORIZATION'
+            if($authorization.Identity-cne$ExpectedAuthorizationPackageIdentity){throw 'SAME_PIN_AUTHORIZATION_DRIFT'}
+            Assert-AiwMajorUpgradeAuthorization $authorization.Value $proof ([pscustomobject]@{canonical=$Plan.State.targetReleaseCanonical;manifestIdentity=$Plan.State.targetReleaseManifestIdentity})
+            $samePinAdmitIdentity=$admitDoc.Identity
+        }
         $postcheck={
             param($root,$projection)
             foreach($entry in @($projection.objects|Where-Object changed)){
@@ -839,12 +884,13 @@ function Invoke-LocalCandidateSamePinProjectionRefresh([string]$RepositoryRoot,[
         }
         Import-Module (Join-ChildPath $TargetFramework 'scripts/ProcessRequirementComposition.psm1') -Force
         Assert-AiwRuntimeAdoptionProjection $RepositoryRoot $Plan.Projection $TargetFramework $TargetVersion (Get-MinimalFileIdentity $ProjectFile)
-        $transaction=Invoke-AiwProjectProjectionTransaction $RepositoryRoot $Plan.Projection '.ai-workspace/runtime/project-adoption/upgrade/state.json' $postcheck {param($r,$p) $true} -InterruptAfterWrite $InterruptAfterAdoptionWrite -Metadata @{
+        $transactionRelative=if($Plan.State.Contains('majorTransition')){'.ai-workspace/runtime/project-adoption/refresh/state.json'}else{'.ai-workspace/runtime/project-adoption/upgrade/state.json'}
+        $transaction=Invoke-AiwProjectProjectionTransaction $RepositoryRoot $Plan.Projection $transactionRelative $postcheck {param($r,$p) $true} -InterruptAfterWrite $InterruptAfterAdoptionWrite -InterruptBeforeJournalWrite $InterruptBeforeAdoptionJournalWrite -Metadata @{
             operation='UPGRADE_RUNTIME_REFRESH';authorizationIdentity=$ExpectedAuthorizationPackageIdentity;actor=$Migration.Actor
             projectConfigIdentity=(Get-MinimalFileIdentity $ProjectFile);controllerIdentity=(Get-MinimalFileIdentity (Join-Path $RepositoryRoot '.ai-workspace/controller.json'));taskPath=$Migration.Relative;taskIdentity=$Migration.OldIdentity
-            distributionBinding=$script:ActiveDistributionBinding
+            distributionBinding=$script:ActiveDistributionBinding;admitResultIdentity=$samePinAdmitIdentity
         }
-        if($transaction.status-ceq'INTERRUPTED'){Write-Output ('RUNTIME_ADOPTION_INTERRUPTED|state=.ai-workspace/runtime/project-adoption/upgrade/state.json');return}
+        if($transaction.status-ceq'INTERRUPTED'){Write-Output ('RUNTIME_ADOPTION_INTERRUPTED|state='+$transactionRelative);return}
         Write-Output ('LOCAL_CANDIDATE_PROJECT_PROJECTION_REFRESHED|version='+$TargetVersion+'|runtime='+$script:ActiveDistributionBinding.runtimeRoot+'|next=FRESH_RECOVERY')
         return
     }
@@ -938,11 +984,166 @@ function Get-ManagedAgentsTransition([string]$RepositoryRoot,[string]$SourceFram
     }else{''}
 
     $null=Get-AiwAgentsTemplateBlock $current
-    $newAgents=Get-AiwStandingDelegationProjection -Text $current -AdoptionRequested $true -TemplatePath (Join-ChildPath $TargetFramework 'project-starter/AGENTS.md')
+    $navigation=Get-AiwNavigationContract (Read-AiwProjectJson (Join-ChildPath $TargetFramework 'TOOLCHAIN.json') 'TARGET_TOOLCHAIN').Value
+    $newAgents=Get-AiwStandingDelegationProjection -Text $current -AdoptionRequested $true -TemplatePath (Join-ChildPath $TargetFramework 'project-starter/AGENTS.md') -RouterSkillName $navigation.SkillName
     return [pscustomobject]@{AgentsPath=$agentsPath;SkillPath=$skillPath;AgentsContent=$newAgents;SkillContent=$null}
 }
 
+function Convert-MajorAdoptionSelectors($Rules) {
+    # Change only active selector vocabulary. Prose, historical verdicts and
+    # authorization documents are not rewritten by a word replacement.
+    foreach($rule in @($Rules)){
+        if($null-eq$rule.PSObject.Properties['selectors']){continue}
+        foreach($pair in @(@('roles','DOMAIN_OWNER','TASK_OWNER'),@('actionKinds','OWNER_ACCEPT','RESULT_ACCEPT'),@('resultKinds','OWNER_ACCEPTANCE','RESULT_ACCEPTANCE'))){
+            if($null-ne$rule.selectors.PSObject.Properties[$pair[0]]){
+                $rule.selectors.($pair[0])=@($rule.selectors.($pair[0])|ForEach-Object{if($_-ceq$pair[1]){$pair[2]}else{$_}})
+            }
+        }
+    }
+}
+function Invoke-Snapshot12MajorAdoption([string]$RepositoryRoot,[string]$FrameworkWorkspace,[string]$ProjectId,$Migration,[bool]$ApplyChange) {
+    if($ApplyChange-and([string]::IsNullOrWhiteSpace($AdmitResultPath)-or[string]::IsNullOrWhiteSpace($ExpectedAdmitResultIdentity))){throw 'MAJOR_ADMIT_ORIGINAL_EVIDENCE_REQUIRED'}
+    if(-not$LocalCandidatePilot-or$null-eq$script:ActiveDistributionBinding-or$script:ActiveAdoptionProfile.frameworkVersion-cne'2.0.0'){
+        throw 'MAJOR_ADOPTION_FIXED_CANDIDATE_REQUIRED'
+    }
+    $oldBinding=Get-AiwAdoptedDistributionBinding $RepositoryRoot '1.16.0'
+    if($null-eq$oldBinding-or$oldBinding.distributionId-cne'1.16.0-snapshot.12'){throw 'MAJOR_ADOPTION_SNAPSHOT12_REQUIRED'}
+    $null=Assert-AiwDistributionBinding $oldBinding $oldBinding.runtimeRoot '1.16.0'
+    $targetFramework=Join-ChildPath $FrameworkWorkspace 'framework/versions/2.0.0'
+    $projectDoc=Read-AiwProjectJson (Join-ChildPath $RepositoryRoot '.ai-workspace/project.json') 'MAJOR_PROJECT'
+    $project=$projectDoc.Value
+    if($project.schemaVersion-ne4-or$project.frameworkVersion-cne'1.16.0'-or$project.id-cne$ProjectId-or$null-eq$Migration){throw 'MAJOR_ADOPTION_SOURCE_PROJECT'}
+    if([string]::IsNullOrWhiteSpace($CurrentProcessInputPath)-and[string]::IsNullOrWhiteSpace($ExpectedCurrentProcessInputIdentity)-and-not$ApplyChange-and[string]::IsNullOrWhiteSpace($AdoptionProcessMode)){
+        # Declare the bounded scope so the project can construct its original
+        # old-version DISCOVER. This is not a projection, hash scan or admission.
+        $declared=@('.ai-workspace/upgrade-recovery/1.16.0/state.json','.ai-workspace/project.json','.ai-workspace/BOOTSTRAP.md','AGENTS.md','.ai-workspace/process-policy.json','.ai-workspace/corrections.json','.ai-workspace/upgrade-recovery/2.0.0/state.json',$Migration.Relative)
+        if($null-ne$project.frameworkCapabilities.PSObject.Properties['KNOWLEDGE_REFERENCE']){
+            $knowledge=$project.frameworkCapabilities.KNOWLEDGE_REFERENCE
+            if($null-ne$knowledge.PSObject.Properties['indexLocator']){$declared+=[string]$knowledge.indexLocator}
+        }
+        Write-Output ('UPGRADE_SCOPE_ONLY|'+[string]::Join('|',$declared))
+        Write-Output 'OLD_DISCOVER_REQUIRED|next=old-version exact scope and protection proof|authorityGranted=false'
+        return
+    }
+    if([string]::IsNullOrWhiteSpace($CurrentProcessInputPath)-or[string]::IsNullOrWhiteSpace($ExpectedCurrentProcessInputIdentity)){throw 'MAJOR_ADOPTION_ORIGINAL_BOUNDARY_REQUIRED'}
+    $inputDoc=Read-AiwProjectJson $CurrentProcessInputPath 'MAJOR_ADOPTION_INPUT'
+    if($inputDoc.Identity-cne$ExpectedCurrentProcessInputIdentity-or$inputDoc.Value.mode-cne'ADMIT_ACTION'){throw 'MAJOR_ADOPTION_INPUT_BINDING'}
+    $receiptDoc=Read-AiwProjectJson $inputDoc.Value.discoverReceiptPath 'MAJOR_ADOPTION_RECEIPT'
+    if($receiptDoc.Identity-cne$inputDoc.Value.expectedDiscoverReceiptIdentity){throw 'MAJOR_ADOPTION_RECEIPT_DRIFT'}
+    $context=if($receiptDoc.Value.schemaVersion-eq1){$receiptDoc.Value.authorityContext}else{$receiptDoc.Value.binding}
+    $overrides=$null
+    if([bool]$MajorAdoptionOverridesPath-ne[bool]$ExpectedMajorAdoptionOverridesIdentity){throw 'MAJOR_ADOPTION_OVERRIDES_FIELDS'}
+    if($MajorAdoptionOverridesPath){
+        $overrideDoc=Read-AiwProjectJson $MajorAdoptionOverridesPath 'MAJOR_ADOPTION_OVERRIDES';$overrides=$overrideDoc.Value
+        if($overrideDoc.Identity-cne$ExpectedMajorAdoptionOverridesIdentity-or$overrides.schemaVersion-ne1-or$overrides.projectConfigIdentity-cne$projectDoc.Identity-or$overrides.taskIdentity-cne$Migration.OldIdentity){throw 'MAJOR_ADOPTION_OVERRIDES_BINDING'}
+        $fields=@($overrides.PSObject.Properties.Name)
+        if(@($fields|Where-Object{$_-cnotin@('schemaVersion','projectConfigIdentity','taskIdentity','taskText','policy','corrections')}).Count){throw 'MAJOR_ADOPTION_OVERRIDES_FIELDS'}
+    }
+    $taskText=[string]$Migration.Content
+    if($null-ne$overrides-and$null-ne$overrides.PSObject.Properties['taskText']){$taskText=[string]$overrides.taskText}
+    elseif($taskText-cmatch'(?m)^- Phase gate: TRUE\s*$'){
+        throw 'MAJOR_ADOPTION_ACCEPTANCE_PLAN_REQUIRES_PROJECT_MAPPING'
+    }
+    $taskText=Normalize-Text $taskText
+    $targets=[Collections.Generic.List[object]]::new()
+    $oldStatePath='.ai-workspace/upgrade-recovery/1.16.0/state.json'
+    $oldStateDoc=Read-AiwProjectJson (Join-ChildPath $RepositoryRoot $oldStatePath) 'MAJOR_OLD_STATE'
+    $oldState=$oldStateDoc.Value
+    if($oldState.transactionComplete-ne$true-or$null-ne$oldState.PSObject.Properties['majorTransition']){throw 'MAJOR_ADOPTION_OLD_STATE_REQUIRED'}
+    $link=[ordered]@{fromVersion='1.16.0';fromDistributionId='1.16.0-snapshot.12';toVersion='2.0.0';transactionRelativePath='.ai-workspace/runtime/project-adoption/upgrade/state.json'}
+    $oldState|Add-Member majorTransition $link
+    $targets.Add([pscustomobject]@{path=$oldStatePath;text=(Normalize-Text ($oldState|ConvertTo-Json -Depth 100))})
+    $project.schemaVersion=5;$project.frameworkVersion='2.0.0'
+    if($null-ne$project.frameworkCapabilities.PSObject.Properties['KNOWLEDGE_REFERENCE']){
+        $legacy=$project.frameworkCapabilities.KNOWLEDGE_REFERENCE
+        $sources=@()
+        if($null-ne$legacy.PSObject.Properties['indexLocator']){
+            $indexRelative=[string]$legacy.indexLocator
+            foreach($forbidden in @($project.routineExcludedPaths)+@($context.forbiddenScope)){
+                if($indexRelative.Equals($forbidden,[StringComparison]::OrdinalIgnoreCase)-or$indexRelative.StartsWith($forbidden.TrimEnd('/')+'/',[StringComparison]::OrdinalIgnoreCase)){throw 'MAJOR_ADOPTION_PROTECTED_INDEX'}
+            }
+            $indexDoc=Read-AiwProjectJson (Get-AiwContainedPath $RepositoryRoot $indexRelative) 'MAJOR_LEGACY_INDEX'
+            Import-Module (Join-ChildPath $targetFramework 'scripts/KnowledgeSources.psm1') -Force
+            $converted=Convert-AiwLegacyKnowledgeIndex -Index $indexDoc.Value -ProjectId $ProjectId -LibraryId 'project-knowledge'
+            $targets.Add([pscustomobject]@{path=$indexRelative;text=(Normalize-Text ($converted|ConvertTo-Json -Depth 100))})
+            $sources=@([pscustomobject]@{id='project';root=[pscustomobject]@{kind='PROJECT';locator='.'};indexLocator=$indexRelative;selectionHints=@();updatePolicy='FOLLOW'})
+        }
+        $project.frameworkCapabilities.KNOWLEDGE_REFERENCE=[pscustomobject]@{enabled=[bool]$legacy.enabled;sources=$sources}
+    }
+    Import-Module (Join-ChildPath $targetFramework 'scripts/KnowledgeSources.psm1') -Force
+    $null=Assert-AiwFrameworkCapabilities $project.frameworkCapabilities
+    $targets.Add([pscustomobject]@{path='.ai-workspace/project.json';text=(Normalize-Text ($project|ConvertTo-Json -Depth 100))})
+    $templateRoot=if($project.controlPlaneLayout-ceq'framework-maintenance-sibling'){[string](Get-AiwMaintenanceOverlay $FrameworkWorkspace).Root}else{Join-ChildPath $targetFramework 'project-starter'}
+    $bootstrapPath=Join-ChildPath $RepositoryRoot '.ai-workspace/BOOTSTRAP.md'
+    $oldBootstrap=Read-StrictUtf8NoBom $bootstrapPath
+    $oldBlock=Assert-CurrentBootstrapBinding $oldBootstrap $ProjectId '1.16.0' $project.controlPlaneLayout $bootstrapPath
+    $rendered=Render-Bootstrap (Read-StrictUtf8NoBom (Join-ChildPath $templateRoot 'BOOTSTRAP.md')) $project '2.0.0'
+    $newBlock=Get-ManagedBootstrapBlock $rendered 'major target Bootstrap'
+    $bootstrap=Merge-CorrectionBootstrapBlock (Replace-ManagedBootstrapBlock $oldBootstrap $newBlock.Text $oldBlock) $rendered 'major target Bootstrap'
+    $targets.Add([pscustomobject]@{path='.ai-workspace/BOOTSTRAP.md';text=$bootstrap})
+    $navigation=Get-AiwNavigationContract (Read-AiwProjectJson (Join-ChildPath $targetFramework 'TOOLCHAIN.json') 'TARGET_TOOLCHAIN').Value
+    $agents=Get-AiwStandingDelegationProjection -Text (Read-StrictUtf8NoBom (Join-Path $RepositoryRoot 'AGENTS.md')) -AdoptionRequested $true -TemplatePath (Join-ChildPath $templateRoot 'AGENTS.md') -RouterSkillName $navigation.SkillName
+    $targets.Add([pscustomobject]@{path='AGENTS.md';text=$agents})
+    $policy=(Read-AiwProjectJson (Join-ChildPath $RepositoryRoot '.ai-workspace/process-policy.json') 'MAJOR_POLICY').Value
+    $corrections=(Read-AiwProjectJson (Join-ChildPath $RepositoryRoot '.ai-workspace/corrections.json') 'MAJOR_CORRECTIONS').Value
+    if($policy.contractVersion-cne'1.16.0'-or$policy.projectId-cne$ProjectId-or$corrections.projectId-cne$ProjectId){throw 'MAJOR_ADOPTION_CARRIER_BINDING'}
+    $policy.contractVersion='2.0.0';Convert-MajorAdoptionSelectors $policy.rules
+    if($null-ne$overrides-and$null-ne$overrides.PSObject.Properties['policy']){$policy=$overrides.policy}
+    $oldEvaluator=Join-ChildPath $oldBinding.runtimeRoot 'framework/versions/1.16.0/scripts/check-project-corrections.ps1'
+    $oldEvaluation=Invoke-CorrectionEvaluation $oldEvaluator $RepositoryRoot $oldBinding.runtimeRoot '1.16.0' (Join-ChildPath $RepositoryRoot '.ai-workspace/project.json') (Join-ChildPath $RepositoryRoot '.ai-workspace/corrections.json') 'PRECHECK'
+    $mappedCorrections=$null-ne$overrides-and$null-ne$overrides.PSObject.Properties['corrections']
+    if($null-ne$oldEvaluation.PSObject.Properties['incorporated']-and@($oldEvaluation.incorporated).Count-and-not$mappedCorrections){throw 'MAJOR_ADOPTION_SUPPRESSED_CORRECTIONS_REQUIRE_PROJECT_MAPPING'}
+    if($mappedCorrections){$corrections=$overrides.corrections}
+    elseif($corrections.schemaVersion-eq2-and$corrections.contractVersion-ceq'1.16.0'){$corrections.contractVersion='2.0.0'}
+    else{throw 'MAJOR_ADOPTION_CORRECTIONS_REQUIRE_PROJECT_MAPPING'}
+    $targets.Add([pscustomobject]@{path='.ai-workspace/process-policy.json';text=(Normalize-Text ($policy|ConvertTo-Json -Depth 100))})
+    $targets.Add([pscustomobject]@{path='.ai-workspace/corrections.json';text=(Normalize-Text ($corrections|ConvertTo-Json -Depth 100))})
+    $targets.Add([pscustomobject]@{path=$Migration.Relative;text=$taskText})
+    $baseProjection=New-AiwProjectProjection $RepositoryRoot $targets.ToArray()
+    $format=Get-AiwProjectedProjectFormat $RepositoryRoot $baseProjection
+    $records=@($baseProjection.objects|ForEach-Object{[ordered]@{relative=$_.path;oldIdentity=$_.oldIdentity;newIdentity=$_.newIdentity}})
+    $projectionRecords=@($baseProjection.objects|ForEach-Object{New-PilotProjectionRecord $_.path $_.newIdentity $bootstrap $agents})
+    $state=[ordered]@{schemaVersion=6;transactionComplete=$true;projectId=$ProjectId;fromVersion='1.16.0';toVersion='2.0.0';
+        targetReleaseCanonical=$script:ActiveTargetSnapshot.Canonical;targetReleaseManifestIdentity=$script:ActiveTargetSnapshot.ManifestIdentity;
+        actor=$Migration.Actor;taskId=$Migration.TaskId;taskOwner=$Migration.Owner;taskRelative=$Migration.Relative;authorizationIdentity=$context.authorizationIdentity;
+        objects=$records;projectionMode='LOCAL_CANDIDATE_MANAGED';projectionObjects=$projectionRecords;projectFormat=$format.projectFormat;projectCapabilities=@($format.capabilities);
+        rootToolRevision=$script:ActiveRootToolRevision.revision;rootToolDependencies=@($script:ActiveRootToolRevision.dependencies);distributionBinding=$script:ActiveDistributionBinding;majorTransition=$link}
+    $ordered=@($targets.ToArray()|Where-Object{$_.path-cne$Migration.Relative})+@([pscustomobject]@{path='.ai-workspace/upgrade-recovery/2.0.0/state.json';text=(Normalize-Text ($state|ConvertTo-Json -Depth 100))})+@($targets.ToArray()|Where-Object{$_.path-ceq$Migration.Relative})
+    $projection=New-AiwProjectProjection $RepositoryRoot $ordered
+    $preparation=New-AiwAdoptionProcessPreparation -RepositoryRoot $RepositoryRoot -InputPath $CurrentProcessInputPath -ExpectedInputIdentity $ExpectedCurrentProcessInputIdentity -TargetRuntimeRoot $FrameworkWorkspace -Projection $projection -ObservedActor $Migration.Actor
+    if($AdoptionProcessMode-ceq'PREPARE'){$preparation|ConvertTo-Json -Depth 100 -Compress;return}
+    if(-not$ApplyChange){
+        foreach($entry in $projection.objects){Write-Output ('UPGRADE_PREIMAGE|'+$entry.path+'='+$(if($entry.oldExists){$entry.oldIdentity}else{'NEW'}));Write-Output ('UPGRADE_POSTIMAGE|'+$entry.path+'='+$entry.newIdentity)}
+        Write-Output ('UPGRADE_WRITESET|'+[string]::Join('|',@($projection.objects.path)))
+        Write-Output ('WHAT_IF|from=1.16.0-snapshot.12|to=2.0.0|objects='+@($projection.objects).Count+'|transaction=original-admission-major-bridge');return
+    }
+    $admitDoc=Read-AiwProjectJson $AdmitResultPath 'MAJOR_ADMIT'
+    if($admitDoc.Identity-cne$ExpectedAdmitResultIdentity){throw 'MAJOR_ADOPTION_ADMIT_DRIFT'}
+    $proof=Get-AiwMajorAdoptionAdmission $admitDoc $RepositoryRoot -VerifyCurrent
+    Assert-AiwAdoptionSame $projection $proof.preparation.projection 'MAJOR_APPLY_PROJECTION'
+    $authorizationDoc=Read-AiwProjectJson $AuthorizationPackagePath 'MAJOR_AUTHORIZATION'
+    if($authorizationDoc.Identity-cne$ExpectedAuthorizationPackageIdentity){throw 'MAJOR_ADOPTION_AUTHORIZATION_DRIFT'}
+    Assert-AiwMajorUpgradeAuthorization $authorizationDoc.Value $proof ([pscustomobject]@{canonical=$script:ActiveTargetSnapshot.Canonical;manifestIdentity=$script:ActiveTargetSnapshot.ManifestIdentity})
+    $postcheck={param($root,$candidate)
+        Import-Module (Join-Path $targetFramework 'scripts/ProcessRequirementComposition.psm1') -Force
+        $identity=[string](@($candidate.objects|Where-Object{$_.path-ceq'.ai-workspace/project.json'})[0].newIdentity)
+        Assert-AiwRuntimeAdoptionProjection $root $candidate $targetFramework '2.0.0' $identity
+        return $true
+    }
+    $transaction=Invoke-AiwProjectProjectionTransaction $RepositoryRoot $projection '.ai-workspace/runtime/project-adoption/upgrade/state.json' $postcheck {param($r,$p) $true} -InterruptAfterWrite $InterruptAfterAdoptionWrite -InterruptBeforeJournalWrite $InterruptBeforeAdoptionJournalWrite -Metadata @{
+        operation='UPGRADE_SNAPSHOT12_TO_2';authorizationIdentity=$authorizationDoc.Identity;actor=$Migration.Actor;projectConfigIdentity=$projectDoc.Identity;
+        controllerIdentity=(Get-MinimalFileIdentity (Join-ChildPath $RepositoryRoot '.ai-workspace/controller.json'));taskPath=$Migration.Relative;taskIdentity=$Migration.OldIdentity;
+        distributionBinding=$script:ActiveDistributionBinding;previousDistribution=$oldBinding;originalContext=$proof.context;
+        originalAdmitIdentity=$admitDoc.Identity;originalAdmitBase64=[Convert]::ToBase64String($admitDoc.Bytes)
+    }
+    Write-Output ('MAJOR_ADOPTION_'+$transaction.status+'|transaction=.ai-workspace/runtime/project-adoption/upgrade/state.json|next='+$(if($transaction.status-ceq'COMPLETE'){'ORIGINAL_FINALIZE'}else{'ORIGINAL_RECOVERY'}))
+}
 function Invoke-CompatibleProjectTransition([string]$RepositoryRoot,[string]$ControlRoot,[string]$FrameworkWorkspace,[string]$FromVersion,[string]$TargetVersion,[string]$ProjectId,[string]$ControllerId,$ActorMigration,[bool]$ApplyChange){
+    if($TargetVersion-ceq'2.0.0'){
+        if($FromVersion-cne'1.16.0'){throw 'MAJOR_ADOPTION_VERSION_PAIR'}
+        Invoke-Snapshot12MajorAdoption $RepositoryRoot $FrameworkWorkspace $ProjectId $ActorMigration $ApplyChange
+        return
+    }
     if(-not(Test-AdoptionProfileVersion $TargetVersion)){throw 'ADOPTION_PROFILE_VERSION_UNBOUND'}
     if($null-eq$ActorMigration){throw 'ACTOR_BOUND_PROJECT_UPGRADE_ROUTE_REQUIRED'}
 
@@ -1151,20 +1352,7 @@ function Write-Utf8NoBom {
     [System.IO.File]::WriteAllText($Path, (Normalize-Text $Content), $utf8NoBom)
 }
 
-function Invoke-GitCapture {
-    param([Parameter(Mandatory = $true)][string[]]$Arguments)
 
-    $previousErrorAction = $ErrorActionPreference
-    $ErrorActionPreference = 'Continue'
-    try {
-        $output = @(& git @Arguments 2>$null | ForEach-Object { [string]$_ })
-        $exitCode = $LASTEXITCODE
-    }
-    finally {
-        $ErrorActionPreference = $previousErrorAction
-    }
-    return [pscustomobject]@{ Output = $output; ExitCode = $exitCode }
-}
 
 function Render-Bootstrap {
     param(
@@ -1191,20 +1379,7 @@ function Render-Bootstrap {
     return Normalize-Text $rendered
 }
 
-function Get-GitRepositoryRoot {
-    param([Parameter(Mandatory = $true)][string]$Path)
 
-    $result = Invoke-GitCapture @('-C', $Path, 'rev-parse', '--show-toplevel')
-    if ($result.ExitCode -ne 0 -or $result.Output.Count -eq 0) {
-        throw "Repository path is not a Git work tree: $Path"
-    }
-    $root = [System.IO.Path]::GetFullPath([string]$result.Output[-1]).TrimEnd('\')
-    $requested = [System.IO.Path]::GetFullPath($Path).TrimEnd('\')
-    if (-not $root.Equals($requested, [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw "RepositoryPath must be the Git top level: $requested"
-    }
-    return $root
-}
 
 function Assert-NoReparseTree {
     param([Parameter(Mandatory = $true)][string]$Path)
@@ -1340,7 +1515,7 @@ function Assert-MinimalExactFields($Object,[string]$Raw,[string[]]$Expected,[str
     if (-not ($Object -is [pscustomobject])) { throw "$Label must be a JSON object." }
     $names=@($Object.PSObject.Properties.Name)
     if ($names.Count -ne $Expected.Count -or @($Expected|Where-Object{$_ -cnotin $names}).Count -ne 0) { throw "$Label field set mismatch." }
-    foreach($name in $Expected){$expectedCount=if($name-ceq'schemaVersion'-and(('processPolicy'-cin$names)-or('routerCompatibility'-cin$names)-or('projectControl'-cin$names))){2}elseif($name-ceq'routineExcludedPaths'-and'frameworkTarget'-cin$names){2}else{1};if([regex]::Matches($Raw,'"'+[regex]::Escape($name)+'"\s*:').Count-ne$expectedCount){throw "$Label duplicate or missing field: $name"}}
+    Assert-StrictJsonMemberSet $Raw ($Label+' duplicate or invalid JSON')
 }
 
 function Get-AdoptionProfile([string]$FrameworkPath,[string]$ExpectedVersion) {
@@ -1355,7 +1530,7 @@ function Get-AdoptionProfile([string]$FrameworkPath,[string]$ExpectedVersion) {
     $formats=@($profile.sourceCompatibility.projectFormats|ForEach-Object{[string]$_});$requiredCapabilities=@($profile.sourceCompatibility.requiredCapabilities|ForEach-Object{[string]$_})
     $default=if(Test-MinimalJsonInteger $profile.processBudget.defaultSelectedRulePackBytes){[int64]$profile.processBudget.defaultSelectedRulePackBytes}else{-1}
     $absolute=if(Test-MinimalJsonInteger $profile.processBudget.absoluteSelectedRulePackBytes){[int64]$profile.processBudget.absoluteSelectedRulePackBytes}else{-1}
-    if(-not(Test-MinimalJsonInteger $profile.schemaVersion)-or[int]$profile.schemaVersion-ne2-or[string]$profile.frameworkVersion-cne$ExpectedVersion-or-not($profile.registrationEligible-is[bool])-or-not($profile.localCandidatePilotEligible-is[bool])-or-not[bool]$profile.localCandidatePilotEligible-or-not(Test-MinimalJsonInteger $profile.projectControl.schemaVersion)-or[int]$profile.projectControl.schemaVersion-ne4-or[string]$profile.projectControl.processCarrierContractVersion-cne$ExpectedVersion-or[string]$profile.projectControl.frameworkToolBackend-cne'powershell7'-or[string]$profile.projectControl.navigationProjection-cne'ROOT_CANONICAL_SKILL_MANAGED_AGENTS'-or-not($profile.projectControl.taskLastWriteRequired-is[bool])-or-not[bool]$profile.projectControl.taskLastWriteRequired-or[string]$profile.projectControl.capabilityBinding-cne'EXACT_ENABLED_IDS'-or[string]$profile.projectControl.runtimeArtifactRoot-cne'.ai-workspace/runtime'-or[string]$profile.projectControl.runtimeGitIgnoreRule-cne'/.ai-workspace/runtime/'-or-not($profile.sourceCompatibility.projectFormats-is[Array])-or$formats.Count-gt16-or@($formats|Select-Object -Unique).Count-ne$formats.Count-or@($formats|Where-Object{$_-cnotmatch'^[a-z0-9-]+/[a-z0-9-]+$'}).Count-ne0-or-not($profile.sourceCompatibility.requiredCapabilities-is[Array])-or$requiredCapabilities.Count-gt32-or@($requiredCapabilities|Select-Object -Unique).Count-ne$requiredCapabilities.Count-or@($requiredCapabilities|Where-Object{$_-cnotmatch'^[A-Z][A-Z0-9_]*$'}).Count-ne0-or($formats.Count-eq0-and$requiredCapabilities.Count-ne0)-or$default-ne32768-or$absolute-ne98304){throw 'ADOPTION_PROFILE_VALUES'}
+    if(-not(Test-MinimalJsonInteger $profile.schemaVersion)-or[int]$profile.schemaVersion-ne2-or[string]$profile.frameworkVersion-cne$ExpectedVersion-or-not($profile.registrationEligible-is[bool])-or-not($profile.localCandidatePilotEligible-is[bool])-or-not[bool]$profile.localCandidatePilotEligible-or-not(Test-MinimalJsonInteger $profile.projectControl.schemaVersion)-or[int]$profile.projectControl.schemaVersion-notin@(4,5)-or[string]$profile.projectControl.processCarrierContractVersion-cne$ExpectedVersion-or[string]$profile.projectControl.frameworkToolBackend-cne'powershell7'-or[string]$profile.projectControl.navigationProjection-cne'ROOT_CANONICAL_SKILL_MANAGED_AGENTS'-or-not($profile.projectControl.taskLastWriteRequired-is[bool])-or-not[bool]$profile.projectControl.taskLastWriteRequired-or[string]$profile.projectControl.capabilityBinding-cne'EXACT_ENABLED_IDS'-or[string]$profile.projectControl.runtimeArtifactRoot-cne'.ai-workspace/runtime'-or[string]$profile.projectControl.runtimeGitIgnoreRule-cne'/.ai-workspace/runtime/'-or-not($profile.sourceCompatibility.projectFormats-is[Array])-or$formats.Count-gt16-or@($formats|Select-Object -Unique).Count-ne$formats.Count-or@($formats|Where-Object{$_-cnotmatch'^[a-z0-9-]+/[a-z0-9-]+$'}).Count-ne0-or-not($profile.sourceCompatibility.requiredCapabilities-is[Array])-or$requiredCapabilities.Count-gt32-or@($requiredCapabilities|Select-Object -Unique).Count-ne$requiredCapabilities.Count-or@($requiredCapabilities|Where-Object{$_-cnotmatch'^[A-Z][A-Z0-9_]*$'}).Count-ne0-or($formats.Count-eq0-and$requiredCapabilities.Count-ne0)-or$default-ne32768-or$absolute-ne98304){throw 'ADOPTION_PROFILE_VALUES'}
     return $profile
 }
 
@@ -1389,11 +1564,10 @@ function Get-TargetProjectedProcessPreflight([string]$RepositoryRoot,[string]$Fr
             foreach($gitRoot in @($projectedControl,$projectedFramework)){$gitOutput=@(& git -C $gitRoot init --quiet 2>&1|ForEach-Object{[string]$_});if($LASTEXITCODE-ne0){throw ('TARGET_PROJECTED_PROCESS_GIT_INIT|'+($gitOutput-join';'))}}
             New-Item -ItemType Directory -Path (Join-Path $projectedFramework 'framework\versions') -Force|Out-Null
             Copy-Item -LiteralPath (Join-ChildPath $FrameworkWorkspace ('framework/versions/'+$TargetVersion)) -Destination (Join-Path $projectedFramework ('framework\versions\'+$TargetVersion)) -Recurse -Force
-            Write-ProjectedText (Join-Path $projectedFramework 'README.md') "# Projected Framework target`n";Write-ProjectedText (Join-Path $projectedFramework 'AGENTS.md') "# Projected target navigation`n"
+            Write-ProjectedText (Join-Path $projectedFramework 'README.md') "# Projected Framework target`n"
             $projectRoot=$projectedControl;$frameworkRootProjected=$projectedFramework
         }else{
             $projectRoot=$projection;$frameworkRootProjected=$FrameworkWorkspace
-            $gitOutput=@(& git -C $projectRoot init --quiet 2>&1|ForEach-Object{[string]$_});if($LASTEXITCODE-ne0){throw ('TARGET_PROJECTED_PROCESS_GIT_INIT|'+($gitOutput-join';'))}
         }
         $composerPath=Join-ChildPath $frameworkRootProjected ('framework/versions/'+$TargetVersion+'/scripts/ProcessRequirementComposition.psm1')
         if(-not(Test-Path -LiteralPath $composerPath -PathType Leaf)){throw 'TARGET_PROJECTED_PROCESS_COMPOSER_MISSING'}
@@ -1420,6 +1594,9 @@ function Get-TargetProjectedProcessPreflight([string]$RepositoryRoot,[string]$Fr
         Write-ProjectedText $projectPath $TargetProject;Write-ProjectedText $bootstrapPath $TargetBootstrap;Write-ProjectedText $correctionsPath $TargetCorrections;Write-ProjectedText $policyPath $TargetPolicy;[IO.File]::Copy($ControllerPath,$controllerProjected,$true);Write-ProjectedText $taskPath ([string]$Migration.Content)
         $projectRaw=Read-StrictUtf8NoBom $projectPath;$project=$projectRaw|ConvertFrom-Json;$capabilities=@(Get-ExactEnabledCapabilityIds $project $projectRaw)
         $input=[ordered]@{schemaVersion=2;mode='DISCOVER';projectRoot=$projectRoot;frameworkRoot=$frameworkRootProjected;taskPath=$taskPath;expectedProjectConfigIdentity=(Get-MinimalFileIdentity $projectPath);expectedCorrectionsIdentity=(Get-MinimalFileIdentity $correctionsPath);expectedTaskIdentity=(Get-MinimalFileIdentity $taskPath);observedActor=[string]$Migration.Actor;capabilities=$capabilities;exactPaths=@([string]$Migration.Relative);forbiddenPaths=@('src/','tests/','assets/','docs/');protectedPaths=@('.ai-workspace/');authorizationPackagePath='NOT_REQUIRED';expectedAuthorizationIdentity='NOT_REQUIRED';userDecision=$userDecision;recoveryState='FULL_COLD';hostEnforcementGrade='FRAMEWORK_GATED';invocationState='PROVEN_EXPLICIT';intentEnvelope=[ordered]@{schemaVersion=1;objective='Validate the complete target Framework process pack before changing the project pin.';requestedActionKind='NONE';requestedResultKind='PLAN';semanticHints=@('Framework adoption','target-before-pin');pathHints=@([string]$Migration.Relative);capabilityHints=$capabilities;mutationHints=@();externalHints=@();ambiguityState='CLEAR'};evaluationOnly=$true}
+        $projectedNavigation=Get-AiwNavigationContract (Read-AiwProjectJson (Join-ChildPath $frameworkRootProjected ('framework/versions/'+$TargetVersion+'/TOOLCHAIN.json')) 'TARGET_TOOLCHAIN').Value
+        $input.schemaVersion=$projectedNavigation.DiscoverSchema
+        if($input.schemaVersion-eq3){$input.contextType='TASK';$input.readOnlyContext='NOT_APPLICABLE'}
         $inputPath=Join-Path $projection 'aiw-target-preflight-input.json';Write-Utf8NoBom $inputPath ($input|ConvertTo-Json -Depth 30)
         $targetFramework=Join-ChildPath $frameworkRootProjected ('framework/versions/'+$TargetVersion);$toolchainRaw=Read-StrictUtf8NoBom (Join-ChildPath $targetFramework 'TOOLCHAIN.json');try{$toolchain=$toolchainRaw|ConvertFrom-Json}catch{throw 'TARGET_PROJECTED_PROCESS_TOOLCHAIN_JSON'}
         $backend=@($toolchain.officialBackends);if($backend.Count-ne1-or[string]$backend[0].id-cne'powershell7'-or$null-eq$backend[0].entrypoints.PSObject.Properties['PROCESS_REQUIREMENTS_RESOLVE']){throw 'TARGET_PROJECTED_PROCESS_TOOLCHAIN_ENTRYPOINT'}
@@ -1427,8 +1604,16 @@ function Get-TargetProjectedProcessPreflight([string]$RepositoryRoot,[string]$Fr
         $oldPreference=$ErrorActionPreference;$ErrorActionPreference='Continue';try{$output=@(& $pwsh -NoProfile -NonInteractive -File $resolver -InputPath $inputPath -AsJson 2>&1|ForEach-Object{[string]$_});$code=$LASTEXITCODE}finally{$ErrorActionPreference=$oldPreference}
         if($code-ne0-or$output.Count-ne1){throw ('TARGET_PROJECTED_PROCESS_REJECTED|code='+$code+'|output='+($output-join';'))}
         try{$result=$output[0]|ConvertFrom-Json}catch{throw 'TARGET_PROJECTED_PROCESS_OUTPUT_JSON'}
-        if([string]$result.status-cnotin@('PASS','EVALUATION_ONLY')-or$null-eq$result.compactReceipt-or[string]$result.compactReceipt.frameworkVersion-cne$TargetVersion-or[int]$result.compactReceipt.selectedPackCeilingBytes-ne$expectedBudget){throw 'TARGET_PROJECTED_PROCESS_RESULT_INVALID'}
-        return [pscustomobject]@{UserDecision=$userDecision;ResolverReason='PASS';Capabilities=$capabilities;BudgetMode='PROJECT_SELECTED';SelectedRequirementCount=@($result.selectedRuleBlocks).Count;SelectedPackBytes=[int]$result.compactReceipt.selectedPackBytes;SelectedPackIdentity=[string]$result.compactReceipt.selectionIdentity;SourceCompositionIdentity=[string]$result.compactReceipt.sourceCompositionIdentity}
+        $receipt=$result.compactReceipt
+        if($projectedNavigation.ContractVersion-ceq'2'){
+            if($null-eq$receipt-or$receipt.schemaVersion-ne2-or$receipt.inputContractVersion-ne3){throw 'TARGET_PROJECTED_PROCESS_RECEIPT_CONTRACT'}
+            $receiptVersion=[string]$receipt.binding.frameworkVersion;$receiptBudget=[int]$receipt.pack.ceilingBytes;$receiptBytes=[int]$receipt.pack.bytes
+        }else{
+            if($null-eq$receipt-or$receipt.schemaVersion-ne1-or$receipt.inputContractVersion-ne2){throw 'TARGET_PROJECTED_PROCESS_RECEIPT_CONTRACT'}
+            $receiptVersion=[string]$receipt.frameworkVersion;$receiptBudget=[int]$receipt.selectedPackCeilingBytes;$receiptBytes=[int]$receipt.selectedPackBytes
+        }
+        if([string]$result.status-cnotin@('PASS','EVALUATION_ONLY')-or$receiptVersion-cne$TargetVersion-or$receiptBudget-ne$expectedBudget){throw 'TARGET_PROJECTED_PROCESS_RESULT_INVALID'}
+        return [pscustomobject]@{UserDecision=$userDecision;ResolverReason='PASS';Capabilities=$capabilities;BudgetMode='PROJECT_SELECTED';SelectedRequirementCount=@($result.selectedRuleBlocks).Count;SelectedPackBytes=$receiptBytes;SelectedPackIdentity=[string]$receipt.selectionIdentity;SourceCompositionIdentity=[string]$receipt.sourceCompositionIdentity}
     }finally{if(Test-Path -LiteralPath $projection -PathType Container){Remove-Item -LiteralPath $projection -Recurse -Force}}
 }
 
@@ -1443,7 +1628,8 @@ function Get-CurrentTaskBinding([string]$RepositoryRoot,[string]$TargetVersion,[
     $header=[regex]::Matches($raw,'(?m)^#\s+(?<task>[0-9A-Za-z][0-9A-Za-z._-]*)\s+[-—]')
     $owner=[regex]::Matches($raw,'(?m)^- Owner:\s*`?(?<owner>[^`\r\n]+?)`?\s*$')
     $range=[regex]::Matches($raw,'(?m)^- Range summary:\s*profile=(?<profile>MICRO|STANDARD|CRITICAL);\s*lifecycle=(?<lifecycle>ACTIVE_WRITE|ACTIVE|REVIEW|CLOSED);(?:\s*current_exact=(?<exact>[^;]+);)?\s*expected_paths=\[(?<expected>[^\]]*)\];\s*actual_paths=\[(?<actual>[^\]]*)\]\s*$')
-    $route=[regex]::Matches($raw,'(?m)^- Work route:\s*actor=(?<actor>[^;\s]+);\s*role=(?<role>CONTROLLER|DOMAIN_OWNER|EXECUTOR|REVIEWER|FRAMEWORK_MAINTAINER);\s*phase=(?<phase>DISCOVER|PLAN|IMPLEMENT|VERIFY|REVIEW|GIT|EXTERNAL|RECOVER)\s*$')
+    $rolePattern=if($TargetVersion-ceq'2.0.0'){'CONTROLLER|TASK_OWNER|EXECUTOR|REVIEWER|FRAMEWORK_MAINTAINER'}else{'CONTROLLER|DOMAIN_OWNER|EXECUTOR|REVIEWER|FRAMEWORK_MAINTAINER'}
+    $route=[regex]::Matches($raw,'(?m)^- Work route:\s*actor=(?<actor>[^;\s]+);\s*role=(?<role>'+$rolePattern+');\s*phase=(?<phase>DISCOVER|PLAN|IMPLEMENT|VERIFY|REVIEW|GIT|EXTERNAL|RECOVER)\s*$')
     $schema=[regex]::Matches($raw,'(?m)^- Task schema:\s*'+[regex]::Escape($TargetVersion)+'\s*$')
     $fileTask=[IO.Path]::GetFileNameWithoutExtension($RelativePath)
     if($RequiredLifecycle-cnotin@('ACTIVE','REVIEW')){throw 'CURRENT_TASK_LIFECYCLE_REQUIRED'}
@@ -1791,8 +1977,16 @@ function Get-TargetFrameworkCapabilityContract([string]$FrameworkPath,[string]$L
     if(-not($schema-is[pscustomobject])-or$null-eq$schema.PSObject.Properties['properties']-or-not($schema.properties-is[pscustomobject])-or$null-eq$schema.properties.PSObject.Properties['frameworkCapabilities']){throw 'TARGET_CAPABILITY_SCHEMA_MISSING'}
     $capabilities=$schema.properties.frameworkCapabilities
     if(-not($capabilities-is[pscustomobject])-or[string]$capabilities.type-cne'object'-or-not($capabilities.additionalProperties-is[bool])-or[bool]$capabilities.additionalProperties){throw 'TARGET_CAPABILITY_SCHEMA_OPEN_OR_INVALID'}
+    if([int]$script:ActiveAdoptionProfile.projectControl.schemaVersion-eq5){
+        $validator=Join-ChildPath $FrameworkPath 'scripts/KnowledgeSources.psm1'
+        Assert-NoReparseTree $FrameworkPath
+        if(-not(Test-Path -LiteralPath $validator -PathType Leaf)-or$null-eq$capabilities.properties.KNOWLEDGE_REFERENCE.properties.sources){throw 'TARGET_CAPABILITY_SCHEMA_UNSUPPORTED'}
+        return [pscustomobject]@{AllowedNames=@('KNOWLEDGE_REFERENCE');ValidatorPath=$validator}
+    }
     if($Layout-ceq'framework-maintenance-sibling'){
-        if(-not(Test-MinimalJsonInteger $capabilities.maxProperties)-or[int]$capabilities.maxProperties-ne0-or$null-ne$capabilities.PSObject.Properties['properties']){throw 'TARGET_CAPABILITY_SCHEMA_UNSUPPORTED'}
+        $emptyLegacy=$null-ne$capabilities.PSObject.Properties['maxProperties']-and[int]$capabilities.maxProperties-eq0
+        $emptyBridge=$null-ne$schema.PSObject.Properties['allOf']-and@($schema.allOf|Where-Object{$_.if.properties.schemaVersion.const-eq4-and$_.then.properties.frameworkCapabilities.maxProperties-eq0}).Count-eq1
+        if(-not($emptyLegacy-or$emptyBridge)){throw 'TARGET_CAPABILITY_SCHEMA_UNSUPPORTED'}
         return [pscustomobject]@{AllowedNames=@()}
     }
     if(-not($capabilities.properties-is[pscustomobject])){throw 'TARGET_CAPABILITY_SCHEMA_OPEN_OR_INVALID'}
@@ -1806,6 +2000,12 @@ function Get-TargetFrameworkCapabilityContract([string]$FrameworkPath,[string]$L
 }
 
 function Assert-TargetFrameworkCapabilities($Capabilities,[string]$Raw,$Contract) {
+    Assert-StrictJsonMemberSet $Raw 'FRAMEWORK_CAPABILITIES_DUPLICATE_MEMBER'
+    if($null-ne$Contract.PSObject.Properties['ValidatorPath']){
+        $validator=Import-Module $Contract.ValidatorPath -PassThru
+        $null=& $validator {param($value) Assert-AiwFrameworkCapabilities $value} $Capabilities
+        return
+    }
     if(-not($Capabilities-is[pscustomobject])){throw 'FRAMEWORK_CAPABILITIES_TYPE'}
     $names=@($Capabilities.PSObject.Properties|ForEach-Object{[string]$_.Name})
     if(@($names|Where-Object{$_-cnotin@($Contract.AllowedNames)}).Count-ne0-or@($names|Select-Object -Unique).Count-ne$names.Count){throw 'FRAMEWORK_CAPABILITIES_UNKNOWN_OR_DUPLICATE'}
@@ -1961,7 +2161,7 @@ $toolchainPath=Join-ChildPath $targetFramework 'TOOLCHAIN.json';$toolchainRaw=Re
 try{$toolchain=$toolchainRaw|ConvertFrom-Json}catch{throw 'FRAMEWORK_TOOLCHAIN_JSON'}
 $toolchainFields=@('schemaVersion','frameworkVersion','contractVersion','projectSelectionField','routerCompatibility','officialBackends','conformance')
 Assert-MinimalExactFields $toolchain $toolchainRaw $toolchainFields 'Framework TOOLCHAIN.json'
-if(-not(Test-MinimalJsonInteger $toolchain.schemaVersion)-or[int]$toolchain.schemaVersion-ne1-or[string]$toolchain.frameworkVersion-cne$ToVersion-or[string]$toolchain.contractVersion-cne'1'-or[string]$toolchain.projectSelectionField-cne'frameworkToolBackend'-or-not($toolchain.officialBackends-is[System.Array])-or@($toolchain.officialBackends).Count-ne1){throw 'FRAMEWORK_TOOLCHAIN_VALUES'}
+if(-not(Test-MinimalJsonInteger $toolchain.schemaVersion)-or[int]$toolchain.schemaVersion-ne1-or[string]$toolchain.frameworkVersion-cne$ToVersion-or[string]$toolchain.contractVersion-cnotin@('1','2')-or[string]$toolchain.projectSelectionField-cne'frameworkToolBackend'-or-not($toolchain.officialBackends-is[System.Array])-or@($toolchain.officialBackends).Count-ne1){throw 'FRAMEWORK_TOOLCHAIN_VALUES'}
 $backend=@($toolchain.officialBackends)[0]
 if(-not($backend-is[pscustomobject])-or[string]$backend.id-cne'powershell7'-or[string]$backend.status-cne'OFFICIAL'-or-not($backend.runtime-is[pscustomobject])-or[string]$backend.runtime.command-cne'pwsh'-or[string]$backend.runtime.edition-cne'Core'-or-not(Test-MinimalJsonInteger $backend.runtime.minimumMajorVersion)-or[int]$backend.runtime.minimumMajorVersion-ne7-or-not($backend.platforms-is[System.Array])-or@($backend.platforms).Count-lt1-or-not($backend.entrypoints-is[pscustomobject])){throw 'FRAMEWORK_TOOLCHAIN_BACKEND'}
 $declaredPlatforms=@($backend.platforms|ForEach-Object{[string]$_})
@@ -1969,15 +2169,12 @@ if(@($declaredPlatforms|Where-Object{$_-cnotin@('windows','linux','macos')}).Cou
 $currentPlatform=if([Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([Runtime.InteropServices.OSPlatform]::Windows)){'windows'}elseif([Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([Runtime.InteropServices.OSPlatform]::Linux)){'linux'}elseif([Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([Runtime.InteropServices.OSPlatform]::OSX)){'macos'}else{'unknown'}
 if($currentPlatform-cnotin$declaredPlatforms){throw ('FRAMEWORK_TOOL_PLATFORM_UNSUPPORTED|backend=powershell7|platform='+$currentPlatform)}
 foreach($entry in $backend.entrypoints.PSObject.Properties){$relative=[string]$entry.Value;if([string]::IsNullOrWhiteSpace($relative)-or$relative-cne$relative.Replace('\','/')-or[IO.Path]::IsPathRooted($relative)-or$relative.Contains('..')-or-not(Test-Path -LiteralPath (Join-ChildPath $targetFramework $relative) -PathType Leaf)){throw ('FRAMEWORK_TOOLCHAIN_ENTRYPOINT|'+$entry.Name)}}
-$router=$toolchain.routerCompatibility;$routerRaw=$router|ConvertTo-Json -Compress
-$routerFields=@('schemaVersion','skillName','status','canonicalSkillPath','versionContractPath','requiredOperations','processCatalogSchemaVersion','processCatalogVersion','nativeRuleBodySource')
-Assert-MinimalExactFields $router $routerRaw $routerFields 'Framework routerCompatibility'
-if(-not(Test-MinimalJsonInteger $router.schemaVersion)-or[int]$router.schemaVersion-ne1-or[string]$router.skillName-cne'ai-workspace-router'-or[string]$router.status-cne'COMPATIBLE'-or[string]$router.canonicalSkillPath-cne'skills/ai-workspace-router/SKILL.md'-or[string]$router.versionContractPath-cne'host/skills/ai-workspace-router/SKILL.md'-or-not(Test-MinimalJsonInteger $router.processCatalogSchemaVersion)-or[int]$router.processCatalogSchemaVersion-ne2-or[string]$router.processCatalogVersion-cne'3'-or[string]$router.nativeRuleBodySource-cne'MARKDOWN_EXACT_BLOCK'-or-not($router.requiredOperations-is[Array])-or[string]::Join("`n",@($router.requiredOperations))-cne[string]::Join("`n",@('LOAD_PLAN_RESOLVE','PROCESS_REQUIREMENTS_RESOLVE','WORKFLOW_ROUTE_RESOLVE'))){throw 'FRAMEWORK_ROUTER_COMPATIBILITY'}
+$null=Get-AiwNavigationContract $toolchain
 
 if (-not (Test-Path -LiteralPath $RepositoryPath -PathType Container)) {
     throw "Repository path does not exist: $RepositoryPath"
 }
-$repo = Get-GitRepositoryRoot ([System.IO.Path]::GetFullPath((Resolve-Path -LiteralPath $RepositoryPath).ProviderPath))
+$repo = Resolve-AiwRepositoryRoot $RepositoryPath
 $repoLocalRoot = Join-Path $repo '.ai-workspace'
 
 if (-not (Test-Path -LiteralPath $repoLocalRoot -PathType Container)) {
@@ -2014,10 +2211,12 @@ if($RepairSelectedRulePackBudget-and$projectCorrectionsMigrationRequested){throw
 if($projectCorrectionsMigrationRequested-and@($projectCorrectionsMigrationArguments|Where-Object{$_}).Count-ne2){throw 'PROJECT_CORRECTIONS_MIGRATION_FIELDS_REQUIRED'}
 if($RepairProjectCorrectionsMigrationCandidate-and@($projectCorrectionsMigrationRepairArguments|Where-Object{$_}).Count-ne2){throw 'PROJECT_CORRECTIONS_MIGRATION_REPAIR_FIELDS_REQUIRED'}
 if(-not$RepairProjectCorrectionsMigrationCandidate-and@($projectCorrectionsMigrationRepairArguments|Where-Object{$_}).Count-ne0){throw 'PROJECT_CORRECTIONS_MIGRATION_REPAIR_MODE_REQUIRED'}
-$pendingAdoptionPath=Join-Path $repo '.ai-workspace/runtime/project-adoption/upgrade/state.json'
-if(Test-Path -LiteralPath $pendingAdoptionPath -PathType Leaf){
-    $pending=(Read-AiwProjectJson $pendingAdoptionPath 'ADOPTION_TRANSACTION').Value
-    if($null-ne$pending.PSObject.Properties['transactionComplete']-and-not[bool]$pending.transactionComplete){throw ('RUNTIME_ADOPTION_RECOVERY_REQUIRED|'+(Get-MinimalFileIdentity $pendingAdoptionPath))}
+foreach($relative in @('.ai-workspace/runtime/project-adoption/upgrade/state.json','.ai-workspace/runtime/project-adoption/refresh/state.json')){
+    $pendingAdoptionPath=Get-AiwContainedPath $repo $relative
+    if(Test-Path -LiteralPath $pendingAdoptionPath -PathType Leaf){
+        $pending=(Read-AiwProjectJson $pendingAdoptionPath 'ADOPTION_TRANSACTION').Value
+        if($pending.transactionComplete-isnot[bool]-or-not$pending.transactionComplete){throw ('RUNTIME_ADOPTION_RECOVERY_REQUIRED|'+(Get-MinimalFileIdentity $pendingAdoptionPath))}
+    }
 }
 $actorRouteMigration=if($projectCorrectionsMigrationRequested-or$RepairSelectedRulePackBudget){$null}else{Get-ActorRouteMigration $repo $ToVersion $ActorRouteTaskPath $ExpectedActorRouteTaskIdentity $ActorRouteActor}
 if($null-ne$actorRouteMigration){

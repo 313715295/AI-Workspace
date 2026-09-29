@@ -1,0 +1,91 @@
+{
+  "schemaVersion": 2,
+  "frameworkVersion": "2.0.0",
+  "ownerModule": "KNOWLEDGE_AND_REFERENCE.md",
+  "requirements": [
+    {
+      "requirementId": "PR_KNOWLEDGE_REFERENCE_QUERY",
+      "legacyAliases": [],
+      "title": "Knowledge reference query",
+      "description": "Discover compact metadata and query explicitly selected request-scoped non-authoritative entries.",
+      "selectors": {
+        "profiles": [
+          "STANDARD",
+          "CRITICAL"
+        ],
+        "roles": [
+          "CONTROLLER",
+          "TASK_OWNER",
+          "EXECUTOR"
+        ],
+        "phases": [
+          "DISCOVER",
+          "PLAN"
+        ],
+        "actionKinds": [
+          "NONE"
+        ],
+        "resultKinds": [
+          "PLAN",
+          "USER_RESPONSE",
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [
+          "KNOWLEDGE_REFERENCE"
+        ],
+        "semanticTerms": [
+          "knowledge",
+          "reference"
+        ]
+      },
+      "exactBlockLocator": "AIW-REQUIREMENT:PR_KNOWLEDGE_REFERENCE_QUERY",
+      "preparationRequirements": [
+        "KNOWLEDGE_INDEX_VALID"
+      ],
+      "resultRequirements": [
+        "KNOWLEDGE_QUERY_RESULTS_CLASSIFIED"
+      ]
+    },
+    {
+      "requirementId": "PR_KNOWLEDGE_IMPACT_MAINTENANCE",
+      "legacyAliases": [],
+      "title": "Knowledge impact maintenance",
+      "description": "After accepted authority changes, detect affected entries and refresh or mark stale without background writes.",
+      "selectors": {
+        "profiles": [
+          "STANDARD",
+          "CRITICAL"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "*"
+        ],
+        "actionKinds": [
+          "*"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [
+          "KNOWLEDGE_REFERENCE"
+        ],
+        "semanticTerms": [
+          "knowledge query impact",
+          "changed authority",
+          "知识查询影响",
+          "权威变更",
+          "knowledge maintenance"
+        ]
+      },
+      "exactBlockLocator": "AIW-REQUIREMENT:PR_KNOWLEDGE_IMPACT_MAINTENANCE",
+      "preparationRequirements": [],
+      "resultRequirements": [
+        "KNOWLEDGE_IMPACT_RESOLVED"
+      ]
+    }
+  ]
+}

@@ -6,6 +6,8 @@ param(
     [string]$SeedFrameworkRoot,
     [string]$SeedTransactionPath,
     [string]$ExpectedSeedTransactionIdentity,
+    [string]$SeedControllerPath,
+    [switch]$KeepFixture,
     [switch]$CleanupOnly,
     [switch]$RelocationOnly,
     [switch]$CrossDistributionOnly,
@@ -86,6 +88,7 @@ function Restore-SeedObject([string]$Root,[string]$Relative,[string]$Expected,[s
     New-Item -ItemType Directory -Path (Split-Path -Parent $full) -Force|Out-Null;[IO.File]::WriteAllBytes($full,$bytes)
 }
 try {
+    if($SeedControllerPath-and(-not$SeedTransactionPath-or-not$ExpectedSeedTransactionIdentity)){throw 'SEED_CONTROLLER_TRANSACTION_REQUIRED'}
     if(-not$SeedControlRoot){
         $cursor=[IO.Path]::GetFullPath($RepositoryRoot)
         while($cursor){
@@ -135,7 +138,10 @@ try {
     foreach($folder in @('scripts','skills','framework/maintenance-overlay','framework/versions/1.16.0')){
         $dest=Join-Path $target $folder;New-Item -ItemType Directory -Path (Split-Path -Parent $dest) -Force|Out-Null;Copy-Item -LiteralPath (Join-Path $seedSourceRoot $folder) -Destination $dest -Recurse
     }
-    foreach($name in @('AGENTS.md','README.md','LICENSE')){Copy-Exact (Join-Path $seedSourceRoot $name) (Join-Path $target $name)}
+    foreach($name in @('README.md','LICENSE')){Copy-Exact (Join-Path $seedSourceRoot $name) (Join-Path $target $name)}
+    # Historical package seeds can have a host entry; a current development
+    # source intentionally has none. Preserve only an actually present seed.
+    foreach($name in @('AGENTS.md','CLAUDE.md')){if(Test-Path -LiteralPath (Join-Path $seedSourceRoot $name) -PathType Leaf){Copy-Exact (Join-Path $seedSourceRoot $name) (Join-Path $target $name)}}
     foreach($relative in @('AGENTS.md','.gitignore','.ai-workspace/project.json','.ai-workspace/BOOTSTRAP.md','.ai-workspace/controller.json','.ai-workspace/corrections.json','.ai-workspace/process-policy.json','.ai-workspace/PROJECT-CUSTOM.md')){
         if(Test-Path -LiteralPath (Join-Path $SeedControlRoot $relative)){Copy-Exact (Join-Path $SeedControlRoot $relative) (Join-Path $control $relative)}
     }
@@ -145,6 +151,13 @@ try {
     if($SeedTransactionPath-or$ExpectedSeedTransactionIdentity){
         if(-not$SeedTransactionPath-or-not$ExpectedSeedTransactionIdentity-or(Id $SeedTransactionPath)-cne$ExpectedSeedTransactionIdentity){throw 'SEED_TRANSACTION_IDENTITY'}
         $seed=Get-Content -LiteralPath $SeedTransactionPath -Raw|ConvertFrom-Json -Depth 100
+        if($SeedControllerPath){
+            # A later real handoff does not invalidate the retained historical
+            # installation. Restore only bytes proved by that original record,
+            # and only inside this fixture, never in the live control project.
+            if((Id $SeedControllerPath)-cne$seed.controllerIdentity){throw 'SEED_CONTROLLER_IDENTITY'}
+            Copy-Exact $SeedControllerPath (Join-Path $control '.ai-workspace/controller.json')
+        }
         if($seed.schemaVersion-ne1-or$seed.transactionType-cne'MAINTENANCE_FRAMEWORK_SOURCE_SELF_UPDATE'-or$seed.status-cne'COMPLETE'-or
             -not[StringComparer]::OrdinalIgnoreCase.Equals([IO.Path]::GetFullPath($seed.controlRoot),[IO.Path]::GetFullPath($SeedControlRoot))-or
             -not[StringComparer]::OrdinalIgnoreCase.Equals([IO.Path]::GetFullPath($seed.targetRoot),[IO.Path]::GetFullPath($SeedFrameworkRoot))-or
@@ -606,6 +619,7 @@ try {
     $relocationInput.intentEnvelope.requestedActionKind='CONTROL_WRITE';$relocationInput.intentEnvelope.requestedResultKind='TERMINAL';$relocationInput.intentEnvelope.mutationHints=@('control')
     $relocationDiscoverPath=Join-Path $runtime 'relocation-discover.json';Write-Json $relocationDiscoverPath $relocationInput
     $relocationDiscover=Json $adapter @{InputPath=$relocationDiscoverPath;AsJson=$true}
+    Confirm ($relocationDiscover.compactReceipt.binding.projectRoot-ceq$control-and$relocationDiscover.compactReceipt.binding.repositoryGitTop-ceq'NOT_APPLICABLE') 'relocation-non-git-action-retains-exact-control-root-without-git-observation'
     $relocationReceiptPath=Join-Path $runtime 'relocation-receipt.json';Write-Json $relocationReceiptPath $relocationDiscover.compactReceipt
     $relocationBoundary=[ordered]@{schemaVersion=2;mode='ADMIT_ACTION';discoverReceiptPath=$relocationReceiptPath;expectedDiscoverReceiptIdentity=Id $relocationReceiptPath;preparationReceipts=@($relocationDiscover.compactReceipt.selectedObligations|ForEach-Object{$_.preparationRequirements}|Sort-Object -Unique);resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='BOUND'}
     $relocationBoundary.deliveryContext=[ordered]@{channel='TASK_MESSAGE';stage='PREPARE';expectedRecipient=$owner;observedRecipient='NOT_APPLICABLE';outcome='NOT_SENT';evidence='NOT_APPLICABLE'}
@@ -714,9 +728,9 @@ try {
     if(Test-Path -LiteralPath $fixtureRoot){
         $full=[IO.Path]::GetFullPath($fixtureRoot);$temp=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath([IO.Path]::GetTempPath()))
         if(-not$full.StartsWith($temp+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)-or-not[IO.Path]::GetFileName($full).StartsWith('aiw-maintenance-self-update-',[StringComparison]::Ordinal)){throw 'FIXTURE_CLEANUP_BOUNDARY'}
-        Remove-Item -LiteralPath $full -Recurse -Force
+        if($KeepFixture){Write-Output ('FIXTURE_RETAINED|'+$full)}else{Remove-Item -LiteralPath $full -Recurse -Force}
     }
-    if($CrossDistributionOnly){
+    if($CrossDistributionOnly-and-not$KeepFixture){
         if(Test-Path -LiteralPath $fixtureRoot){throw 'CROSS_MAINTENANCE_CLEANUP_INCOMPLETE'}
         Write-Output 'PASS|maintenance-cross-distribution-cleanup|fixture=REMOVED'
     }

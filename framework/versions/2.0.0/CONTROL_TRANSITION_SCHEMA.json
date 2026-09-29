@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Bounded control transition plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "taskId", "projectRoot", "repositoryId", "objects", "allowedChanges", "steps", "recoveryActors", "originalProcessLocators"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "taskId": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+    "projectRoot": {"type": "string", "minLength": 1},
+    "repositoryId": {"enum": ["REPO_LOCAL", "CONTROL"]},
+    "objects": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["path", "before", "after"], "properties": {"path": {"type": "string"}, "before": {"$ref": "#/$defs/image"}, "after": {"$ref": "#/$defs/image"}}}},
+    "allowedChanges": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["path", "fields"], "properties": {"path": {"type": "string"}, "fields": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["Owner", "Actor", "Role", "Phase", "Profile", "HandoffFacts", "ControllerId", "ControllerEpoch"]}}}}},
+    "steps": {"type": "array", "minItems": 3, "items": {"type": "object", "additionalProperties": false, "required": ["path", "image"], "properties": {"path": {"type": "string"}, "image": {"enum": ["MARKED_BEFORE", "MARKED_TARGET", "AFTER"]}}}},
+    "recoveryActors": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "originalProcessLocators": {"type": "object", "additionalProperties": false, "required": ["package", "discoverInput", "discoverReceipt", "admitInput", "admitResult", "finalizeInput", "completionProof"], "properties": {"package": {"type": "string"}, "discoverInput": {"type": "string"}, "discoverReceipt": {"type": "string"}, "admitInput": {"type": "string"}, "admitResult": {"type": "string"}, "finalizeInput": {"type": "string"}, "completionProof": {"type": "string"}}}
+  },
+  "$defs": {"image": {"type": "object", "additionalProperties": false, "required": ["identity", "base64"], "properties": {"identity": {"type": "string", "pattern": "^[0-9]+\\|[A-F0-9]{64}$"}, "base64": {"type": "string", "contentEncoding": "base64"}}}}
+}

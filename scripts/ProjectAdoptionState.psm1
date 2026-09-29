@@ -36,12 +36,46 @@ function Resolve-AiwRepositoryRoot {
         throw 'REPOSITORY_ROOT_MISSING'
     }
 
-    $item = Get-Item -LiteralPath $root -Force
-    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-        throw 'REPOSITORY_ROOT_REPARSE'
+    $cursor = [IO.Path]::GetPathRoot($root)
+    foreach ($part in @($root.Substring($cursor.Length) -split '[\\/]' | Where-Object { $_.Length -gt 0 })) {
+        $cursor = Join-Path $cursor $part
+        $item = Get-Item -LiteralPath $cursor -Force
+        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw 'REPOSITORY_ROOT_REPARSE'
+        }
     }
     return $root
 }
+
+function Test-AiwProjectGitMetadata {
+    param([Parameter(Mandatory)][string]$RepositoryRoot)
+    # Presence only controls the optional ignore projection. This does not
+    # authenticate a Git root, run Git, or promote an enclosing repository.
+    return Test-Path -LiteralPath (Get-AiwContainedPath $RepositoryRoot '.git')
+}
+
+function Get-AiwNavigationContract {
+    param([Parameter(Mandatory)]$Toolchain)
+    $contract=[string]$Toolchain.contractVersion
+    if($contract-cnotin@('1','2')){throw 'FRAMEWORK_TOOLCHAIN_CONTRACT_UNSUPPORTED'}
+    $router=$Toolchain.routerCompatibility
+    if($router-isnot[pscustomobject]){throw 'FRAMEWORK_ROUTER_COMPATIBILITY'}
+    $fields=@('schemaVersion','skillName','status','canonicalSkillPath','versionContractPath','requiredOperations','processCatalogSchemaVersion','processCatalogVersion','nativeRuleBodySource')
+    if($contract-ceq'2'){$fields+=@('navigationContractVersion')}
+    $actual=@($router.PSObject.Properties.Name)
+    if($actual.Count-ne$fields.Count-or@($fields|Where-Object{$_-cnotin$actual}).Count-ne0){throw 'FRAMEWORK_ROUTER_COMPATIBILITY_FIELDS'}
+    $skill=if($contract-ceq'2'){'ai-workspace-router-v2'}else{'ai-workspace-router'}
+    if(($router.schemaVersion-isnot[int]-and$router.schemaVersion-isnot[long])-or$router.schemaVersion-ne1-or
+        [string]$router.skillName-cne$skill-or[string]$router.status-cne'COMPATIBLE'-or
+        [string]$router.canonicalSkillPath-cne('skills/'+$skill+'/SKILL.md')-or
+        [string]$router.versionContractPath-cne('host/skills/'+$skill+'/SKILL.md')-or
+        ($router.processCatalogSchemaVersion-isnot[int]-and$router.processCatalogSchemaVersion-isnot[long])-or$router.processCatalogSchemaVersion-ne2-or
+        [string]$router.processCatalogVersion-cne'3'-or[string]$router.nativeRuleBodySource-cne'MARKDOWN_EXACT_BLOCK'-or
+        $router.requiredOperations-isnot[Array]-or[string]::Join('|',@($router.requiredOperations))-cne'LOAD_PLAN_RESOLVE|PROCESS_REQUIREMENTS_RESOLVE|WORKFLOW_ROUTE_RESOLVE') {throw 'FRAMEWORK_ROUTER_COMPATIBILITY'}
+    if($contract-ceq'2'-and[string]$router.navigationContractVersion-cne'2'){throw 'FRAMEWORK_ROUTER_NAVIGATION_CONTRACT'}
+    return [pscustomobject]@{ContractVersion=$contract;SkillName=$skill;CanonicalSkillPath=[string]$router.canonicalSkillPath;DiscoverSchema=$(if($contract-ceq'2'){3}else{2})}
+}
+Export-ModuleMember -Function Test-AiwProjectGitMetadata,Get-AiwNavigationContract
 
 function Get-AiwContainedPath {
     param(
@@ -130,7 +164,10 @@ function Read-AiwProjectJson {
         finally {
             $document.Dispose()
         }
-        $value = $text | ConvertFrom-Json -Depth 64
+        # Preserve index verification timestamps as strings during conversion.
+        $jsonArgs=@{Depth=64}
+        if((Get-Command ConvertFrom-Json).Parameters.ContainsKey('DateKind')){$jsonArgs.DateKind='String'}
+        $value = $text | ConvertFrom-Json @jsonArgs
     }
     catch {
         if ($_.Exception.Message.StartsWith($Label + '_DUPLICATE_MEMBER')) {
@@ -462,13 +499,41 @@ function Assert-AiwDistributionBinding {
     return $current
 }
 Export-ModuleMember -Function Get-AiwDistributionBinding,Assert-AiwDistributionBinding
+function Assert-AiwMajorRecoveryOrigin {
+    param([Parameter(Mandatory)]$State,[Parameter(Mandatory)]$Transaction)
+    # A later same-version refresh changes the live projection, not the
+    # historical major-adoption objects or their original recovery material.
+    $records=@($Transaction.projection.objects|Where-Object{$_.path-ceq'.ai-workspace/upgrade-recovery/2.0.0/state.json'})
+    if($records.Count-ne1-or$records[0].kind-cne'FILE'-or$records[0].newExists-ne$true){throw 'MAJOR_RECOVERY_ORIGIN_STATE'}
+    $record=$records[0]
+    try {
+        $bytes=[Convert]::FromBase64String([string]$record.newBase64)
+        if((Get-AiwByteIdentity $bytes)-cne$record.newIdentity){throw 'MAJOR_RECOVERY_ORIGIN_IDENTITY'}
+        if($bytes.Length-ge3-and$bytes[0]-eq239-and$bytes[1]-eq187-and$bytes[2]-eq191){throw 'MAJOR_RECOVERY_ORIGIN_BOM'}
+        $text=$script:Utf8Strict.GetString($bytes)
+        if($text.Contains([char]0)-or$text.Contains([char]0xFFFD)){throw 'MAJOR_RECOVERY_ORIGIN_TEXT'}
+        $document=[System.Text.Json.JsonDocument]::Parse($text)
+        try { Assert-AiwJsonNoDuplicateMember $document.RootElement 'MAJOR_RECOVERY_ORIGIN' }
+        finally { $document.Dispose() }
+        $origin=$text|ConvertFrom-Json -Depth 100
+    } catch { throw ('MAJOR_RECOVERY_ORIGIN_INVALID|'+$_.Exception.Message) }
+    foreach($field in @('schemaVersion','projectId','fromVersion','toVersion','actor','taskId','taskOwner','taskRelative','authorizationIdentity','objects','majorTransition')){
+        if($null-eq$origin.PSObject.Properties[$field]-or$null-eq$State.PSObject.Properties[$field]-or
+           (ConvertTo-Json -InputObject $origin.$field -Depth 100 -Compress)-cne(ConvertTo-Json -InputObject $State.$field -Depth 100 -Compress)){
+            throw ('MAJOR_RECOVERY_ORIGIN_DRIFT|'+$field)
+        }
+    }
+}
+Export-ModuleMember -Function Assert-AiwMajorRecoveryOrigin
 function Get-AiwAdoptedDistributionBinding {
     param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)][string]$FrameworkVersion)
     $root=Resolve-AiwRepositoryRoot $ProjectRoot
-    $pendingPath=Get-AiwContainedPath $root '.ai-workspace/runtime/project-adoption/upgrade/state.json'
-    if(Test-Path -LiteralPath $pendingPath -PathType Leaf){
-        $pending=(Read-AiwProjectJson $pendingPath 'ADOPTION_TRANSACTION').Value
-        if($pending.transactionComplete-isnot[bool]-or-not$pending.transactionComplete){throw 'ADOPTION_RECOVERY_REQUIRED'}
+    foreach($relative in @('.ai-workspace/runtime/project-adoption/upgrade/state.json','.ai-workspace/runtime/project-adoption/refresh/state.json')){
+        $pendingPath=Get-AiwContainedPath $root $relative
+        if(Test-Path -LiteralPath $pendingPath -PathType Leaf){
+            $pending=(Read-AiwProjectJson $pendingPath 'ADOPTION_TRANSACTION').Value
+            if($pending.transactionComplete-isnot[bool]-or-not$pending.transactionComplete){throw 'ADOPTION_RECOVERY_REQUIRED'}
+        }
     }
     $upgrade=Get-AiwContainedPath $root ('.ai-workspace/upgrade-recovery/'+$FrameworkVersion+'/state.json')
     if(Test-Path -LiteralPath $upgrade -PathType Leaf){
@@ -498,11 +563,16 @@ function Get-AiwAgentsTemplateBlock {
     return $Text.Substring($start,$finish+$end.Length-$start)+"`n"
 }
 function Get-AiwStandingDelegationProjection {
-    param([AllowEmptyString()][string]$Text, [bool]$AdoptionRequested = $false, [string]$TemplatePath)
+    param([AllowEmptyString()][string]$Text, [bool]$AdoptionRequested = $false, [string]$TemplatePath, [string]$RouterSkillName)
     if (-not $AdoptionRequested) { return $Text }
     if([string]::IsNullOrWhiteSpace($TemplatePath)){throw 'DELEGATION_TEMPLATE_REQUIRED'}
+    if($RouterSkillName.Length-gt64-or$RouterSkillName-cnotmatch'^[a-z0-9]+(?:-[a-z0-9]+)*$'){throw 'AGENTS_ROUTER_NAME_REQUIRED'}
     $template=[Text.UTF8Encoding]::new($false,$true).GetString([IO.File]::ReadAllBytes($TemplatePath))
     $block=(Get-AiwAgentsTemplateBlock $template).TrimEnd("`n")
+    $routerToken='{{ROUTER_SKILL_NAME}}'
+    $tokenCount=[regex]::Matches($block,[regex]::Escape($routerToken)).Count
+    if($tokenCount-eq1){$block=$block.Replace($routerToken,$RouterSkillName)}
+    elseif($tokenCount-ne0-or-not$block.Contains('`'+$RouterSkillName+'`')){throw 'AGENTS_ROUTER_TEMPLATE_MISMATCH'}
     $begin='<!-- AI-WORKSPACE-FRAMEWORK:BEGIN -->';$end='<!-- AI-WORKSPACE-FRAMEWORK:END -->'
     $starts=[regex]::Matches($Text,[regex]::Escape($begin)).Count;$ends=[regex]::Matches($Text,[regex]::Escape($end)).Count
     if($starts-eq0-and$ends-eq0){$separator=if($Text.Length-eq0){''}elseif($Text.EndsWith("`n")){"`n"}else{"`n`n"};$Text=$Text+$separator+$block+"`n"}

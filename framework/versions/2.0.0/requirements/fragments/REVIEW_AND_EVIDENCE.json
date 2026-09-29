@@ -1,0 +1,198 @@
+{
+  "schemaVersion": 2,
+  "frameworkVersion": "2.0.0",
+  "ownerModule": "REVIEW_AND_EVIDENCE.md",
+  "requirements": [
+    {
+      "requirementId": "PR_CRITICAL_REVIEW_INDEPENDENCE",
+      "legacyAliases": [],
+      "title": "Critical independent Review",
+      "description": "Bind a frozen candidate and relationally independent Reviewer for CRITICAL Review.",
+      "selectors": {
+        "profiles": [
+          "CRITICAL"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "*"
+        ],
+        "actionKinds": [
+          "REVIEW_EXECUTE"
+        ],
+        "resultKinds": [
+          "REVIEW_VERDICT",
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": []
+      },
+      "exactBlockLocator": "AIW-REQUIREMENT:PR_CRITICAL_REVIEW_INDEPENDENCE",
+      "preparationRequirements": [
+        "CANDIDATE_FROZEN",
+        "REVIEWER_INDEPENDENCE_PROVEN",
+        "REVIEW_CARRIER_QUALIFIED",
+        "REVIEW_MATERIALS_BOUND"
+      ],
+      "resultRequirements": [
+        "REVIEW_VERDICT_BOUND"
+      ]
+    },
+    {
+      "requirementId": "PR_EVIDENCE_CEILING_DISCIPLINE",
+      "legacyAliases": [],
+      "title": "Evidence ceiling discipline",
+      "description": "State exactly what tests and observations do and do not prove.",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "*"
+        ],
+        "actionKinds": [
+          "TEST_RUN",
+          "REVIEW_EXECUTE",
+          "RESULT_ACCEPT",
+          "GIT_STAGE",
+          "GIT_COMMIT",
+          "PUSH",
+          "BROWSER_RUN",
+          "DEVICE_RUN",
+          "EXTERNAL"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": []
+      },
+      "exactBlockLocator": "AIW-REQUIREMENT:PR_EVIDENCE_CEILING_DISCIPLINE",
+      "preparationRequirements": [
+        "EVIDENCE_SCOPE_BOUND"
+      ],
+      "resultRequirements": [
+        "EVIDENCE_CEILING_STATED"
+      ]
+    },
+    {
+      "requirementId": "PR_RESULT_ACCEPT_SEPARATE",
+      "legacyAliases": [],
+      "title": "Owner acceptance remains separate",
+      "description": "Keep product/domain acceptance distinct from independent Review and later actions.",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "*"
+        ],
+        "actionKinds": [
+          "RESULT_ACCEPT"
+        ],
+        "resultKinds": [
+          "RESULT_ACCEPTANCE",
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": []
+      },
+      "exactBlockLocator": "AIW-REQUIREMENT:PR_RESULT_ACCEPT_SEPARATE",
+      "preparationRequirements": [
+        "REVIEW_OR_DIRECT_EVIDENCE_BOUND"
+      ],
+      "resultRequirements": [
+        "RESULT_ACCEPT_RECORDED"
+      ]
+    },
+    {
+      "requirementId": "PR_REVIEW_ROUTE_PREPARATION",
+      "legacyAliases": [],
+      "title": "Review route with actual self-check",
+      "description": "Route a frozen candidate with typed self-check and a qualified receiver, without demanding a future verdict.",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "*"
+        ],
+        "actionKinds": [
+          "REVIEW_ROUTE"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": []
+      },
+      "exactBlockLocator": "AIW-REQUIREMENT:PR_REVIEW_ROUTE_PREPARATION",
+      "preparationRequirements": [
+        "CANDIDATE_FROZEN",
+        "SELF_CHECK_BOUND",
+        "REVIEWER_INDEPENDENCE_PROVEN",
+        "REVIEW_CARRIER_QUALIFIED",
+        "REVIEW_MATERIALS_BOUND"
+      ],
+      "resultRequirements": [
+        "REVIEW_ROUTE_OBSERVED"
+      ]
+    },
+    {
+      "requirementId": "PR_REVIEW_QUALIFICATION_AND_PLANNING",
+      "legacyAliases": [],
+      "title": "Review purpose, qualification and materials",
+      "description": "Plan or perform review with current original materials, applicable product requirements and qualified reviewers without inventing a future verdict or automatically demanding independent review.",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "*"
+        ],
+        "actionKinds": [
+          "*"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": [
+          "review",
+          "reviewer",
+          "审核",
+          "审查"
+        ],
+        "semanticMatch": "TOKEN",
+        "deterministicTriggers": {
+          "actionKinds": [
+            "REVIEW_ROUTE",
+            "REVIEW_EXECUTE"
+          ],
+          "resultKinds": []
+        }
+      },
+      "exactBlockLocator": "AIW-REQUIREMENT:PR_REVIEW_QUALIFICATION_AND_PLANNING",
+      "preparationRequirements": [],
+      "resultRequirements": []
+    }
+  ]
+}

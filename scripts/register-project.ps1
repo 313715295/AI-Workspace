@@ -112,7 +112,7 @@ function Get-AdoptionProfile([string]$FrameworkPath,[string]$ExpectedVersion) {
     Assert-ExactObjectFields $profile.projectControl ($profile.projectControl|ConvertTo-Json -Compress) @('schemaVersion','processCarrierContractVersion','frameworkToolBackend','navigationProjection','taskLastWriteRequired','capabilityBinding','runtimeArtifactRoot','runtimeGitIgnoreRule') 'Framework ADOPTION_PROFILE.json projectControl'
     Assert-ExactObjectFields $profile.processBudget ($profile.processBudget|ConvertTo-Json -Compress) @('defaultSelectedRulePackBytes','absoluteSelectedRulePackBytes') 'Framework ADOPTION_PROFILE.json processBudget'
     $formats=@($profile.sourceCompatibility.projectFormats|ForEach-Object{[string]$_});$requiredCapabilities=@($profile.sourceCompatibility.requiredCapabilities|ForEach-Object{[string]$_})
-    if(-not(Test-JsonInteger $profile.schemaVersion)-or[int]$profile.schemaVersion-ne2-or[string]$profile.frameworkVersion-cne$ExpectedVersion-or-not($profile.registrationEligible-is[bool])-or-not($profile.localCandidatePilotEligible-is[bool])-or-not[bool]$profile.localCandidatePilotEligible-or-not($profile.sourceCompatibility.projectFormats-is[Array])-or$formats.Count-gt16-or@($formats|Select-Object -Unique).Count-ne$formats.Count-or@($formats|Where-Object{$_-cnotmatch'^[a-z0-9-]+/[a-z0-9-]+$'}).Count-ne0-or-not($profile.sourceCompatibility.requiredCapabilities-is[Array])-or$requiredCapabilities.Count-gt32-or@($requiredCapabilities|Select-Object -Unique).Count-ne$requiredCapabilities.Count-or@($requiredCapabilities|Where-Object{$_-cnotmatch'^[A-Z][A-Z0-9_]*$'}).Count-ne0-or($formats.Count-eq0-and$requiredCapabilities.Count-ne0)-or-not(Test-JsonInteger $profile.projectControl.schemaVersion)-or[int]$profile.projectControl.schemaVersion-ne4-or[string]$profile.projectControl.processCarrierContractVersion-cne$ExpectedVersion-or[string]$profile.projectControl.frameworkToolBackend-cne'powershell7'-or[string]$profile.projectControl.navigationProjection-cne'ROOT_CANONICAL_SKILL_MANAGED_AGENTS'-or-not($profile.projectControl.taskLastWriteRequired-is[bool])-or-not[bool]$profile.projectControl.taskLastWriteRequired-or[string]$profile.projectControl.capabilityBinding-cne'EXACT_ENABLED_IDS'-or[string]$profile.projectControl.runtimeArtifactRoot-cne'.ai-workspace/runtime'-or[string]$profile.projectControl.runtimeGitIgnoreRule-cne'/.ai-workspace/runtime/'-or-not(Test-JsonInteger $profile.processBudget.defaultSelectedRulePackBytes)-or[int]$profile.processBudget.defaultSelectedRulePackBytes-ne32768-or-not(Test-JsonInteger $profile.processBudget.absoluteSelectedRulePackBytes)-or[int]$profile.processBudget.absoluteSelectedRulePackBytes-ne98304){throw 'ADOPTION_PROFILE_VALUES'}
+    if(-not(Test-JsonInteger $profile.schemaVersion)-or[int]$profile.schemaVersion-ne2-or[string]$profile.frameworkVersion-cne$ExpectedVersion-or-not($profile.registrationEligible-is[bool])-or-not($profile.localCandidatePilotEligible-is[bool])-or-not[bool]$profile.localCandidatePilotEligible-or-not($profile.sourceCompatibility.projectFormats-is[Array])-or$formats.Count-gt16-or@($formats|Select-Object -Unique).Count-ne$formats.Count-or@($formats|Where-Object{$_-cnotmatch'^[a-z0-9-]+/[a-z0-9-]+$'}).Count-ne0-or-not($profile.sourceCompatibility.requiredCapabilities-is[Array])-or$requiredCapabilities.Count-gt32-or@($requiredCapabilities|Select-Object -Unique).Count-ne$requiredCapabilities.Count-or@($requiredCapabilities|Where-Object{$_-cnotmatch'^[A-Z][A-Z0-9_]*$'}).Count-ne0-or($formats.Count-eq0-and$requiredCapabilities.Count-ne0)-or-not(Test-JsonInteger $profile.projectControl.schemaVersion)-or[int]$profile.projectControl.schemaVersion-notin@(4,5)-or[string]$profile.projectControl.processCarrierContractVersion-cne$ExpectedVersion-or[string]$profile.projectControl.frameworkToolBackend-cne'powershell7'-or[string]$profile.projectControl.navigationProjection-cne'ROOT_CANONICAL_SKILL_MANAGED_AGENTS'-or-not($profile.projectControl.taskLastWriteRequired-is[bool])-or-not[bool]$profile.projectControl.taskLastWriteRequired-or[string]$profile.projectControl.capabilityBinding-cne'EXACT_ENABLED_IDS'-or[string]$profile.projectControl.runtimeArtifactRoot-cne'.ai-workspace/runtime'-or[string]$profile.projectControl.runtimeGitIgnoreRule-cne'/.ai-workspace/runtime/'-or-not(Test-JsonInteger $profile.processBudget.defaultSelectedRulePackBytes)-or[int]$profile.processBudget.defaultSelectedRulePackBytes-ne32768-or-not(Test-JsonInteger $profile.processBudget.absoluteSelectedRulePackBytes)-or[int]$profile.processBudget.absoluteSelectedRulePackBytes-ne98304){throw 'ADOPTION_PROFILE_VALUES'}
     return $profile
 }
 
@@ -127,10 +127,20 @@ function Assert-ExactObjectFields($Object,[string]$Raw,[string[]]$Expected,[stri
     if (-not ($Object -is [pscustomobject])) { throw "$Label must be a JSON object." }
     $names = @($Object.PSObject.Properties.Name)
     if ($names.Count -ne $Expected.Count -or @($Expected | Where-Object { $_ -cnotin $names }).Count -ne 0) { throw "$Label field set mismatch." }
-    foreach ($name in $Expected) {
-        $expectedCount=if($name-ceq'schemaVersion'-and(('processPolicy'-cin$names)-or('routerCompatibility'-cin$names)-or('projectControl'-cin$names))){2}elseif($name-ceq'routineExcludedPaths'-and'frameworkTarget'-cin$names){2}else{1}
-        if ([regex]::Matches($Raw,'"'+[regex]::Escape($name)+'"\s*:').Count -ne $expectedCount) { throw "$Label duplicate or missing field: $name" }
-    }
+    Assert-StrictJsonMemberSet $Raw ($Label+' duplicate or invalid JSON')
+}
+
+function Assert-NoDuplicateJsonMembers($Element,[string]$ErrorCode) {
+    if($Element.ValueKind-eq[Text.Json.JsonValueKind]::Object){
+        $seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        foreach($property in $Element.EnumerateObject()){if(-not$seen.Add([string]$property.Name)){throw ($ErrorCode+'|'+[string]$property.Name)};Assert-NoDuplicateJsonMembers $property.Value $ErrorCode}
+    }elseif($Element.ValueKind-eq[Text.Json.JsonValueKind]::Array){foreach($item in $Element.EnumerateArray()){Assert-NoDuplicateJsonMembers $item $ErrorCode}}
+}
+
+function Assert-StrictJsonMemberSet([string]$Text,[string]$ErrorCode) {
+    $options=[Text.Json.JsonDocumentOptions]::new();$options.AllowTrailingCommas=$false;$options.CommentHandling=[Text.Json.JsonCommentHandling]::Disallow
+    try{$document=[Text.Json.JsonDocument]::Parse($Text,$options)}catch{throw $ErrorCode}
+    try{Assert-NoDuplicateJsonMembers $document.RootElement $ErrorCode}finally{$document.Dispose()}
 }
 
 function ConvertTo-FrameworkLocator([string]$Value) {
@@ -165,8 +175,16 @@ function Get-TargetFrameworkCapabilityContract([string]$FrameworkPath,[string]$L
     if(-not($schema-is[pscustomobject])-or$null-eq$schema.PSObject.Properties['properties']-or-not($schema.properties-is[pscustomobject])-or$null-eq$schema.properties.PSObject.Properties['frameworkCapabilities']){throw 'TARGET_CAPABILITY_SCHEMA_MISSING'}
     $capabilities=$schema.properties.frameworkCapabilities
     if(-not($capabilities-is[pscustomobject])-or[string]$capabilities.type-cne'object'-or-not($capabilities.additionalProperties-is[bool])-or[bool]$capabilities.additionalProperties){throw 'TARGET_CAPABILITY_SCHEMA_OPEN_OR_INVALID'}
+    if([int]$script:ActiveAdoptionProfile.projectControl.schemaVersion-eq5){
+        $validator=Join-ChildPath $FrameworkPath 'scripts/KnowledgeSources.psm1'
+        Assert-NoReparseTree $FrameworkPath
+        if(-not(Test-Path -LiteralPath $validator -PathType Leaf)-or$null-eq$capabilities.properties.KNOWLEDGE_REFERENCE.properties.sources){throw 'TARGET_CAPABILITY_SCHEMA_UNSUPPORTED'}
+        return [pscustomobject]@{AllowedNames=@('KNOWLEDGE_REFERENCE');ValidatorPath=$validator}
+    }
     if($Layout-ceq'framework-maintenance-sibling'){
-        if(-not(Test-JsonInteger $capabilities.maxProperties)-or[int]$capabilities.maxProperties-ne0-or$null-ne$capabilities.PSObject.Properties['properties']){throw 'TARGET_CAPABILITY_SCHEMA_UNSUPPORTED'}
+        $emptyLegacy=$null-ne$capabilities.PSObject.Properties['maxProperties']-and[int]$capabilities.maxProperties-eq0
+        $emptyBridge=$null-ne$schema.PSObject.Properties['allOf']-and@($schema.allOf|Where-Object{$_.if.properties.schemaVersion.const-eq4-and$_.then.properties.frameworkCapabilities.maxProperties-eq0}).Count-eq1
+        if(-not($emptyLegacy-or$emptyBridge)){throw 'TARGET_CAPABILITY_SCHEMA_UNSUPPORTED'}
         return [pscustomobject]@{AllowedNames=@()}
     }
     if(-not($capabilities.properties-is[pscustomobject])){throw 'TARGET_CAPABILITY_SCHEMA_OPEN_OR_INVALID'}
@@ -180,6 +198,12 @@ function Get-TargetFrameworkCapabilityContract([string]$FrameworkPath,[string]$L
 }
 
 function Assert-TargetFrameworkCapabilities($Capabilities,[string]$Raw,$Contract) {
+    Assert-StrictJsonMemberSet $Raw 'FRAMEWORK_CAPABILITIES_DUPLICATE_MEMBER'
+    if($null-ne$Contract.PSObject.Properties['ValidatorPath']){
+        $validator=Import-Module $Contract.ValidatorPath -PassThru
+        $null=& $validator {param($value) Assert-AiwFrameworkCapabilities $value} $Capabilities
+        return
+    }
     if(-not($Capabilities-is[pscustomobject])){throw 'FRAMEWORK_CAPABILITIES_TYPE'}
     $names=@($Capabilities.PSObject.Properties|ForEach-Object{[string]$_.Name})
     if(@($names|Where-Object{$_-cnotin@($Contract.AllowedNames)}).Count-ne0-or@($names|Select-Object -Unique).Count-ne$names.Count){throw 'FRAMEWORK_CAPABILITIES_UNKNOWN_OR_DUPLICATE'}
@@ -196,10 +220,11 @@ function Assert-TargetFrameworkCapabilities($Capabilities,[string]$Raw,$Contract
 function New-TemplateMap([string]$Version) {
     $map=[ordered]@{
         '.gitattributes'='.gitattributes'; 'project.json'='project.json'; 'BOOTSTRAP.md'='BOOTSTRAP.md';
-        'PROJECT.md'='PROJECT.md'; 'REVIEW_PROFILE.md'='REVIEW_PROFILE.md';
+        'PROJECT.md'='PROJECT.md';
         'STATUS.md'='STATUS.md'; 'tasks/README.md'='tasks/README.md'
     }
     if(-not(Test-AdoptionProfileVersion $Version)){throw 'ADOPTION_PROFILE_VERSION_UNBOUND'}
+    if(Test-Path -LiteralPath (Join-ChildPath $frameworkRoot ('versions/'+$Version+'/project-starter/REVIEW_PROFILE.md')) -PathType Leaf){$map['REVIEW_PROFILE.md']='REVIEW_PROFILE.md'}
     $map['controller.json']='controller.json'
     $map['corrections.json']='corrections.json'
     $map['process-policy.json']='process-policy.json'
@@ -255,7 +280,7 @@ function Get-AiwRegistrationTargetObjects(
             $content = $content.Replace($token.Key, $token.Value)
         }
         if ($Layout -ceq 'framework-maintenance-sibling' -and $entry.Value -ceq 'project.json') {
-            $content = New-AiwMaintenanceProjectConfig -ProjectId $ProjectId -DisplayName $DisplayName -FrameworkVersion $Version -TargetRepositoryId $TargetRepositoryId -TargetSiblingDirectory $TargetSiblingDirectory -TargetRoutineExcludedPaths $TargetRoutineExcludedPath
+            $content = New-AiwMaintenanceProjectConfig -ProjectId $ProjectId -DisplayName $DisplayName -FrameworkVersion $Version -ProjectSchemaVersion ([int]$script:ActiveAdoptionProfile.projectControl.schemaVersion) -TargetRepositoryId $TargetRepositoryId -TargetSiblingDirectory $TargetSiblingDirectory -TargetRoutineExcludedPaths $TargetRoutineExcludedPath
             $content = $content.Replace("`r`n", "`n").Replace("`r", "`n")
         }
         if ($entry.Value -ceq 'process-policy.json' -and (Test-AdoptionProfileVersion $Version)) {
@@ -282,7 +307,7 @@ function Get-AiwRegistrationTargetObjects(
         if ([bool]$AgentsProjection.ManageSkill) {
             $targets.Add([pscustomobject]@{ path = '.agents/skills/ai-workspace-router/SKILL.md'; text = [string]$AgentsProjection.TargetSkill })
         }
-        if ($null -ne $AgentsProjection.GitIgnore) {
+        if ($null -ne $AgentsProjection.GitIgnore -and $AgentsProjection.GitIgnore.OldIdentity -cne 'NOT_APPLICABLE') {
             $targets.Add([pscustomobject]@{ path = '.gitignore'; text = [string]$AgentsProjection.GitIgnore.TargetContent })
         }
     }
@@ -410,6 +435,7 @@ function Get-OptionalFileIdentity([string]$Path) {
 }
 
 function Get-RuntimeGitIgnoreProjection([string]$RepositoryRoot,[string]$Rule) {
+    if(-not(Test-AiwProjectGitMetadata $RepositoryRoot)){return [pscustomobject]@{Path=(Join-Path $RepositoryRoot '.gitignore');OldIdentity='NOT_APPLICABLE';TargetContent='';Changed=$false}}
     $path=Join-Path $RepositoryRoot '.gitignore';$oldIdentity=Get-OptionalFileIdentity $path
     $content='';if($oldIdentity-cne'MISSING'){$bytes=[IO.File]::ReadAllBytes($path);if($bytes.Length-ge3-and$bytes[0]-eq239-and$bytes[1]-eq187-and$bytes[2]-eq191){throw 'RUNTIME_GITIGNORE_BOM'};try{$content=$utf8Strict.GetString($bytes)}catch{throw 'RUNTIME_GITIGNORE_UTF8'};if($content.Contains([char]0)){throw 'RUNTIME_GITIGNORE_NUL'}}
     $normalizedRule=$Rule.Trim().TrimStart('!').TrimStart('/').TrimEnd('/')
@@ -424,7 +450,7 @@ function Get-RuntimeGitIgnoreProjection([string]$RepositoryRoot,[string]$Rule) {
     return [pscustomobject]@{Path=$path;OldIdentity=$oldIdentity;TargetContent=$content;Changed=$true}
 }
 
-function Get-FrameworkAgentsProjection([string]$RepositoryRoot,[string]$TemplateRoot,[string]$Version) {
+function Get-FrameworkAgentsProjection([string]$RepositoryRoot,[string]$TemplateRoot,[string]$Version,[string]$RouterSkillName) {
     if(-not(Test-AdoptionProfileVersion $Version)){throw 'ADOPTION_PROFILE_VERSION_UNBOUND'}
     Assert-ManagedRouterDestinations $RepositoryRoot
     $agentsTemplatePath=Join-ChildPath $TemplateRoot 'AGENTS.md'
@@ -435,40 +461,14 @@ function Get-FrameworkAgentsProjection([string]$RepositoryRoot,[string]$Template
     $skillPath=Join-Path $RepositoryRoot '.agents\skills\ai-workspace-router\SKILL.md'
     $oldAgentsIdentity=Get-OptionalFileIdentity $agentsPath;$oldSkillIdentity='MISSING'
     $current=if($oldAgentsIdentity-ceq'MISSING'){''}else{Read-StrictUtf8Template $agentsPath}
-    $targetAgents=Get-AiwStandingDelegationProjection -Text $current -AdoptionRequested $true -TemplatePath $agentsTemplatePath
+    $targetAgents=Get-AiwStandingDelegationProjection -Text $current -AdoptionRequested $true -TemplatePath $agentsTemplatePath -RouterSkillName $RouterSkillName
     $gitIgnore=Get-RuntimeGitIgnoreProjection $RepositoryRoot ([string]$script:ActiveAdoptionProfile.projectControl.runtimeGitIgnoreRule)
     return [pscustomobject]@{AgentsPath=$agentsPath;SkillPath=$skillPath;OldAgentsIdentity=$oldAgentsIdentity;OldSkillIdentity=$oldSkillIdentity;TargetAgents=$targetAgents;TargetSkill=$targetSkill;ManageSkill=$manageSkill;GitIgnore=$gitIgnore}
 }
 
-function Invoke-GitCapture {
-    param([Parameter(Mandatory = $true)][string[]]$Arguments)
 
-    $previousErrorAction = $ErrorActionPreference
-    $ErrorActionPreference = 'Continue'
-    try {
-        $output = @(& git @Arguments 2>$null | ForEach-Object { [string]$_ })
-        $exitCode = $LASTEXITCODE
-    }
-    finally {
-        $ErrorActionPreference = $previousErrorAction
-    }
-    return [pscustomobject]@{ Output = $output; ExitCode = $exitCode }
-}
 
-function Get-GitRepositoryRoot {
-    param([Parameter(Mandatory = $true)][string]$Path)
 
-    $result = Invoke-GitCapture @('-C', $Path, 'rev-parse', '--show-toplevel')
-    if ($result.ExitCode -ne 0 -or $result.Output.Count -eq 0) {
-        throw "Repository path is not a Git work tree: $Path"
-    }
-    $root = [System.IO.Path]::GetFullPath([string]$result.Output[-1]).TrimEnd('\')
-    $requested = [System.IO.Path]::GetFullPath($Path).TrimEnd('\')
-    if (-not $root.Equals($requested, [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw "RepositoryPath must be the Git top level: $requested"
-    }
-    return $root
-}
 
 function Assert-NoReparsePoint {
     param([Parameter(Mandatory = $true)][string]$Path)
@@ -643,16 +643,12 @@ function Get-RepoLocalStarter {
         try{$toolchain=$toolchainRaw|ConvertFrom-Json}catch{throw 'FRAMEWORK_TOOLCHAIN_JSON'}
         $toolchainFields=@('schemaVersion','frameworkVersion','contractVersion','projectSelectionField','routerCompatibility','officialBackends','conformance')
         Assert-ExactObjectFields $toolchain $toolchainRaw $toolchainFields 'Framework TOOLCHAIN.json'
-        if(-not(Test-JsonInteger $toolchain.schemaVersion)-or[int]$toolchain.schemaVersion-ne1-or[string]$toolchain.frameworkVersion-cne$FrameworkVersion-or[string]$toolchain.contractVersion-cne'1'-or[string]$toolchain.projectSelectionField-cne'frameworkToolBackend'-or-not($toolchain.officialBackends-is[System.Array])-or@($toolchain.officialBackends).Count-ne1){throw 'FRAMEWORK_TOOLCHAIN_VALUES'}
+        if(-not(Test-JsonInteger $toolchain.schemaVersion)-or[int]$toolchain.schemaVersion-ne1-or[string]$toolchain.frameworkVersion-cne$FrameworkVersion-or[string]$toolchain.contractVersion-cnotin@('1','2')-or[string]$toolchain.projectSelectionField-cne'frameworkToolBackend'-or-not($toolchain.officialBackends-is[System.Array])-or@($toolchain.officialBackends).Count-ne1){throw 'FRAMEWORK_TOOLCHAIN_VALUES'}
         $backend=@($toolchain.officialBackends)[0]
         if(-not($backend-is[pscustomobject])-or[string]$backend.id-cne'powershell7'-or[string]$backend.status-cne'OFFICIAL'-or-not($backend.runtime-is[pscustomobject])-or[string]$backend.runtime.command-cne'pwsh'-or[string]$backend.runtime.edition-cne'Core'-or-not(Test-JsonInteger $backend.runtime.minimumMajorVersion)-or[int]$backend.runtime.minimumMajorVersion-ne7-or-not($backend.platforms-is[System.Array])-or@($backend.platforms).Count-lt1-or-not($backend.entrypoints-is[pscustomobject])){throw 'FRAMEWORK_TOOLCHAIN_BACKEND'}
         $declaredPlatforms=@($backend.platforms|ForEach-Object{[string]$_})
         if(@($declaredPlatforms|Where-Object{$_-cnotin@('windows','linux','macos')}).Count-ne0-or@($declaredPlatforms|Select-Object -Unique).Count-ne$declaredPlatforms.Count){throw 'FRAMEWORK_TOOLCHAIN_PLATFORMS'}
-        $router=$toolchain.routerCompatibility
-        $routerRaw=$router|ConvertTo-Json -Compress
-        $requiredOperations=@($router.requiredOperations|ForEach-Object{[string]$_})
-        Assert-ExactObjectFields $router $routerRaw @('schemaVersion','skillName','status','canonicalSkillPath','versionContractPath','requiredOperations','processCatalogSchemaVersion','processCatalogVersion','nativeRuleBodySource') 'Framework TOOLCHAIN.json routerCompatibility'
-        if(-not(Test-JsonInteger $router.schemaVersion)-or[int]$router.schemaVersion-ne1-or[string]$router.skillName-cne'ai-workspace-router'-or[string]$router.status-cne'COMPATIBLE'-or[string]$router.canonicalSkillPath-cne'skills/ai-workspace-router/SKILL.md'-or[string]$router.versionContractPath-cne'host/skills/ai-workspace-router/SKILL.md'-or-not($router.requiredOperations-is[System.Array])-or[string]::Join('|',$requiredOperations)-cne'LOAD_PLAN_RESOLVE|PROCESS_REQUIREMENTS_RESOLVE|WORKFLOW_ROUTE_RESOLVE'-or-not(Test-JsonInteger $router.processCatalogSchemaVersion)-or[int]$router.processCatalogSchemaVersion-ne2-or[string]$router.processCatalogVersion-cne'3'-or[string]$router.nativeRuleBodySource-cne'MARKDOWN_EXACT_BLOCK'){throw 'FRAMEWORK_TOOLCHAIN_ROUTER_COMPATIBILITY'}
+        $navigation=Get-AiwNavigationContract $toolchain
         $currentPlatform=if([Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([Runtime.InteropServices.OSPlatform]::Windows)){'windows'}elseif([Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([Runtime.InteropServices.OSPlatform]::Linux)){'linux'}elseif([Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([Runtime.InteropServices.OSPlatform]::OSX)){'macos'}else{'unknown'}
         if($currentPlatform-cnotin$declaredPlatforms){throw ('FRAMEWORK_TOOL_PLATFORM_UNSUPPORTED|backend=powershell7|platform='+$currentPlatform)}
         foreach($entry in $backend.entrypoints.PSObject.Properties){$relative=[string]$entry.Value;if([string]::IsNullOrWhiteSpace($relative)-or$relative-cne$relative.Replace('\','/')-or[IO.Path]::IsPathRooted($relative)-or$relative.Contains('..')-or-not(Test-Path -LiteralPath (Join-ChildPath $frameworkPath $relative) -PathType Leaf)){throw ('FRAMEWORK_TOOLCHAIN_ENTRYPOINT|'+$entry.Name)}}
@@ -683,6 +679,7 @@ function Get-RepoLocalStarter {
     return [pscustomobject]@{
         TemplateRoot = $templateRoot
         BootstrapTemplate = $bootstrapTemplate
+        RouterSkillName = [string]$navigation.SkillName
     }
 }
 
@@ -755,7 +752,7 @@ function Assert-RepoLocalProject {
         if (-not ($config.routineExcludedPaths -is [System.Array]) -or -not ($config.frameworkCapabilities -is [pscustomobject])) { throw "Existing project.json routine exclusions or capabilities are invalid: $projectFile" }
         Assert-FrameworkCapabilities $config.frameworkCapabilities $configRaw 'Existing project.json frameworkCapabilities'
         if($ExpectedLayout-ceq'framework-maintenance-sibling'){
-            if(@($config.frameworkCapabilities.PSObject.Properties).Count-ne0){throw 'Maintenance project capabilities must be empty.'}
+            if($expectedSchema-eq4-and@($config.frameworkCapabilities.PSObject.Properties).Count-ne0){throw 'Maintenance project capabilities must be empty.'}
             Assert-ExactObjectFields $config.frameworkTarget ($config.frameworkTarget|ConvertTo-Json -Compress) @('repositoryId','siblingDirectory','routineExcludedPaths') 'Existing project.json frameworkTarget'
             $expectedTargetPaths=@($ExpectedTargetRoutineExcludedPaths)
             if([string]$config.frameworkTarget.repositoryId-cne$ExpectedTargetRepositoryId-or[string]$config.frameworkTarget.siblingDirectory-cne$ExpectedTargetSiblingDirectory-or-not($config.frameworkTarget.routineExcludedPaths-is[Array])-or[string]::Join('|',@($config.frameworkTarget.routineExcludedPaths))-cne[string]::Join('|',$expectedTargetPaths)){throw 'Existing maintenance target conflicts with the requested target.'}
@@ -780,7 +777,6 @@ function Assert-RepoLocalProject {
             try{$policy=$policyRaw|ConvertFrom-Json}catch{throw "Existing process-policy.json is invalid: $policyFile"}
             $policyLocatorRaw=$config.processPolicy|ConvertTo-Json -Compress
             Assert-ExactObjectFields $config.processPolicy $policyLocatorRaw @('schemaVersion','locator') 'Existing project.json processPolicy'
-            if([regex]::Matches($configRaw,'"locator"\s*:').Count-ne1){throw 'Existing project.json processPolicy locator is duplicate or missing.'}
             $policyFields=if($profileTarget){@('schemaVersion','contractVersion','projectId','selectedRulePackBytes','rules')}else{@('schemaVersion','contractVersion','projectId','rules')}
             Assert-ExactObjectFields $policy $policyRaw $policyFields 'Existing process-policy.json'
             if([int]$config.processPolicy.schemaVersion-ne1-or[string]$config.processPolicy.locator-cne'.ai-workspace/process-policy.json'-or[int]$policy.schemaVersion-ne1-or[string]$policy.contractVersion-cne$expectedProcessCarrierVersion-or[string]$policy.projectId-cne$ExpectedProjectId-or-not($policy.rules-is[System.Array])-or($profileTarget-and(-not(Test-JsonInteger $policy.selectedRulePackBytes)-or[int]$policy.selectedRulePackBytes-lt1))){throw 'Existing structured process policy is invalid.'}
@@ -845,7 +841,7 @@ $script:ActiveTargetCapabilityContract=Get-TargetFrameworkCapabilityContract $se
 if (-not (Test-Path -LiteralPath $RepositoryPath -PathType Container)) {
     throw "Repository path does not exist or is not a directory: $RepositoryPath"
 }
-$repo = Get-GitRepositoryRoot ([System.IO.Path]::GetFullPath((Resolve-Path -LiteralPath $RepositoryPath).ProviderPath))
+$repo = Resolve-AiwRepositoryRoot $RepositoryPath
 if($ControlPlaneLayout-ceq'framework-maintenance-sibling'){
     if($null-eq$script:ActiveAdoptionProfile){throw 'MAINTENANCE_LAYOUT_REQUIRES_ADOPTION_PROFILE'}
     $maintenanceTopology=Resolve-AiwMaintenanceTopology -ControlRepositoryPath $repo -TargetRepositoryId $FrameworkTargetRepositoryId -TargetSiblingDirectory $FrameworkTargetSiblingDirectory -TargetRoutineExcludedPaths $FrameworkTargetRoutineExcludedPath
@@ -911,7 +907,7 @@ if ((Test-Path -LiteralPath $projectRoot) -and -not $completedRollbackStateOnly)
     $existingTemplateRoot=if($ControlPlaneLayout-ceq'framework-maintenance-sibling'){[string]$maintenanceOverlay.Root}else{$existingStarter.TemplateRoot}
     $existingBootstrapTemplate=Read-StrictUtf8Template (Join-ChildPath $existingTemplateRoot 'BOOTSTRAP.md')
     Assert-RepoLocalProject $projectRoot $ProjectId $DisplayName $FrameworkVersion $requiredProjectFiles $requiredProjectDirectories $existingBootstrapTemplate $workspace $ControllerId $ControlPlaneLayout $FrameworkTargetRepositoryId $FrameworkTargetSiblingDirectory $FrameworkTargetRoutineExcludedPath
-    $existingAgentsProjection=Get-FrameworkAgentsProjection $repo $existingTemplateRoot $FrameworkVersion
+    $existingAgentsProjection=Get-FrameworkAgentsProjection $repo $existingTemplateRoot $FrameworkVersion ([string]$existingStarter.RouterSkillName)
     if([string]$existingAgentsProjection.OldAgentsIdentity-ceq'MISSING'){throw 'EXISTING_REGISTRATION_PROJECTION_DRIFT|AGENTS.md'}
     $null=Get-AiwAgentsTemplateBlock (Read-StrictUtf8Template ([string]$existingAgentsProjection.AgentsPath))
     if($null-eq$existingAgentsProjection.GitIgnore-or[bool]$existingAgentsProjection.GitIgnore.Changed){throw 'EXISTING_REGISTRATION_PROJECTION_DRIFT|.gitignore'}
@@ -930,7 +926,7 @@ $starter = Get-RepoLocalStarter $frameworkRoot $FrameworkVersion $templateMap $s
 $templateRoot = $starter.TemplateRoot
 $managedTemplateRoot=if($ControlPlaneLayout-ceq'framework-maintenance-sibling'){[string]$maintenanceOverlay.Root}else{$templateRoot}
 $bootstrapTemplate=Read-StrictUtf8Template (Join-ChildPath $managedTemplateRoot 'BOOTSTRAP.md')
-$agentsProjection=Get-FrameworkAgentsProjection $repo $managedTemplateRoot $FrameworkVersion
+$agentsProjection=Get-FrameworkAgentsProjection $repo $managedTemplateRoot $FrameworkVersion ([string]$starter.RouterSkillName)
 
 $createdDate = Get-Date -Format 'yyyy-MM-dd'
 $markdownTokens = [ordered]@{

@@ -1,0 +1,129 @@
+[CmdletBinding()]
+param(
+  [ValidateRange(0,100)][int]$Warmups = 1,
+  [ValidateRange(1,100)][int]$MeasuredRuns = 5,
+  [switch]$AsJson
+)
+
+$ErrorActionPreference='Stop'
+Set-StrictMode -Version Latest
+if($PSVersionTable.PSEdition-cne'Core'-or$PSVersionTable.PSVersion.Major-lt7){throw 'POWERSHELL7_REQUIRED'}
+$utf8=[Text.UTF8Encoding]::new($false)
+$versionRoot=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..')))
+$fixturePath=Join-Path $PSScriptRoot 'PROCESS_REQUIREMENTS_FIXTURES.json'
+$fixtureContract=Get-Content -Raw -Encoding utf8 -LiteralPath $fixturePath|ConvertFrom-Json
+$tempRoot=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath([IO.Path]::GetTempPath()))
+$tempName='aiw-1.14-process-measure-'+[guid]::NewGuid().ToString('N')
+$temp=[IO.Path]::GetFullPath((Join-Path $tempRoot $tempName))
+if([IO.Path]::GetDirectoryName($temp)-cne$tempRoot-or[IO.Path]::GetFileName($temp)-cne$tempName-or$tempName-cnotmatch'^aiw-1\.14-process-measure-[a-f0-9]{32}$'){throw 'MEASUREMENT_TEMP_SCOPE'}
+
+function Write-Utf8([string]$Path,[string]$Text){
+  $parent=Split-Path -Parent $Path;if($parent-and-not(Test-Path -LiteralPath $parent)){New-Item -ItemType Directory -Path $parent -Force|Out-Null}
+  $normalized=$Text.Replace("`r`n","`n").Replace("`r","`n");if(-not$normalized.EndsWith("`n")){$normalized+="`n"}
+  [IO.File]::WriteAllText($Path,$normalized,$utf8)
+}
+function Get-Identity([string]$Path){$bytes=[IO.File]::ReadAllBytes($Path);return $bytes.Length.ToString()+'|'+[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes))}
+function Get-FixtureIdentity($Fixture){
+  $ordered=[ordered]@{};foreach($property in @($Fixture.PSObject.Properties)){if($property.Name-cne'fixtureIdentity'){$ordered[$property.Name]=$property.Value}}
+  $bytes=$utf8.GetBytes(($ordered|ConvertTo-Json -Depth 30 -Compress));return [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes))
+}
+function Get-PayloadFacts([string]$Root){
+  [string[]]$files=@(Get-ChildItem -LiteralPath $Root -Recurse -Force -File|ForEach-Object{$_.FullName.Substring($Root.Length+1).Replace('\','/')}|Where-Object{$_-cne'RELEASE_MANIFEST.json'});[Array]::Sort($files,[StringComparer]::Ordinal)
+  $rows=@();[int64]$total=0;foreach($relative in $files){$identity=(Get-Identity (Join-Path $Root $relative)).Split('|');$total+=[int64]$identity[0];$rows+=($relative+'|'+$identity[0]+'|'+$identity[1])}
+  $canonical=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($utf8.GetBytes(($rows-join"`n"))))
+  return [pscustomobject]@{FileCount=$files.Count;TotalBytes=$total;Canonical=$canonical}
+}
+function Invoke-Cold([string]$Script,[string]$InputPath,[int]$ExpectedExit){
+  $watch=[Diagnostics.Stopwatch]::StartNew();$output=@(& pwsh -NoLogo -NoProfile -File $Script -InputPath $InputPath -AsJson 2>&1|ForEach-Object{[string]$_});$code=$LASTEXITCODE;$watch.Stop()
+  if($code-ne$ExpectedExit){throw ('MEASUREMENT_UNEXPECTED_EXIT|expected='+$ExpectedExit+'|actual='+$code+'|'+($output-join';'))}
+  try{$null=$output[-1]|ConvertFrom-Json}catch{throw ('MEASUREMENT_OUTPUT_NOT_JSON|'+($output-join';'))}
+  return [pscustomobject]@{Milliseconds=$watch.Elapsed.TotalMilliseconds;ExitCode=$code;Output=$output[-1]}
+}
+function Get-Statistics([double[]]$Values){
+  $sorted=@($Values|Sort-Object);$median=if($sorted.Count%2-eq1){$sorted[[int][math]::Floor($sorted.Count/2)]}else{($sorted[$sorted.Count/2-1]+$sorted[$sorted.Count/2])/2.0};$rank=[math]::Max(1,[math]::Ceiling(0.95*$sorted.Count));return [pscustomobject]@{Median=[math]::Round($median,3);P95=[math]::Round($sorted[$rank-1],3)}
+}
+
+try{
+  New-Item -ItemType Directory -Path $temp -Force|Out-Null
+  $frameworkRoot=Join-Path $temp 'framework-workspace';$sealedRoot=Join-Path $frameworkRoot 'framework\versions\2.0.0';New-Item -ItemType Directory -Path (Split-Path -Parent $sealedRoot) -Force|Out-Null;Copy-Item -LiteralPath $versionRoot -Destination $sealedRoot -Recurse
+  $versionFile=Join-Path $sealedRoot 'VERSION.json';$version=Get-Content -Raw -Encoding utf8 -LiteralPath $versionFile|ConvertFrom-Json;$version.lifecycle='STABLE';$version.consumable=$true;$version.projectPinEligible=$true;Write-Utf8 $versionFile ($version|ConvertTo-Json -Depth 20)
+  $loadFile=Join-Path $sealedRoot 'LOAD_MANIFEST.json';$load=Get-Content -Raw -Encoding utf8 -LiteralPath $loadFile|ConvertFrom-Json;$load.lifecycle='STABLE';Write-Utf8 $loadFile ($load|ConvertTo-Json -Depth 30)
+  $facts=Get-PayloadFacts $sealedRoot;$manifestFile=Join-Path $sealedRoot 'RELEASE_MANIFEST.json';$manifest=Get-Content -Raw -Encoding utf8 -LiteralPath $manifestFile|ConvertFrom-Json;$manifest.lifecycle='STABLE';$manifest.fileCount=$facts.FileCount;$manifest.totalBytes=$facts.TotalBytes;$manifest.canonical=$facts.Canonical;$manifest.sourceReview='APPROVED';$manifest.sourceCandidate='MEASUREMENT_FIXTURE';$manifest.releaseIntegration='MEASUREMENT_FIXTURE';Write-Utf8 $manifestFile ($manifest|ConvertTo-Json -Depth 20)
+  $resolver=Join-Path $sealedRoot 'scripts\resolve-process-requirements.ps1'
+  Import-Module (Join-Path $sealedRoot 'scripts/ProcessRequirementDisplay.psm1') -Force
+  $results=@()
+  foreach($fixture in @($fixtureContract.fixtures)){
+    $expectedFixtureIdentity=Get-FixtureIdentity $fixture;if([string]$fixture.fixtureIdentity-cne$expectedFixtureIdentity){throw ('FIXTURE_IDENTITY_DRIFT|'+[string]$fixture.fixtureId)}
+    $projectRoot=Join-Path $temp ('project-'+[string]$fixture.fixtureId);New-Item -ItemType Directory -Path (Join-Path $projectRoot '.ai-workspace\tasks\active'),(Join-Path $projectRoot 'src'),(Join-Path $projectRoot 'tests'),(Join-Path $projectRoot 'docs') -Force|Out-Null
+    & git -C $projectRoot init -q;if($LASTEXITCODE-ne0){throw 'MEASUREMENT_GIT_INIT'}
+    $fixtureCapabilities=[ordered]@{};if(@($fixture.capabilities)-contains'KNOWLEDGE_REFERENCE'){$fixtureCapabilities['KNOWLEDGE_REFERENCE']=[ordered]@{enabled=$true;sources=@([pscustomobject]@{id='project';root=[pscustomobject]@{kind='PROJECT';locator='.'};indexLocator='.ai-workspace/knowledge/index.json';selectionHints=@();updatePolicy='FOLLOW'})}}
+    $project=[ordered]@{schemaVersion=5;id=('measure-'+[string]$fixture.fixtureId);displayName='Measurement Fixture';controlPlaneLayout='repo-local';repositoryRoot='..';frameworkVersion='2.0.0';frameworkToolBackend='powershell7';routineExcludedPaths=@();frameworkCapabilities=$fixtureCapabilities;processPolicy=[ordered]@{schemaVersion=1;locator='.ai-workspace/process-policy.json'}}
+    $projectPath=Join-Path $projectRoot '.ai-workspace\project.json';Write-Utf8 $projectPath ($project|ConvertTo-Json -Depth 20)
+    Write-Utf8 (Join-Path $projectRoot '.ai-workspace\controller.json') (([ordered]@{schemaVersion=1;projectId=$project.id;controllerId='fixture-controller';controllerEpoch=1;state='CURRENT'})|ConvertTo-Json -Depth 10)
+    Write-Utf8 (Join-Path $projectRoot '.ai-workspace\corrections.json') (([ordered]@{schemaVersion=2;contractVersion='2.0.0';projectId=$project.id;corrections=@()})|ConvertTo-Json -Depth 20)
+    $fixturePackCeiling=if([string]$fixture.fixtureId-ceq'worst_unknown'){98304}else{32768}
+    Write-Utf8 (Join-Path $projectRoot '.ai-workspace\process-policy.json') (([ordered]@{schemaVersion=1;contractVersion='2.0.0';projectId=$project.id;selectedRulePackBytes=$fixturePackCeiling;rules=@()})|ConvertTo-Json -Depth 20)
+    Write-Utf8 (Join-Path $projectRoot '.ai-workspace\BOOTSTRAP.md') "<!-- PROJECT-CUSTOM:BEGIN -->`nNo permanent project rule.`n<!-- PROJECT-CUSTOM:END -->`n"
+    foreach($relative in @($fixture.exactPaths)){Write-Utf8 (Join-Path $projectRoot $relative) ("fixture object "+$relative+"`n")}
+    $taskId=('MEASURE-'+([string]$fixture.fixtureId).ToUpperInvariant().Replace('_','-'))
+    $taskOwner=if([string]$fixture.actionKind-ceq'REVIEW_EXECUTE'){'fixture-owner'}else{[string]$fixture.actor}
+    $taskPath=Join-Path $projectRoot ('.ai-workspace\tasks\active\'+$taskId+'.md')
+    $taskActor=if([string]$fixture.actionKind-ceq'REVIEW_EXECUTE'){'fixture-writer'}else{[string]$fixture.actor}
+    $taskRole=if([string]$fixture.actionKind-ceq'REVIEW_EXECUTE'){'EXECUTOR'}else{[string]$fixture.role};$taskPhase=if([string]$fixture.actionKind-ceq'REVIEW_EXECUTE'){'VERIFY'}else{[string]$fixture.phase}
+    Write-Utf8 $taskPath ("# "+$taskId+" - measurement fixture`n`n- Task schema: 2.0.0`n- Owner: "+$taskOwner+"`n- Work route: actor="+$taskActor+"; role="+$taskRole+"; phase="+$taskPhase+"`n- Range summary: profile="+[string]$fixture.profile+"; lifecycle=ACTIVE; expected_paths=[]; actual_paths=[]`n")
+    $authorizationPath='NOT_REQUIRED';$authorizationIdentity='NOT_REQUIRED';$userDecision='NOT_REQUIRED'
+    if([string]$fixture.actionKind-cne'NONE'){
+      $userDecision=if([string]$fixture.actionKind-ceq'REVIEW_EXECUTE'){'NOT_REQUIRED'}else{'USER_MEASUREMENT_BOUNDARY_APPROVED'};$authorizationPath=Join-Path $projectRoot '.ai-workspace\measure-authorization.json'
+      $objectIdentities=@($fixture.exactPaths|ForEach-Object{[ordered]@{path=[string]$_;identity=Get-Identity (Join-Path $projectRoot ([string]$_))}})
+      $issuerRole=if([string]$fixture.role-ceq'CONTROLLER'){'PROJECT_CONTROLLER'}else{'TASK_OWNER'}
+      $issuer=if($issuerRole-ceq'PROJECT_CONTROLLER'){'fixture-controller'}else{$taskOwner}
+      $decisionClass=if([string]$fixture.actionKind-ceq'REVIEW_EXECUTE'){'ROUTINE_LOCAL'}elseif([string]$fixture.actionKind-ceq'EXTERNAL'){'EXTERNAL_ACTION'}else{'PRODUCT_RESULT'}
+      $package=[ordered]@{schemaVersion=1;frameworkVersion='2.0.0';taskId=$taskId;taskIdentity=(Get-Identity $taskPath);profile=[string]$fixture.profile;lifecycle='ACTIVE';owner=$taskOwner;issuer=$issuer;issuerRole=$issuerRole;grantee=[string]$fixture.actor;bundle='MEASUREMENT_LOCAL';decisionClass=$decisionClass;userConfirmation=$userDecision;reviewIndependence=$(if([string]$fixture.actionKind-ceq'REVIEW_EXECUTE'){'INDEPENDENT'}else{'NOT_APPLICABLE'});delegatedGitCloser=$false;actions=@([string]$fixture.actionKind);exactPaths=@($fixture.exactPaths);objectIdentities=$objectIdentities;projectConfigIdentity=(Get-Identity $projectPath);invalidatesOn=@('TASK_CHANGE','OWNER_CHANGE','GRANTEE_CHANGE','ACTION_CHANGE','PATHSET_CHANGE','OBJECT_DRIFT','USER_DECISION_CHANGE','PROJECT_CONFIG_DRIFT')}
+      if([string]$fixture.actionKind-ceq'REVIEW_EXECUTE'){$package.invalidatesOn+='CONTRIBUTOR_SET_CHANGE';$package.candidateWriter='fixture-writer';$package.materialContributors=@('fixture-designer')}
+      if($issuerRole-ceq'PROJECT_CONTROLLER'){$package.issuerControllerId='fixture-controller';$package.issuerControllerEpoch=1;$package.controllerControlIdentity=Get-Identity (Join-Path $projectRoot '.ai-workspace\controller.json');$package.invalidatesOn+='CONTROLLER_EPOCH_CHANGE'}
+      if([string]$fixture.actionKind-ceq'EXTERNAL'){
+        $zeroEscalation=[ordered]@{paymentOrSubscription=$false;commercialLicensing=$false;accountOrCredentialChange=$false;publicPublication=$false;installation=$false;protectedOrSecretUpload=$false;crossDomain=$false;formalAssetActivation=$false;projectPhaseChange=$false;gitOrPush=$false;sharedQuotaOrResource=$false;unknownScope=$false}
+        $payload=@([ordered]@{payloadKind='normalized-text';normalizedIdentity=[string]$objectIdentities[0].identity;canonicalizationVersion='UTF8_LF_V1'})
+        $package.externalBinding=[ordered]@{schemaVersion=1;route='TASK_OWNER_DIRECT_DOMAIN_EXTERNAL';provider='measurement-provider';orderedOperations=@([ordered]@{operationId='OP-1';operationKind='PROVIDER_PUBLIC_METADATA_READ';declaredInputClass='ZERO_PROJECT_DATA';payloads=@()},[ordered]@{operationId='OP-2';operationKind='bounded-transform';declaredInputClass='EXACT_PAYLOADS';payloads=$payload});outputUse='project-local measurement result';totalQuantity=2;perOperationRetryCeiling=1;totalRetryCeiling=2;costClass='FREE';costCeiling=0;stopConditions=@('stop on provider error','stop on ambiguous consumption');batchExecutionMode='ONE_LOGICAL_ATOMIC_EXECUTION';reissuable=$false;ambiguousConsumptionPolicy='BLOCK';escalationFlags=$zeroEscalation}
+      }
+      Write-Utf8 $authorizationPath ($package|ConvertTo-Json -Depth 40);$authorizationIdentity=Get-Identity $authorizationPath
+    }
+    $intent=[ordered]@{schemaVersion=1;objective=[string]$fixture.objective;requestedActionKind=[string]$fixture.actionKind;requestedResultKind=[string]$fixture.resultKind;semanticHints=@($fixture.semanticHints);pathHints=@($fixture.pathHints);capabilityHints=@($fixture.capabilities);mutationHints=@($fixture.mutationHints);externalHints=@($fixture.externalHints);ambiguityState=[string]$fixture.ambiguityState}
+    $discover=[ordered]@{schemaVersion=3;mode='DISCOVER';contextType='TASK';readOnlyContext='NOT_APPLICABLE';projectRoot=$projectRoot;frameworkRoot=$frameworkRoot;taskPath=$taskPath;expectedProjectConfigIdentity=(Get-Identity $projectPath);expectedCorrectionsIdentity=(Get-Identity (Join-Path $projectRoot '.ai-workspace\corrections.json'));expectedTaskIdentity=(Get-Identity $taskPath);observedActor=[string]$fixture.actor;capabilities=@($fixture.capabilities);exactPaths=@($fixture.exactPaths);forbiddenPaths=@();protectedPaths=@('.ai-workspace/');authorizationPackagePath=$authorizationPath;expectedAuthorizationIdentity=$authorizationIdentity;userDecision=$userDecision;recoveryState='CURRENT';hostEnforcementGrade='FRAMEWORK_GATED';invocationState='PROVEN_EXPLICIT';intentEnvelope=$intent;evaluationOnly=$false}
+    $discoverPath=Join-Path $projectRoot '.ai-workspace\measure-discover.json';Write-Utf8 $discoverPath ($discover|ConvertTo-Json -Depth 30)
+    $initial=Invoke-Cold $resolver $discoverPath ([int]$fixture.expectedExitCodes.DISCOVER);$discover=$initial.Output|ConvertFrom-Json;$receipt=$discover.compactReceipt;$receiptPath=Join-Path $projectRoot '.ai-workspace\measure-receipt.json';Write-Utf8 $receiptPath ($receipt|ConvertTo-Json -Depth 50)
+    $requiredPrep=@($receipt.selectedObligations|ForEach-Object{@($_.preparationRequirements)}|Sort-Object -Unique);$requiredResult=@($receipt.selectedObligations|ForEach-Object{@($_.resultRequirements)}|Sort-Object -Unique)
+    $admit=[ordered]@{schemaVersion=3;mode='ADMIT_ACTION';discoverReceiptPath=$receiptPath;expectedDiscoverReceiptIdentity=(Get-Identity $receiptPath);preparationReceipts=@($requiredPrep);resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='BOUND';evidenceRefs=@()}
+    $admitPath=Join-Path $projectRoot '.ai-workspace\measure-admit.json';Write-Utf8 $admitPath ($admit|ConvertTo-Json -Depth 30)
+    $postimages=@($fixture.exactPaths|ForEach-Object{'OBJECT_POSTIMAGE|'+[string]$_+'|'+(Get-Identity (Join-Path $projectRoot ([string]$_)))});$final=$admit|ConvertTo-Json -Depth 30|ConvertFrom-Json;$final.mode='FINALIZE_OUTPUT';$final.resultReceipts=@($requiredResult+$postimages)
+    if([string]$fixture.actionKind-ceq'REVIEW_EXECUTE'){
+      # Synthetic evidence exercises the real typed consumer in this isolated
+      # measurement fixture. It is never Source Review for the working tree.
+      $requirements=[ordered]@{path=('.ai-workspace/tasks/active/'+$taskId+'.md');identity=(Get-Identity $taskPath)}
+      $verdict=[ordered]@{schemaVersion=1;taskId=$taskId;actor=[string]$fixture.actor;candidateObjects=$objectIdentities;requirementsRef=$requirements;outcome='APPROVED';checks=@([ordered]@{id='fixture-shape';method='MODEL_JUDGMENT';outcome='PASS';reason='Synthetic measurement fixture only; no production or source review claim.';evidenceLocators=@($requirements)});evidenceLocators=@($requirements);authorizationRef=[ordered]@{path='.ai-workspace/measure-authorization.json';identity=$authorizationIdentity}}
+      $verdictPath=Join-Path $projectRoot '.ai-workspace/measure-verdict.json';Write-Utf8 $verdictPath ($verdict|ConvertTo-Json -Depth 30)
+      $final.evidenceRefs=@([ordered]@{path='.ai-workspace/measure-verdict.json';identity=(Get-Identity $verdictPath);kind='REVIEW_VERDICT'})
+      $hostPath=Join-Path $projectRoot '.ai-workspace/measure-host-fixture.json'
+      Write-Utf8 $hostPath (([ordered]@{content=@([ordered]@{type='text';text=([ordered]@{threadId=$taskOwner}|ConvertTo-Json -Compress)});isError=$false})|ConvertTo-Json -Depth 10)
+      $final|Add-Member deliveryContext ([ordered]@{channel='TASK_MESSAGE';stage='OBSERVE';expectedRecipient=$taskOwner;observedRecipient=$taskOwner;outcome='SUCCESS';evidence=($hostPath+'#'+(Get-Identity $hostPath))})
+    }elseif([string]$fixture.resultKind-ceq'USER_RESPONSE'){
+      $final|Add-Member deliveryContext ([ordered]@{channel='NATIVE_RESPONSE';stage='PREPARE';expectedRecipient='USER';observedRecipient='NOT_APPLICABLE';outcome='NOT_SENT';evidence='NOT_APPLICABLE'})
+    }
+    $finalPath=Join-Path $projectRoot '.ai-workspace\measure-final.json';Write-Utf8 $finalPath ($final|ConvertTo-Json -Depth 30)
+    $modeResults=[ordered]@{}
+    foreach($mode in @([pscustomobject]@{Name='DISCOVER';Path=$discoverPath},[pscustomobject]@{Name='ADMIT_ACTION';Path=$admitPath},[pscustomobject]@{Name='FINALIZE_OUTPUT';Path=$finalPath})){
+      $expected=[int]$fixture.expectedExitCodes.($mode.Name);for($run=0;$run-lt$Warmups;$run++){$null=Invoke-Cold $resolver $mode.Path $expected};$samples=@();for($run=0;$run-lt$MeasuredRuns;$run++){$samples+=(Invoke-Cold $resolver $mode.Path $expected).Milliseconds};$modeResults[$mode.Name]=Get-Statistics $samples
+    }
+    $display=Get-AiwProcessDisplay $discover
+    $displayBytes=0;$uniqueBodyBytes=0
+    foreach($page in $display.pages){
+      $displayBytes+=$utf8.GetByteCount($page.text)
+      foreach($segment in $page.segments){if($segment.kind-ceq'RULE'){$uniqueBodyBytes+=$utf8.GetByteCount($segment.fullTextSlice)}}
+    }
+    $results+=[ordered]@{fixtureId=[string]$fixture.fixtureId;fixtureIdentity=[string]$fixture.fixtureIdentity;selectedPackBytes=[int]$receipt.pack.bytes;selectedPackEstimatedTokens=[int]$receipt.pack.estimatedTokens;selectedRequirementCount=@($receipt.selectedObligations).Count;uniqueBodyBytes=$uniqueBodyBytes;displayBytes=$displayBytes;displayPageCount=$display.pages.Count;modes=$modeResults}
+  }
+  $output=[ordered]@{schemaVersion=1;frameworkVersion='2.0.0';host=([Environment]::OSVersion.VersionString+' / PowerShell '+$PSVersionTable.PSVersion+' / '+[Runtime.InteropServices.RuntimeInformation]::OSArchitecture+' / '+[Environment]::ProcessorCount+' logical processors');process='cold pwsh process';filesystem='warmed after fixture setup';warmups=$Warmups;measuredRuns=$MeasuredRuns;fixtures=$results}
+  if($AsJson){$output|ConvertTo-Json -Depth 40}else{$output|ConvertTo-Json -Depth 40}
+}finally{
+  if(Test-Path -LiteralPath $temp){$tempItem=Get-Item -LiteralPath $temp -Force;$resolvedTemp=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($tempItem.FullName));if(-not$tempItem.PSIsContainer-or($tempItem.Attributes-band[IO.FileAttributes]::ReparsePoint)-ne0-or$resolvedTemp-cne$temp-or[IO.Path]::GetDirectoryName($resolvedTemp)-cne$tempRoot-or[IO.Path]::GetFileName($resolvedTemp)-cne$tempName-or$tempName-cnotmatch'^aiw-1\.14-process-measure-[a-f0-9]{32}$'){throw 'MEASUREMENT_TEMP_CLEANUP_SCOPE'};Get-ChildItem -LiteralPath $resolvedTemp -Recurse -Force -ErrorAction SilentlyContinue|ForEach-Object{try{$_.Attributes=[IO.FileAttributes]::Normal}catch{}};Remove-Item -LiteralPath $resolvedTemp -Recurse -Force -ErrorAction SilentlyContinue}
+}

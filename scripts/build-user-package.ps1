@@ -153,6 +153,8 @@ if ($PSBoundParameters.ContainsKey('Distribution')) {
     }
 }
 
+Import-Module (Join-Path $PSScriptRoot 'ProjectAdoptionState.psm1') -Force
+$navigation=Get-AiwNavigationContract (Read-AiwProjectJson (Join-Path $versionRoot 'TOOLCHAIN.json') 'PACKAGE_TOOLCHAIN').Value
 $fixedMappings = @(
     [pscustomobject]@{ source = 'framework/user-package/README.md'; target = 'README.md'; template = $true },
     [pscustomobject]@{ source = 'framework/user-package/AGENTS.md'; target = 'AGENTS.md'; template = $true },
@@ -165,7 +167,7 @@ $fixedMappings = @(
     [pscustomobject]@{ source = 'scripts/ProjectAdoptionTransaction.psm1'; target = 'scripts/ProjectAdoptionTransaction.psm1'; template = $false },
     [pscustomobject]@{ source = 'scripts/register-project.ps1'; target = 'scripts/register-project.ps1'; template = $false },
     [pscustomobject]@{ source = 'scripts/upgrade-project.ps1'; target = 'scripts/upgrade-project.ps1'; template = $false },
-    [pscustomobject]@{ source = 'skills/ai-workspace-router/SKILL.md'; target = 'skills/ai-workspace-router/SKILL.md'; template = $false }
+    [pscustomobject]@{ source = $navigation.CanonicalSkillPath; target = $navigation.CanonicalSkillPath; template = $false }
 )
 if($InternalMaintenance){
     if(-not$PSBoundParameters.ContainsKey('Distribution')){throw 'INTERNAL_DISTRIBUTION_REQUIRED'}

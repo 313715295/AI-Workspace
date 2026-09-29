@@ -1,0 +1,177 @@
+{
+  "required": [
+    "schemaVersion",
+    "stages"
+  ],
+  "type": "object",
+  "title": "AI Workspace acceptance plan 1",
+  "$defs": {
+    "objectRef": {
+      "required": [
+        "path",
+        "identity"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "identity": {
+          "type": "string",
+          "pattern": "^\\d+\\|[A-F0-9]{64}$"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "type": "object"
+    },
+    "requirementsRef": {
+      "required": [
+        "path",
+        "identity"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "identity": {
+          "type": "string",
+          "pattern": "^\\d+\\|[A-F0-9]{64}$"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "section": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9:._-]*$"
+        }
+      },
+      "type": "object"
+    },
+    "evidenceRef": {
+      "required": [
+        "path",
+        "identity",
+        "kind"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "identity": {
+          "type": "string",
+          "pattern": "^\\d+\\|[A-F0-9]{64}$"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "SELF_CHECK",
+            "REVIEW_VERDICT",
+            "RESULT_ACCEPTANCE"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "candidateRef": {
+      "required": [
+        "path",
+        "identity"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "identity": {
+          "type": "string",
+          "pattern": "^(?:\\d+\\|[A-F0-9]{64}|MISSING)$"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "stages": {
+      "maxItems": 128,
+      "minItems": 1,
+      "items": {
+        "required": [
+          "id",
+          "kind",
+          "requiredBy",
+          "dependsOn",
+          "candidateRef",
+          "evidenceRefs"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "DESIGN",
+              "DESIGN_REVIEW",
+              "SELF_CHECK",
+              "RESULT_REVIEW",
+              "RESULT_ACCEPT",
+              "USER_DECISION"
+            ]
+          },
+          "candidateRef": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/candidateRef"
+            }
+          },
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+          },
+          "requiredBy": {
+            "$ref": "#/$defs/requirementsRef"
+          },
+          "evidenceRefs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/evidenceRef"
+            }
+          },
+          "dependsOn": {
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "USER_DECISION"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "candidateRef": {
+                  "items": {
+                    "$ref": "#/$defs/objectRef"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "type": "array"
+    }
+  }
+}

@@ -1,0 +1,624 @@
+[CmdletBinding()]
+param()
+
+$ErrorActionPreference='Stop'
+Set-StrictMode -Version Latest
+if($PSVersionTable.PSEdition-cne'Core'-or$PSVersionTable.PSVersion.Major-lt7){throw 'POWERSHELL7_REQUIRED'}
+$utf8=[Text.UTF8Encoding]::new($false)
+$passed=0
+function Write-Utf8([string]$Path,[string]$Text){$parent=Split-Path -Parent $Path;if($parent-and-not(Test-Path -LiteralPath $parent)){New-Item -ItemType Directory -Path $parent -Force|Out-Null};$value=$Text.Replace("`r`n","`n").Replace("`r","`n");if(-not$value.EndsWith("`n")){$value+="`n"};[IO.File]::WriteAllText($Path,$value,$utf8)}
+function Get-Identity([string]$Path){$bytes=[IO.File]::ReadAllBytes($Path);return $bytes.Length.ToString()+'|'+[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes))}
+function Assert-True([bool]$Value,[string]$Name){if(-not$Value){throw ('ASSERT_FAIL|'+$Name)};$script:passed++;Write-Output ('PASS|'+$Name)}
+function Invoke-Resolver([string]$Resolver,[string]$InputPath){$global:LASTEXITCODE=0;$output=@(& $Resolver -InputPath $InputPath -AsJson 2>&1|ForEach-Object{[string]$_});$resolverExitCode=$global:LASTEXITCODE;return [pscustomobject]@{Code=$resolverExitCode;Text=($output-join"`n");Value=$(try{$output[-1]|ConvertFrom-Json -Depth 100}catch{$null})}}
+function Assert-ResolverSuccess($Run,[string]$Name){$status=if($null-ne$Run.Value-and$null-ne$Run.Value.PSObject.Properties['status']){[string]$Run.Value.status}else{'UNPARSED'};$reason=if($null-ne$Run.Value-and$null-ne$Run.Value.PSObject.Properties['reason']){[string]$Run.Value.reason}else{'NOT_REPORTED'};if($Run.Code-ne0-or$status-cnotin@('PASS','EVALUATION_ONLY')){Write-Output ('DIAG|'+$Name+'|code='+$Run.Code+'|status='+$status+'|reason='+$reason+'|text='+$Run.Text);throw ('RESOLVER_STEP_FAILED|'+$Name+'|code='+$Run.Code+'|status='+$status+'|reason='+$reason)}}
+function Write-Json([string]$Path,$Value){Write-Utf8 $Path ($Value|ConvertTo-Json -Depth 100)}
+function New-ContinuationEvidence([string]$Name,[string]$Actor,[string]$TaskId,[int]$ExitCode,[string[]]$Output,[string]$Command=''){
+  $requirementsPath=Join-Path $control ($Name+'-requirements.md')
+  Write-Utf8 $requirementsPath ('Fixture requirement: '+$(if($Command){'src/file.txt must contain bounded local fix.'}else{'Read the document fixture and its current candidate identity before routing.'}))
+  $requirements=[ordered]@{path=$requirementsPath;identity=Get-Identity $requirementsPath}
+  $method='MODEL_JUDGMENT';$locators=@($requirements)
+  if($Command){
+    $method='COMMAND';$outputPath=Join-Path $control ($Name+'-command-output.txt');Write-Utf8 $outputPath ($Output-join"`n")
+    $commandPath=Join-Path $control ($Name+'-command.json');Write-Json $commandPath ([ordered]@{command=$Command;exitCode=$ExitCode;output=[ordered]@{path=$outputPath;identity=Get-Identity $outputPath}})
+    $locators=@([ordered]@{path=$commandPath;identity=Get-Identity $commandPath})
+  }
+  $outcome=if($ExitCode-eq0){'PASS'}else{'FAIL'}
+  $path=Join-Path $control ($Name+'-self-check.json')
+  Write-Json $path ([ordered]@{schemaVersion=1;taskId=$TaskId;actor=$Actor;candidateObjects=@([ordered]@{path='src/file.txt';identity=Get-Identity (Join-Path $temp 'src/file.txt')});requirementsRef=$requirements;outcome=$outcome;checks=@([ordered]@{id=$Name;method=$method;outcome=$outcome;reason='Actual fixture observation, not a claim of external project acceptance.';evidenceLocators=$locators});evidenceLocators=@($requirements)})
+  return [ordered]@{kind='SELF_CHECK';path=$path;identity=Get-Identity $path}
+}
+function Get-ReleaseFacts([string]$Root,[string]$ManifestPath){[string[]]$paths=@(Get-ChildItem -LiteralPath $Root -Recurse -File -Force|Where-Object{$_.FullName-cne$ManifestPath}|ForEach-Object{$_.FullName.Substring($Root.Length+1).Replace('\','/')});[Array]::Sort($paths,[StringComparer]::Ordinal);$rows=@();[int64]$total=0;foreach($relative in $paths){$full=Join-Path $Root $relative;$identity=(Get-Identity $full).Split('|');$total+=[int64]$identity[0];$rows+=($relative+'|'+$identity[0]+'|'+$identity[1])};$bytes=$utf8.GetBytes(($rows-join"`n"));return [pscustomobject]@{FileCount=$paths.Count;TotalBytes=$total;Canonical=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes))}}
+function Remove-FixtureJunction([string]$Path,[string]$FixtureRoot){$full=[IO.Path]::GetFullPath($Path);$root=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($FixtureRoot));if(-not$full.StartsWith($root+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)){throw 'JUNCTION_CLEANUP_BOUNDARY'};$entry=Get-Item -LiteralPath $full -Force -ErrorAction SilentlyContinue;if($null-eq$entry){return};if(($entry.Attributes-band[IO.FileAttributes]::ReparsePoint)-eq0){throw 'REFUSE_REMOVE_NON_JUNCTION'};[IO.Directory]::Delete($full)}
+function Get-FixtureDirectoryMoveBinding([string]$TempRoot,[string]$SourcePath,[string]$DestinationPath){$systemTemp=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath([IO.Path]::GetTempPath()));$root=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($TempRoot));if([IO.Path]::GetDirectoryName($root)-cne$systemTemp-or[IO.Path]::GetFileName($root)-cnotmatch'^aiw-process-v2-[a-f0-9]{32}$'){throw 'FIXTURE_MOVE_TEMP_BOUNDARY'};$source=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($SourcePath));$destination=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($DestinationPath));$sourceLeaf=[IO.Path]::GetFileName($source);$destinationLeaf=[IO.Path]::GetFileName($destination);if(-not(($sourceLeaf-ceq'docs'-and$destinationLeaf-ceq'docs-hold')-or($sourceLeaf-ceq'docs-hold'-and$destinationLeaf-ceq'docs'))-or[IO.Path]::GetDirectoryName($source)-cne$root-or[IO.Path]::GetDirectoryName($destination)-cne$root-or$source-cne(Join-Path $root $sourceLeaf)-or$destination-cne(Join-Path $root $destinationLeaf)){throw 'FIXTURE_MOVE_PATH_BOUNDARY'};$sourceItem=Get-Item -LiteralPath $source -Force -ErrorAction SilentlyContinue;if($null-eq$sourceItem-or-not$sourceItem.PSIsContainer-or($sourceItem.Attributes-band[IO.FileAttributes]::ReparsePoint)-ne0-or[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($sourceItem.FullName))-cne$source){throw 'FIXTURE_MOVE_SOURCE_BOUNDARY'};$destinationItem=Get-Item -LiteralPath $destination -Force -ErrorAction SilentlyContinue;if($null-ne$destinationItem){throw 'FIXTURE_MOVE_DESTINATION_BOUNDARY'};return [pscustomobject]@{Root=$root;Source=$source;Destination=$destination}}
+
+$versionRoot=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..')))
+$sourceFrameworkRoot=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Join-Path $versionRoot '..\..\..')))
+$resolver=Join-Path $versionRoot 'scripts\resolve-process-requirements.ps1'
+$module=Join-Path $versionRoot 'scripts\ProcessRequirementComposition.psm1'
+$temp=Join-Path ([IO.Path]::GetTempPath()) ('aiw-process-v2-'+[guid]::NewGuid().ToString('N'))
+$outsideTemp=Join-Path ([IO.Path]::GetTempPath()) ('aiw-process-v2-outside-'+[guid]::NewGuid().ToString('N'))
+try{
+  New-Item -ItemType Directory -Path $temp -Force|Out-Null
+  foreach($templatePath in @((Join-Path $sourceFrameworkRoot 'framework\versions\2.0.0\project-starter\BOOTSTRAP.md'),(Join-Path $sourceFrameworkRoot 'framework\maintenance-overlay\BOOTSTRAP.md'))){$templateText=Get-Content -Raw -Encoding utf8 -LiteralPath $templatePath;$templateRegion=[regex]::Match($templateText,'(?s)<!-- PROJECT-CUSTOM:BEGIN -->(.*?)<!-- PROJECT-CUSTOM:END -->');Assert-True ($templateRegion.Success-and[string]::IsNullOrWhiteSpace($templateRegion.Groups[1].Value)) ('template-project-custom-region-structurally-empty-'+[IO.Path]::GetFileName((Split-Path -Parent $templatePath)))}
+  & git -C $temp init -q
+  $frameworkRoot=Join-Path $temp 'framework-root';$fixtureVersion=Join-Path $frameworkRoot 'framework\versions\2.0.0';New-Item -ItemType Directory -Path (Split-Path -Parent $fixtureVersion) -Force|Out-Null;Copy-Item -LiteralPath $versionRoot -Destination $fixtureVersion -Recurse
+  $fixtureVersionObject=Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $fixtureVersion 'VERSION.json')|ConvertFrom-Json;$fixtureVersionObject.lifecycle='STABLE';$fixtureVersionObject.consumable=$true;$fixtureVersionObject.projectPinEligible=$true;Write-Json (Join-Path $fixtureVersion 'VERSION.json') $fixtureVersionObject
+  $fixtureManifestPath=Join-Path $fixtureVersion 'RELEASE_MANIFEST.json';$facts=Get-ReleaseFacts $fixtureVersion $fixtureManifestPath;$fixtureManifest=Get-Content -Raw -Encoding utf8 -LiteralPath $fixtureManifestPath|ConvertFrom-Json;$fixtureManifest.lifecycle='STABLE';$fixtureManifest.sourceReview='APPROVED';$fixtureManifest.fileCount=$facts.FileCount;$fixtureManifest.totalBytes=$facts.TotalBytes;$fixtureManifest.canonical=$facts.Canonical;Write-Json $fixtureManifestPath $fixtureManifest
+  $control=Join-Path $temp '.ai-workspace';New-Item -ItemType Directory -Path (Join-Path $control 'tasks\active') -Force|Out-Null
+  Write-Json (Join-Path $control 'project.json') ([ordered]@{schemaVersion=5;id='process-v2-fixture';displayName='Process V2 Fixture';controlPlaneLayout='repo-local';repositoryRoot='..';frameworkVersion='2.0.0';frameworkToolBackend='powershell7';routineExcludedPaths=@();frameworkCapabilities=[ordered]@{};processPolicy=[ordered]@{schemaVersion=1;locator='.ai-workspace/process-policy.json'}})
+  Write-Json (Join-Path $control 'controller.json') ([ordered]@{schemaVersion=1;projectId='process-v2-fixture';controllerId='controller-fixture';controllerEpoch=1;state='CURRENT'})
+  Write-Json (Join-Path $control 'corrections.json') ([ordered]@{schemaVersion=2;contractVersion='2.0.0';projectId='process-v2-fixture';corrections=@()})
+  Write-Utf8 (Join-Path $control 'BOOTSTRAP.md') "<!-- PROJECT-CUSTOM:BEGIN -->`nNo permanent project process rule is active in this legacy region. Structured rules belong to ``.ai-workspace/process-policy.json``.`n<!-- PROJECT-CUSTOM:END -->"
+  $taskPath=Join-Path $control 'tasks\active\PROCESS-V2-001.md'
+  Write-Utf8 $taskPath "# PROCESS-V2-001 — runtime contract fixture`n`n- Owner: owner-fixture`n- Work route: actor=owner-fixture; role=TASK_OWNER; phase=PLAN`n- Range summary: profile=STANDARD; risk=MEDIUM; size=SMALL; uncertainty=LOW`n"
+  Write-Utf8 (Join-Path $temp 'docs\base.md') "Base project rule dependency."
+  Write-Utf8 (Join-Path $temp 'docs\standard.md') "Intro.`n<!-- RULE:BEGIN -->`nSelected project standard rule body.`n<!-- RULE:END -->`nTail."
+  $sourcePolicy=[ordered]@{schemaVersion=1;contractVersion='2.0.0';projectId='process-v2-fixture';selectedRulePackBytes=98304;rules=@([ordered]@{ruleId='SOURCE_BOUND_STANDARD';requirementReason='Use the current project standard';selectors=[ordered]@{profiles=@('STANDARD');roles=@('TASK_OWNER');phases=@('PLAN');actionKinds=@('NONE');resultKinds=@('PLAN');pathPrefixes=@();capabilities=@();semanticTerms=@('source-bound')};preparationRequirements=@('PROJECT_STANDARD_READ');resultRequirements=@('PROJECT_STANDARD_APPLIED');decisionLocator='project:fixture';source=[ordered]@{rootSourceId='STANDARD';documents=@([ordered]@{sourceId='BASE';locator='docs/base.md';identity=Get-Identity (Join-Path $temp 'docs\base.md');mode='FULL_FILE';sectionStart='NOT_APPLICABLE';sectionEnd='NOT_APPLICABLE';dependencies=@()},[ordered]@{sourceId='STANDARD';locator='docs/standard.md';identity=Get-Identity (Join-Path $temp 'docs\standard.md');mode='MARKED_SECTION';sectionStart='<!-- RULE:BEGIN -->';sectionEnd='<!-- RULE:END -->';dependencies=@('BASE')})}})}
+  $policyPath=Join-Path $control 'process-policy.json';Write-Json $policyPath $sourcePolicy
+  $baseIntent=[ordered]@{schemaVersion=1;objective='Plan source-bound project work';requestedActionKind='NONE';requestedResultKind='PLAN';semanticHints=@('source-bound');pathHints=@();capabilityHints=@();mutationHints=@();externalHints=@();ambiguityState='CLEAR'}
+  $discover=[ordered]@{schemaVersion=3;mode='DISCOVER';contextType='TASK';readOnlyContext='NOT_APPLICABLE';projectRoot=$temp;frameworkRoot=$frameworkRoot;taskPath=$taskPath;expectedProjectConfigIdentity=Get-Identity (Join-Path $control 'project.json');expectedCorrectionsIdentity=Get-Identity (Join-Path $control 'corrections.json');expectedTaskIdentity=Get-Identity $taskPath;observedActor='owner-fixture';capabilities=@();exactPaths=@();forbiddenPaths=@('private/');protectedPaths=@('.ai-workspace/');authorizationPackagePath='NOT_REQUIRED';expectedAuthorizationIdentity='NOT_REQUIRED';userDecision='NOT_REQUIRED';recoveryState='FULL_COLD';hostEnforcementGrade='FRAMEWORK_GATED';invocationState='PROVEN_EXPLICIT';intentEnvelope=$baseIntent;evaluationOnly=$true}
+  $discoverPath=Join-Path $temp 'discover.json';Write-Json $discoverPath $discover;$run=Invoke-Resolver $resolver $discoverPath
+  $selected=@($run.Value.selectedRuleBlocks|Where-Object{[string]$_.requirementId-ceq'project:process-v2-fixture:SOURCE_BOUND_STANDARD'})
+  Assert-True ($run.Code-eq0-and[int]$run.Value.compactReceipt.schemaVersion-eq2-and$selected.Count-eq1-and[string]$selected[0].fullText-clike'*Base project rule dependency*Selected project standard rule body*') 'source-bound-project-standard-loads-selected-section-and-dependency'
+  $originalPolicyText=[IO.File]::ReadAllText($policyPath);$standardPath=Join-Path $temp 'docs/standard.md';$originalStandardText=[IO.File]::ReadAllText($standardPath)
+  [IO.File]::WriteAllText($standardPath,$originalStandardText.TrimEnd("`n").Replace("`n","`r`n"),$utf8)
+  $sectionPolicy=$sourcePolicy|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100;$sectionIdentity=Get-Identity $standardPath;$sectionPolicy.rules[0].source.documents[1].identity=$sectionIdentity
+  Write-Json $policyPath $sectionPolicy;Write-Json $discoverPath $discover;$sectionRun=Invoke-Resolver $resolver $discoverPath
+  Assert-True ($sectionRun.Code-eq0-and$sectionRun.Text.Contains('Selected project standard rule body')-and-not$sectionRun.Text.Contains('Intro.')-and(Get-Identity $standardPath)-ceq$sectionIdentity) 'marked-section-crlf-no-final-lf-selects-body-and-keeps-source-bytes'
+  [IO.File]::WriteAllText($standardPath,$originalStandardText,$utf8);[IO.File]::WriteAllText($policyPath,$originalPolicyText,$utf8)
+  $observer=$discover|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100
+  $observer.contextType='PROJECT_READ_ONLY';$observer.taskPath='NOT_APPLICABLE';$observer.expectedTaskIdentity='NOT_APPLICABLE';$observer.observedActor='temporary-observer'
+  $observer.readOnlyContext=[pscustomobject]@{sessionId='temporary-observer';requestId='bounded-observation';role='EXECUTOR';phase='PLAN';profile='STANDARD'}
+  $observer.intentEnvelope.objective='Bounded observation '+('context '*1200)
+  $observer.intentEnvelope.semanticHints=@('source-bound')
+  $observer.intentEnvelope.pathHints=@('docs/')
+  $observer.exactPaths=@(1..110|ForEach-Object{'docs/'+('bounded-'*10)+$_.ToString()+'.md'})
+  Write-Json $discoverPath $observer;$observerRun=Invoke-Resolver $resolver $discoverPath
+  Assert-True ($observerRun.Code-eq0-and$observerRun.Value.compactReceipt.binding.actor-ceq'temporary-observer'-and[Text.Encoding]::UTF8.GetByteCount(($observerRun.Value.compactReceipt.binding|ConvertTo-Json -Depth 30 -Compress))-gt8192) 'temporary-taskless-observer-accepts-long-objective-and-large-exact-authority'
+  Assert-True ($utf8.GetByteCount(($observer.intentEnvelope|ConvertTo-Json -Depth 30 -Compress))-gt4096-and$observerRun.Value.compactReceipt.intentEnvelope.objective-ceq$observer.intentEnvelope.objective) 'ascii-objective-over-old-envelope-limit-with-normal-hints-preserved'
+  $observer.readOnlyContext.role='REVIEWER';$observer.intentEnvelope.objective='核查当前目标与约束：'+('明确目标保持精确范围。'*600)
+  Write-Json $discoverPath $observer;$chineseRun=Invoke-Resolver $resolver $discoverPath
+  Assert-True ($chineseRun.Code-eq0-and$utf8.GetByteCount(($observer.intentEnvelope|ConvertTo-Json -Depth 30 -Compress))-gt4096-and$chineseRun.Value.compactReceipt.intentEnvelope.objective-ceq$observer.intentEnvelope.objective) 'chinese-objective-over-old-envelope-limit-with-temporary-reviewer-observation'
+  $badObserver=$observer|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100;$badObserver.intentEnvelope.objective=42
+  Write-Json $discoverPath $badObserver
+  Assert-True ((Invoke-Resolver $resolver $discoverPath).Code-ne0) 'large-envelope-still-rejects-objective-type-drift'
+  $duplicateIntent=($observer|ConvertTo-Json -Depth 100 -Compress).Replace('"objective":','"objective":"duplicate","objective":')
+  [IO.File]::WriteAllText($discoverPath,$duplicateIntent+"`n",$utf8)
+  Assert-True ((Invoke-Resolver $resolver $discoverPath).Code-ne0) 'large-envelope-still-rejects-duplicate-objective-key'
+  $badObserver=$observer|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100;$badObserver.intentEnvelope.pathHints=@('outside-scope/')
+  Write-Json $discoverPath $badObserver
+  Assert-True ((Invoke-Resolver $resolver $discoverPath).Code-ne0) 'large-envelope-still-rejects-hint-outside-exact-scope'
+  $observer.intentEnvelope.requestedActionKind='SOURCE_WRITE';Write-Json $discoverPath $observer;$observerWrite=Invoke-Resolver $resolver $discoverPath
+  Assert-True ($observerWrite.Code-ne0) 'taskless-observation-never-authorizes-write'
+  $observer.intentEnvelope.requestedActionKind='NONE';$observer.intentEnvelope.requestedResultKind='REVIEW_VERDICT';Write-Json $discoverPath $observer
+  Assert-True ((Invoke-Resolver $resolver $discoverPath).Code-ne0) 'taskless-observation-never-substitutes-formal-review'
+  $manyPolicy=$sourcePolicy|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100
+  $manyPolicy.rules[0].source.rootSourceId='DOC_17'
+  $manyPolicy.rules[0].source.documents=@(1..17|ForEach-Object{
+    $rel="docs/extra-$_.md";[IO.File]::WriteAllText((Join-Path $temp $rel),"Rule $_`r`nEquivalent format",$utf8)
+    [pscustomobject]@{sourceId="DOC_$_";locator=$rel;identity=Get-Identity (Join-Path $temp $rel);mode='FULL_FILE';sectionStart='NOT_APPLICABLE';sectionEnd='NOT_APPLICABLE';dependencies=@($(if($_-gt1){'DOC_'+($_-1)}))}
+  })
+  Write-Json $policyPath $manyPolicy;Write-Json $discoverPath $discover;$manyRun=Invoke-Resolver $resolver $discoverPath
+  Assert-True ($manyRun.Code-eq0-and$manyRun.Text.Contains('Rule 17')) 'seventeen-explicit-standard-documents-with-crlf-and-no-final-lf'
+  [IO.File]::WriteAllText($policyPath,$originalPolicyText,$utf8)
+  $configPath=Join-Path $control 'project.json';$configOriginal=[IO.File]::ReadAllText($configPath)
+  [IO.File]::WriteAllText($configPath,$configOriginal.Replace("`r`n","`n").TrimEnd("`n").Replace("`n","`r`n"),$utf8)
+  $formatted=$discover|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100;$formatted.expectedProjectConfigIdentity=Get-Identity $configPath
+  [IO.File]::WriteAllText($discoverPath,($formatted|ConvertTo-Json -Depth 100).Replace("`r`n","`n").TrimEnd("`n").Replace("`n","`r`n"),$utf8)
+  $formatIdentity=Get-Identity $configPath;$formattedRun=Invoke-Resolver $resolver $discoverPath
+  Assert-True ($formattedRun.Code-eq0-and$formattedRun.Value.compactReceipt.sourceBindings.projectConfigIdentity-ceq$formatIdentity-and(Get-Identity $configPath)-ceq$formatIdentity) 'crlf-config-and-tool-json-keep-actual-byte-identities-without-rewriting'
+  [IO.File]::WriteAllText($configPath,$configOriginal,$utf8)
+  $largeBody='Necessary fixture content. '*5000
+  Write-Utf8 $standardPath ("<!-- RULE:BEGIN -->`n"+$largeBody+"`n<!-- RULE:END -->")
+  $largePolicy=$sourcePolicy|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100;$largePolicy.selectedRulePackBytes=1;$largePolicy.rules[0].source.documents[1].identity=Get-Identity $standardPath;Write-Json $policyPath $largePolicy
+  Write-Json $discoverPath $discover;$largeRun=Invoke-Resolver $resolver $discoverPath
+  Assert-True ($largeRun.Code-eq0-and$largeRun.Value.compactReceipt.pack.bytes-gt98304-and$largeRun.Text.Contains($largeBody)) 'one-byte-legacy-metadata-does-not-truncate-or-block-over-96k-rule-pack'
+  $largeReceiptPath=Join-Path $temp 'large-receipt.json';Write-Json $largeReceiptPath $largeRun.Value.compactReceipt
+  $largeBoundary=[ordered]@{schemaVersion=2;mode='ADMIT_ACTION';discoverReceiptPath=$largeReceiptPath;expectedDiscoverReceiptIdentity=Get-Identity $largeReceiptPath;preparationReceipts=@($largeRun.Value.compactReceipt.selectedObligations|ForEach-Object{$_.preparationRequirements}|Sort-Object -Unique);resultReceipts=@($largeRun.Value.compactReceipt.selectedObligations|ForEach-Object{$_.resultRequirements}|Sort-Object -Unique);deliveryReceipts=@('FIXTURE_DELIVERY');publicDecisionIdentity='NOT_REQUIRED';protectionState='BOUND'}
+  $largeBoundaryPath=Join-Path $temp 'large-boundary.json'
+  foreach($mode in @('ADMIT_ACTION','FINALIZE_OUTPUT')){$largeBoundary.mode=$mode;Write-Json $largeBoundaryPath $largeBoundary;$largeBoundaryRun=Invoke-Resolver $resolver $largeBoundaryPath;Assert-True ($largeBoundaryRun.Code-eq0-and$largeBoundaryRun.Value.status-ceq'PASS') ('complete-large-pack-keeps-real-boundary-'+$mode)}
+  Write-Utf8 $standardPath 'Independent source drift';Write-Json $largeBoundaryPath $largeBoundary;$largeDrift=Invoke-Resolver $resolver $largeBoundaryPath
+  Assert-True ($largeDrift.Code-ne0-and$largeDrift.Text.Contains('DISCOVER_SOURCE_DRIFT')) 'removing-byte-quota-does-not-waive-source-drift'
+  [IO.File]::WriteAllText($standardPath,$originalStandardText,$utf8);[IO.File]::WriteAllText($policyPath,$originalPolicyText,$utf8)
+  $protectedReadAllowed=$discover|ConvertTo-Json -Depth 100|ConvertFrom-Json;$protectedReadAllowed.protectedPaths=@('docs/');Write-Json $discoverPath $protectedReadAllowed;$protectedReadAllowedRun=Invoke-Resolver $resolver $discoverPath
+  Assert-True ($protectedReadAllowedRun.Code-eq0) 'write-protected-path-does-not-become-standard-source-read-forbidden'
+  $allowedSourceRule=$sourcePolicy.rules[0]|ConvertTo-Json -Depth 30|ConvertFrom-Json
+  $restrictedSource=Join-Path $temp 'docs\restricted-standard.md';[IO.File]::WriteAllBytes($restrictedSource,[byte[]](0xC3,0x28))
+  $restrictedRule=$allowedSourceRule|ConvertTo-Json -Depth 30|ConvertFrom-Json;$restrictedRule.source.rootSourceId='RESTRICTED';$restrictedRule.source.documents=@([pscustomobject][ordered]@{sourceId='RESTRICTED';locator='docs/restricted-standard.md';identity=('2|'+('A'*64));mode='FULL_FILE';sectionStart='NOT_APPLICABLE';sectionEnd='NOT_APPLICABLE';dependencies=@()})
+  $sourcePolicy.rules=@($restrictedRule);Write-Json $policyPath $sourcePolicy
+  $forbiddenRelative=$discover|ConvertTo-Json -Depth 100|ConvertFrom-Json;$forbiddenRelative.forbiddenPaths=@('docs/restricted-standard.md');Write-Json $discoverPath $forbiddenRelative;$forbiddenRelativeRun=Invoke-Resolver $resolver $discoverPath
+  $restrictedRule.source.documents[0]|Add-Member -NotePropertyName locatorKind -NotePropertyValue 'ABSOLUTE_FILE';$restrictedRule.source.documents[0].locator=$restrictedSource;Write-Json $policyPath $sourcePolicy
+  Write-Json $discoverPath $forbiddenRelative;$forbiddenAbsoluteAliasRun=Invoke-Resolver $resolver $discoverPath
+  Assert-True ($forbiddenRelativeRun.Code-ne0-and$forbiddenRelativeRun.Text.Contains('SOURCE_FILE_FORBIDDEN')-and$forbiddenAbsoluteAliasRun.Code-ne0-and$forbiddenAbsoluteAliasRun.Text.Contains('SOURCE_FILE_FORBIDDEN')) 'explicit-forbidden-read-rejects-project-relative-standard-and-absolute-alias-before-content-read'
+  $sourcePolicy.rules=@($allowedSourceRule);Write-Json $policyPath $sourcePolicy
+  Write-Json $discoverPath $discover
+  $discoverResultText=$run.Value|ConvertTo-Json -Depth 100 -Compress;$compactReceiptText=$run.Value.compactReceipt|ConvertTo-Json -Depth 100 -Compress
+  Assert-True ($discoverResultText.Contains('"fullText"')-and-not$compactReceiptText.Contains('"fullText"')-and@($run.Value.selectedRuleBlocks|Where-Object{[string]::IsNullOrWhiteSpace([string]$_.fullText)}).Count-eq0-and[Text.Encoding]::UTF8.GetByteCount($compactReceiptText)-lt[Text.Encoding]::UTF8.GetByteCount($discoverResultText)) 'process-discover-emits-full-blocks-once-and-reusable-compact-receipt'
+  $receiptPath=Join-Path $temp 'receipt.json';Write-Json $receiptPath $run.Value.compactReceipt
+  $prep=@($run.Value.compactReceipt.selectedObligations|ForEach-Object{@($_.preparationRequirements)}|Sort-Object -Unique)
+  $results=@($run.Value.compactReceipt.selectedObligations|ForEach-Object{@($_.resultRequirements)}|Sort-Object -Unique)
+  $boundary=[ordered]@{schemaVersion=2;mode='FINALIZE_OUTPUT';discoverReceiptPath=$receiptPath;expectedDiscoverReceiptIdentity=Get-Identity $receiptPath;preparationReceipts=$prep;resultReceipts=$results;deliveryReceipts=@('DELIVERED');publicDecisionIdentity='NOT_REQUIRED';protectionState='BOUND'}
+  $boundaryPath=Join-Path $temp 'finalize.json';Write-Json $boundaryPath $boundary;$boundaryRun=Invoke-Resolver $resolver $boundaryPath
+  if($boundaryRun.Code-ne0){Write-Output ('DIAG|compact-boundary|'+$boundaryRun.Text)}
+  Assert-True ($boundaryRun.Code-eq0-and[string]$boundaryRun.Value.status-ceq'PASS') 'compact-boundary-input-reuses-receipt-bound-intent-and-authority'
+  Assert-True ($boundaryRun.Code-eq0-and-not$compactReceiptText.Contains('"fullText"')-and-not[bool]$boundaryRun.Value.semanticCorrectnessProven-and-not[bool]$boundaryRun.Value.hostInvocationProven) 'compact-receipt-reuse-is-mechanical-not-model-fulltext-proof'
+
+  $decisionPath=Join-Path $temp 'AGENTS.md'
+  Write-Utf8 $decisionPath 'User delegates the approved project goal under current rules.'
+  Write-Json $discoverPath $discover;$decisionDiscover=Invoke-Resolver $resolver $discoverPath
+  $decisionReceipt=Join-Path $temp 'decision-receipt.json';Write-Json $decisionReceipt $decisionDiscover.Value.compactReceipt
+  $decisionBoundary=$boundary|ConvertTo-Json -Depth 100|ConvertFrom-Json
+  $decisionBoundary.discoverReceiptPath=$decisionReceipt;$decisionBoundary.expectedDiscoverReceiptIdentity=Get-Identity $decisionReceipt
+  Write-Json $boundaryPath $decisionBoundary;$healthyDecision=Invoke-Resolver $resolver $boundaryPath
+  Assert-True ($healthyDecision.Code-eq0) 'standing-user-decision-reuses-healthy-source-binding'
+  foreach($changedDecision in @('User narrows delegation to read-only analysis.','User revokes standing delegation.')){
+    Write-Utf8 $decisionPath $changedDecision
+    Write-Json $boundaryPath $decisionBoundary;$decisionDrift=Invoke-Resolver $resolver $boundaryPath
+    Assert-True ($decisionDrift.Code-ne0-and$decisionDrift.Text.Contains('DISCOVER_SOURCE_DRIFT|projectAgentsIdentity')) 'user-decision-narrowing-or-revocation-rejects-stale-receipt'
+  }
+  [IO.File]::Delete($decisionPath)
+  Write-Json $boundaryPath $boundary
+
+  $legacyDecisionReceipt=$run.Value.compactReceipt|ConvertTo-Json -Depth 100|ConvertFrom-Json
+  $legacyDecisionReceipt.sourceBindings.PSObject.Properties.Remove('projectAgentsIdentity')
+  Write-Json $decisionReceipt $legacyDecisionReceipt
+  $decisionBoundary.expectedDiscoverReceiptIdentity=Get-Identity $decisionReceipt
+  Write-Json $boundaryPath $decisionBoundary;$legacyNoAgents=Invoke-Resolver $resolver $boundaryPath
+  Assert-True ($legacyNoAgents.Code-eq0) 'legacy-receipt-with-no-agents-preserves-supported-readonly-entry'
+  Write-Utf8 $decisionPath 'Current explicit user restriction.'
+  Write-Json $boundaryPath $decisionBoundary;$legacyUnboundAgents=Invoke-Resolver $resolver $boundaryPath
+  Assert-True ($legacyUnboundAgents.Code-ne0-and$legacyUnboundAgents.Text.Contains('PROJECT_AGENTS_BINDING_REQUIRED')) 'legacy-receipt-cannot-ignore-present-user-decision-source'
+  [IO.File]::Delete($decisionPath)
+  Write-Json $boundaryPath $boundary
+
+  $compact1Discover=($discover|ConvertTo-Json -Depth 100|ConvertFrom-Json);$compact1Discover.schemaVersion=2;$compact1Discover.PSObject.Properties.Remove('contextType');$compact1Discover.PSObject.Properties.Remove('readOnlyContext')
+  Write-Json $discoverPath $compact1Discover;$compact1Run=Invoke-Resolver $resolver $discoverPath
+  Assert-True ($compact1Run.Code-eq0-and[int]$compact1Run.Value.compactReceipt.schemaVersion-eq1-and$null-ne$compact1Run.Value.compactReceipt.sourceBindings.PSObject.Properties['projectStandardsIdentity']) 'compact1-receipt-binds-project-standard-sources'
+  $compact1ReceiptPath=Join-Path $temp 'compact1-receipt.json';Write-Json $compact1ReceiptPath $compact1Run.Value.compactReceipt
+  $compact1Prep=@($compact1Run.Value.compactReceipt.selectedObligations|ForEach-Object{@($_.preparationRequirements)}|Sort-Object -Unique)
+  $compact1Admit=[ordered]@{schemaVersion=2;mode='ADMIT_ACTION';discoverReceiptPath=$compact1ReceiptPath;expectedDiscoverReceiptIdentity=Get-Identity $compact1ReceiptPath;preparationReceipts=$compact1Prep;resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='BOUND'}
+
+  Write-Utf8 (Join-Path $temp 'docs\standard.md') "Changed intro without the old section markers."
+  Write-Json $boundaryPath $compact1Admit;$compact1Drift=Invoke-Resolver $resolver $boundaryPath
+  Assert-True ($compact1Drift.Code-ne0-and$compact1Drift.Text.Contains('DISCOVER_SOURCE_DRIFT|projectStandardsIdentity')) 'compact1-admit-rejects-project-standard-source-drift'
+  Write-Json $discoverPath $discover;$driftRun=Invoke-Resolver $resolver $discoverPath
+  $driftRule=@($driftRun.Value.selectedRuleBlocks|Where-Object{[string]$_.requirementId-ceq'project:process-v2-fixture:SOURCE_BOUND_STANDARD'})
+  Assert-True ($driftRun.Code-eq0-and$driftRule.Count-eq1-and[string]$driftRule[0].semanticApplicability-ceq'SOURCE_DRIFT_CONSERVATIVE_LOAD'-and@($driftRun.Value.compactReceipt.evidence.ceilings)-contains'PROJECT_STANDARD_SOURCE_DRIFT_CONSERVATIVE_LOAD'-and[string]$driftRule[0].fullText-clike'*Changed intro*') 'source-drift-invalidates-selector-and-conservatively-loads-current-full-source'
+
+  $sourcePolicy.rules[0].source.documents[0].dependencies=@('STANDARD');Write-Json $policyPath $sourcePolicy
+  $discover.expectedProjectConfigIdentity=Get-Identity (Join-Path $control 'project.json');Write-Json $discoverPath $discover;$cycleRun=Invoke-Resolver $resolver $discoverPath
+  Assert-True ($cycleRun.Code-ne0-and$cycleRun.Text.Contains('DEPENDENCY_CYCLE')) 'project-standard-source-cycle-fails-closed'
+
+  Write-Utf8 (Join-Path $temp 'docs\standard.md') "Intro.`n<!-- RULE:BEGIN -->`nSelected project standard rule body.`n<!-- RULE:END -->`nTail."
+  $sourcePolicy.rules[0].source.documents[0].dependencies=@()
+  $sourcePolicy.rules[0].source.documents[1].identity=Get-Identity (Join-Path $temp 'docs\standard.md')
+  Write-Json $policyPath $sourcePolicy
+  $docsPath=Join-Path $temp 'docs';$docsHold=Join-Path $temp 'docs-hold'
+  $docsMove=Get-FixtureDirectoryMoveBinding $temp $docsPath $docsHold
+  Move-Item -LiteralPath $docsMove.Source -Destination $docsMove.Destination
+  try{
+    New-Item -ItemType Directory -Path $outsideTemp -Force|Out-Null
+    Get-ChildItem -LiteralPath $docsHold -Force|Copy-Item -Destination $outsideTemp -Recurse -Force
+    New-Item -ItemType Junction -Path $docsPath -Target $outsideTemp|Out-Null
+    try{Write-Json $discoverPath $discover;$parentJunctionRun=Invoke-Resolver $resolver $discoverPath}finally{Remove-FixtureJunction $docsPath $temp}
+    Assert-True ($parentJunctionRun.Code-ne0-and$parentJunctionRun.Text.Contains('SOURCE_FILE_REPARSE')) 'project-standard-source-parent-junction-outside-project-fails-before-read'
+    $outsideResolved=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($outsideTemp));$systemTemp=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath([IO.Path]::GetTempPath()));if(-not$outsideResolved.StartsWith($systemTemp+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)-or[IO.Path]::GetFileName($outsideResolved)-cnotmatch'^aiw-process-v2-outside-[a-f0-9]{32}$'){throw 'OUTSIDE_TEMP_CLEANUP_BOUNDARY'};Remove-Item -LiteralPath $outsideResolved -Recurse -Force
+    New-Item -ItemType Directory -Path $outsideTemp -Force|Out-Null
+    New-Item -ItemType Junction -Path $docsPath -Target $outsideTemp|Out-Null
+    Remove-Item -LiteralPath $outsideTemp -Force
+    try{Write-Json $discoverPath $discover;$danglingParentJunctionRun=Invoke-Resolver $resolver $discoverPath}finally{Remove-FixtureJunction $docsPath $temp}
+    $danglingReasons=@('PROJECT_STANDARD_SOURCE_UNAVAILABLE|SOURCE_BOUND_STANDARD|PROCESS_POLICY_SOURCE_BOUND_STANDARD_SOURCE_FILE_REPARSE','PROJECT_STANDARD_SOURCE_UNAVAILABLE|SOURCE_BOUND_STANDARD|PROCESS_POLICY_SOURCE_BOUND_STANDARD_SOURCE_FILE_MISSING')
+    Assert-True ($danglingParentJunctionRun.Code-ne0-and@($danglingReasons|Where-Object{$danglingParentJunctionRun.Text.Contains($_)}).Count-eq1) 'project-standard-source-dangling-parent-junction-fails-at-source-locator-before-read'
+  }finally{
+    $remainingDocsLink=Get-Item -LiteralPath $docsPath -Force -ErrorAction SilentlyContinue;if($null-ne$remainingDocsLink-and($remainingDocsLink.Attributes-band[IO.FileAttributes]::ReparsePoint)-ne0){Remove-FixtureJunction $docsPath $temp}
+    if(Test-Path -LiteralPath $docsHold){$docsRestore=Get-FixtureDirectoryMoveBinding $temp $docsHold $docsPath;Move-Item -LiteralPath $docsRestore.Source -Destination $docsRestore.Destination}
+  }
+  New-Item -ItemType Directory -Path $outsideTemp -Force|Out-Null
+  $externalShared=Join-Path $outsideTemp 'shared-standard.md';$externalSupplement=Join-Path $temp 'docs\project-supplement.md'
+  Write-Utf8 $externalShared "Shared external standard.`n<!-- EXTERNAL-RULE:BEGIN -->`nExternal normative body.`n<!-- EXTERNAL-RULE:END -->"
+  Write-Utf8 $externalSupplement 'Project-local supplement.'
+  $projectRelativeRule=$sourcePolicy.rules[0]|ConvertTo-Json -Depth 30|ConvertFrom-Json
+  $externalRule=[ordered]@{ruleId='SOURCE_BOUND_STANDARD';requirementReason='Use the user-selected external standard with a project supplement';selectors=$sourcePolicy.rules[0].selectors;preparationRequirements=@('PROJECT_STANDARD_READ');resultRequirements=@('PROJECT_STANDARD_APPLIED');decisionLocator='project:fixture-external';source=[ordered]@{rootSourceId='SUPPLEMENT';documents=@([ordered]@{sourceId='SHARED';locatorKind='ABSOLUTE_FILE';locator=$externalShared;identity=Get-Identity $externalShared;mode='MARKED_SECTION';sectionStart='<!-- EXTERNAL-RULE:BEGIN -->';sectionEnd='<!-- EXTERNAL-RULE:END -->';dependencies=@()},[ordered]@{sourceId='SUPPLEMENT';locator='docs/project-supplement.md';identity=Get-Identity $externalSupplement;mode='FULL_FILE';sectionStart='NOT_APPLICABLE';sectionEnd='NOT_APPLICABLE';dependencies=@('SHARED')})}}
+  $sourcePolicy.rules=@($externalRule);Write-Json $policyPath $sourcePolicy
+  $externalSharedPreimage=Get-Identity $externalShared
+  Write-Json $discoverPath $discover;$externalRun=Invoke-Resolver $resolver $discoverPath
+  $externalSelected=@($externalRun.Value.selectedRuleBlocks|Where-Object{[string]$_.requirementId-ceq'project:process-v2-fixture:SOURCE_BOUND_STANDARD'})
+  Assert-True ($externalRun.Code-eq0-and$externalSelected.Count-eq1-and[string]$externalSelected[0].fullText-clike'*External normative body*Project-local supplement*'-and(Get-Identity $externalShared)-ceq$externalSharedPreimage) 'external-standard-and-project-relative-supplement-load-read-only-with-dependency-order'
+  $externalReceiptPath=Join-Path $temp 'external-receipt.json';Write-Json $externalReceiptPath $externalRun.Value.compactReceipt
+  $externalAdmit=[ordered]@{schemaVersion=2;mode='ADMIT_ACTION';discoverReceiptPath=$externalReceiptPath;expectedDiscoverReceiptIdentity=Get-Identity $externalReceiptPath;preparationReceipts=@($externalRun.Value.compactReceipt.selectedObligations|ForEach-Object{@($_.preparationRequirements)}|Sort-Object -Unique);resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='BOUND'}
+  Write-Utf8 $externalShared "Shared external standard changed.`n<!-- EXTERNAL-RULE:BEGIN -->`nCurrent external normative body.`n<!-- EXTERNAL-RULE:END -->"
+  Write-Json $boundaryPath $externalAdmit;$externalDrift=Invoke-Resolver $resolver $boundaryPath
+  Assert-True ($externalDrift.Code-ne0-and$externalDrift.Text.Contains('DISCOVER_SOURCE_DRIFT|projectStandardsIdentity')) 'external-standard-drift-invalidates-discover-receipt'
+  $externalDriftIdentity=Get-Identity $externalShared
+  Write-Json $discoverPath $discover;$externalDriftDiscover=Invoke-Resolver $resolver $discoverPath
+  $externalDriftRule=@($externalDriftDiscover.Value.selectedRuleBlocks|Where-Object{[string]$_.requirementId-ceq'project:process-v2-fixture:SOURCE_BOUND_STANDARD'})
+  Assert-True ($externalDriftDiscover.Code-eq0-and[string]$externalDriftRule[0].semanticApplicability-ceq'SOURCE_DRIFT_CONSERVATIVE_LOAD'-and[string]$externalDriftRule[0].fullText-clike'*Current external normative body*'-and(Get-Identity $externalShared)-ceq$externalDriftIdentity) 'external-standard-drift-conservatively-loads-current-read-only-snapshot'
+  $externalRule.source.documents[0].locator='relative-not-absolute.md';Write-Json $policyPath $sourcePolicy;Write-Json $discoverPath $discover;$invalidExternal=Invoke-Resolver $resolver $discoverPath
+  Assert-True ($invalidExternal.Code-ne0-and$invalidExternal.Text.Contains('SOURCE_FILE_PATH')) 'external-standard-rejects-relative-locator'
+  $protectedExternal=Join-Path $control 'runtime\protected-standard.md';Write-Utf8 $protectedExternal 'Protected runtime content.';$externalRule.source.documents[0].locator=$protectedExternal;$externalRule.source.documents[0].identity=Get-Identity $protectedExternal;Write-Json $policyPath $sourcePolicy;Write-Json $discoverPath $discover;$protectedExternalRun=Invoke-Resolver $resolver $discoverPath
+  Assert-True ($protectedExternalRun.Code-ne0-and$protectedExternalRun.Text.Contains('SOURCE_FILE_PROTECTED')) 'external-standard-rejects-protected-runtime-locator'
+  $externalRule.source.documents[0].locator=Join-Path $outsideTemp 'missing-standard.md';$externalRule.source.documents[0].identity=('1|'+('A'*64));Write-Json $policyPath $sourcePolicy;Write-Json $discoverPath $discover;$missingExternal=Invoke-Resolver $resolver $discoverPath
+  Assert-True ($missingExternal.Code-ne0-and$missingExternal.Text.Contains('SOURCE_FILE_MISSING')) 'selected-external-standard-rejects-missing-source'
+  if($IsWindows){
+    $externalSourceDirectory=Join-Path $outsideTemp 'actual';New-Item -ItemType Directory -Path $externalSourceDirectory|Out-Null;$externalSourceFile=Join-Path $externalSourceDirectory 'standard.md';Write-Utf8 $externalSourceFile 'External reparse target.'
+    $externalLink=Join-Path $outsideTemp 'linked';New-Item -ItemType Junction -Path $externalLink -Target $externalSourceDirectory|Out-Null
+    try{$externalRule.source.documents[0].locator=Join-Path $externalLink 'standard.md';$externalRule.source.documents[0].identity=Get-Identity $externalSourceFile;Write-Json $policyPath $sourcePolicy;Write-Json $discoverPath $discover;$reparseExternal=Invoke-Resolver $resolver $discoverPath}finally{Remove-FixtureJunction $externalLink $outsideTemp}
+    Assert-True ($reparseExternal.Code-ne0-and$reparseExternal.Text.Contains('SOURCE_FILE_REPARSE')) 'external-standard-rejects-reparse-path-before-read'
+  }
+  Write-Utf8 $externalShared "Shared external standard.`n<!-- EXTERNAL-RULE:BEGIN -->`nExternal normative body.`n<!-- EXTERNAL-RULE:END -->";$externalRule.source.documents[0].locator=$externalShared;$externalRule.source.documents[0].identity=Get-Identity $externalShared
+  $sourcePolicy.rules=@($externalRule)
+  $unavailableRule=[ordered]@{ruleId='UNAVAILABLE_ONLY_WHEN_APPLICABLE';requirementReason='Do not load an unavailable unrelated standard';selectors=[ordered]@{profiles=@('STANDARD');roles=@('TASK_OWNER');phases=@('PLAN');actionKinds=@('SOURCE_WRITE');resultKinds=@('IMPLEMENTATION_RESULT');pathPrefixes=@();capabilities=@();semanticTerms=@('unavailable-related')};preparationRequirements=@('UNAVAILABLE_STANDARD_READ');resultRequirements=@('UNAVAILABLE_STANDARD_APPLIED');decisionLocator='project:fixture-unavailable';source=[ordered]@{rootSourceId='MISSING';documents=@([ordered]@{sourceId='MISSING';locator='docs/missing.md';identity=('1|'+('A'*64));mode='FULL_FILE';sectionStart='NOT_APPLICABLE';sectionEnd='NOT_APPLICABLE';dependencies=@()})}}
+  $sourcePolicy.rules=@($sourcePolicy.rules[0],$unavailableRule);Write-Json $policyPath $sourcePolicy
+  Import-Module $module -Force
+  $forbiddenClosureFailure=$null;try{$null=Get-AiwProjectPolicySourceClosure -ProjectRoot $temp -Rules @($restrictedRule) -ForbiddenPaths @('docs/restricted-standard.md')}catch{$forbiddenClosureFailure=[string]$_.Exception.Message}
+  Assert-True ($forbiddenClosureFailure-clike'*SOURCE_FILE_FORBIDDEN') 'source-closure-precheck-and-discover-snapshot-share-forbidden-read-boundary'
+  $secondProject=Join-Path $outsideTemp 'second-project';New-Item -ItemType Directory -Path $secondProject -Force|Out-Null;$secondSupplement=Join-Path $secondProject 'supplement.md';Write-Utf8 $secondSupplement 'Second project supplement.'
+  $firstRule=$externalRule|ConvertTo-Json -Depth 30|ConvertFrom-Json;$secondRule=$externalRule|ConvertTo-Json -Depth 30|ConvertFrom-Json;$secondRule.source.documents[1].locator='supplement.md';$secondRule.source.documents[1].identity=Get-Identity $secondSupplement
+  $firstClosure=Get-AiwProjectPolicySourceClosure -ProjectRoot $temp -Rules @($firstRule)
+  $secondClosure=Get-AiwProjectPolicySourceClosure -ProjectRoot $secondProject -Rules @($secondRule)
+  $firstShared=@($firstClosure.Documents|Where-Object{[string]$_.locatorKind-ceq'ABSOLUTE_FILE'});$secondShared=@($secondClosure.Documents|Where-Object{[string]$_.locatorKind-ceq'ABSOLUTE_FILE'})
+  Assert-True ($firstShared.Count-eq1-and$secondShared.Count-eq1-and[string]$firstShared[0].sourcePath-ceq[string]$secondShared[0].sourcePath-and[string]$firstShared[0].identity-ceq[string]$secondShared[0].identity-and[string]$firstClosure.Identity-cne[string]$secondClosure.Identity) 'multiple-projects-share-original-external-standard-with-independent-local-supplements'
+  $sourcePolicy.rules=@($projectRelativeRule,$unavailableRule);Write-Json $policyPath $sourcePolicy
+  $standardArgs=@{ProjectRoot=$temp;FrameworkRoot=$frameworkRoot;TargetVersion='2.0.0';ExpectedProjectConfigIdentity=Get-Identity (Join-Path $control 'project.json');ExpectedCorrectionsIdentity=Get-Identity (Join-Path $control 'corrections.json');Profile='STANDARD';Role='TASK_OWNER';Phase='PLAN';Actor='owner-fixture';TaskIdentity=Get-Identity $taskPath;Capabilities=@();Objective='Plan source-bound project work';ActionKind='NONE';ResultKind='PLAN';ExactPaths=@();EvaluationOnly=$true}
+  $unrelatedComposition=Invoke-ProcessRequirementComposition @standardArgs
+  Assert-True (@($unrelatedComposition.selectedRequirements|Where-Object{[string]$_.requirementId-ceq'project:process-v2-fixture:UNAVAILABLE_ONLY_WHEN_APPLICABLE'}).Count-eq0) 'unavailable-unrelated-project-standard-does-not-block-or-load'
+
+  $neutralTaskOriginal=Get-Content -Raw -Encoding utf8 -LiteralPath $taskPath
+  $resourceRequirementIds=@('framework:PR_DYNAMIC_ROLE_DIRECT_ISSUANCE')
+  foreach($neutralPhase in @('RECOVER','DISCOVER')){
+    Write-Utf8 $taskPath "# PROCESS-V2-001 — runtime contract fixture`n`n- Owner: owner-fixture`n- Work route: actor=reviewer-fixture; role=REVIEWER; phase=$neutralPhase`n- Range summary: profile=MICRO; risk=LOW; size=MICRO; uncertainty=LOW`n"
+    $neutralArgs=@{ProjectRoot=$temp;FrameworkRoot=$frameworkRoot;TargetVersion='2.0.0';ExpectedProjectConfigIdentity=Get-Identity (Join-Path $control 'project.json');ExpectedCorrectionsIdentity=Get-Identity (Join-Path $control 'corrections.json');Profile='MICRO';Role='REVIEWER';Phase=$neutralPhase;Actor='reviewer-fixture';TaskIdentity=Get-Identity $taskPath;Capabilities=@();Objective='Continue the current bounded work';ActionKind='NONE';ResultKind='PLAN';ExactPaths=@();EvaluationOnly=$true}
+    $neutralComposition=Invoke-ProcessRequirementComposition @neutralArgs
+    $neutralIntent=[ordered]@{schemaVersion=1;objective='Continue the current bounded work';requestedActionKind='NONE';requestedResultKind='PLAN';semanticHints=@();pathHints=@();capabilityHints=@();mutationHints=@();externalHints=@();ambiguityState='CLEAR'}
+    $neutralDiscover=[ordered]@{schemaVersion=3;mode='DISCOVER';contextType='TASK';readOnlyContext='NOT_APPLICABLE';projectRoot=$temp;frameworkRoot=$frameworkRoot;taskPath=$taskPath;expectedProjectConfigIdentity=Get-Identity (Join-Path $control 'project.json');expectedCorrectionsIdentity=Get-Identity (Join-Path $control 'corrections.json');expectedTaskIdentity=Get-Identity $taskPath;observedActor='reviewer-fixture';capabilities=@();exactPaths=@();forbiddenPaths=@('private/');protectedPaths=@('.ai-workspace/');authorizationPackagePath='NOT_REQUIRED';expectedAuthorizationIdentity='NOT_REQUIRED';userDecision='NOT_REQUIRED';recoveryState='CURRENT';hostEnforcementGrade='FRAMEWORK_GATED';invocationState='PROVEN_EXPLICIT';intentEnvelope=$neutralIntent;evaluationOnly=$true}
+    Write-Json $discoverPath $neutralDiscover;$neutralRun=Invoke-Resolver $resolver $discoverPath
+    $completeBodiesMatch=$true
+    foreach($resourceId in $resourceRequirementIds){
+      $composerBlock=@($neutralComposition.selectedRequirements|Where-Object{[string]$_.requirementId-ceq$resourceId})
+      $resolverBlock=@($neutralRun.Value.selectedRuleBlocks|Where-Object{[string]$_.requirementId-ceq$resourceId})
+      if($composerBlock.Count-ne1-or$resolverBlock.Count-ne1-or[string]::IsNullOrWhiteSpace([string]$resolverBlock[0].fullText)-or[string]$resolverBlock[0].fullText-cne[string]$composerBlock[0].fullText){$completeBodiesMatch=$false}
+    }
+    $neutralBinding=$neutralRun.Value.compactReceipt.binding;$neutralPack=$neutralRun.Value.compactReceipt.pack
+    Assert-True ($neutralRun.Code-eq0-and$completeBodiesMatch-and[string]$neutralBinding.profile-ceq'MICRO'-and[string]$neutralBinding.role-ceq'REVIEWER'-and[string]$neutralBinding.phase-ceq$neutralPhase-and[string]$neutralBinding.authorizationIdentity-ceq'NOT_REQUIRED'-and@($neutralBinding.authorizedActions).Count-eq0-and-not[bool]$neutralRun.Value.compactReceipt.authorityGranted-and-not[bool]$neutralRun.Value.compactReceipt.semanticCorrectnessProven-and[int]$neutralPack.ceilingBytes-eq98304-and[int]$neutralPack.bytes-le[int]$neutralPack.ceilingBytes-and[int]$neutralComposition.selectedRulePackBytes-eq98304) ('neutral-micro-reviewer-retains-role-boundary-without-authority-'+$neutralPhase.ToLowerInvariant())
+    Assert-True ('framework:PR_TASK_LAUNCH_AND_ROUTE'-cnotin@($neutralRun.Value.selectedRuleBlocks.requirementId)-and'framework:PR_CODEX_RESOURCE_ROUTE'-cnotin@($neutralRun.Value.selectedRuleBlocks.requirementId)) ('healthy-neutral-reuse-does-not-reopen-creation-resource-'+$neutralPhase)
+    $neutralDiscover.intentEnvelope.objective='Assign an independent actor and choose resources for the new work';$neutralDiscover.intentEnvelope.semanticHints=@('task assignment','resource selection');Write-Json $discoverPath $neutralDiscover;$assignmentRun=Invoke-Resolver $resolver $discoverPath
+    Assert-True ($assignmentRun.Code-eq0-and'framework:PR_TASK_LAUNCH_AND_ROUTE'-cin@($assignmentRun.Value.selectedRuleBlocks.requirementId)-and'framework:PR_TASK_RESOURCE_SELECTION'-cin@($assignmentRun.Value.selectedRuleBlocks.requirementId)-and'framework:PR_CODEX_RESOURCE_ROUTE'-cin@($assignmentRun.Value.selectedRuleBlocks.requirementId)) ('new-assignment-loads-complete-resource-bodies-'+$neutralPhase)
+  }
+  Write-Utf8 $taskPath $neutralTaskOriginal
+
+  $standardArgs.Objective='Implement unavailable-related project work';$standardArgs.ActionKind='SOURCE_WRITE';$standardArgs.ResultKind='IMPLEMENTATION_RESULT'
+  $relatedFailure=$null;try{$null=Invoke-ProcessRequirementComposition @standardArgs}catch{$relatedFailure=[string]$_.Exception.Message}
+  Assert-True ($relatedFailure-clike'PROJECT_STANDARD_SOURCE_UNAVAILABLE|UNAVAILABLE_ONLY_WHEN_APPLICABLE|*SOURCE_FILE_MISSING') 'unavailable-related-project-standard-blocks-dependent-action'
+
+  Write-Utf8 (Join-Path $temp 'docs\standard.md') "<!-- RULE:BEGIN -->`nFirst.`n<!-- RULE:END -->`n<!-- RULE:BEGIN -->`nSecond.`n<!-- RULE:END -->"
+  $sourcePolicy.rules=@($sourcePolicy.rules[0]);$sourcePolicy.rules[0].source.documents[1].identity=Get-Identity (Join-Path $temp 'docs\standard.md');Write-Json $policyPath $sourcePolicy
+  $standardArgs.Objective='Plan source-bound project work';$standardArgs.ActionKind='NONE';$standardArgs.ResultKind='PLAN'
+  $sectionFailure=$null;try{$null=Invoke-ProcessRequirementComposition @standardArgs}catch{$sectionFailure=[string]$_.Exception.Message}
+  Assert-True ($sectionFailure-clike'PROJECT_STANDARD_SOURCE_UNAVAILABLE|SOURCE_BOUND_STANDARD|*SECTION_CARDINALITY') 'selected-project-standard-rejects-duplicate-section-markers'
+
+  Write-Utf8 (Join-Path $temp 'docs\standard.md') "Intro.`n<!-- RULE:BEGIN -->`nSelected project standard rule body.`n<!-- RULE:END -->`nTail."
+  $sourcePolicy.rules[0].source.documents[1].identity=Get-Identity (Join-Path $temp 'docs\standard.md');Write-Json $policyPath $sourcePolicy
+  $historicalChinese='此 legacy region 当前没有 permanent project process rule。structured rules 位于 `.ai-workspace/process-policy.json`。'
+  Write-Utf8 (Join-Path $control 'BOOTSTRAP.md') "<!-- PROJECT-CUSTOM:BEGIN -->`n$historicalChinese`n<!-- PROJECT-CUSTOM:END -->"
+  $historicalPlaceholder=Invoke-ProcessRequirementComposition @standardArgs
+  Assert-True (@($historicalPlaceholder.selectedRequirements|Where-Object{[string]$_.requirementId-ceq'project-custom:process-v2-fixture'}).Count-eq0-and@($historicalPlaceholder.evidenceCeilings)-notcontains'LEGACY_PROJECT_CUSTOM_FULL_LOAD') 'exact-historical-chinese-placeholder-with-structured-policy-is-nonnormative'
+  Write-Utf8 (Join-Path $control 'BOOTSTRAP.md') "<!-- PROJECT-CUSTOM:BEGIN -->`n$historicalChinese`nAn actual permanent project rule is active.`n<!-- PROJECT-CUSTOM:END -->"
+  $appendedCarrier=Invoke-ProcessRequirementComposition @standardArgs
+  Assert-True (@($appendedCarrier.selectedRequirements|Where-Object{$_.fullText.Contains('An actual permanent project rule is active.')}).Count-eq1) 'historical-placeholder-with-distinct-appended-rule-coexists-with-policy'
+  Write-Utf8 (Join-Path $control 'BOOTSTRAP.md') "<!-- PROJECT-CUSTOM:BEGIN -->`nNo permanent project process rule is active in this legacy region. Structured rules belong to ``.ai-workspace/process-policy.json``.`n<!-- PROJECT-CUSTOM:END -->"
+  $sourcePolicy.rules=@();Write-Json $policyPath $sourcePolicy
+  $readOnlyIntent=[ordered]@{schemaVersion=1;objective='Explain the current project process without performing an action';requestedActionKind='NONE';requestedResultKind='USER_RESPONSE';semanticHints=@('project process');pathHints=@();capabilityHints=@();mutationHints=@();externalHints=@();ambiguityState='CLEAR'}
+  $taskless=[ordered]@{schemaVersion=3;mode='DISCOVER';contextType='PROJECT_READ_ONLY';readOnlyContext=[ordered]@{sessionId='session-fixture';requestId='request-fixture';role='TASK_OWNER';phase='PLAN';profile='STANDARD'};projectRoot=$temp;frameworkRoot=$frameworkRoot;taskPath='NOT_APPLICABLE';expectedProjectConfigIdentity=Get-Identity (Join-Path $control 'project.json');expectedCorrectionsIdentity=Get-Identity (Join-Path $control 'corrections.json');expectedTaskIdentity='NOT_APPLICABLE';observedActor='owner-fixture';capabilities=@();exactPaths=@();forbiddenPaths=@('src/');protectedPaths=@('.ai-workspace/');authorizationPackagePath='NOT_REQUIRED';expectedAuthorizationIdentity='NOT_REQUIRED';userDecision='NOT_REQUIRED';recoveryState='CURRENT';hostEnforcementGrade='INSTRUCTION_BOUND';invocationState='PROVEN_EXPLICIT';intentEnvelope=$readOnlyIntent;evaluationOnly=$true}
+  Write-Json $discoverPath $taskless;$tasklessRun=Invoke-Resolver $resolver $discoverPath
+  if($tasklessRun.Code-ne0){Write-Output ('DIAG|taskless|'+$tasklessRun.Text)}
+  Assert-True ($tasklessRun.Code-eq0-and[string]$tasklessRun.Value.compactReceipt.binding.contextType-ceq'PROJECT_READ_ONLY'-and[string]$tasklessRun.Value.compactReceipt.binding.taskIdentity-ceq'NOT_APPLICABLE'-and[string]$tasklessRun.Value.compactReceipt.binding.authorizationIdentity-ceq'NOT_REQUIRED') 'taskless-project-read-only-context-does-not-invent-task-or-authority'
+  $deliveryReceipt=Join-Path $temp 'delivery-receipt.json';Write-Json $deliveryReceipt $tasklessRun.Value.compactReceipt
+  $deliveryBoundary=[ordered]@{schemaVersion=2;mode='FINALIZE_OUTPUT';discoverReceiptPath=$deliveryReceipt;expectedDiscoverReceiptIdentity=(Get-Identity $deliveryReceipt);preparationReceipts=@($tasklessRun.Value.compactReceipt.selectedObligations|ForEach-Object{$_.preparationRequirements}|Sort-Object -Unique);resultReceipts=@($tasklessRun.Value.compactReceipt.selectedObligations|ForEach-Object{$_.resultRequirements}|Where-Object{$_-cne'DELIVERY_RECEIPT'}|Sort-Object -Unique);deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='BOUND';deliveryContext=[ordered]@{channel='NATIVE_RESPONSE';stage='PREPARE';expectedRecipient='USER';observedRecipient='NOT_APPLICABLE';outcome='NOT_SENT';evidence='NOT_APPLICABLE'}}
+  Write-Json $discoverPath $deliveryBoundary;$nativeReady=Invoke-Resolver $resolver $discoverPath
+  Assert-True ($nativeReady.Code-eq0-and$nativeReady.Value.status-ceq'PASS'-and$nativeReady.Value.delivery.status-ceq'READY_TO_SEND'-and-not$nativeReady.Value.delivery.delivered) 'native-final-prepares-without-future-delivery-receipt'
+  $deliveryBoundary.deliveryContext.outcome='SUCCESS';Write-Json $discoverPath $deliveryBoundary;$future=Invoke-Resolver $resolver $discoverPath
+  Assert-True ($future.Code-ne0-and$future.Text.Contains('DELIVERY_FUTURE_EVIDENCE')) 'native-final-rejects-prefilled-send-success'
+  $deliveryBoundary.deliveryContext=[ordered]@{channel='TASK_MESSAGE';stage='OBSERVE';expectedRecipient='owner';observedRecipient='owner';outcome='SUCCESS';evidence='fixture:actual-host-return'}
+  Write-Json $discoverPath $deliveryBoundary;$sent=Invoke-Resolver $resolver $discoverPath
+  Assert-True ($sent.Code-ne0-and$sent.Text.Contains('DELIVERY_CONSUMER_CHANNEL_MISMATCH')) 'taskless-user-response-cannot-invent-task-message-consumer'
+  foreach($outcome in @('FAILURE','UNKNOWN')){
+    $deliveryBoundary.deliveryContext.outcome=$outcome;Write-Json $discoverPath $deliveryBoundary;$notSent=Invoke-Resolver $resolver $discoverPath
+    Assert-True ($notSent.Code-ne0-and$notSent.Text.Contains('DELIVERY_CONSUMER_CHANNEL_MISMATCH')) ('taskless-'+$outcome+'-still-needs-bound-consumer')
+  }
+  $deliveryBoundary.deliveryContext.outcome='SUCCESS';$deliveryBoundary.deliveryContext.observedRecipient='wrong';Write-Json $discoverPath $deliveryBoundary;$wrong=Invoke-Resolver $resolver $discoverPath
+  Assert-True ($wrong.Code-ne0-and$wrong.Text.Contains('DELIVERY_SUCCESS_UNBOUND')) 'send-success-to-wrong-consumer-rejected'
+  $taskless.intentEnvelope.requestedActionKind='SOURCE_WRITE';$taskless.intentEnvelope.requestedResultKind='IMPLEMENTATION_RESULT';Write-Json $discoverPath $taskless;$tasklessDenied=Invoke-Resolver $resolver $discoverPath
+  Assert-True ($tasklessDenied.Code-ne0-and$tasklessDenied.Text.Contains('PROJECT_READ_ONLY_BOUNDARY')) 'taskless-context-cannot-admit-governed-action'
+
+  $taskless=$null
+  Write-Utf8 $taskPath "# PROCESS-V2-001 — runtime contract fixture`n`n- Owner: owner-fixture`n- Work route: actor=owner-fixture; role=TASK_OWNER; phase=IMPLEMENT`n- Range summary: profile=STANDARD; risk=MEDIUM; size=SMALL; uncertainty=LOW`n"
+  Write-Utf8 (Join-Path $temp 'src\file.txt') 'old'
+  $package=[ordered]@{schemaVersion=1;frameworkVersion='2.0.0';taskId='PROCESS-V2-001';profile='STANDARD';lifecycle='ACTIVE';owner='owner-fixture';issuer='owner-fixture';issuerRole='TASK_OWNER';grantee='executor-fixture';bundle='PLAN_LOCAL';decisionClass='ROUTINE_LOCAL';userConfirmation='NOT_REQUIRED';reviewIndependence='NOT_APPLICABLE';delegatedGitCloser=$false;taskIdentity=Get-Identity $taskPath;actions=@('SOURCE_WRITE');exactPaths=@('src/file.txt');objectIdentities=@([ordered]@{path='src/file.txt';identity=Get-Identity (Join-Path $temp 'src\file.txt')});invalidatesOn=@('TASK_CHANGE','OWNER_CHANGE','GRANTEE_CHANGE','ACTION_CHANGE','PATHSET_CHANGE','OBJECT_DRIFT','USER_DECISION_CHANGE','PROJECT_CONFIG_DRIFT');projectConfigIdentity=Get-Identity (Join-Path $control 'project.json')}
+  $packagePath=Join-Path $control 'runtime-package.json';Write-Json $packagePath $package
+  $actorIntent=[ordered]@{schemaVersion=1;objective='Implement the assigned source change';requestedActionKind='SOURCE_WRITE';requestedResultKind='IMPLEMENTATION_RESULT';semanticHints=@('implementation');pathHints=@('src/file.txt');capabilityHints=@();mutationHints=@('source');externalHints=@();ambiguityState='CLEAR'}
+  $actorDiscover=[ordered]@{schemaVersion=3;mode='DISCOVER';contextType='TASK';readOnlyContext='NOT_APPLICABLE';projectRoot=$temp;frameworkRoot=$frameworkRoot;taskPath=$taskPath;expectedProjectConfigIdentity=Get-Identity (Join-Path $control 'project.json');expectedCorrectionsIdentity=Get-Identity (Join-Path $control 'corrections.json');expectedTaskIdentity=Get-Identity $taskPath;observedActor='executor-fixture';capabilities=@();exactPaths=@('src/file.txt');forbiddenPaths=@('private/');protectedPaths=@('.ai-workspace/');authorizationPackagePath=$packagePath;expectedAuthorizationIdentity=Get-Identity $packagePath;userDecision='NOT_REQUIRED';recoveryState='WARM';hostEnforcementGrade='FRAMEWORK_GATED';invocationState='PROVEN_EXPLICIT';intentEnvelope=$actorIntent;evaluationOnly=$true}
+  Write-Json $discoverPath $actorDiscover;$actorRun=Invoke-Resolver $resolver $discoverPath
+  if($actorRun.Code-ne0){Write-Output ('DIAG|temporary-actor|'+$actorRun.Text)}
+  Assert-True ($actorRun.Code-eq0-and[string]$actorRun.Value.compactReceipt.binding.taskActor-ceq'owner-fixture'-and[string]$actorRun.Value.compactReceipt.binding.actor-ceq'executor-fixture'-and[string]$actorRun.Value.compactReceipt.binding.role-ceq'EXECUTOR'-and[string]$actorRun.Value.compactReceipt.binding.phase-ceq'IMPLEMENT') 'temporary-source-actor-uses-package-without-changing-task-owner-or-route'
+
+  $actorReceiptPath=Join-Path $control 'actor-recovery-receipt.json';Write-Json $actorReceiptPath $actorRun.Value.compactReceipt
+  $actorPrep=@($actorRun.Value.compactReceipt.selectedObligations|ForEach-Object{@($_.preparationRequirements)}|Sort-Object -Unique)
+  $actorBoundary=[ordered]@{schemaVersion=2;mode='ADMIT_ACTION';discoverReceiptPath=$actorReceiptPath;expectedDiscoverReceiptIdentity=Get-Identity $actorReceiptPath;preparationReceipts=$actorPrep;resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='BOUND'}
+  Write-Json $boundaryPath $actorBoundary;$actorAdmit=Invoke-Resolver $resolver $boundaryPath
+  $actorPackageOriginal=Get-Content -Raw -Encoding utf8 -LiteralPath $packagePath
+  Write-Utf8 $packagePath ($actorPackageOriginal.TrimEnd([char[]]"`r`n")+' ')
+  $freshAuthorizationDiscover=$actorDiscover|ConvertTo-Json -Depth 100|ConvertFrom-Json;$freshAuthorizationDiscover.expectedAuthorizationIdentity=Get-Identity $packagePath
+  Write-Json $discoverPath $freshAuthorizationDiscover;$freshAuthorizationRun=Invoke-Resolver $resolver $discoverPath
+  $freshAuthorizationReceiptPath=Join-Path $control 'fresh-authorization-receipt.json';Write-Json $freshAuthorizationReceiptPath $freshAuthorizationRun.Value.compactReceipt
+  $freshAuthorizationPrep=@($freshAuthorizationRun.Value.compactReceipt.selectedObligations|ForEach-Object{@($_.preparationRequirements)}|Sort-Object -Unique)
+  $freshAuthorizationBoundary=[ordered]@{schemaVersion=2;mode='ADMIT_ACTION';discoverReceiptPath=$freshAuthorizationReceiptPath;expectedDiscoverReceiptIdentity=Get-Identity $freshAuthorizationReceiptPath;preparationReceipts=$freshAuthorizationPrep;resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='BOUND'}
+  Write-Json $boundaryPath $freshAuthorizationBoundary;$freshAuthorizationAdmit=Invoke-Resolver $resolver $boundaryPath
+  Assert-True ($actorAdmit.Code-eq0-and$freshAuthorizationRun.Code-eq0-and$freshAuthorizationAdmit.Code-eq0-and[string]$freshAuthorizationRun.Value.compactReceipt.sourceCompositionIdentity-ceq[string]$actorRun.Value.compactReceipt.sourceCompositionIdentity-and[string]$freshAuthorizationRun.Value.compactReceipt.selectionIdentity-ceq[string]$actorRun.Value.compactReceipt.selectionIdentity-and[string]$freshAuthorizationRun.Value.compactReceipt.contextIdentity-cne[string]$actorRun.Value.compactReceipt.contextIdentity-and[string]$freshAuthorizationAdmit.Value.decisionIdentity-cne[string]$actorAdmit.Value.decisionIdentity) 'healthy-context-fresh-authorization-rebinds-boundary-without-changing-source-composition-or-selection'
+  [IO.File]::WriteAllText($packagePath,$actorPackageOriginal,$utf8)
+
+  $agentsPath=Join-Path $temp 'AGENTS.md';Write-Utf8 $agentsPath 'Original user decision.'
+  $agentsPackage=$package|ConvertTo-Json -Depth 100|ConvertFrom-Json
+  $agentsPackage.actions=@('CONTROL_WRITE');$agentsPackage.exactPaths=@('AGENTS.md');$agentsPackage.objectIdentities=@([pscustomobject]@{path='AGENTS.md';identity=Get-Identity $agentsPath})
+  $agentsPackagePath=Join-Path $control 'agents-package.json';Write-Json $agentsPackagePath $agentsPackage
+  $agentsDiscover=$actorDiscover|ConvertTo-Json -Depth 100|ConvertFrom-Json
+  $agentsDiscover.intentEnvelope.pathHints=@('AGENTS.md')
+  $agentsDiscover.authorizationPackagePath=$agentsPackagePath;$agentsDiscover.expectedAuthorizationIdentity=Get-Identity $agentsPackagePath;$agentsDiscover.exactPaths=@('AGENTS.md');$agentsDiscover.intentEnvelope.requestedActionKind='CONTROL_WRITE';$agentsDiscover.intentEnvelope.mutationHints=@('control')
+  Write-Json $discoverPath $agentsDiscover;$agentsRun=Invoke-Resolver $resolver $discoverPath
+  if($agentsRun.Code-ne0){throw ('AGENTS_DISCOVER|'+$agentsRun.Text)}
+  $agentsReceipt=Join-Path $control 'agents-receipt.json';Write-Json $agentsReceipt $agentsRun.Value.compactReceipt
+  $agentsBoundary=[ordered]@{schemaVersion=2;mode='ADMIT_ACTION';discoverReceiptPath=$agentsReceipt;expectedDiscoverReceiptIdentity=Get-Identity $agentsReceipt;preparationReceipts=@($agentsRun.Value.compactReceipt.selectedObligations|ForEach-Object{$_.preparationRequirements}|Sort-Object -Unique);resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='BOUND'}
+  Write-Json $boundaryPath $agentsBoundary;$agentsAdmit=Invoke-Resolver $resolver $boundaryPath
+  Assert-True ($agentsAdmit.Code-eq0) 'explicit-agents-control-write-admits-exact-preimage'
+  Write-Utf8 $agentsPath 'User narrows delegation; authorized decision update.'
+  $agentsBoundary.mode='FINALIZE_OUTPUT';$agentsBoundary.resultReceipts=@($agentsRun.Value.compactReceipt.selectedObligations|ForEach-Object{$_.resultRequirements}|Sort-Object -Unique)+@('OBJECT_POSTIMAGE|AGENTS.md|'+(Get-Identity $agentsPath))
+  Write-Json $boundaryPath $agentsBoundary;$agentsFinalize=Invoke-Resolver $resolver $boundaryPath
+  if($agentsFinalize.Code-ne0){Write-Output ('AGENTS_FINALIZE|'+$agentsFinalize.Text)}
+  Assert-True ($agentsFinalize.Code-eq0-and$agentsFinalize.Value.sourcePostimageTransition.changedBindings-contains'projectAgentsIdentity') 'authorized-agents-postimage-finalizes-through-existing-source-transition'
+  [IO.File]::Delete($agentsPath)
+
+  $continuationPackage=$package|ConvertTo-Json -Depth 100|ConvertFrom-Json;$continuationPackage.actions=@('SOURCE_WRITE','TEST_RUN');$continuationPackage|Add-Member -NotePropertyName continuationPlan -NotePropertyValue @('SOURCE_WRITE','TEST_RUN','SOURCE_WRITE','TEST_RUN');$continuationPackage.invalidatesOn+=@('CONTINUATION_RESULT_DRIFT')
+  $continuationPackagePath=Join-Path $control 'continuation-package.json';Write-Json $continuationPackagePath $continuationPackage;$continuationPackageIdentity=Get-Identity $continuationPackagePath
+  $continuationDiscover=$actorDiscover|ConvertTo-Json -Depth 100|ConvertFrom-Json;$continuationDiscover.authorizationPackagePath=$continuationPackagePath;$continuationDiscover.expectedAuthorizationIdentity=Get-Identity $continuationPackagePath
+  Write-Json $discoverPath $continuationDiscover;$continuationWriteRun=Invoke-Resolver $resolver $discoverPath
+  $continuationWriteReceiptPath=Join-Path $control 'continuation-write-discover-receipt.json';Write-Json $continuationWriteReceiptPath $continuationWriteRun.Value.compactReceipt
+  $continuationWritePrep=@($continuationWriteRun.Value.compactReceipt.selectedObligations|ForEach-Object{@($_.preparationRequirements)}|Sort-Object -Unique);$continuationWriteResults=@($continuationWriteRun.Value.compactReceipt.selectedObligations|ForEach-Object{@($_.resultRequirements)}|Sort-Object -Unique)
+  $continuationWriteBoundary=[ordered]@{schemaVersion=2;mode='ADMIT_ACTION';discoverReceiptPath=$continuationWriteReceiptPath;expectedDiscoverReceiptIdentity=Get-Identity $continuationWriteReceiptPath;preparationReceipts=$continuationWritePrep;resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='BOUND'}
+  Write-Json $boundaryPath $continuationWriteBoundary;$continuationWriteAdmit=Invoke-Resolver $resolver $boundaryPath
+  Write-Utf8 (Join-Path $temp 'src\file.txt') 'first authorized postimage'
+  $continuationWriteFinalize=$continuationWriteBoundary|ConvertTo-Json -Depth 50|ConvertFrom-Json;$continuationWriteFinalize.mode='FINALIZE_OUTPUT';$continuationWriteFinalize.resultReceipts=@($continuationWriteResults+@('OBJECT_POSTIMAGE|src/file.txt|'+(Get-Identity (Join-Path $temp 'src\file.txt'))));Write-Json $boundaryPath $continuationWriteFinalize;$continuationWriteFinalizeRun=Invoke-Resolver $resolver $boundaryPath
+  Assert-True ($continuationWriteFinalizeRun.Code-eq0-and[int]$continuationWriteFinalizeRun.Value.continuationReceipt.completedStepIndex-eq0-and[string]$continuationWriteFinalizeRun.Value.continuationReceipt.completedAction-ceq'SOURCE_WRITE'-and$null-eq$continuationWriteFinalizeRun.Value.continuationReceipt.PSObject.Properties['sourceFinalizeDecisionIdentity']) 'continuation-receipt-binds-source-step-without-unverifiable-finalize-hash'
+  $continuationReceiptPath=Join-Path $control 'authorized-action-continuation.json';Write-Json $continuationReceiptPath $continuationWriteFinalizeRun.Value.continuationReceipt
+
+  $testIntent=[ordered]@{schemaVersion=1;objective='Test the exact authorized source postimage';requestedActionKind='TEST_RUN';requestedResultKind='TEST_RESULT';semanticHints=@('verification');pathHints=@('src/file.txt');capabilityHints=@();mutationHints=@('test');externalHints=@();ambiguityState='CLEAR'}
+  $testDiscover=$continuationDiscover|ConvertTo-Json -Depth 100|ConvertFrom-Json;$testDiscover.intentEnvelope=$testIntent;$testDiscover|Add-Member -NotePropertyName continuationReceiptPath -NotePropertyValue $continuationReceiptPath;$testDiscover|Add-Member -NotePropertyName expectedContinuationReceiptIdentity -NotePropertyValue (Get-Identity $continuationReceiptPath)
+  $prematureSourceReceiptPath=Join-Path $control 'premature-cleanup-source-receipt.json';Copy-Item -LiteralPath $continuationWriteReceiptPath -Destination $prematureSourceReceiptPath
+  $prematureCleanupReceipt=$continuationWriteFinalizeRun.Value.continuationReceipt|ConvertTo-Json -Depth 50|ConvertFrom-Json;$prematureCleanupReceipt.sourceDiscoverReceiptPath=$prematureSourceReceiptPath;$prematureCleanupReceipt.sourceDiscoverReceiptIdentity=Get-Identity $prematureSourceReceiptPath
+  $prematureCleanupReceiptPath=Join-Path $control 'premature-cleanup-continuation.json';Write-Json $prematureCleanupReceiptPath $prematureCleanupReceipt;Remove-Item -LiteralPath $prematureSourceReceiptPath
+  $prematureCleanupDiscover=$testDiscover|ConvertTo-Json -Depth 100|ConvertFrom-Json;$prematureCleanupDiscover.continuationReceiptPath=$prematureCleanupReceiptPath;$prematureCleanupDiscover.expectedContinuationReceiptIdentity=Get-Identity $prematureCleanupReceiptPath;Write-Json $discoverPath $prematureCleanupDiscover;$prematureCleanupRun=Invoke-Resolver $resolver $discoverPath
+  Assert-True ($prematureCleanupRun.Code-ne0-and$prematureCleanupRun.Text.Contains('CONTINUATION_SOURCE_RECEIPT_DRIFT')) 'continuation-source-receipt-cannot-be-cleaned-before-successor-boundary-consumes-it'
+
+  $ungrantedTest=$actorDiscover|ConvertTo-Json -Depth 100|ConvertFrom-Json;$ungrantedTest.intentEnvelope=$testIntent;Write-Json $discoverPath $ungrantedTest;$ungrantedTestRun=Invoke-Resolver $resolver $discoverPath
+  Assert-True ($ungrantedTestRun.Code-ne0-and$ungrantedTestRun.Text.Contains('ACTION_NOT_GRANTED')) 'continuation-ungranted-test-action-rejected'
+  $laterStepReceipt=$continuationWriteFinalizeRun.Value.continuationReceipt|ConvertTo-Json -Depth 50|ConvertFrom-Json;$laterStepReceipt.completedStepIndex=1;$laterStepReceipt.completedAction='TEST_RUN';$laterStepReceipt.nextStepIndex=2;$laterStepReceipt.nextAction='SOURCE_WRITE';$laterStepReceiptPath=Join-Path $control 'later-step-continuation.json';Write-Json $laterStepReceiptPath $laterStepReceipt
+  $laterStepDiscover=$testDiscover|ConvertTo-Json -Depth 100|ConvertFrom-Json;$laterStepDiscover.continuationReceiptPath=$laterStepReceiptPath;$laterStepDiscover.expectedContinuationReceiptIdentity=Get-Identity $laterStepReceiptPath;Write-Json $discoverPath $laterStepDiscover;$laterStepRun=Invoke-Resolver $resolver $discoverPath
+  Assert-True ($laterStepRun.Code-ne0-and$laterStepRun.Text.Contains('CONTINUATION_SOURCE_ACTION_DRIFT')) 'continuation-valid-later-plan-pair-cannot-relabel-step-zero-source'
+  $thirdParty=$testDiscover|ConvertTo-Json -Depth 100|ConvertFrom-Json;$thirdParty.observedActor='third-party-fixture';Write-Json $discoverPath $thirdParty;$thirdPartyRun=Invoke-Resolver $resolver $discoverPath
+  Assert-True ($thirdPartyRun.Code-ne0-and$thirdPartyRun.Text.Contains('TEMPORARY_ACTION_GRANTEE_DRIFT')) 'continuation-third-party-actor-rejected'
+  $protectionDrift=$testDiscover|ConvertTo-Json -Depth 100|ConvertFrom-Json;$protectionDrift.protectedPaths=@();Write-Json $discoverPath $protectionDrift;$protectionDriftRun=Invoke-Resolver $resolver $discoverPath
+  Assert-True ($protectionDriftRun.Code-ne0-and$protectionDriftRun.Text.Contains('CONTINUATION_PROTECTION_SCOPE_DRIFT')) 'continuation-protection-scope-drift-rejected'
+  Write-Utf8 (Join-Path $temp 'src\outside.txt') 'outside'
+  $outsideContinuation=$testDiscover|ConvertTo-Json -Depth 100|ConvertFrom-Json;$outsideContinuation.exactPaths=@('src/outside.txt');$outsideContinuation.intentEnvelope.pathHints=@('src/outside.txt');Write-Json $discoverPath $outsideContinuation;$outsideContinuationRun=Invoke-Resolver $resolver $discoverPath
+  Assert-True ($outsideContinuationRun.Code-ne0-and$outsideContinuationRun.Text.Contains('OBSERVED_PATH_OUTSIDE_EXACT')) 'continuation-out-of-scope-action-rejected'
+  $fabricatedReceipt=$continuationWriteFinalizeRun.Value.continuationReceipt|ConvertTo-Json -Depth 50|ConvertFrom-Json;$fabricatedReceipt.postObjectIdentities[0].identity='0|'+('0'*64);$fabricatedReceiptPath=Join-Path $control 'fabricated-continuation.json';Write-Json $fabricatedReceiptPath $fabricatedReceipt
+  $fabricatedDiscover=$testDiscover|ConvertTo-Json -Depth 100|ConvertFrom-Json;$fabricatedDiscover.continuationReceiptPath=$fabricatedReceiptPath;$fabricatedDiscover.expectedContinuationReceiptIdentity=Get-Identity $fabricatedReceiptPath;Write-Json $discoverPath $fabricatedDiscover;$fabricatedRun=Invoke-Resolver $resolver $discoverPath
+  Assert-True ($fabricatedRun.Code-ne0-and$fabricatedRun.Text.Contains('OBJECT_DRIFT')) 'continuation-self-reported-postimage-cannot-grant-action'
+  $mislinkedReceipt=$continuationWriteFinalizeRun.Value.continuationReceipt|ConvertTo-Json -Depth 50|ConvertFrom-Json;$mislinkedReceipt.packageIdentity='0|'+('0'*64);$mislinkedReceiptPath=Join-Path $control 'mislinked-continuation.json';Write-Json $mislinkedReceiptPath $mislinkedReceipt
+  $mislinkedDiscover=$testDiscover|ConvertTo-Json -Depth 100|ConvertFrom-Json;$mislinkedDiscover.continuationReceiptPath=$mislinkedReceiptPath;$mislinkedDiscover.expectedContinuationReceiptIdentity=Get-Identity $mislinkedReceiptPath;Write-Json $discoverPath $mislinkedDiscover;$mislinkedRun=Invoke-Resolver $resolver $discoverPath
+  Assert-True ($mislinkedRun.Code-ne0-and$mislinkedRun.Text.Contains('CONTINUATION_RECEIPT_AUTHORITY_DRIFT')) 'continuation-wrong-package-link-rejected'
+  $wrongSourceReceipt=$continuationWriteFinalizeRun.Value.continuationReceipt|ConvertTo-Json -Depth 50|ConvertFrom-Json;$wrongSourceReceipt.sourceDiscoverReceiptIdentity='0|'+('0'*64);$wrongSourceReceiptPath=Join-Path $control 'wrong-source-continuation.json';Write-Json $wrongSourceReceiptPath $wrongSourceReceipt
+  $wrongSourceDiscover=$testDiscover|ConvertTo-Json -Depth 100|ConvertFrom-Json;$wrongSourceDiscover.continuationReceiptPath=$wrongSourceReceiptPath;$wrongSourceDiscover.expectedContinuationReceiptIdentity=Get-Identity $wrongSourceReceiptPath;Write-Json $discoverPath $wrongSourceDiscover;$wrongSourceRun=Invoke-Resolver $resolver $discoverPath
+  Assert-True ($wrongSourceRun.Code-ne0-and$wrongSourceRun.Text.Contains('CONTINUATION_SOURCE_RECEIPT_DRIFT')) 'continuation-wrong-finalized-result-link-rejected'
+  Write-Utf8 (Join-Path $temp 'src\file.txt') 'stale postimage';Write-Json $discoverPath $testDiscover;$staleContinuationRun=Invoke-Resolver $resolver $discoverPath
+  Assert-True ($staleContinuationRun.Code-ne0-and$staleContinuationRun.Text.Contains('OBJECT_DRIFT')) 'continuation-stale-postimage-rejected'
+  Write-Utf8 (Join-Path $temp 'src\file.txt') 'first authorized postimage'
+
+  Write-Json $discoverPath $testDiscover;$continuationTestRun=Invoke-Resolver $resolver $discoverPath;Assert-ResolverSuccess $continuationTestRun 'continuation-test-discover'
+  $continuationTestReceiptPath=Join-Path $control 'continuation-test-discover-receipt.json';Write-Json $continuationTestReceiptPath $continuationTestRun.Value.compactReceipt
+  $continuationTestPrep=@($continuationTestRun.Value.compactReceipt.selectedObligations|ForEach-Object{@($_.preparationRequirements)}|Sort-Object -Unique);$continuationTestResults=@($continuationTestRun.Value.compactReceipt.selectedObligations|ForEach-Object{@($_.resultRequirements)}|Sort-Object -Unique)
+  $continuationTestBoundary=[ordered]@{schemaVersion=2;mode='ADMIT_ACTION';discoverReceiptPath=$continuationTestReceiptPath;expectedDiscoverReceiptIdentity=Get-Identity $continuationTestReceiptPath;preparationReceipts=$continuationTestPrep;resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='BOUND'}
+  Write-Json $boundaryPath $continuationTestBoundary;$continuationTestAdmit=Invoke-Resolver $resolver $boundaryPath;Assert-ResolverSuccess $continuationTestAdmit 'continuation-test-admit'
+  $continuationFixturePath=Join-Path $temp 'src\file.txt';$quotedContinuationFixturePath=$continuationFixturePath.Replace("'","''");$continuationCheckCommand='$fixturePath='''+$quotedContinuationFixturePath+''';$actual=[IO.File]::ReadAllText($fixturePath).TrimEnd([char[]]"`r`n");if($actual-cne''bounded local fix''){[Console]::Error.WriteLine((''CONTINUATION_FIXTURE_CHECK_FAILED|actual=''+$actual));exit 17};[Console]::Out.WriteLine(''CONTINUATION_FIXTURE_CHECK_PASS'');exit 0'
+  $continuationFirstCheckOutput=@(& pwsh -NoLogo -NoProfile -NonInteractive -Command $continuationCheckCommand 2>&1|ForEach-Object{[string]$_});$continuationFirstCheckExit=$LASTEXITCODE;$continuationFirstCheckFileText=[IO.File]::ReadAllText($continuationFixturePath).TrimEnd([char[]]"`r`n");Write-Output ('OBSERVED|continuation-first-check|exit='+$continuationFirstCheckExit+'|output='+($continuationFirstCheckOutput-join';'))
+  $continuationTestFinalize=$continuationTestBoundary|ConvertTo-Json -Depth 50|ConvertFrom-Json;$continuationTestFinalize.mode='FINALIZE_OUTPUT';$continuationTestFinalize.schemaVersion=3
+  $continuationTestFinalize|Add-Member evidenceRefs @(New-ContinuationEvidence 'first-check' $continuationTestRun.Value.compactReceipt.binding.actor $continuationPackage.taskId $continuationFirstCheckExit $continuationFirstCheckOutput $continuationCheckCommand)
+  $continuationTestFinalize.resultReceipts=@($continuationTestResults);$continuationTestFinalize.resultReceipts+=('TEST_PROCESS_EXIT|'+$continuationFirstCheckExit);$continuationTestFinalize.resultReceipts+=('OBJECT_POSTIMAGE|src/file.txt|'+(Get-Identity $continuationFixturePath));Write-Json $boundaryPath $continuationTestFinalize;$continuationTestFinalizeRun=Invoke-Resolver $resolver $boundaryPath;Assert-ResolverSuccess $continuationTestFinalizeRun 'continuation-test-finalize'
+  $fixContinuationReceiptPath=Join-Path $control 'authorized-fix-continuation.json';Write-Json $fixContinuationReceiptPath $continuationTestFinalizeRun.Value.continuationReceipt
+  Remove-Item -LiteralPath $continuationWriteReceiptPath,$continuationReceiptPath
+  Assert-True (-not(Test-Path -LiteralPath $continuationWriteReceiptPath)-and-not(Test-Path -LiteralPath $continuationReceiptPath)-and(Test-Path -LiteralPath $continuationTestReceiptPath)-and(Test-Path -LiteralPath $fixContinuationReceiptPath)) 'continuation-source-pair-cleans-only-after-successor-finalize-and-successor-receipt-save'
+  $fixDiscover=$continuationDiscover|ConvertTo-Json -Depth 100|ConvertFrom-Json;$fixDiscover|Add-Member -NotePropertyName continuationReceiptPath -NotePropertyValue $fixContinuationReceiptPath;$fixDiscover|Add-Member -NotePropertyName expectedContinuationReceiptIdentity -NotePropertyValue (Get-Identity $fixContinuationReceiptPath)
+  Write-Json $discoverPath $fixDiscover;$continuationFixRun=Invoke-Resolver $resolver $discoverPath;Assert-ResolverSuccess $continuationFixRun 'continuation-fix-discover'
+  $continuationFixReceiptPath=Join-Path $control 'continuation-fix-discover-receipt.json';Write-Json $continuationFixReceiptPath $continuationFixRun.Value.compactReceipt
+  $continuationFixPrep=@($continuationFixRun.Value.compactReceipt.selectedObligations|ForEach-Object{@($_.preparationRequirements)}|Sort-Object -Unique);$continuationFixResults=@($continuationFixRun.Value.compactReceipt.selectedObligations|ForEach-Object{@($_.resultRequirements)}|Sort-Object -Unique)
+  $continuationFixBoundary=[ordered]@{schemaVersion=2;mode='ADMIT_ACTION';discoverReceiptPath=$continuationFixReceiptPath;expectedDiscoverReceiptIdentity=Get-Identity $continuationFixReceiptPath;preparationReceipts=$continuationFixPrep;resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='BOUND'}
+  Write-Json $boundaryPath $continuationFixBoundary;$continuationFixAdmit=Invoke-Resolver $resolver $boundaryPath;Assert-ResolverSuccess $continuationFixAdmit 'continuation-fix-admit'
+  Write-Utf8 $continuationFixturePath 'bounded local fix'
+  $continuationFixFinalize=$continuationFixBoundary|ConvertTo-Json -Depth 50|ConvertFrom-Json;$continuationFixFinalize.mode='FINALIZE_OUTPUT';$continuationFixFinalize.resultReceipts=@($continuationFixResults);$continuationFixFinalize.resultReceipts+=('OBJECT_POSTIMAGE|src/file.txt|'+(Get-Identity $continuationFixturePath));Write-Json $boundaryPath $continuationFixFinalize;$continuationFixFinalizeRun=Invoke-Resolver $resolver $boundaryPath;Assert-ResolverSuccess $continuationFixFinalizeRun 'continuation-fix-finalize'
+  $retestContinuationReceiptPath=Join-Path $control 'authorized-retest-continuation.json';Write-Json $retestContinuationReceiptPath $continuationFixFinalizeRun.Value.continuationReceipt
+  $retestDiscover=$testDiscover|ConvertTo-Json -Depth 100|ConvertFrom-Json;$retestDiscover.continuationReceiptPath=$retestContinuationReceiptPath;$retestDiscover.expectedContinuationReceiptIdentity=Get-Identity $retestContinuationReceiptPath
+  Write-Json $discoverPath $retestDiscover;$continuationRetestRun=Invoke-Resolver $resolver $discoverPath;Assert-ResolverSuccess $continuationRetestRun 'continuation-retest-discover'
+  $continuationRetestReceiptPath=Join-Path $control 'continuation-retest-discover-receipt.json';Write-Json $continuationRetestReceiptPath $continuationRetestRun.Value.compactReceipt
+  $continuationRetestPrep=@($continuationRetestRun.Value.compactReceipt.selectedObligations|ForEach-Object{@($_.preparationRequirements)}|Sort-Object -Unique);$continuationRetestResults=@($continuationRetestRun.Value.compactReceipt.selectedObligations|ForEach-Object{@($_.resultRequirements)}|Sort-Object -Unique)
+  $continuationRetestBoundary=[ordered]@{schemaVersion=2;mode='ADMIT_ACTION';discoverReceiptPath=$continuationRetestReceiptPath;expectedDiscoverReceiptIdentity=Get-Identity $continuationRetestReceiptPath;preparationReceipts=$continuationRetestPrep;resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='BOUND'}
+  Write-Json $boundaryPath $continuationRetestBoundary;$continuationRetestAdmit=Invoke-Resolver $resolver $boundaryPath;Assert-ResolverSuccess $continuationRetestAdmit 'continuation-retest-admit'
+  $continuationSecondCheckOutput=@(& pwsh -NoLogo -NoProfile -NonInteractive -Command $continuationCheckCommand 2>&1|ForEach-Object{[string]$_});$continuationSecondCheckExit=$LASTEXITCODE;$continuationSecondCheckFileText=[IO.File]::ReadAllText($continuationFixturePath).TrimEnd([char[]]"`r`n");Write-Output ('OBSERVED|continuation-second-check|exit='+$continuationSecondCheckExit+'|output='+($continuationSecondCheckOutput-join';'))
+  $continuationRetestFinalize=$continuationRetestBoundary|ConvertTo-Json -Depth 50|ConvertFrom-Json;$continuationRetestFinalize.mode='FINALIZE_OUTPUT';$continuationRetestFinalize.schemaVersion=3
+  $continuationRetestFinalize|Add-Member evidenceRefs @(New-ContinuationEvidence 'second-check' $continuationRetestRun.Value.compactReceipt.binding.actor $continuationPackage.taskId $continuationSecondCheckExit $continuationSecondCheckOutput $continuationCheckCommand)
+  $continuationRetestFinalize.resultReceipts=@($continuationRetestResults);$continuationRetestFinalize.resultReceipts+=('TEST_PROCESS_EXIT|'+$continuationSecondCheckExit);$continuationRetestFinalize.resultReceipts+=('OBJECT_POSTIMAGE|src/file.txt|'+(Get-Identity $continuationFixturePath));Write-Json $boundaryPath $continuationRetestFinalize;$continuationRetestFinalizeRun=Invoke-Resolver $resolver $boundaryPath;Assert-ResolverSuccess $continuationRetestFinalizeRun 'continuation-retest-finalize'
+  $retestHasNoSuccessor=$continuationRetestFinalizeRun.Code-eq0-and$null-eq$continuationRetestFinalizeRun.Value.PSObject.Properties['continuationReceipt']
+  $continuationPackageStable=(Get-Identity $continuationPackagePath)-ceq$continuationPackageIdentity-and[string]$continuationWriteRun.Value.compactReceipt.binding.authorizationIdentity-ceq$continuationPackageIdentity-and[string]$continuationTestRun.Value.compactReceipt.binding.authorizationIdentity-ceq$continuationPackageIdentity-and[string]$continuationFixRun.Value.compactReceipt.binding.authorizationIdentity-ceq$continuationPackageIdentity-and[string]$continuationRetestRun.Value.compactReceipt.binding.authorizationIdentity-ceq$continuationPackageIdentity
+  $continuationContextStable=$true;foreach($cycleRun in @($continuationWriteRun,$continuationTestRun,$continuationFixRun,$continuationRetestRun)){$cycleBinding=$cycleRun.Value.compactReceipt.binding;if([string]$cycleBinding.taskIdentity-cne[string]$continuationPackage.taskIdentity-or[string]$cycleBinding.taskOwner-cne'owner-fixture'-or[string]$cycleBinding.taskActor-cne'owner-fixture'-or[string]$cycleBinding.actor-cne'executor-fixture'-or[string]::Join("`n",@($cycleBinding.exactScope))-cne'src/file.txt'){$continuationContextStable=$false}}
+  $continuationStepsExact=[int]$continuationWriteRun.Value.compactReceipt.binding.continuationStepIndex-eq0-and[int]$continuationTestRun.Value.compactReceipt.binding.continuationStepIndex-eq1-and[int]$continuationFixRun.Value.compactReceipt.binding.continuationStepIndex-eq2-and[int]$continuationRetestRun.Value.compactReceipt.binding.continuationStepIndex-eq3-and[int]$continuationWriteFinalizeRun.Value.continuationReceipt.completedStepIndex-eq0-and[int]$continuationTestFinalizeRun.Value.continuationReceipt.completedStepIndex-eq1-and[int]$continuationFixFinalizeRun.Value.continuationReceipt.completedStepIndex-eq2
+  Assert-True ($continuationFirstCheckExit-ne0-and($continuationFirstCheckOutput-join"`n").Contains('CONTINUATION_FIXTURE_CHECK_FAILED')-and$continuationFirstCheckFileText-ceq'first authorized postimage') 'continuation-real-check-observes-nonzero-exit-before-bounded-fix'
+  Assert-True ($continuationSecondCheckExit-eq0-and($continuationSecondCheckOutput-join"`n").Contains('CONTINUATION_FIXTURE_CHECK_PASS')-and$continuationSecondCheckFileText-ceq'bounded local fix') 'continuation-same-real-check-passes-after-bounded-fix'
+  Assert-True ($continuationPackageStable-and$continuationContextStable) 'continuation-real-cycle-keeps-original-package-identity-owner-actor-and-scope'
+  Assert-True ($continuationWriteRun.Code-eq0-and$continuationWriteAdmit.Code-eq0-and$continuationWriteFinalizeRun.Code-eq0-and$continuationTestRun.Code-eq0-and$continuationTestAdmit.Code-eq0-and$continuationTestFinalizeRun.Code-eq0-and$continuationFixRun.Code-eq0-and$continuationFixAdmit.Code-eq0-and$continuationFixFinalizeRun.Code-eq0-and$continuationRetestRun.Code-eq0-and$continuationRetestAdmit.Code-eq0-and$continuationStepsExact-and$retestHasNoSuccessor) 'continuation-write-failing-check-bounded-fix-retest-completes-one-preauthorized-plan'
+  Write-Utf8 (Join-Path $temp 'src\file.txt') 'old'
+
+  # Actual SOURCE_WRITE -> REVIEW_ROUTE with a document self-check, no TEST_RUN.
+  $docPackage=$continuationPackage|ConvertTo-Json -Depth 100|ConvertFrom-Json
+  $docPackage.actions=@('SOURCE_WRITE','REVIEW_ROUTE');$docPackage.continuationPlan=@('SOURCE_WRITE','REVIEW_ROUTE')
+  $docPackagePath=Join-Path $control 'document-route-package.json';Write-Json $docPackagePath $docPackage
+  $docDiscover=$actorDiscover|ConvertTo-Json -Depth 100|ConvertFrom-Json
+  $docDiscover.authorizationPackagePath=$docPackagePath;$docDiscover.expectedAuthorizationIdentity=Get-Identity $docPackagePath
+  Write-Json $discoverPath $docDiscover;$docRun=Invoke-Resolver $resolver $discoverPath;Assert-ResolverSuccess $docRun 'document-producer-discover'
+  $docReceiptPath=Join-Path $control 'document-producer-receipt.json';Write-Json $docReceiptPath $docRun.Value.compactReceipt
+  $docBoundary=[ordered]@{schemaVersion=3;mode='ADMIT_ACTION';discoverReceiptPath=$docReceiptPath;expectedDiscoverReceiptIdentity=Get-Identity $docReceiptPath;preparationReceipts=@($docRun.Value.compactReceipt.selectedObligations.preparationRequirements|Sort-Object -Unique);resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='BOUND';evidenceRefs=@()}
+  Write-Json $boundaryPath $docBoundary;Assert-ResolverSuccess (Invoke-Resolver $resolver $boundaryPath) 'document-producer-admit'
+  Write-Utf8 (Join-Path $temp 'src/file.txt') 'Document candidate with observed local self-check.'
+  $docBoundary.mode='FINALIZE_OUTPUT';$docBoundary.resultReceipts=@($docRun.Value.compactReceipt.selectedObligations.resultRequirements|Sort-Object -Unique)+@('OBJECT_POSTIMAGE|src/file.txt|'+(Get-Identity (Join-Path $temp 'src/file.txt')))
+  Write-Json $boundaryPath $docBoundary;$missingDocEvidence=Invoke-Resolver $resolver $boundaryPath
+  Assert-True ($missingDocEvidence.Code-ne0-and$missingDocEvidence.Text.Contains('REVIEW_SELF_CHECK_REQUIRED')) 'document-continuation-does-not-invent-self-check'
+  $docBoundary.evidenceRefs=@(New-ContinuationEvidence 'document-self-check' $docRun.Value.compactReceipt.binding.actor $docPackage.taskId 0 @())
+  Write-Json $boundaryPath $docBoundary;$docFinal=Invoke-Resolver $resolver $boundaryPath;Assert-ResolverSuccess $docFinal 'document-producer-finalize'
+  $docContinuationPath=Join-Path $control 'document-route-continuation.json';Write-Json $docContinuationPath $docFinal.Value.continuationReceipt
+  $docRoute=$docDiscover|ConvertTo-Json -Depth 100|ConvertFrom-Json
+  $docRoute|Add-Member continuationReceiptPath $docContinuationPath;$docRoute|Add-Member expectedContinuationReceiptIdentity (Get-Identity $docContinuationPath)
+  $docRoute.intentEnvelope.requestedActionKind='REVIEW_ROUTE';$docRoute.intentEnvelope.requestedResultKind='HANDOFF';$docRoute.intentEnvelope.semanticHints=@('independent review route');$docRoute.intentEnvelope.mutationHints=@('review')
+  Write-Json $discoverPath $docRoute;$docRouted=Invoke-Resolver $resolver $discoverPath;Assert-ResolverSuccess $docRouted 'document-review-route-discover'
+  Assert-True ('REVIEW_VERDICT_BOUND'-cnotin@($docRouted.Value.compactReceipt.selectedObligations.resultRequirements)) 'review-route-has-no-future-verdict-obligation'
+  $docRouteReceiptPath=Join-Path $control 'document-route-receipt.json';Write-Json $docRouteReceiptPath $docRouted.Value.compactReceipt
+  $docRouteBoundary=[ordered]@{schemaVersion=3;mode='ADMIT_ACTION';discoverReceiptPath=$docRouteReceiptPath;expectedDiscoverReceiptIdentity=Get-Identity $docRouteReceiptPath;preparationReceipts=@($docRouted.Value.compactReceipt.selectedObligations.preparationRequirements|Sort-Object -Unique);resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='BOUND';evidenceRefs=$docBoundary.evidenceRefs}
+  Write-Json $boundaryPath $docRouteBoundary;$docAdmit=Invoke-Resolver $resolver $boundaryPath
+  Assert-True ($docAdmit.Code-eq0) ('document-review-route-admits-without-test-run|'+$docAdmit.Text)
+  $docRouteBoundary.mode='FINALIZE_OUTPUT';$docRouteBoundary.resultReceipts=@($docRouted.Value.compactReceipt.selectedObligations.resultRequirements|Sort-Object -Unique)+@('OBJECT_POSTIMAGE|src/file.txt|'+(Get-Identity (Join-Path $temp 'src/file.txt')));$docRouteBoundary.deliveryReceipts=@('FIXTURE_REVIEW_ROUTE_OBSERVED')
+  $docReviewer=$docPackage|ConvertTo-Json -Depth 100|ConvertFrom-Json
+  $docReviewer.PSObject.Properties.Remove('continuationPlan');$docReviewer.grantee='document-reviewer-fixture';$docReviewer.actions=@('REVIEW_EXECUTE');$docReviewer.reviewIndependence='INDEPENDENT'
+  $docReviewer|Add-Member candidateWriter $docPackage.grantee;$docReviewer|Add-Member materialContributors @();$docReviewer.invalidatesOn+=@('CONTRIBUTOR_SET_CHANGE')
+  $docReviewer.objectIdentities=@([pscustomobject]@{path='src/file.txt';identity=Get-Identity (Join-Path $temp 'src/file.txt')})
+  $docReviewerPath=Join-Path $control 'document-pure-review-package.json';Write-Json $docReviewerPath $docReviewer
+  $docReviewDiscover=$docDiscover|ConvertTo-Json -Depth 100|ConvertFrom-Json
+  $docReviewDiscover.observedActor=$docReviewer.grantee;$docReviewDiscover.authorizationPackagePath=$docReviewerPath;$docReviewDiscover.expectedAuthorizationIdentity=Get-Identity $docReviewerPath
+  $docReviewDiscover.intentEnvelope.requestedActionKind='REVIEW_EXECUTE';$docReviewDiscover.intentEnvelope.requestedResultKind='REVIEW_VERDICT';$docReviewDiscover.intentEnvelope.semanticHints=@('document review');$docReviewDiscover.intentEnvelope.mutationHints=@()
+  Write-Json $discoverPath $docReviewDiscover;$docReviewReady=Invoke-Resolver $resolver $discoverPath
+  if($docReviewReady.Code-ne0){Write-Output ('DIAG|document-pure-review-package|'+$docReviewReady.Text)}
+  Assert-True ($docReviewReady.Code-eq0) 'document-pure-review-package-passes-current-authority'
+  $docHostPath=Join-Path $control 'document-mock-host-result.json';Write-Json $docHostPath ([ordered]@{isError=$false;content=@([ordered]@{type='text';text='{"threadId":"document-reviewer-fixture"}'})})
+  $docRouteBoundary.deliveryReceipts=@();$docRouteBoundary.deliveryContext=[ordered]@{channel='TASK_MESSAGE';stage='OBSERVE';expectedRecipient=$docReviewer.grantee;observedRecipient=$docReviewer.grantee;outcome='SUCCESS';evidence=($docHostPath+'#'+(Get-Identity $docHostPath));reviewPackageRef=[ordered]@{path=$docReviewerPath;identity=Get-Identity $docReviewerPath}}
+  Write-Json $boundaryPath $docRouteBoundary;$docClosed=Invoke-Resolver $resolver $boundaryPath
+  Assert-True ($docClosed.Code-eq0) ('document-review-route-finalizes-without-future-verdict|'+$docClosed.Text)
+  Write-Utf8 (Join-Path $temp 'src/file.txt') 'old'
+
+  $ownerPhaseIntent=[ordered]@{schemaVersion=1;objective='Plan the current task phase without performing an action';requestedActionKind='NONE';requestedResultKind='PLAN';semanticHints=@('task phase');pathHints=@();capabilityHints=@();mutationHints=@();externalHints=@();ambiguityState='CLEAR'}
+  $ownerPhaseDiscover=$actorDiscover|ConvertTo-Json -Depth 100|ConvertFrom-Json;$ownerPhaseDiscover.observedActor='owner-fixture';$ownerPhaseDiscover.capabilities=@();$ownerPhaseDiscover.exactPaths=@();$ownerPhaseDiscover.forbiddenPaths=@();$ownerPhaseDiscover.protectedPaths=@();$ownerPhaseDiscover.authorizationPackagePath='NOT_REQUIRED';$ownerPhaseDiscover.expectedAuthorizationIdentity='NOT_REQUIRED';$ownerPhaseDiscover.intentEnvelope=$ownerPhaseIntent
+  Write-Json $discoverPath $ownerPhaseDiscover;$ownerPhaseBefore=Invoke-Resolver $resolver $discoverPath
+  $actorTaskOriginal=Get-Content -Raw -Encoding utf8 -LiteralPath $taskPath
+  Write-Utf8 $taskPath ($actorTaskOriginal-replace'phase=IMPLEMENT','phase=VERIFY')
+  Write-Json $boundaryPath $actorBoundary;$stalePhaseBoundary=Invoke-Resolver $resolver $boundaryPath
+  $ownerPhaseAfterDiscover=$ownerPhaseDiscover|ConvertTo-Json -Depth 100|ConvertFrom-Json;$ownerPhaseAfterDiscover.expectedTaskIdentity=Get-Identity $taskPath
+  Write-Json $discoverPath $ownerPhaseAfterDiscover;$ownerPhaseAfter=Invoke-Resolver $resolver $discoverPath
+  $phasePackage=$package|ConvertTo-Json -Depth 100|ConvertFrom-Json;$phasePackage.taskIdentity=Get-Identity $taskPath
+  $phasePackagePath=Join-Path $control 'phase-drift-package.json';Write-Json $phasePackagePath $phasePackage
+  $phaseDiscover=$actorDiscover|ConvertTo-Json -Depth 100|ConvertFrom-Json;$phaseDiscover.expectedTaskIdentity=Get-Identity $taskPath;$phaseDiscover.authorizationPackagePath=$phasePackagePath;$phaseDiscover.expectedAuthorizationIdentity=Get-Identity $phasePackagePath
+  Write-Json $discoverPath $phaseDiscover;$phaseRun=Invoke-Resolver $resolver $discoverPath
+  $staleTaskPhaseRejected=$stalePhaseBoundary.Code-ne0-and$stalePhaseBoundary.Text.Contains('DISCOVER_SOURCE_DRIFT|taskIdentity')
+  $temporaryTaskPhaseRebound=$phaseRun.Code-eq0-and[string]$phaseRun.Value.compactReceipt.binding.taskActor-ceq'owner-fixture'-and[string]$phaseRun.Value.compactReceipt.binding.actor-ceq'executor-fixture'-and[string]$phaseRun.Value.compactReceipt.binding.role-ceq'EXECUTOR'-and[string]$phaseRun.Value.compactReceipt.binding.phase-ceq'IMPLEMENT'-and[string]$phaseRun.Value.compactReceipt.binding.taskIdentity-cne[string]$actorRun.Value.compactReceipt.binding.taskIdentity-and[string]$phaseRun.Value.compactReceipt.sourceCompositionIdentity-cne[string]$actorRun.Value.compactReceipt.sourceCompositionIdentity-and[string]$phaseRun.Value.compactReceipt.selectionIdentity-cne[string]$actorRun.Value.compactReceipt.selectionIdentity-and[string]$phaseRun.Value.compactReceipt.contextIdentity-cne[string]$actorRun.Value.compactReceipt.contextIdentity
+  $ownerTaskPhaseRebound=$ownerPhaseBefore.Code-eq0-and$ownerPhaseAfter.Code-eq0-and[string]$ownerPhaseBefore.Value.compactReceipt.binding.phase-ceq'IMPLEMENT'-and[string]$ownerPhaseAfter.Value.compactReceipt.binding.phase-ceq'VERIFY'-and[string]$ownerPhaseAfter.Value.compactReceipt.binding.taskIdentity-cne[string]$ownerPhaseBefore.Value.compactReceipt.binding.taskIdentity-and[string]$ownerPhaseAfter.Value.compactReceipt.sourceCompositionIdentity-cne[string]$ownerPhaseBefore.Value.compactReceipt.sourceCompositionIdentity-and[string]$ownerPhaseAfter.Value.compactReceipt.selectionIdentity-cne[string]$ownerPhaseBefore.Value.compactReceipt.selectionIdentity-and[string]$ownerPhaseAfter.Value.compactReceipt.contextIdentity-cne[string]$ownerPhaseBefore.Value.compactReceipt.contextIdentity
+  if(-not($staleTaskPhaseRejected-and$temporaryTaskPhaseRebound-and$ownerTaskPhaseRebound)){
+    $phaseBeforeBinding=if($actorRun.Code-eq0){$actorRun.Value.compactReceipt.binding}else{$null};$phaseAfterBinding=if($phaseRun.Code-eq0){$phaseRun.Value.compactReceipt.binding}else{$null}
+    $beforeTask=if($null-ne$phaseBeforeBinding){[string]$phaseBeforeBinding.taskIdentity}else{'UNAVAILABLE'};$afterTask=if($null-ne$phaseAfterBinding){[string]$phaseAfterBinding.taskIdentity}else{'UNAVAILABLE'}
+    $beforeActor=if($null-ne$phaseBeforeBinding){[string]$phaseBeforeBinding.actor}else{'UNAVAILABLE'};$afterActor=if($null-ne$phaseAfterBinding){[string]$phaseAfterBinding.actor}else{'UNAVAILABLE'}
+    $beforeRole=if($null-ne$phaseBeforeBinding){[string]$phaseBeforeBinding.role}else{'UNAVAILABLE'};$afterRole=if($null-ne$phaseAfterBinding){[string]$phaseAfterBinding.role}else{'UNAVAILABLE'}
+    $beforePhase=if($null-ne$phaseBeforeBinding){[string]$phaseBeforeBinding.phase}else{'UNAVAILABLE'};$afterPhase=if($null-ne$phaseAfterBinding){[string]$phaseAfterBinding.phase}else{'UNAVAILABLE'}
+    Write-Output ('DIAG|task-phase-drift|staleExit='+$stalePhaseBoundary.Code+'|staleReason='+$stalePhaseBoundary.Text+'|freshExit='+$phaseRun.Code+'|freshReason='+$phaseRun.Text+'|beforeTask='+$beforeTask+'|afterTask='+$afterTask+'|beforeActor='+$beforeActor+'|afterActor='+$afterActor+'|beforeRole='+$beforeRole+'|afterRole='+$afterRole+'|beforePhase='+$beforePhase+'|afterPhase='+$afterPhase+'|compositionChanged='+($phaseRun.Code-eq0-and$actorRun.Code-eq0-and[string]$phaseRun.Value.compactReceipt.sourceCompositionIdentity-cne[string]$actorRun.Value.compactReceipt.sourceCompositionIdentity)+'|selectionChanged='+($phaseRun.Code-eq0-and$actorRun.Code-eq0-and[string]$phaseRun.Value.compactReceipt.selectionIdentity-cne[string]$actorRun.Value.compactReceipt.selectionIdentity)+'|contextChanged='+($phaseRun.Code-eq0-and$actorRun.Code-eq0-and[string]$phaseRun.Value.compactReceipt.contextIdentity-cne[string]$actorRun.Value.compactReceipt.contextIdentity))
+  }
+  Assert-True $staleTaskPhaseRejected 'actual-task-phase-drift-rejects-old-receipt'
+  Assert-True $temporaryTaskPhaseRebound 'fresh-temporary-action-keeps-action-phase-and-rebinds-task-identities'
+  Assert-True $ownerTaskPhaseRebound 'fresh-task-actor-phase-change-rebinds-source-selection-and-context'
+
+  $taskRelative='.ai-workspace/tasks/active/PROCESS-V2-001.md'
+  Write-Utf8 $taskPath "# PROCESS-V2-001 — runtime contract fixture`n`n- Task schema: 2.0.0`n- Owner: owner-fixture`n- Work route: actor=owner-fixture; role=TASK_OWNER; phase=IMPLEMENT`n- Range summary: profile=STANDARD; lifecycle=ACTIVE; expected_paths=[$taskRelative]; actual_paths=[$taskRelative]`n"
+  $taskPackage=[ordered]@{schemaVersion=1;frameworkVersion='2.0.0';taskId='PROCESS-V2-001';profile='STANDARD';lifecycle='ACTIVE';owner='owner-fixture';issuer='owner-fixture';issuerRole='TASK_OWNER';grantee='owner-fixture';bundle='PLAN_LOCAL';decisionClass='ROUTINE_LOCAL';userConfirmation='NOT_REQUIRED';reviewIndependence='NOT_APPLICABLE';delegatedGitCloser=$false;taskIdentity=Get-Identity $taskPath;actions=@('CONTROL_WRITE');exactPaths=@($taskRelative);objectIdentities=@([ordered]@{path=$taskRelative;identity=Get-Identity $taskPath});invalidatesOn=@('TASK_CHANGE','OWNER_CHANGE','GRANTEE_CHANGE','ACTION_CHANGE','PATHSET_CHANGE','OBJECT_DRIFT','USER_DECISION_CHANGE','PROJECT_CONFIG_DRIFT');projectConfigIdentity=Get-Identity (Join-Path $control 'project.json')}
+  $taskPackagePath=Join-Path $control 'task-write-package.json';Write-Json $taskPackagePath $taskPackage
+  $taskIntent=[ordered]@{schemaVersion=1;objective='Finalize one bounded task record';requestedActionKind='CONTROL_WRITE';requestedResultKind='IMPLEMENTATION_RESULT';semanticHints=@('task','control');pathHints=@($taskRelative);capabilityHints=@();mutationHints=@('control');externalHints=@();ambiguityState='CLEAR'}
+  $taskDiscover=[ordered]@{schemaVersion=3;mode='DISCOVER';contextType='TASK';readOnlyContext='NOT_APPLICABLE';projectRoot=$temp;frameworkRoot=$frameworkRoot;taskPath=$taskPath;expectedProjectConfigIdentity=Get-Identity (Join-Path $control 'project.json');expectedCorrectionsIdentity=Get-Identity (Join-Path $control 'corrections.json');expectedTaskIdentity=Get-Identity $taskPath;observedActor='owner-fixture';capabilities=@();exactPaths=@($taskRelative);forbiddenPaths=@('private/');protectedPaths=@();authorizationPackagePath=$taskPackagePath;expectedAuthorizationIdentity=Get-Identity $taskPackagePath;userDecision='NOT_REQUIRED';recoveryState='CURRENT';hostEnforcementGrade='FRAMEWORK_GATED';invocationState='PROVEN_EXPLICIT';intentEnvelope=$taskIntent;evaluationOnly=$false}
+  $taskPreText=Get-Content -Raw -Encoding utf8 -LiteralPath $taskPath
+  $temporaryTaskPackage=$taskPackage|ConvertTo-Json -Depth 50|ConvertFrom-Json;$temporaryTaskPackage.grantee='executor-fixture';$temporaryTaskPackagePath=Join-Path $control 'task-write-temporary-package.json';Write-Json $temporaryTaskPackagePath $temporaryTaskPackage
+  $temporaryTaskDiscover=$taskDiscover|ConvertTo-Json -Depth 50|ConvertFrom-Json;$temporaryTaskDiscover.observedActor='executor-fixture';$temporaryTaskDiscover.authorizationPackagePath=$temporaryTaskPackagePath;$temporaryTaskDiscover.expectedAuthorizationIdentity=Get-Identity $temporaryTaskPackagePath
+  Write-Json $discoverPath $temporaryTaskDiscover;$temporaryTaskRun=Invoke-Resolver $resolver $discoverPath;$temporaryTaskReceiptPath=Join-Path $control 'task-write-temporary-receipt.json';Write-Json $temporaryTaskReceiptPath $temporaryTaskRun.Value.compactReceipt
+  $temporaryTaskPrep=@($temporaryTaskRun.Value.compactReceipt.selectedObligations|ForEach-Object{@($_.preparationRequirements)}|Sort-Object -Unique);$temporaryTaskResults=@($temporaryTaskRun.Value.compactReceipt.selectedObligations|ForEach-Object{@($_.resultRequirements)}|Sort-Object -Unique)
+  $temporaryTaskBoundary=[ordered]@{schemaVersion=2;mode='ADMIT_ACTION';discoverReceiptPath=$temporaryTaskReceiptPath;expectedDiscoverReceiptIdentity=Get-Identity $temporaryTaskReceiptPath;preparationReceipts=$temporaryTaskPrep;resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='BOUND'}
+  Write-Json $boundaryPath $temporaryTaskBoundary;$temporaryTaskAdmit=Invoke-Resolver $resolver $boundaryPath;Write-Utf8 $taskPath ($taskPreText.TrimEnd("`n")+"`n`n- Completion: TEMPORARY_ACTOR_ATTEMPT`n")
+  $temporaryTaskFinalize=$temporaryTaskBoundary|ConvertTo-Json -Depth 50|ConvertFrom-Json;$temporaryTaskFinalize.mode='FINALIZE_OUTPUT';$temporaryTaskFinalize.resultReceipts=@($temporaryTaskResults+@('OBJECT_POSTIMAGE|'+$taskRelative+'|'+(Get-Identity $taskPath)));Write-Json $boundaryPath $temporaryTaskFinalize;$temporaryTaskFinalizeRun=Invoke-Resolver $resolver $boundaryPath
+  Assert-True ($temporaryTaskRun.Code-eq0-and$temporaryTaskAdmit.Code-eq0-and$temporaryTaskFinalizeRun.Code-ne0-and$temporaryTaskFinalizeRun.Text.Contains('CONTROL_TASK_POSTIMAGE_TRANSITION_NOT_AUTHORIZED')) 'temporary-action-actor-cannot-use-same-receipt-to-rewrite-task-card'
+  Write-Utf8 $taskPath $taskPreText
+  $closureDocRelative='docs/closure.md';$closureDocPath=Join-Path $temp $closureDocRelative;Write-Utf8 $closureDocPath 'Document before closure.'
+  $closurePackage=$taskPackage|ConvertTo-Json -Depth 50|ConvertFrom-Json;$closurePackage.actions=@('SOURCE_WRITE');$closurePackage.exactPaths=@($closureDocRelative);$closurePackage.objectIdentities=@([ordered]@{path=$closureDocRelative;identity=Get-Identity $closureDocPath});$closurePackagePath=Join-Path $control 'document-closure-package.json';Write-Json $closurePackagePath $closurePackage
+  $closureDiscover=$taskDiscover|ConvertTo-Json -Depth 50|ConvertFrom-Json;$closureDiscover.exactPaths=@($closureDocRelative);$closureDiscover.authorizationPackagePath=$closurePackagePath;$closureDiscover.expectedAuthorizationIdentity=Get-Identity $closurePackagePath;$closureDiscover.intentEnvelope.requestedActionKind='SOURCE_WRITE';$closureDiscover.intentEnvelope.semanticHints=@('changed output disposition');$closureDiscover.intentEnvelope.pathHints=@($closureDocRelative);$closureDiscover.intentEnvelope.mutationHints=@('source')
+  Write-Json $discoverPath $closureDiscover;$closureRun=Invoke-Resolver $resolver $discoverPath;Assert-ResolverSuccess $closureRun 'document-before-card-discover'
+  $closureReceiptPath=Join-Path $control 'document-closure-receipt.json';Write-Json $closureReceiptPath $closureRun.Value.compactReceipt
+  $closureBoundary=[ordered]@{schemaVersion=2;mode='ADMIT_ACTION';discoverReceiptPath=$closureReceiptPath;expectedDiscoverReceiptIdentity=Get-Identity $closureReceiptPath;preparationReceipts=@($closureRun.Value.compactReceipt.selectedObligations|ForEach-Object{$_.preparationRequirements}|Sort-Object -Unique);resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='BOUND'}
+  Write-Json $boundaryPath $closureBoundary;$closureAdmit=Invoke-Resolver $resolver $boundaryPath;Assert-ResolverSuccess $closureAdmit 'document-before-card-admit'
+  Write-Utf8 $closureDocPath 'Document completed before current task mutation.';$closureDocumentIdentity=Get-Identity $closureDocPath
+  $closureBoundary.mode='FINALIZE_OUTPUT';$closureBoundary.resultReceipts=@($closureRun.Value.compactReceipt.selectedObligations|ForEach-Object{$_.resultRequirements}|Sort-Object -Unique)+@('OBJECT_POSTIMAGE|'+$closureDocRelative+'|'+$closureDocumentIdentity);Write-Json $boundaryPath $closureBoundary;$closureFinal=Invoke-Resolver $resolver $boundaryPath
+  Assert-True ($closureFinal.Code-eq0-and(Get-Identity $taskPath)-ceq$taskPackage.taskIdentity) 'document-finalizes-before-current-card-without-task-restore'
+  Write-Json $discoverPath $taskDiscover;$taskDiscoverRun=Invoke-Resolver $resolver $discoverPath
+  $taskReceiptPath=Join-Path $control 'task-write-receipt.json';Write-Json $taskReceiptPath $taskDiscoverRun.Value.compactReceipt
+  $taskPrep=@($taskDiscoverRun.Value.compactReceipt.selectedObligations|ForEach-Object{@($_.preparationRequirements)}|Sort-Object -Unique)
+  $taskResults=@($taskDiscoverRun.Value.compactReceipt.selectedObligations|ForEach-Object{@($_.resultRequirements)}|Sort-Object -Unique)
+  $taskBoundary=[ordered]@{schemaVersion=2;mode='ADMIT_ACTION';discoverReceiptPath=$taskReceiptPath;expectedDiscoverReceiptIdentity=Get-Identity $taskReceiptPath;preparationReceipts=$taskPrep;resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='BOUND'}
+  Write-Json $boundaryPath $taskBoundary;$taskAdmitRun=Invoke-Resolver $resolver $boundaryPath
+  Assert-True ($taskDiscoverRun.Code-eq0-and$taskAdmitRun.Code-eq0) 'repo-local-self-card-control-write-admits-exact-task-preimage'
+  $taskPostText=(Get-Content -Raw -Encoding utf8 -LiteralPath $taskPath).TrimEnd("`n")+"`n`n- Completion: STRUCTURALLY_FINALIZED`n";Write-Utf8 $taskPath $taskPostText
+  $taskFinalize=$taskBoundary|ConvertTo-Json -Depth 50|ConvertFrom-Json;$taskFinalize.mode='FINALIZE_OUTPUT';$taskFinalize.resultReceipts=@($taskResults+@('OBJECT_POSTIMAGE|'+$taskRelative+'|'+(Get-Identity $taskPath)));Write-Json $boundaryPath $taskFinalize;$taskFinalizeRun=Invoke-Resolver $resolver $boundaryPath
+  Assert-True ($taskFinalizeRun.Code-eq0-and(Get-Identity $closureDocPath)-ceq$closureDocumentIdentity) 'repo-local-document-then-self-card-finalize-preserves-completed-document'
+  $taskBindingDrifts=@(
+    [pscustomobject]@{Name='task-id';Text=$taskPostText-replace '^# PROCESS-V2-001 ','# PROCESS-V2-OTHER '},
+    [pscustomobject]@{Name='owner';Text=$taskPostText-replace '(?m)^- Owner: owner-fixture$','- Owner: other-owner'},
+    [pscustomobject]@{Name='actor';Text=$taskPostText-replace 'actor=owner-fixture','actor=successor-fixture'},
+    [pscustomobject]@{Name='role';Text=$taskPostText-replace 'role=TASK_OWNER','role=EXECUTOR'},
+    [pscustomobject]@{Name='phase';Text=$taskPostText-replace 'phase=IMPLEMENT','phase=PLAN'},
+    [pscustomobject]@{Name='profile';Text=$taskPostText-replace 'profile=STANDARD','profile=CRITICAL'}
+  )
+  foreach($drift in $taskBindingDrifts){
+    Write-Utf8 $taskPath $drift.Text
+    $driftFinalize=$taskFinalize|ConvertTo-Json -Depth 50|ConvertFrom-Json;$driftFinalize.resultReceipts=@($taskResults+@('OBJECT_POSTIMAGE|'+$taskRelative+'|'+(Get-Identity $taskPath)));Write-Json $boundaryPath $driftFinalize;$driftRun=Invoke-Resolver $resolver $boundaryPath
+    Assert-True ($driftRun.Code-ne0-and$driftRun.Text.Contains('CONTROL_TASK_POSTIMAGE_BINDING_DRIFT')) ('repo-local-self-card-finalize-rejects-'+$drift.Name+'-drift')
+  }
+  $successorTaskText=$taskPostText-replace 'actor=owner-fixture; role=TASK_OWNER','actor=successor-fixture; role=EXECUTOR';Write-Utf8 $taskPath $successorTaskText
+  $successorPackage=$taskPackage|ConvertTo-Json -Depth 50|ConvertFrom-Json;$successorPackage.grantee='successor-fixture';$successorPackage.taskIdentity=Get-Identity $taskPath;$successorPackage.objectIdentities[0].identity=Get-Identity $taskPath
+  $successorPackagePath=Join-Path $control 'task-write-successor-package.json';Write-Json $successorPackagePath $successorPackage
+  $successorDiscover=$taskDiscover|ConvertTo-Json -Depth 50|ConvertFrom-Json;$successorDiscover.expectedTaskIdentity=Get-Identity $taskPath;$successorDiscover.observedActor='successor-fixture';$successorDiscover.authorizationPackagePath=$successorPackagePath;$successorDiscover.expectedAuthorizationIdentity=Get-Identity $successorPackagePath
+  Write-Json $discoverPath $successorDiscover;$successorRun=Invoke-Resolver $resolver $discoverPath
+  Assert-True ($successorRun.Code-eq0-and[string]$successorRun.Value.compactReceipt.binding.taskActor-ceq'successor-fixture'-and[string]$successorRun.Value.compactReceipt.binding.actor-ceq'successor-fixture'-and[string]$successorRun.Value.compactReceipt.binding.role-ceq'EXECUTOR'-and[string]$successorRun.Value.compactReceipt.binding.phase-ceq'IMPLEMENT'-and[string]$successorRun.Value.compactReceipt.binding.profile-ceq'STANDARD') 'fresh-package-and-discover-rebind-current-task-route-without-permanent-actor-lock'
+
+  $compositionArgs=@{ProjectRoot=$temp;FrameworkRoot=$frameworkRoot;TargetVersion='2.0.0';ExpectedProjectConfigIdentity=Get-Identity (Join-Path $control 'project.json');ExpectedCorrectionsIdentity=Get-Identity (Join-Path $control 'corrections.json');Profile='CRITICAL';Role='FRAMEWORK_MAINTAINER';Phase='IMPLEMENT';Actor='owner-fixture';TaskIdentity=Get-Identity $taskPath;Capabilities=@();Objective='Edit the upgrade-project tool implementation';ActionKind='CONTROL_WRITE';ResultKind='IMPLEMENTATION_RESULT';ExactPaths=@('scripts/upgrade-project.ps1');EvaluationOnly=$true}
+  $toolingComposition=Invoke-ProcessRequirementComposition @compositionArgs
+  $toolingIds=@($toolingComposition.selectedRequirements|ForEach-Object{[string]$_.requirementId})
+  $compositionArgs.Objective='Upgrade the project pin and managed control projection';$compositionArgs.ExactPaths=@('.ai-workspace/project.json');$adoptionComposition=Invoke-ProcessRequirementComposition @compositionArgs;$adoptionIds=@($adoptionComposition.selectedRequirements|ForEach-Object{[string]$_.requirementId})
+  Assert-True ('framework:PR_PROJECT_UPGRADE_ACTOR_BOUND'-cnotin$toolingIds-and'framework:PR_PROJECT_UPGRADE_ACTOR_BOUND'-cin$adoptionIds) 'project-upgrade-rule-is-bound-to-project-control-path-not-tool-source-edit'
+
+  $gitDirectory=Join-Path $temp '.git';$heldGitDirectory=Join-Path $temp '.git-held'
+  if([IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($gitDirectory))-cne[IO.Path]::GetFullPath($temp)-or[IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($heldGitDirectory))-cne[IO.Path]::GetFullPath($temp)-or-not(Test-Path -LiteralPath $gitDirectory -PathType Container)-or(Test-Path -LiteralPath $heldGitDirectory)){throw 'NON_GIT_FIXTURE_BOUNDARY'}
+  Move-Item -LiteralPath $gitDirectory -Destination $heldGitDirectory
+  $originalPath=$env:Path;$env:Path=''
+  try{
+    $nonGitRead=$discover|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100
+    $nonGitRead.expectedTaskIdentity=Get-Identity $taskPath;$nonGitRead.observedActor='successor-fixture';$nonGitRead.recoveryState='CURRENT';$nonGitRead.evaluationOnly=$false
+    Write-Json $discoverPath $nonGitRead;$nonGitReadRun=Invoke-Resolver $resolver $discoverPath
+    Assert-True ($nonGitReadRun.Code-eq0-and[string]$nonGitReadRun.Value.compactReceipt.binding.repositoryGitTop-ceq'NOT_APPLICABLE') 'ordinary-read-only-governance-without-git-repository'
+    $nonGitPackage=$successorPackage|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100;$nonGitPackage.schemaVersion=2;$nonGitPackage|Add-Member -NotePropertyName repositoryId -NotePropertyValue 'CONTROL';$nonGitPackage.invalidatesOn=@($nonGitPackage.invalidatesOn)+@('REPOSITORY_CHANGE')
+    $nonGitPackagePath=Join-Path $control 'non-git-control-package.json';Write-Json $nonGitPackagePath $nonGitPackage
+    $nonGitWrite=$successorDiscover|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100;$nonGitWrite.authorizationPackagePath=$nonGitPackagePath;$nonGitWrite.expectedAuthorizationIdentity=Get-Identity $nonGitPackagePath;$nonGitWrite.recoveryState='CURRENT'
+    Write-Json $discoverPath $nonGitWrite;$nonGitWriteRun=Invoke-Resolver $resolver $discoverPath
+    if($nonGitWriteRun.Code-ne0){Write-Output ('DIAG|ordinary-authorized-control-write-without-git|'+$nonGitWriteRun.Text)}
+    Assert-True ($nonGitWriteRun.Code-eq0-and[string]$nonGitWriteRun.Value.compactReceipt.binding.repositoryGitTop-ceq'NOT_APPLICABLE') 'ordinary-authorized-control-write-without-git-repository'
+  }finally{
+    $env:Path=$originalPath
+    Move-Item -LiteralPath $heldGitDirectory -Destination $gitDirectory
+  }
+}finally{
+  $docsLink=Join-Path $temp 'docs';$remainingDocsLink=Get-Item -LiteralPath $docsLink -Force -ErrorAction SilentlyContinue;if($null-ne$remainingDocsLink-and($remainingDocsLink.Attributes-band[IO.FileAttributes]::ReparsePoint)-ne0){Remove-FixtureJunction $docsLink $temp}
+  if(Test-Path -LiteralPath $outsideTemp){$outsideRoot=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath([IO.Path]::GetTempPath()));$outsideResolved=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($outsideTemp));if(-not$outsideResolved.StartsWith($outsideRoot+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)-or[IO.Path]::GetFileName($outsideResolved)-cnotmatch'^aiw-process-v2-outside-[a-f0-9]{32}$'){throw 'OUTSIDE_TEMP_CLEANUP_BOUNDARY'};Remove-Item -LiteralPath $outsideResolved -Recurse -Force -ErrorAction SilentlyContinue}
+  if(Test-Path -LiteralPath $temp){$tempRoot=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath([IO.Path]::GetTempPath()));$tempResolved=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($temp));$tempPrefix=$tempRoot+[IO.Path]::DirectorySeparatorChar;$tempLeaf=[IO.Path]::GetFileName($tempResolved);if(-not$tempResolved.StartsWith($tempPrefix,[StringComparison]::OrdinalIgnoreCase)-or$tempLeaf-cnotmatch'^aiw-process-v2-[a-f0-9]{32}$'){throw 'TEMP_CLEANUP_BOUNDARY'};Get-ChildItem -LiteralPath $tempResolved -Recurse -Force -ErrorAction SilentlyContinue|ForEach-Object{try{$_.Attributes=[IO.FileAttributes]::Normal}catch{}};Remove-Item -LiteralPath $tempResolved -Recurse -Force -ErrorAction SilentlyContinue}
+}
+Write-Output ('RESULT|'+$passed+'/'+$passed+' passed|scope=process-runtime-v2')
