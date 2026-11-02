@@ -1,6 +1,7 @@
+Import-Module (Join-Path $PSScriptRoot 'ProjectSourcePublication.psm1')
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-Import-Module (Join-Path $PSScriptRoot 'StrictJsonInput.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'StrictJsonInput.psm1')
 $script:TransitionUtf8 = [Text.UTF8Encoding]::new($false, $true)
 
 function Assert-TransitionFields($Value, [string[]]$Fields, [string]$Label) {
@@ -33,6 +34,10 @@ function Resolve-TransitionPath([string]$Root, [string]$Path, [switch]$Relative)
     return $full
 }
 function Assert-AiwNoControlTransition([string]$ProjectRoot, [string]$TaskPath = '') {
+# @project-source-scope
+$aiwPublicationScopeLease=Enter-AiwProjectSourceScope -ProjectRoot $ProjectRoot -Mode OBSERVE
+try {
+
     $controllerPath = Resolve-TransitionPath $ProjectRoot '.ai-workspace/controller.json' -Relative
     if (Test-Path -LiteralPath $controllerPath -PathType Leaf) {
         $controller = Read-TransitionJson $controllerPath
@@ -45,6 +50,8 @@ function Assert-AiwNoControlTransition([string]$ProjectRoot, [string]$TaskPath =
             if ($text -cmatch '(?m)^```aiw-transition') { throw 'CONTROL_TRANSITION_RECOVERY_REQUIRED|task' }
         }
     }
+
+} finally { Exit-AiwProjectSourceScope $aiwPublicationScopeLease }
 }
 function Get-TransitionTaskFacts([string]$Text) {
     $patterns = [ordered]@{
@@ -74,7 +81,23 @@ function Get-TransitionTaskInvariant([string]$Text, [string[]]$Fields) {
     }
     return $value
 }
+
+
+
+function Read-AiwControlTransitionTask {
+    [CmdletBinding()]param([Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)][string]$TaskPath)
+    $root=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($ProjectRoot))
+    $relative=[IO.Path]::GetRelativePath($root,[IO.Path]::GetFullPath($TaskPath,$root)).Replace('\','/')
+    $full=Resolve-TransitionPath $root $relative -Relative
+    $bytes=[IO.File]::ReadAllBytes($full)
+    return [pscustomobject]@{Path=$full;Identity=(Get-TransitionBytesIdentity $bytes);Bytes=$bytes;Text=$script:TransitionUtf8.GetString($bytes)}
+}
+Export-ModuleMember -Function Read-AiwControlTransitionTask
 function Read-AiwControlTransitionPlan([string]$ProjectRoot, [string]$PlanPath, [string]$ExpectedPlanIdentity) {
+# @project-source-scope
+$aiwPublicationScopeLease=Enter-AiwProjectSourceScope -ProjectRoot $ProjectRoot -Mode OBSERVE
+try {
+
     $root = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($ProjectRoot))
     $full = Resolve-TransitionPath $root $PlanPath
     if ($ExpectedPlanIdentity -cnotmatch '^\d+\|[A-F0-9]{64}$' -or (Get-TransitionIdentity $full) -cne $ExpectedPlanIdentity) { throw 'TRANSITION_PLAN_DRIFT' }
@@ -161,12 +184,15 @@ function Read-AiwControlTransitionPlan([string]$ProjectRoot, [string]$PlanPath, 
         $next=[ordered]@{};foreach($path in $paths){$next[$path]=$state[$path]};$next[$expectedSteps[$i].path]=$expectedSteps[$i].image;$states.Add($next);$state=$next
     }
     return [pscustomobject]@{Root=$root;Path=$full;Identity=$ExpectedPlanIdentity;Plan=$plan;Ref=$ref;Objects=$objects;Paths=$paths;States=$states;MarkedIndex=2*$paths.Count;FinalIndex=3*$paths.Count;AllowedActors=$allowedActors}
+
+} finally { Exit-AiwProjectSourceScope $aiwPublicationScopeLease }
 }
 function Get-TransitionState($Context) {
     $actual=[ordered]@{}
-    foreach($path in $Context.Paths){$full=Resolve-TransitionPath $Context.Root $path -Relative;if(-not(Test-Path -LiteralPath $full -PathType Leaf)){throw 'TRANSITION_OBJECT_MISSING'};$actual[$path]=Get-TransitionIdentity $full}
+    $paths=@($Context.Paths)
+    foreach($path in $paths){$full=Resolve-TransitionPath $Context.Root $path -Relative;if(Test-Path -LiteralPath $full -PathType Leaf){$actual[$path]=Get-TransitionIdentity $full}elseif(Test-Path -LiteralPath $full){throw 'TRANSITION_OBJECT_NOT_FILE'}else{throw 'TRANSITION_OBJECT_MISSING'}}
     $matches=@()
-    for($i=0;$i -lt $Context.States.Count;$i++){$ok=$true;foreach($path in $Context.Paths){if($actual[$path]-cne$Context.Objects[$path][$Context.States[$i][$path]].Identity){$ok=$false;break}};if($ok){$matches+=$i}}
+    for($i=0;$i -lt $Context.States.Count;$i++){$ok=$true;foreach($path in $paths){if($actual[$path]-cne$Context.Objects[$path][$Context.States[$i][$path]].Identity){$ok=$false;break}};if($ok){$matches+=$i}}
     if($matches.Count -ne 1){throw 'TRANSITION_UNREACHABLE_STATE'}
     return [int]$matches[0]
 }
@@ -177,7 +203,7 @@ function Assert-AiwControlTransitionPackage($Package,[string]$ProjectRoot) {
     $repo=if($Package.schemaVersion-eq1){'REPO_LOCAL'}else{[string]$Package.repositoryId}
     if($repo-cne$context.Plan.repositoryId-or$Package.taskId-cne$context.Plan.taskId-or($Package.exactPaths-join"`n")-cne($context.Paths-join"`n")){throw 'TRANSITION_PACKAGE_BINDING'}
     if(@($Package.objectIdentities).Count-ne$context.Paths.Count){throw 'TRANSITION_PACKAGE_PREIMAGES'}
-    foreach($path in $context.Paths){$entry=@($Package.objectIdentities|Where-Object{$_.path-ceq$path});if($entry.Count-ne1-or$entry[0].identity-cne$context.Objects[$path].BEFORE.Identity){throw 'TRANSITION_PACKAGE_PREIMAGES'}}
+    foreach($path in $context.Paths){$entry=@($Package.objectIdentities|Where-Object{$_.path-ceq$path});$before=$context.Objects[$path].BEFORE.Identity;if($before-ceq'MISSING'){$before='NEW'};if($entry.Count-ne1-or$entry[0].identity-cne$before){throw 'TRANSITION_PACKAGE_PREIMAGES'}}
     $null=$context.AllowedActors.Add([string]$Package.grantee)
     foreach($actor in $context.Plan.recoveryActors){if(-not$context.AllowedActors.Contains($actor)){throw 'TRANSITION_RECOVERY_ACTOR_SCOPE'}}
     if([string]$Package.grantee-cnotin$context.Plan.recoveryActors){throw 'TRANSITION_ORIGINAL_ACTOR_REQUIRED'}
@@ -188,10 +214,11 @@ function Get-TransitionOriginalChain($Context) {
     $bound=Assert-AiwControlTransitionPackage $package $Context.Root
     if($bound.Identity-cne$Context.Identity-or$bound.Path-cne$Context.Path){throw 'TRANSITION_CHAIN_PLAN'}
     $discover=Read-TransitionJson $l.discoverInput;$rawReceipt=Read-TransitionJson $l.discoverReceipt;$admit=Read-TransitionJson $l.admitInput;$result=Read-TransitionJson $l.admitResult
-    if($rawReceipt.schemaVersion-ne2){throw 'TRANSITION_REQUIRES_COMPACT_2'}
+    if($rawReceipt.schemaVersion-notin@(3,4)-or$rawReceipt.intentEnvelope.schemaVersion-ne2){throw 'TRANSITION_REQUIRES_COMPACT_3'}
     $binding=$rawReceipt.binding
     if(($discover.intentEnvelope|ConvertTo-Json -Depth 30 -Compress)-cne($rawReceipt.intentEnvelope|ConvertTo-Json -Depth 30 -Compress)-or($discover.forbiddenPaths-join"`n")-cne($binding.forbiddenScope-join"`n")-or($discover.protectedPaths-join"`n")-cne($binding.protectedScope-join"`n")){throw 'TRANSITION_ORIGINAL_CONTEXT_DRIFT'}
-    if($discover.mode-cne'DISCOVER'-or$discover.schemaVersion-ne3-or$discover.contextType-cne'TASK'-or$discover.evaluationOnly-or$rawReceipt.status-cne'PASS'-or$rawReceipt.mode-cne'DISCOVER'-or$rawReceipt.receiptType-cne'PROCESS_REQUIREMENTS_DISCOVER'-or$binding.frameworkVersion-cne'2.0.0'-or$binding.projectRoot-cne$Context.Root-or$binding.taskId-cne$Context.Plan.taskId-or$binding.actor-cne$package.grantee-or$binding.taskOwner-cne$package.owner-or$binding.taskIdentity-cne$package.taskIdentity-or$binding.authorizationIdentity-cne(Get-TransitionIdentity $l.package)-or$rawReceipt.sourceLocators.authorizationPackagePath-cne$l.package-or$discover.authorizationPackagePath-cne$l.package-or$discover.expectedAuthorizationIdentity-cne$binding.authorizationIdentity-or$discover.observedActor-cne$binding.actor-or$discover.expectedTaskIdentity-cne$binding.taskIdentity-or$discover.projectRoot-cne$Context.Root){throw 'TRANSITION_ORIGINAL_DISCOVER_BINDING'}
+    $legalContract=($discover.schemaVersion-eq4-and$rawReceipt.schemaVersion-eq3)-or($discover.schemaVersion-eq5-and$rawReceipt.schemaVersion-eq4)
+    if($discover.mode-cne'DISCOVER'-or-not$legalContract-or$discover.contextType-cne'TASK'-or$discover.evaluationOnly-or$rawReceipt.status-cne'PASS'-or$rawReceipt.mode-cne'DISCOVER'-or$rawReceipt.receiptType-cne'PROCESS_REQUIREMENTS_DISCOVER'-or$binding.frameworkVersion-cne'2.0.0'-or$binding.projectRoot-cne$Context.Root-or$binding.taskId-cne$Context.Plan.taskId-or$binding.actor-cne$package.grantee-or$binding.taskOwner-cne$package.owner-or$binding.taskIdentity-cne$package.taskIdentity-or$binding.authorizationIdentity-cne(Get-TransitionIdentity $l.package)-or$rawReceipt.sourceLocators.authorizationPackagePath-cne$l.package-or$discover.authorizationPackagePath-cne$l.package-or$discover.expectedAuthorizationIdentity-cne$binding.authorizationIdentity-or$discover.observedActor-cne$binding.actor-or$discover.expectedTaskIdentity-cne$binding.taskIdentity-or$discover.projectRoot-cne$Context.Root){throw 'TRANSITION_ORIGINAL_DISCOVER_BINDING'}
     if($rawReceipt.intentEnvelope.requestedActionKind-cne'CONTROL_WRITE'-or($binding.exactScope-join"`n")-cne($Context.Paths-join"`n")-or($discover.exactPaths-join"`n")-cne($Context.Paths-join"`n")-or$binding.userDecision-cne$package.userConfirmation){throw 'TRANSITION_ORIGINAL_SCOPE'}
     if($admit.mode-cne'ADMIT_ACTION'-or$admit.discoverReceiptPath-cne$l.discoverReceipt-or$admit.expectedDiscoverReceiptIdentity-cne(Get-TransitionIdentity $l.discoverReceipt)-or$result.status-cne'PASS'-or$result.mode-cne'ADMIT_ACTION'-or$result.selectionIdentity-cne$rawReceipt.selectionIdentity-or$result.decisionIdentity-cnotmatch'^[A-F0-9]{64}$'-or$result.authorityGranted-ne$false){throw 'TRANSITION_ORIGINAL_ADMIT_REQUIRED'}
     $required=@($rawReceipt.selectedObligations|ForEach-Object{$_.preparationRequirements}|Select-Object -Unique)
@@ -201,7 +228,11 @@ function Get-TransitionOriginalChain($Context) {
     $composer=Import-Module (Join-Path $PSScriptRoot 'ProcessRequirementComposition.psm1') -PassThru
     $decision=& $composer.ExportedFunctions['Get-AiwProcessDecisionIdentity'] $rawReceipt $admit
     if($decision-cne$result.decisionIdentity){throw 'TRANSITION_ORIGINAL_ADMIT_DECISION'}
-    $snapshot=& $composer.ExportedFunctions['Get-AiwProcessBindingSnapshot'] -ProjectRoot $Context.Root -FrameworkRoot $rawReceipt.sourceLocators.frameworkRoot -TargetVersion '2.0.0' -TaskRelativePath $rawReceipt.sourceLocators.taskRelativePath -ForbiddenPaths @($binding.forbiddenScope)
+    $selection=@{}
+    if('SOURCE_VALIDATION_SELECTED_CLOSURE_V1'-cin@($rawReceipt.evidence.ceilings)){
+        $selection.SelectionContext=[pscustomobject]@{profile=$binding.profile;role=$binding.role;phase=$binding.phase;actor=$binding.actor;actionKind=$rawReceipt.intentEnvelope.requestedActionKind;resultKind=$rawReceipt.intentEnvelope.requestedResultKind;exactPaths=@($binding.exactScope);capabilities=@($binding.observedCapabilities);intentEnvelope=$rawReceipt.intentEnvelope}
+    }
+    $snapshot=& $composer.ExportedFunctions['Get-AiwProcessBindingSnapshot'] -ProjectRoot $Context.Root -FrameworkRoot $rawReceipt.sourceLocators.frameworkRoot -TargetVersion '2.0.0' -TaskRelativePath $rawReceipt.sourceLocators.taskRelativePath -ForbiddenPaths @($binding.forbiddenScope) @selection
     foreach($name in $rawReceipt.sourceBindings.PSObject.Properties.Name){
         $path=if($name-ceq'controllerIdentity'){'.ai-workspace/controller.json'}elseif($name-ceq'taskIdentity'){[string]$rawReceipt.sourceLocators.taskRelativePath}else{''}
         $expected=if($path-and$Context.Objects.Contains($path)){$Context.Objects[$path].BEFORE.Identity}else{[string]$snapshot.$name}
@@ -267,14 +298,15 @@ function Get-AiwControlTransitionFinalization($Package,$Receipt,[string]$InputPa
 }
 function Get-AiwControlTransitionCompositions($Context,$Discover) {
     $module=Import-Module (Join-Path $PSScriptRoot 'ProcessRequirementComposition.psm1') -PassThru
-    $taskRelative=[IO.Path]::GetRelativePath($Context.Root,[string]$Discover.taskPath).Replace('\','/')
+    $taskRelative=[IO.Path]::GetRelativePath($Context.Root,[IO.Path]::GetFullPath([string]$Discover.taskPath,$Context.Root)).Replace('\','/')
     $tasks=@($taskRelative)+@($Context.Paths|Where-Object{$_-cne'.ai-workspace/controller.json'-and$_-cne$taskRelative})
     $results=@()
     foreach($relative in $tasks){
         $full=Resolve-TransitionPath $Context.Root $relative -Relative
         $text=if($Context.Objects.Contains($relative)){$Context.Objects[$relative].AFTER.Text}else{$script:TransitionUtf8.GetString([IO.File]::ReadAllBytes($full))}
         $facts=Get-TransitionTaskFacts $text
-        $results+=& $module.ExportedFunctions['Invoke-ProcessRequirementComposition'] -ProjectRoot $Context.Root -FrameworkRoot $Discover.frameworkRoot -TargetVersion '2.0.0' -ExpectedProjectConfigIdentity $Discover.expectedProjectConfigIdentity -ExpectedCorrectionsIdentity $Discover.expectedCorrectionsIdentity -Profile $facts.Profile -Role $facts.Role -Phase $facts.Phase -Actor $facts.TaskActor -TaskIdentity (Get-TransitionIdentity $full) -Capabilities @($Discover.capabilities) -Objective ([string]::Join(' ',@($Discover.intentEnvelope.semanticHints))) -ActionKind 'CONTROL_WRITE' -ResultKind $Discover.intentEnvelope.requestedResultKind -ExactPaths @($Context.Paths) -ForbiddenPaths @($Discover.forbiddenPaths)
+        $taskIdentity=Get-TransitionIdentity $full
+        $results+=& $module.ExportedFunctions['Invoke-ProcessRequirementComposition'] -ProjectRoot $Context.Root -FrameworkRoot $Discover.frameworkRoot -TargetVersion '2.0.0' -ExpectedProjectConfigIdentity $Discover.expectedProjectConfigIdentity -ExpectedCorrectionsIdentity $Discover.expectedCorrectionsIdentity -Profile $facts.Profile -Role $facts.Role -Phase $facts.Phase -Actor $facts.TaskActor -TaskIdentity $taskIdentity -Capabilities @($Discover.capabilities) -IntentEnvelope $Discover.intentEnvelope -Objective ([string]::Join(' ',@($Discover.intentEnvelope.semanticHints))) -ActionKind 'CONTROL_WRITE' -ResultKind $Discover.intentEnvelope.requestedResultKind -ExactPaths @($Context.Paths) -ForbiddenPaths @($Discover.forbiddenPaths)
     }
     return $results
 }
@@ -298,51 +330,62 @@ function Open-TransitionLock($Context){
     if($lock.Length-ne0){$lock.Dispose();throw 'TRANSITION_LOCK_CONTENT'}
     return $lock
 }
+
 function Move-TransitionState($Context,[int]$From,[int]$To) {
     if((Get-TransitionState $Context)-ne$From-or[math]::Abs($To-$From)-ne1){throw 'TRANSITION_STEP_PREIMAGE'}
     $stepIndex=[math]::Min($From,$To);$path=[string]$Context.Plan.steps[$stepIndex].path
     $before=$Context.Objects[$path][$Context.States[$From][$path]];$after=$Context.Objects[$path][$Context.States[$To][$path]]
     Invoke-TransitionCheckpoint ('BEFORE_STEP_'+$From+'_'+$To)
-    Write-TransitionAtomic (Resolve-TransitionPath $Context.Root $path -Relative) $after.Bytes $before.Identity
+    $full=Resolve-TransitionPath $Context.Root $path -Relative
+    Write-TransitionAtomic $full $after.Bytes $before.Identity
     if((Get-TransitionState $Context)-ne$To){throw 'TRANSITION_STEP_READBACK'}
     Invoke-TransitionCheckpoint ('AFTER_STEP_'+$From+'_'+$To)
 }
 function Invoke-AiwControlTransition($InputObject) {
+# @project-source-scope
+$aiwPublicationScopeLease=Enter-AiwProjectSourceScope -ProjectRoot $InputObject.projectRoot -Mode $(if($InputObject.operation-ceq"PREVIEW"){"OBSERVE"}else{"WRITE"})
+try {
+
     Assert-TransitionFields $InputObject @('operation','projectRoot','planPath','expectedPlanIdentity','recoveryMode') 'INPUT'
     if($InputObject.operation-cnotin@('PREVIEW','APPLY','FINALIZE','COMPLETE','RECOVER')-or$InputObject.recoveryMode-cnotin@('NOT_APPLICABLE','CONTINUE','ROLLBACK')-or(($InputObject.operation-ceq'RECOVER')-ne($InputObject.recoveryMode-cne'NOT_APPLICABLE'))){throw 'TRANSITION_OPERATION'}
     $context=Read-AiwControlTransitionPlan $InputObject.projectRoot $InputObject.planPath $InputObject.expectedPlanIdentity
     if($InputObject.operation-ceq'PREVIEW'){
         if((Get-TransitionState $context)-ne0){throw 'TRANSITION_PREVIEW_REQUIRES_PREIMAGES'}
         $discover=Read-TransitionJson $context.Plan.originalProcessLocators.discoverInput
-        if($discover.projectRoot-cne$context.Root-or$discover.schemaVersion-ne3-or$discover.intentEnvelope.requestedActionKind-cne'CONTROL_WRITE'){throw 'TRANSITION_PREVIEW_CONTEXT'}
+        if($discover.projectRoot-cne$context.Root-or$discover.schemaVersion-notin@(4,5)-or$discover.intentEnvelope.requestedActionKind-cne'CONTROL_WRITE'){throw 'TRANSITION_PREVIEW_CONTEXT'}
         $targetCompositions=@(Get-AiwControlTransitionCompositions $context $discover)
         return [ordered]@{status='PREVIEW';planRef=$context.Ref;steps=$context.Plan.steps;derivedImages=@($context.Paths|ForEach-Object{$p=$_;[ordered]@{path=$p;markedBeforeIdentity=$context.Objects[$p].MARKED_BEFORE.Identity;markedTargetIdentity=$context.Objects[$p].MARKED_TARGET.Identity}});targetRuleBlocks=@($targetCompositions.selectedRequirements);authorityGranted=$false;evidenceGrade='INSTRUCTION_BOUND'}
     }
     $actor=[Environment]::GetEnvironmentVariable('CODEX_THREAD_ID','Process')
     if([string]::IsNullOrWhiteSpace($actor)-or$actor-cnotin$context.Plan.recoveryActors){throw 'TRANSITION_RECOVERY_ACTOR'}
-    # The original FINALIZE process acquires this same lock when persisting its
-    # completion point. Do not hold it across that child process invocation.
+    # Call the shared boundary core directly: running its public .ps1 from this
+    # active module creates a script scope that shadows our module state during
+    # callbacks. The core borrows the same live project handle; its completion
+    # writer still acquires the local plan lock itself.
     $lock=if($InputObject.operation-ceq'FINALIZE'){$null}else{Open-TransitionLock $context}
     try {
         $chain=Get-TransitionOriginalChain $context;$state=Get-TransitionState $context;$proof=Get-TransitionProof $context $chain
+
         if($null-ne$proof-and$state-lt$context.MarkedIndex){throw 'TRANSITION_COMMITTED_STATE_REGRESSION'}
         if($null-eq$proof-and$state-gt$context.MarkedIndex){throw 'TRANSITION_CLEANUP_WITHOUT_PROOF'}
         if($InputObject.operation-ceq'APPLY'){
             if($actor-cne$chain.Package.grantee-or$state-ne0-or$null-ne$proof){throw 'TRANSITION_APPLY_REQUIRES_ORIGINAL_START'}
         }
         if($InputObject.operation-ceq'APPLY'-or($InputObject.operation-ceq'RECOVER'-and$state-eq0-and$InputObject.recoveryMode-ceq'CONTINUE')){
-            $resolver=Join-Path $PSScriptRoot 'resolve-process-requirements.ps1'
-            $raw=@(& ([Environment]::ProcessPath) -NoProfile -File $resolver -InputPath $context.Plan.originalProcessLocators.admitInput -AsJson)
-            if($LASTEXITCODE-ne0){throw ('TRANSITION_ORIGINAL_READMIT_FAILED|'+($raw-join';'))}
-            $verified=($raw-join"`n")|ConvertFrom-Json
+            $boundaryModule=@(Import-Module (Join-Path $PSScriptRoot 'ProcessRequirementBoundary.psm1') -PassThru)[0]
+            $response=& $boundaryModule.ExportedFunctions['Invoke-AiwProcessRequirementBoundary'] -InputPath $context.Plan.originalProcessLocators.admitInput -AsJson
+            if($response.exitCode-ne0){throw ('TRANSITION_ORIGINAL_READMIT_FAILED|'+($response.output-join';'))}
+            $verified=($response.output-join"`n")|ConvertFrom-Json
             if($verified.status-cne'PASS'-or$verified.decisionIdentity-cne$chain.AdmitResult.decisionIdentity){throw 'TRANSITION_ORIGINAL_READMIT_DRIFT'}
         }
+
         if($InputObject.operation-ceq'FINALIZE'){
             if($null-ne$proof){return [ordered]@{status='COMMITTED';planRef=$context.Ref;cleanup='PENDING';authorityGranted=$false}}
             if($state-ne$context.MarkedIndex){throw 'TRANSITION_FINALIZE_STATE'}
-            $raw=@(& ([Environment]::ProcessPath) -NoProfile -File (Join-Path $PSScriptRoot 'resolve-process-requirements.ps1') -InputPath $context.Plan.originalProcessLocators.finalizeInput -AsJson)
-            if($LASTEXITCODE-ne0){throw ('TRANSITION_FINALIZE_FAILED|'+($raw-join';'))}
-            $result=($raw-join"`n")|ConvertFrom-Json;$proof=Get-TransitionProof $context $chain
+            $boundaryModule=@(Import-Module (Join-Path $PSScriptRoot 'ProcessRequirementBoundary.psm1') -PassThru)[0]
+            $response=& $boundaryModule.ExportedFunctions['Invoke-AiwProcessRequirementBoundary'] -InputPath $context.Plan.originalProcessLocators.finalizeInput -AsJson
+            if($response.exitCode-ne0){throw ('TRANSITION_FINALIZE_FAILED|'+($response.output-join';'))}
+            $result=($response.output-join"`n")|ConvertFrom-Json;$proof=Get-TransitionProof $context $chain
             if($null-eq$proof-or$result.status-cne'PASS'){throw 'TRANSITION_PROOF_MISSING'}
             return [ordered]@{status='COMMITTED';planRef=$context.Ref;completionProof=[ordered]@{path=$context.Plan.originalProcessLocators.completionProof;identity=(Get-TransitionIdentity $context.Plan.originalProcessLocators.completionProof)};cleanup='PENDING';authorityGranted=$false}
         }
@@ -362,5 +405,7 @@ function Invoke-AiwControlTransition($InputObject) {
         Invoke-TransitionCheckpoint 'BEFORE_COMPLETE_RETURN'
         return [ordered]@{status='COMPLETE';planRef=$context.Ref;completionProof=[ordered]@{path=$context.Plan.originalProcessLocators.completionProof;identity=(Get-TransitionIdentity $context.Plan.originalProcessLocators.completionProof)};authorityGranted=$false;evidenceGrade='INSTRUCTION_BOUND'}
     } finally { if($null-ne$lock){$lock.Dispose()} }
+
+} finally { Exit-AiwProjectSourceScope $aiwPublicationScopeLease }
 }
 Export-ModuleMember -Function Assert-AiwNoControlTransition,Read-AiwControlTransitionPlan,Assert-AiwControlTransitionPackage,Get-AiwControlTransitionFinalization,Get-AiwControlTransitionCompositions,Save-AiwControlTransitionCompletion,Invoke-AiwControlTransition

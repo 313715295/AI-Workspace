@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "frameworkVersion": "2.0.0",
   "ownerModule": "TASK_AND_SCOPE.md",
   "requirements": [
@@ -7,7 +7,7 @@
       "requirementId": "PR_TASK_LAUNCH_AND_ROUTE",
       "legacyAliases": [],
       "title": "Task launch and direct route",
-      "description": "Choose one legal, net-beneficial organization carrier while preserving task routing and governance boundaries.",
+      "description": "Choose sufficient legal task organization at real assignment boundaries, with complete direct delegation and healthy reuse.",
       "selectors": {
         "profiles": [
           "*"
@@ -45,24 +45,25 @@
           "application task",
           "internal subagent",
           "subagent",
-          "review",
-          "reviewer",
           "任务续派",
           "任务协作",
           "内部代理",
           "子代理",
-          "子agent",
-          "审核",
-          "审查"
+          "子agent"
         ],
         "deterministicTriggers": {
           "actionKinds": [
-            "REVIEW_ROUTE",
-            "REVIEW_EXECUTE"
+            "REVIEW_ROUTE"
           ],
           "resultKinds": []
         },
-        "semanticMatch": "TOKEN"
+        "semanticMatch": "TOKEN",
+        "facets": {
+          "workType": [
+            "aiw:task-organization",
+            "aiw:collaboration"
+          ]
+        }
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_TASK_LAUNCH_AND_ROUTE",
       "preparationRequirements": [
@@ -75,8 +76,8 @@
     {
       "requirementId": "PR_WORKFLOW_TRANSITION_MECHANICAL_BOUNDARY",
       "legacyAliases": [],
-      "title": "Mechanical workflow transition",
-      "description": "Resolve governed task transitions from current authenticated facts without creating authority.",
+      "title": "Mechanical workflow boundary",
+      "description": "Validate real workflow transitions against current control authority and observed object context.",
       "selectors": {
         "profiles": [
           "*"
@@ -122,6 +123,17 @@
             "REVIEW_VERDICT",
             "RESULT_ACCEPTANCE"
           ]
+        },
+        "facets": {
+          "workType": [
+            "aiw:task-organization",
+            "aiw:review",
+            "aiw:acceptance",
+            "aiw:closure",
+            "aiw:adoption",
+            "aiw:recovery",
+            "aiw:controller-handoff"
+          ]
         }
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_WORKFLOW_TRANSITION_MECHANICAL_BOUNDARY",
@@ -136,7 +148,7 @@
       "requirementId": "PR_TASK_SCOPE_AND_FORBIDDEN",
       "legacyAliases": [],
       "title": "Task scope closure",
-      "description": "Keep objective, exact scope, forbidden boundaries, current route and evidence ceiling current.",
+      "description": "Keep the finite outcome, lifecycle, scope, current route, expert consumers and unresolved handoff obligations current.",
       "selectors": {
         "profiles": [
           "STANDARD",
@@ -159,7 +171,8 @@
         ],
         "pathPrefixes": [],
         "capabilities": [],
-        "semanticTerms": []
+        "semanticTerms": [],
+        "facets": {}
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_TASK_SCOPE_AND_FORBIDDEN",
       "preparationRequirements": [
@@ -204,7 +217,8 @@
         ],
         "pathPrefixes": [],
         "capabilities": [],
-        "semanticTerms": []
+        "semanticTerms": [],
+        "facets": {}
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_FINAL_OUTPUT_CURRENT_RESULT",
       "preparationRequirements": [],
@@ -217,8 +231,8 @@
     {
       "requirementId": "PR_TASK_RESOURCE_SELECTION",
       "legacyAliases": [],
-      "title": "Task resource selection and revision",
-      "description": "Select sufficient model then supported effort on initial assignment or new selection-relevant evidence; reuse healthy bindings.",
+      "title": "Task resource judgment",
+      "description": "Choose sufficient model and effort separately, considering continuing responsibility and total cost.",
       "selectors": {
         "profiles": [
           "*"
@@ -256,24 +270,25 @@
           "application task",
           "internal subagent",
           "subagent",
-          "review",
-          "reviewer",
           "任务续派",
           "任务协作",
           "内部代理",
           "子代理",
-          "子agent",
-          "审核",
-          "审查"
+          "子agent"
         ],
         "deterministicTriggers": {
           "actionKinds": [
-            "REVIEW_ROUTE",
-            "REVIEW_EXECUTE"
+            "REVIEW_ROUTE"
           ],
           "resultKinds": []
         },
-        "semanticMatch": "TOKEN"
+        "semanticMatch": "TOKEN",
+        "facets": {
+          "workType": [
+            "aiw:resource-selection",
+            "aiw:task-organization"
+          ]
+        }
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_TASK_RESOURCE_SELECTION",
       "preparationRequirements": [
@@ -330,7 +345,8 @@
             "CONTROL_WRITE"
           ],
           "resultKinds": []
-        }
+        },
+        "facets": {}
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_TASK_CHANGED_OUTPUT_DISPOSITION",
       "preparationRequirements": [],
@@ -361,7 +377,8 @@
         ],
         "pathPrefixes": [],
         "capabilities": [],
-        "semanticTerms": []
+        "semanticTerms": [],
+        "facets": {}
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_TASK_IMPLEMENTATION_JUDGMENT",
       "preparationRequirements": [
@@ -374,8 +391,8 @@
     {
       "requirementId": "PR_TASK_COLLABORATION_BOUNDARY",
       "legacyAliases": [],
-      "title": "Shared collaboration and waiting boundary",
-      "description": "Keep asynchronous collaboration and the incremental review-routing boundary available to every actor, including MICRO, without requiring a new organization decision.",
+      "title": "Bounded collaboration",
+      "description": "Continue safe work without peer waits; new review dispatch uses its own current boundary.",
       "selectors": {
         "profiles": [
           "*"
@@ -394,11 +411,13 @@
         ],
         "pathPrefixes": [],
         "capabilities": [],
-        "semanticTerms": []
+        "semanticTerms": [],
+        "facets": {}
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_TASK_COLLABORATION_BOUNDARY",
       "preparationRequirements": [],
       "resultRequirements": []
     }
-  ]
+  ],
+  "facetVocabulary": []
 }

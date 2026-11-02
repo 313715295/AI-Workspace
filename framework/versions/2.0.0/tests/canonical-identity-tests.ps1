@@ -4,16 +4,18 @@ param()
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 if($PSVersionTable.PSEdition-cne'Core'-or$PSVersionTable.PSVersion.Major-lt7){throw 'POWERSHELL7_REQUIRED'}
+Import-Module (Join-Path $PSScriptRoot 'TestHarness.psm1')
 $utf8=[Text.UTF8Encoding]::new($false)
 $script:passed=0
 
 function Assert-True([bool]$Value,[string]$Name){if(-not$Value){throw ('ASSERT_FAIL|'+$Name)};$script:passed++;Write-Output ('PASS|'+$Name)}
 function Write-Utf8([string]$Path,[string]$Text){$parent=Split-Path -Parent $Path;if($parent-and-not(Test-Path -LiteralPath $parent)){New-Item -ItemType Directory -Path $parent -Force|Out-Null};$value=$Text.Replace("`r`n","`n").Replace("`r","`n");if(-not$value.EndsWith("`n")){$value+="`n"};[IO.File]::WriteAllText($Path,$value,$utf8)}
-function Invoke-Host([string]$Executable,[string]$Script,[string[]]$Arguments){$old=$ErrorActionPreference;$ErrorActionPreference='Continue';try{$output=@(& $Executable -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $Script @Arguments 2>&1|ForEach-Object{[string]$_});$code=$LASTEXITCODE}finally{$ErrorActionPreference=$old};return [pscustomobject]@{Code=$code;Output=$output;Text=($output-join"`n")}}
+function Invoke-Host([string]$Executable,[string]$Script,[string[]]$Arguments){$run=Invoke-AiwTestProcess $Executable @(@('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$Script)+$Arguments) -WorkingDirectory (Get-Location).Path -EvidenceDirectory $rawRoot -GroupId 'canonical-host';return [pscustomobject]@{Code=$run.Code;Output=@($run.Output);Text=$run.Text;Stdout=$run.StdoutText;Stderr=$run.StderrText;Record=$run.Record;ResultPath=$run.ResultPath}}
 
 $versionRoot=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..')))
 $modulePath=Join-Path $versionRoot 'scripts\ProcessRequirementComposition.psm1'
 $referencePath=Join-Path $versionRoot 'tests\canonical-identity-reference.mjs'
+$rawRoot=if($env:AIW_TEST_RAW_DIRECTORY){Join-Path $env:AIW_TEST_RAW_DIRECTORY ('canonical-'+[guid]::NewGuid().ToString('N'))}else{Join-Path ([IO.Path]::GetTempPath()) ('aiw-canonical-raw-'+[guid]::NewGuid().ToString('N'))}
 $temp=Join-Path ([IO.Path]::GetTempPath()) ('aiw-canonical-identity-'+[guid]::NewGuid().ToString('N'))
 
 try{
@@ -34,14 +36,16 @@ try{
     }
     Assert-True ((Get-AiwCanonicalCorrectionRecordIdentityV1 $fixtures[0].Record)-cne(Get-AiwCanonicalCorrectionRecordIdentityV1 $fixtures[1].Record)-and(Get-AiwCanonicalCorrectionRecordIdentityV1 $fixtures[2].Record)-cne(Get-AiwCanonicalCorrectionRecordIdentityV1 $fixtures[3].Record)) 'canonical-identity-preserves-unicode-and-newlines'
 
-    if($IsWindows){
+    if($IsWindows-and[IO.File]::Exists((Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'))){
         $windowsPowerShell=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
         $wrapper=Join-Path $temp 'canonical-ps51.ps1'
-        Write-Utf8 $wrapper @'
+        Write-Utf8 $wrapper ((@'
 [CmdletBinding()]
-param([Parameter(Mandatory=$true)][string]$Module,[Parameter(Mandatory=$true)][string]$RecordPath)
+param([Parameter(Mandatory=$true)][string]$Module,[Parameter(Mandatory=$true)][string]$RecordPath,[switch]$UnicodeProbe)
+__AIW_TEST_NATIVE_OUTPUT__
 $ErrorActionPreference='Stop'
 try{
+    if($UnicodeProbe){$sample=([string][char]0x4E2D)+[char]0x6587+[char]0x00E9+'e'+[char]0x0301+[char]::ConvertFromUtf32(0x1F642)+'\u4e2d';Write-Output ('PS_VERSION|'+$PSVersionTable.PSVersion.ToString());Write-Output ('out|'+$sample);[Console]::Error.WriteLine('err|'+$sample);return}
     $utf8Strict=New-Object Text.UTF8Encoding($false,$true)
     $moduleText=[IO.File]::ReadAllText($Module,$utf8Strict)
     # Decode BOM-free UTF-8 explicitly, while preserving the real source path
@@ -60,7 +64,7 @@ try{
     [Console]::Error.WriteLine([string]$_.Exception.Message)
     exit 1
 }
-'@
+'@).Replace('__AIW_TEST_NATIVE_OUTPUT__',('Import-Module ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('''+[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes((Join-Path $PSScriptRoot 'TestNativeOutput.psm1')))+''')))' + "`n" + 'Initialize-AiwTestNativeOutput')))
         foreach($fixture in $fixtures){
             $recordPath=Join-Path $temp ('canonical-ps51-'+$fixture.Name+'.json')
             Write-Utf8 $recordPath ($fixture.Record|ConvertTo-Json -Compress)
@@ -68,7 +72,10 @@ try{
             if($run.Code-ne0-or[string]$run.Output[-1]-cne$fixture.Expected){Write-Output ('DIAG|canonical-identity-powershell51-'+$fixture.Name+'|code='+$run.Code+'|'+$run.Text)}
             Assert-True ($run.Code-eq0-and[string]$run.Output[-1]-ceq$fixture.Expected) ('canonical-identity-powershell51-'+$fixture.Name)
         }
-    }else{Write-Output 'EVIDENCE_CEILING|POWERSHELL51_CANONICAL_RUNTIME_NOT_AVAILABLE'}
+        $probe=Invoke-Host $windowsPowerShell $wrapper @('-Module',$modulePath,'-RecordPath',$recordPath,'-UnicodeProbe')
+        $sample=([string][char]0x4E2D)+[char]0x6587+[char]0x00E9+'e'+[char]0x0301+[char]::ConvertFromUtf32(0x1F642)+'\u4e2d'
+        Assert-True ($probe.Code-eq0-and$probe.Stdout.Contains('PS_VERSION|5.1.')-and$probe.Stdout.Contains('out|'+$sample)-and$probe.Stderr.TrimEnd()-ceq('err|'+$sample)) 'canonical-real-powershell51-unicode-dual-raw-roundtrip'
+    }else{Write-Output 'EVIDENCE_CEILING|NOT_RUN|POWERSHELL51_CANONICAL_RUNTIME_NOT_AVAILABLE'}
 }finally{
     if(Test-Path -LiteralPath $temp){$tempRoot=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath([IO.Path]::GetTempPath()));$resolved=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($temp));if([IO.Path]::GetDirectoryName($resolved)-cne$tempRoot-or[IO.Path]::GetFileName($resolved)-cnotmatch'^aiw-canonical-identity-[a-f0-9]{32}$'){throw 'CANONICAL_TEMP_CLEANUP_BOUNDARY'};Remove-Item -LiteralPath $resolved -Recurse -Force}
 }

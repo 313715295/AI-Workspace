@@ -1,0 +1,235 @@
+{
+  "schemaVersion": 1,
+  "objectTypes": [
+    {
+      "objectType": "PROJECT_CONFIG",
+      "targetFormat": 7,
+      "storageClass": "MUTABLE_PROJECT",
+      "supportedStarts": [
+        4,
+        5,
+        6,
+        7
+      ],
+      "entries": [
+        {
+          "fromFormat": 4,
+          "adapterId": "PROJECT_CONFIG_4_TO_5"
+        },
+        {
+          "fromFormat": 5,
+          "adapterId": "PROJECT_CONFIG_5_TO_6"
+        },
+        {
+          "fromFormat": 6,
+          "adapterId": "PROJECT_CONFIG_6_TO_7"
+        }
+      ],
+      "adapters": [
+        {
+          "adapterId": "PROJECT_CONFIG_4_TO_5",
+          "fromFormat": 4,
+          "toFormat": 5,
+          "implementationLocator": "adapters/project-config-4-to-5.ps1",
+          "implementationIdentity": "877|436F89A6818C4FCE015F1CC6EA7D43360F1B3C73170F2782C8A58CED846D40A3",
+          "next": "PROJECT_CONFIG_5_TO_6"
+        },
+        {
+          "adapterId": "PROJECT_CONFIG_5_TO_6",
+          "fromFormat": 5,
+          "toFormat": 6,
+          "implementationLocator": "adapters/project-config-5-to-6.ps1",
+          "implementationIdentity": "1825|DF45BF479A7DE7E1B93EF9BA26B1D45E756F4E767B028363C2ADFD165688F5EA",
+          "next": "PROJECT_CONFIG_6_TO_7"
+        },
+        {
+          "adapterId": "PROJECT_CONFIG_6_TO_7",
+          "fromFormat": 6,
+          "toFormat": 7,
+          "implementationLocator": "adapters/project-config-6-to-7.ps1",
+          "implementationIdentity": "310|281913F5A1F6BC8346CE00F7D46A75160B1EAEBDB5729556FFE06BE441001B3D",
+          "next": ""
+        }
+      ]
+    },
+    {
+      "objectType": "PROCESS_POLICY",
+      "targetFormat": 3,
+      "storageClass": "MUTABLE_PROJECT",
+      "supportedStarts": [
+        1,
+        2,
+        3
+      ],
+      "entries": [
+        {
+          "fromFormat": 1,
+          "adapterId": "PROCESS_POLICY_1_TO_2"
+        },
+        {
+          "fromFormat": 2,
+          "adapterId": "PROCESS_POLICY_2_TO_3"
+        }
+      ],
+      "adapters": [
+        {
+          "adapterId": "PROCESS_POLICY_1_TO_2",
+          "fromFormat": 1,
+          "toFormat": 2,
+          "implementationLocator": "adapters/process-policy-1-to-2.ps1",
+          "implementationIdentity": "704|97D570B55292986B7A460D552C88EE5E6A74D769F724B6E7162C20C1D7E009D4",
+          "next": "PROCESS_POLICY_2_TO_3"
+        },
+        {
+          "adapterId": "PROCESS_POLICY_2_TO_3",
+          "fromFormat": 2,
+          "toFormat": 3,
+          "implementationLocator": "adapters/process-policy-2-to-3.ps1",
+          "implementationIdentity": "315|B321F039E4DD71EDFAC7E77D0583B638DF77422EB00C47BFC992F86D67281587",
+          "next": ""
+        }
+      ]
+    },
+    {
+      "objectType": "PROJECT_CORRECTIONS",
+      "targetFormat": 3,
+      "storageClass": "MUTABLE_PROJECT",
+      "supportedStarts": [
+        1,
+        2,
+        3
+      ],
+      "entries": [
+        {
+          "fromFormat": 1,
+          "adapterId": "PROJECT_CORRECTIONS_1_TO_2"
+        },
+        {
+          "fromFormat": 2,
+          "adapterId": "PROJECT_CORRECTIONS_2_TO_3"
+        }
+      ],
+      "adapters": [
+        {
+          "adapterId": "PROJECT_CORRECTIONS_1_TO_2",
+          "fromFormat": 1,
+          "toFormat": 2,
+          "implementationLocator": "adapters/project-corrections-1-to-2.ps1",
+          "implementationIdentity": "991|FA898C5C5D1A3D22232DEA625BA1525A6299638D0300DF344EE6DA1486CA79DD",
+          "next": "PROJECT_CORRECTIONS_2_TO_3"
+        },
+        {
+          "adapterId": "PROJECT_CORRECTIONS_2_TO_3",
+          "fromFormat": 2,
+          "toFormat": 3,
+          "implementationLocator": "adapters/project-corrections-2-to-3.ps1",
+          "implementationIdentity": "366|0D68BD1AF8576A6A99384B6DFC560DB351F7C4C2A863F0129929D4BAB49C1FAB",
+          "next": ""
+        }
+      ]
+    },
+    {
+      "objectType": "KNOWLEDGE_INDEX",
+      "targetFormat": 3,
+      "storageClass": "EXTERNAL_READ_ONLY",
+      "supportedStarts": [
+        1,
+        2,
+        3
+      ],
+      "entries": [
+        {
+          "fromFormat": 1,
+          "adapterId": "KNOWLEDGE_INDEX_1_TO_2"
+        },
+        {
+          "fromFormat": 2,
+          "adapterId": "KNOWLEDGE_INDEX_2_TO_3"
+        }
+      ],
+      "adapters": [
+        {
+          "adapterId": "KNOWLEDGE_INDEX_1_TO_2",
+          "fromFormat": 1,
+          "toFormat": 2,
+          "implementationLocator": "adapters/knowledge-index-1-to-2.ps1",
+          "implementationIdentity": "878|A0DDC0545AE53F826ED5ECE9AB2A91FE126E620843F0765AEA7F2EACBA314415",
+          "next": "KNOWLEDGE_INDEX_2_TO_3"
+        },
+        {
+          "adapterId": "KNOWLEDGE_INDEX_2_TO_3",
+          "fromFormat": 2,
+          "toFormat": 3,
+          "implementationLocator": "adapters/knowledge-index-2-to-3.ps1",
+          "implementationIdentity": "862|624B0EF3D5F200119934B9D315720C381F93F27F31B4A9DCF24814219BB7B7B0",
+          "next": ""
+        }
+      ]
+    },
+    {
+      "objectType": "TYPED_EVIDENCE",
+      "targetFormat": 1,
+      "storageClass": "IMMUTABLE_EVIDENCE",
+      "supportedStarts": [
+        1
+      ],
+      "entries": [],
+      "adapters": []
+    },
+    {
+      "objectType": "CONTROLLER",
+      "targetFormat": 1,
+      "storageClass": "IMMUTABLE_EVIDENCE",
+      "supportedStarts": [
+        1
+      ],
+      "entries": [],
+      "adapters": []
+    },
+    {
+      "objectType": "ACCEPTANCE_PLAN",
+      "targetFormat": 1,
+      "storageClass": "IMMUTABLE_EVIDENCE",
+      "supportedStarts": [
+        1,
+        2
+      ],
+      "entries": [],
+      "adapters": [],
+      "readFormats": [
+        1,
+        2
+      ]
+    },
+    {
+      "objectType": "ADOPTION_STATE",
+      "targetFormat": 6,
+      "storageClass": "IMMUTABLE_EVIDENCE",
+      "supportedStarts": [
+        6
+      ],
+      "entries": [],
+      "adapters": []
+    },
+    {
+      "objectType": "PROJECTION",
+      "targetFormat": 1,
+      "storageClass": "IMMUTABLE_EVIDENCE",
+      "supportedStarts": [
+        1
+      ],
+      "entries": [],
+      "adapters": []
+    },
+    {
+      "objectType": "JOURNAL",
+      "targetFormat": 1,
+      "storageClass": "IMMUTABLE_EVIDENCE",
+      "supportedStarts": [
+        1
+      ],
+      "entries": [],
+      "adapters": []
+    }
+  ]
+}

@@ -5,12 +5,18 @@ param(
     [Parameter(Mandatory = $true)][string[]]$AllowPath,
     [Parameter(Mandatory = $true)][string]$ExpectedProjectConfigIdentity,
     [string]$RepositoryId = 'PROJECT',
-    [switch]$IncludeRoutineExcluded
+    [switch]$IncludeRoutineExcluded,
+    [string]$TaskPath,
+    [string]$ExecutionTargetRef,
+    [string]$ExpectedTargetState,
+    [string[]]$ProtectedPath=@()
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 Import-Module (Join-Path $PSScriptRoot 'KnowledgeSources.psm1')
+Import-Module (Join-Path $PSScriptRoot 'ProjectSourcePublication.psm1')
+$aiwPublicationScopeLease=$null
 
 if ($PSVersionTable.PSEdition -cne 'Core' -or $PSVersionTable.PSVersion.Major -lt 7) {
     Write-Output 'FAIL|tool-runtime|POWERSHELL7_REQUIRED'
@@ -141,15 +147,52 @@ function Read-StrictConfig([string]$Path) {
 
 
 function Assert-GitTop([string]$Root,[string]$Prefix) {
-    $gitTopOutput = @(& git -C $Root rev-parse --show-toplevel 2>$null)
-    if ($LASTEXITCODE -ne 0 -or $gitTopOutput.Count -ne 1) { throw "${Prefix}_GIT_TOP_UNAVAILABLE" }
+    try {$received=Invoke-VerifiedGitNative @('-C',$Root,'rev-parse','--show-toplevel') ($Prefix+'_GIT_TOP');$gitTopOutput=Get-VerifiedGitLines $received.stdout ($Prefix+'_GIT_TOP')}
+    catch {throw "${Prefix}_GIT_TOP_UNAVAILABLE"}
+    if ($received.exitCode -ne 0 -or $gitTopOutput.Count -ne 1) { throw "${Prefix}_GIT_TOP_UNAVAILABLE" }
     $gitTop = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath([string]$gitTopOutput[0]))
     if ([IO.Path]::GetRelativePath($gitTop,$Root) -cne '.') { throw "${Prefix}_ROOT_NOT_GIT_TOP" }
 }
 
 function Write-Unverified([string]$Reason,[bool]$Launched=$false) {
-    [pscustomobject][ordered]@{ status='UNVERIFIED'; operation=$Operation; repositoryId=$RepositoryId; reason=$Reason; launched=$Launched } | ConvertTo-Json -Compress
+    [pscustomobject][ordered]@{ status='UNVERIFIED'; operation=$Operation; repositoryId=$RepositoryId; reason=$Reason; launched=$Launched } | ConvertTo-Json -Compress -EscapeHandling EscapeNonAscii
     exit 3
+}
+
+# Private byte reception for this safe-git entry; no console or shell mutation.
+function Invoke-VerifiedGitNative([string[]]$Arguments,[string]$Label) {
+    $start=[Diagnostics.ProcessStartInfo]::new()
+    $start.FileName=(Get-Command git -CommandType Application -ErrorAction Stop).Source
+    $start.UseShellExecute=$false;$start.CreateNoWindow=$true
+    $start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
+    foreach($argument in $Arguments){$start.ArgumentList.Add($argument)}
+    $process=[Diagnostics.Process]::new();$process.StartInfo=$start
+    $stdout=[IO.MemoryStream]::new();$stderr=[IO.MemoryStream]::new()
+    $cancel=[Threading.CancellationTokenSource]::new(30000);$started=$false
+    try {
+        try {$started=$process.Start()} catch {throw "${Label}_START_FAILED"}
+        if(-not$started){throw "${Label}_START_FAILED"}
+        $outRead=$process.StandardOutput.BaseStream.CopyToAsync($stdout,81920,$cancel.Token)
+        $errRead=$process.StandardError.BaseStream.CopyToAsync($stderr,81920,$cancel.Token)
+        if(-not$process.WaitForExit(30000)){throw "${Label}_TIMEOUT"}
+        try {$drained=[Threading.Tasks.Task]::WaitAll([Threading.Tasks.Task[]]@($outRead,$errRead),5000)} catch {throw "${Label}_DRAIN_FAILED"}
+        if(-not$drained){throw "${Label}_DRAIN_TIMEOUT"}
+        $null=$outRead.GetAwaiter().GetResult();$null=$errRead.GetAwaiter().GetResult()
+        return [pscustomobject]@{exitCode=$process.ExitCode;stdout=$stdout.ToArray();stderr=$stderr.ToArray()}
+    } finally {
+        $cancel.Cancel()
+        if($started-and-not$process.HasExited){try{$process.Kill($true);$null=$process.WaitForExit(5000)}catch{}}
+        $process.Dispose();$stdout.Dispose();$stderr.Dispose();$cancel.Dispose()
+    }
+}
+function Get-VerifiedGitLines([byte[]]$Bytes,[string]$Label) {
+    try {$text=[Text.UTF8Encoding]::new($false,$true).GetString($Bytes)} catch {throw "${Label}_UTF8"}
+    $lines=[Collections.Generic.List[string]]::new()
+    if($text.Length){
+        foreach($line in [regex]::Split($text,'\r?\n')){$lines.Add($line)}
+        if($text.EndsWith("`n")){$lines.RemoveAt($lines.Count-1)}
+    }
+    return ,$lines.ToArray()
 }
 
 function Get-VerifiedGitPaths {
@@ -162,21 +205,10 @@ function Get-VerifiedGitPaths {
         if($Operation -ceq 'INDEX'){$args += '--cached'}
         $args += '--'
     }
-    # Preserve NUL bytes and keep benign Git stderr warnings out of path records.
-    $start=[Diagnostics.ProcessStartInfo]::new()
-    $start.FileName=(Get-Command git -CommandType Application -ErrorAction Stop).Source
-    $start.UseShellExecute=$false;$start.CreateNoWindow=$true
-    $start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
-    $start.StandardOutputEncoding=[Text.UTF8Encoding]::new($false,$true)
-    foreach($argument in @($args+$Pathspecs)){$start.ArgumentList.Add([string]$argument)}
-    $process=[Diagnostics.Process]::new();$process.StartInfo=$start
-    try{
-        if(-not$process.Start()){throw 'GIT_PATH_METADATA_START_FAILED'}
-        $stdout=$process.StandardOutput.ReadToEndAsync();$stderr=$process.StandardError.ReadToEndAsync()
-        $process.WaitForExit()
-        $text=$stdout.GetAwaiter().GetResult();$null=$stderr.GetAwaiter().GetResult()
-        if($process.ExitCode-ne0){throw 'GIT_PATH_METADATA_FAILED'}
-    }finally{$process.Dispose()}
+    # Metadata consumes only strict UTF-8 stdout, retaining the final NUL.
+    $received=Invoke-VerifiedGitNative @($args+$Pathspecs) 'GIT_PATH_METADATA'
+    if($received.exitCode-ne0){throw 'GIT_PATH_METADATA_FAILED'}
+    try {$text=[Text.UTF8Encoding]::new($false,$true).GetString($received.stdout)} catch {throw 'GIT_PATH_METADATA_UTF8'}
     if($text.Length -gt 0 -and -not $text.EndsWith([string][char]0)){throw 'GIT_PATH_METADATA_FORMAT'}
     $paths = @()
     foreach($record in $text.Split([char]0)){
@@ -202,6 +234,7 @@ try {
     }
     if (-not (Test-Path -LiteralPath $ProjectRoot -PathType Container)) { throw 'PROJECT_ROOT_MISSING' }
     $controlRoot = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Resolve-Path -LiteralPath $ProjectRoot).ProviderPath))
+    $aiwPublicationScopeLease=Enter-AiwProjectSourceScope -ProjectRoot $controlRoot
     Import-Module (Join-Path $PSScriptRoot 'ControlTransition.psm1') -Force
     Assert-AiwNoControlTransition $controlRoot
     if ((Get-Item -LiteralPath $controlRoot -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'PROJECT_ROOT_REPARSE' }
@@ -218,9 +251,9 @@ try {
     $selectedExclusions = @()
     $configSchemaVersion = [int]$config.schemaVersion
     $repoLocalLayout = $config.controlPlaneLayout -is [string] -and [string]$config.controlPlaneLayout -ceq 'repo-local'
-    if ($configSchemaVersion -eq 5 -and $repoLocalLayout) {
+    if ($configSchemaVersion -eq 7 -and $repoLocalLayout) {
         if ($RepositoryId -cne 'PROJECT') { throw 'REPOSITORY_ID_PROJECT_ONLY' }
-        $expectedFields = @('schemaVersion','id','displayName','controlPlaneLayout','repositoryRoot','frameworkVersion','frameworkToolBackend','routineExcludedPaths','frameworkCapabilities')
+        $expectedFields = @('schemaVersion','id','displayName','controlPlaneLayout','repositoryRoot','frameworkVersion','frameworkToolBackend','routineExcludedPaths','frameworkCapabilities','sourceBindings')
         $expectedFields += 'processPolicy'
         $names = @($config.PSObject.Properties.Name)
         if ($names.Count -ne $expectedFields.Count -or @($expectedFields | Where-Object { $_ -cnotin $names }).Count -ne 0) { throw 'PROJECT_CONFIG_FIELDS' }
@@ -232,13 +265,16 @@ try {
             -not ($config.frameworkVersion -is [string]) -or [string]$config.frameworkVersion -cne '2.0.0' -or
             -not ($config.frameworkToolBackend -is [string]) -or [string]$config.frameworkToolBackend -cne 'powershell7' -or
             -not ($config.routineExcludedPaths -is [System.Array])) { throw 'PROJECT_CONFIG_VALUES' }
-        if ($configSchemaVersion -eq 5) {
+        if ($configSchemaVersion -eq 7) {
             if (-not ($config.processPolicy -is [pscustomobject])) { throw 'PROJECT_CONFIG_PROCESS_POLICY' }
             $policyFields = @($config.processPolicy.PSObject.Properties.Name)
             if ($policyFields.Count -ne 2 -or $policyFields -cnotcontains 'schemaVersion' -or $policyFields -cnotcontains 'locator' -or
-                -not (Test-JsonInteger $config.processPolicy.schemaVersion) -or [int]$config.processPolicy.schemaVersion -ne 1 -or
+                -not (Test-JsonInteger $config.processPolicy.schemaVersion) -or [int]$config.processPolicy.schemaVersion -ne 3 -or
                 -not ($config.processPolicy.locator -is [string]) -or [string]$config.processPolicy.locator -cne '.ai-workspace/process-policy.json') { throw 'PROJECT_CONFIG_PROCESS_POLICY' }
         }
+        Import-Module (Join-Path $PSScriptRoot 'ObjectFormats.psm1')
+        $currentProject=Read-AiwCurrentObject -ObjectType PROJECT_CONFIG -Locator (Join-Path $controlRoot '.ai-workspace/project.json') -ExpectedIdentity $ExpectedProjectConfigIdentity -Context ([pscustomobject]@{})
+        if($currentProject.Status-cne'CURRENT'){throw 'FORMAT_WRITE_REQUIRED|PROJECT_CONFIG'}
         $null=Assert-AiwFrameworkCapabilities $config.frameworkCapabilities
         $selectedExclusions = @($config.routineExcludedPaths)
     } else {
@@ -246,6 +282,24 @@ try {
     }
 
     Assert-GitTop $controlRoot 'PROJECT'
+
+    $target=$null
+    $isolated=$TaskPath-or$ExecutionTargetRef-or$ExpectedTargetState
+    if($isolated){
+        if(-not($TaskPath-and$ExecutionTargetRef-and$ExpectedTargetState)-or$RepositoryId-cne'PROJECT'-or$IncludeRoutineExcluded){throw 'EXECUTION_TARGET_SAFE_GIT_INPUT'}
+        Import-Module (Join-Path $PSScriptRoot 'StrictJsonInput.psm1')
+        Import-Module (Join-Path $PSScriptRoot 'ExecutionTargetContext.psm1')
+        $ref=(ConvertFrom-AiwStrictInputJson $ExecutionTargetRef).Value;$state=(ConvertFrom-AiwStrictInputJson $ExpectedTargetState).Value
+        $target=Resolve-AiwExecutionTargetContext $controlRoot $config.id $TaskPath $ref @($selectedExclusions) $ProtectedPath
+        $null=Assert-AiwExecutionTargetState $target $state
+        $root=$target.executionRoot
+        if($target.targetKind-cne'GIT_WORKTREE'){throw 'EXECUTION_TARGET_SAFE_GIT_WORKTREE_REQUIRED'}
+        foreach($path in $AllowPath){$null=Resolve-AiwExecutionTargetCandidatePath $target $path @($selectedExclusions) $ProtectedPath}
+        foreach($ban in @(Get-AiwExecutionTargetDeniedPaths $target @($selectedExclusions) $ProtectedPath)){
+            if($ban.StartsWith($root+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)){$selectedExclusions+=[IO.Path]::GetRelativePath($root,$ban).Replace('\','/')}
+        }
+        $selectedExclusions=@($selectedExclusions|Select-Object -Unique)
+    }elseif($ProtectedPath.Count){throw 'EXECUTION_TARGET_SAFE_GIT_INPUT'}
 
     $allow = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
     foreach ($pathValue in $AllowPath) { if (-not $allow.Add((ConvertTo-RoutinePath $pathValue))) { throw 'ALLOW_PATH_DUPLICATE' } }
@@ -271,13 +325,24 @@ try {
     $metadataBefore = Get-VerifiedGitPaths $root $Operation $pathspecs $allow $excluded ([bool]$IncludeRoutineExcluded)
     $previousErrorAction = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
-    try { $output = @(& git @arguments 2>&1 | ForEach-Object { [string]$_ }); $gitExit = $LASTEXITCODE }
+    try {
+        $received=Invoke-VerifiedGitNative $arguments 'GIT_COMMAND';$gitExit=$received.exitCode
+        # Preserve the original launched=true/nonzero branch before decoding.
+        if($gitExit-eq0){$outLines=Get-VerifiedGitLines $received.stdout 'GIT_STDOUT';$errLines=Get-VerifiedGitLines $received.stderr 'GIT_STDERR';$output=@($outLines)+@($errLines)}
+    }
     finally { $ErrorActionPreference = $previousErrorAction }
     if ($gitExit -ne 0) { Write-Unverified ('GIT_COMMAND_FAILED|' + $gitExit) $true }
     $metadataAfter = Get-VerifiedGitPaths $root $Operation $pathspecs $allow $excluded ([bool]$IncludeRoutineExcluded)
     if([string]::Join([string][char]0,$metadataBefore)-cne[string]::Join([string][char]0,$metadataAfter)){throw 'GIT_PATH_METADATA_DRIFT'}
-    [pscustomobject][ordered]@{ status='VERIFIED'; operation=$Operation; repositoryId=$RepositoryId; launched=$true; paths=@($allow | Sort-Object); output=@($output) } | ConvertTo-Json -Depth 5 -Compress
+    if($null-ne$target){
+        $fresh=Resolve-AiwExecutionTargetContext $controlRoot $config.id $TaskPath $ref @($selectedExclusions) $ProtectedPath
+        $null=Assert-AiwExecutionTargetState $fresh $state
+        foreach($field in @('commonGitDir','worktreeGitDir','gitTop')){if($fresh.targetObservation.$field-cne$target.targetObservation.$field){throw 'EXECUTION_TARGET_SAFE_GIT_DRIFT'}}
+    }
+    [pscustomobject][ordered]@{ status='VERIFIED'; operation=$Operation; repositoryId=$RepositoryId; launched=$true; paths=@($allow | Sort-Object); output=@($output) } | ConvertTo-Json -Depth 5 -Compress -EscapeHandling EscapeNonAscii
     exit 0
 } catch {
     Write-Unverified ([string]$_.Exception.Message)
+} finally {
+    if($null-ne$aiwPublicationScopeLease){Exit-AiwProjectSourceScope $aiwPublicationScopeLease}
 }

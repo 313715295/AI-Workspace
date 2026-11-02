@@ -1,24 +1,79 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "frameworkVersion": "2.0.0",
   "registrationEligible": true,
   "localCandidatePilotEligible": true,
   "sourceCompatibility": {
-    "projectFormats": ["repo-local/project-config-4"],
-    "requiredCapabilities": []
+    "projectFormats": [
+      "repo-local/project-config-4",
+      "repo-local/project-config-5",
+      "repo-local/project-config-6",
+      "repo-local/project-config-7"
+    ],
+    "requiredCapabilities": [],
+    "objectFormats": {
+      "PROJECT_CORRECTIONS": [
+        1,
+        2,
+        3
+      ],
+      "KNOWLEDGE_INDEX": [
+        1,
+        2,
+        3
+      ],
+      "PROCESS_POLICY": [
+        1,
+        2,
+        3
+      ],
+      "PROJECT_CONFIG": [
+        4,
+        5,
+        6,
+        7
+      ]
+    },
+    "runtimeStarts": [
+      {
+        "projectConfigFormat": 4,
+        "frameworkVersion": "1.16.0",
+        "distributionId": "1.16.0-snapshot.12"
+      },
+      {
+        "projectConfigFormat": 5,
+        "frameworkVersion": "2.0.0",
+        "distributionId": "2.0.0-snapshot.3"
+      },
+      {
+        "projectConfigFormat": 6,
+        "frameworkVersion": "2.0.0",
+        "distributionId": "2.0.0-snapshot.15"
+      },
+      {
+        "projectConfigFormat": 6,
+        "frameworkVersion": "2.0.0",
+        "distributionId": "2.0.0-snapshot.16"
+      },
+      {
+        "projectConfigFormat": 7,
+        "frameworkVersion": "2.0.0",
+        "distributionId": "2.0.0-snapshot.17"
+      }
+    ]
   },
   "projectControl": {
-    "schemaVersion": 5,
+    "schemaVersion": 7,
     "processCarrierContractVersion": "2.0.0",
     "frameworkToolBackend": "powershell7",
-    "navigationProjection": "ROOT_CANONICAL_SKILL_MANAGED_AGENTS",
+    "navigationProjection": "PROJECT_BOOTSTRAP_MANAGED_AGENTS",
     "taskLastWriteRequired": true,
     "capabilityBinding": "EXACT_ENABLED_IDS",
     "runtimeArtifactRoot": ".ai-workspace/runtime",
     "runtimeGitIgnoreRule": "/.ai-workspace/runtime/"
   },
-  "processBudget": {
-    "defaultSelectedRulePackBytes": 32768,
-    "absoluteSelectedRulePackBytes": 98304
+  "objectFormats": {
+    "assemblyLocator": "object-formats/ASSEMBLY.json",
+    "schemaVersion": 1
   }
 }

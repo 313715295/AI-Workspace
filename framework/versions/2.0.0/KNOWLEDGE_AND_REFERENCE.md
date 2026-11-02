@@ -1,25 +1,19 @@
 # Knowledge 与 reference
 
 <!-- AIW-REQUIREMENT:PR_KNOWLEDGE_REFERENCE_QUERY:BEGIN -->
-Knowledge 是项目显式选用的 `REFERENCE_ONLY / NON_AUTHORITY` 资料，不替代源码、产品事实、任务/Controller、用户决定或当前Framework。优先保留真实职责、公共保证、重要关系和难以重建的约束；专业方法不能自行变为MUST。
+Knowledge是项目显式选用的REFERENCE_ONLY/NON_AUTHORITY资料，不替代源码、产品事实、任务/Controller、人类决定或Framework。METHOD是可复用原理/方法/经验，PROJECT_DERIVED是依赖本项目真实事实的信息；供给方和目录不改变性质，同一项目来源可包含两类。读取方法不使其成为MUST。
 
-知识性质与供给来源分开：专业拓展知识（METHOD）承载可复用的专业原理、方法和经验，可由Framework提供、项目自行整理或引用其它库；框架随包方法只是其中一种来源。项目自身知识（PROJECT_DERIVED）承载当前项目的具体信息，按真实项目依赖维护。存放在项目内的专业方法仍是METHOD；同一项目来源可包含两类条目，不因供给方或目录改变条目性质。
+按项目sourceBindings及真实保护范围选择来源和条目。启用能力不要求全库读取；未选择来源仅校验声明结构，不因闲置库离线阻塞普通治理。索引、来源许可、可达性、实际正文读取和规范采用分别核对，不悄悄切同名来源，不跟随引文URL自动抓取或授权。
 
-project schema5 的 `frameworkCapabilities.KNOWLEDGE_REFERENCE={enabled,sources}` 由项目维护。每来源以 id、root、indexLocator、selectionHints、updatePolicy 定位；PINNED 另绑定 indexIdentity，FOLLOW 仅在当前明确读取时取得新索引并返回身份，不后台同步或追认旧方案。配置结构始终校验，包括disabled内容；未被本次选中的来源不做可达性/内容检查，不让闲置外部盘阻塞普通治理。
+默认返回定位，明确需要正文才请求FULLTEXT；按TOOL_CONTRACT的index3/QUERY字段一次固定所选来源快照，逐项消费CURRENT/STALE/UNAVAILABLE及来源身份。PROJECT_DERIVED只在所属项目核真实依赖；METHOD的原创出处可为空，不编造引文，实际引用仍保留真实出处和维护责任。FOLLOW不后台同步、不替旧方案换来源或隐式更新规范。
 
-PROJECT root 为整个当前项目，覆盖项目派生知识真实 src/docs 依赖；LOCAL_DIRECTORY 为显式绝对目录，仅接纳可共享METHOD，不能借此读取另一个项目的派生权威。文件读取/哈希前拒绝来源根或子路径的 reparse、路径逃逸及当前禁读范围；外部URL只是出处，查询器不联网跟随。
-
-索引只读取 schema3：顶层 libraryId 标识库，条目分 PROJECT_DERIVED（projectId及真实authorityDependencies）与 METHOD（originalSources、applicability、contentVersion、maintenance）。同库可被不同项目用各自sourceId选用；查询使用 `sourceId:entryId`，不得悄悄改用同名其他来源。旧schema1/2仅在根采用事务中一次性转换，不保留旧日常读取模式。
-
-METHOD.originalSources可以为空，表示没有列出的外部引文；项目原创方法不必编造网页出处。实际列出的引文仍须有真实出处信息，正文身份、适用范围、内容版本和维护责任始终校验。库的供给来源由sources绑定，条目中的引文URL不充当库的读取入口，也不产生网络读取或规则权限。
-
-DISCOVER 未指定来源时只返回配置的来源元信息；明确 SourceId 后读取这些索引的定位元信息，不返回summary或正文。QUERY选择明确条目，可批量；ContentMode默认LOCATOR_ONLY，正式需要全文时显式FULLTEXT。逐项返回来源/库、实际索引身份及CURRENT、STALE或UNAVAILABLE；正文及实际依赖身份校验后才返回所请求的完整正文。一个坏源或条目不能静默代替另一个，也不能隐去同批健康结果；当前源不可用时说明原因，主任务按真实缺失影响决定是否能继续。
+读取/哈希前遵守根与子路径的保护、reparse和逃逸限制。机器轨迹或hash不证明模型持有全文或自然使用效果；CURRENT只表示内容维护状态。
 <!-- AIW-REQUIREMENT:PR_KNOWLEDGE_REFERENCE_QUERY:END -->
 
 <!-- AIW-REQUIREMENT:PR_KNOWLEDGE_IMPACT_MAINTENANCE:BEGIN -->
-仅当实际QUERY影响判断时，在原任务保留必要引用和依赖复核；只启用能力或没有实际影响不新增记录。项目采用和使用事实留项目，Framework不建消费者或使用登记。
+只有实际QUERY影响判断时，原任务保留必要引用及依赖复核；只启用或无影响不增加记录。项目采用/使用事实留项目，Framework不建消费者登记。
 
-修改真实authority文件后，沿既有KNOWLEDGE_IMPACT_CHECK比较明确changed paths与PROJECT_DERIVED依赖；默认只查PROJECT来源，也可明确来源。重叠为DIRECT_AFFECTED；无重叠且当前依赖证据有效为NONE_DIRECT；所需索引、正文或依赖不可用/漂移时为UNKNOWN，来源失败单列。受影响或未知的项目派生条目须在适用成果接受前刷新或标STALE，工具只读。METHOD不伪造项目依赖，其内容升级按维护来源及项目PINNED/FOLLOW决定处理。
+真实authority内容改变后，沿KNOWLEDGE_IMPACT_CHECK用明确changed paths核PROJECT_DERIVED依赖。直接重叠、可证无直接影响和依赖不足的UNKNOWN分别报告，来源失败单列；受影响或未知条目在适用成果接受前刷新或标STALE，工具只读。METHOD不伪造项目依赖，其内容更新按维护来源和项目固定/跟随决定处理。
 
-Framework维护随包方法、可选规范和preset的内容/版本质量；用户项目维护私有内容，本地共享库有明确维护责任而不强制常驻会话。自然查询、质量及成本观察归实际项目。无统一条目数量配额、tokenizer服务、语义检索、排名缓存、后台索引/同步或权威提升。
+Framework内容维护者负责随包方法/标准/preset质量，项目负责私有内容，共享库有明确维护者而无需常驻会话。原事实、失败/试验和专家意见留原件；可复用方法保留完整唯一解释及维护入口，CURRENT不证明应用效果，日期旧不自动失效。详细内容整理/版本更新/反馈方法按需要读knowledge/README和问题驱动方法，基本任务改进责任仍取TASK。私有事实不入通用包，跨项目反馈沿已授权接点，不新增后台索引/同步、排名服务或回执台账。
 <!-- AIW-REQUIREMENT:PR_KNOWLEDGE_IMPACT_MAINTENANCE:END -->

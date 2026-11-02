@@ -1,49 +1,43 @@
 # Framework 2.0.0 recovery core
 
 <!-- AIW-REQUIREMENT:PR_RECOVERY_CURRENT_AUTHORITY:BEGIN -->
-Recovery 只证明 authority 与 current facts；它不授予 write、test、Review、Git、browser/device 或 external capability。
+恢复只证明当前权威及事实，不授予写、测试、Review、Git、浏览器/设备或外部权限。先从明确项目根及其AGENTS进入固定BOOTSTRAP，校验真实路径和拓扑；普通非Git项目不以Git决定项目根。可选GIT_WORKTREE沿原任务descriptor验证唯一controlRoot与executionRoot，旧复制控制材料不能替代原权威；Maintenance仍按自己的CONTROL/TARGET拓扑解析。
 
-恢复由项目 AGENTS 点名的兼容 Router 按当前请求和既有上下文导航；已接入但当前正文缺失时先读取其完整正文，缺失或不兼容的接入沿 PROJECT_ADOPTION 处理。健康工作只补来源、边界或正文实际缺失的部分。升级须在原动作 FINALIZE 完成后，重读新 AGENTS、目标 Skill 正文，再按新版本恢复；未完成事务沿原恢复入口处理。
+读取当前project、Controller、有效纠正、policy及必要采用完成事实，从项目pin和原distribution binding定位唯一固定运行来源，核对TOOLCHAIN。开发HEAD、网络、其他项目或任意新包不作fallback。首次/新来源须完整资格验证；普通已采用来源核真实当前完成链、独立固定绑定、manifest原始身份与声明，以及实际消费的实现/catalog/规则和必要依赖，不递归扫描未消费测试、历史或其他包成员，也不以轻量事实声称全包健康。完整采用、资格和分发验证仍完整核包，不把声明合成为完整Facts或新Proof；不加跨请求缓存。弱绑定、仅标记true或实际漂移均不足，未完成采用先恢复原事务。
 
-## 必需顺序
+已知taskId直接读该卡及必要项目事实，未知才读索引定位；STATUS按全局事实实际需要读取。绑定当前请求、Owner、真实actor/role/phase、profile、动作/结果、精确范围/保护、能力和适用Review要求；只有无适用任务的只读问题才用PROJECT_READ_ONLY，不造假卡。DISCOVER前由当前模型按TOOL_CONTRACT唯一IntentEnvelope段形成真实意图，再按PR_PROCESS_REQUIREMENTS_PROGRESSIVE_BOUNDARIES加载正文。
 
-1. 不信任 chat 或 memory，先证明实际 cwd、项目根与路径拓扑；实际 Git 动作再证明 Git top、worktree 与对应仓库身份。
-2. 严格读取项目 repo-local `.ai-workspace/project.json`、`controller.json`、`corrections.json` 与 `BOOTSTRAP.md`，包括项目级 `frameworkToolBackend`。
-3. 只解析 `framework/versions/<project.json.frameworkVersion>/`。普通采用必须校验 stable `VERSION.json`、`RELEASE_MANIFEST.json`、`TOOLCHAIN.json` 与生成的 process-requirement catalog；显式本地候选试点则必须由 root upgrader 的既有 `upgrade-recovery/<version>/state.json` 证明 `LOCAL_PILOT`，并让其中的 candidate canonical、manifest identity 与当前候选快照一致。
-4. 绑定 current task、authenticated actor、`role + phase` Work route、profile、exact scope、protection boundary、capabilities 与 current Review profile。只读取证明这些输入所需的项目 facts。
-   已知taskId时直接读取该卡和必要项目事实；未知时使用任务索引定位，STATUS只按实际全局事实需要读取。项目审核加严由当前任务和已采用标准提供，不要求REVIEW_PROFILE或RELATIONSHIPS专门文件。
-5. 在 `DISCOVER` 前，由当前主会话模型按 sealed `TOOL_CONTRACT.md` 的唯一 IntentEnvelope 构造段，从原始请求与仍有效上下文重建当前 objective/action/result/scope；authority 与授权另行核对。再解析 `PROCESS_REQUIREMENTS_RESOLVE`，对完整生成 catalog、仍有效 corrections 与当前 permanent project-rule carrier 执行 `DISCOVER`。
-6. 一次加载 `DISCOVER` 返回的每个精确完整 Markdown rule block；后续仅保留 compact receipt。已知合法的 facts、evidence、schemas、templates 与专业材料可同批取得，发现新依赖才补读。
-7. `LOAD_PLAN_RESOLVE` 只用于 1.14 compatibility、Framework-wide explanation/maintenance、non-rule supporting artifact，或 affected module block mapping 无法证明时的 bounded fallback。它不筛选 catalog，也不创建第二个规则决策。
-8. selected rule 或 intended action 要求时，重新证明 protected paths；实际 Git 动作使用当前 version 的 safe-Git helper 证明真实 Git state。
-9. 报告 unique next action、writer/reviewer/authorization state 与 evidence ceiling。
-
-project pin 是唯一版本 authority；root HEAD/tag/network/其他项目 pin 均非 fallback。命名包另由既有 adoption state 的 distributionId/contentIdentity/manifestIdentity/runtimeRoot 固定完整来源；漂移或事务未完拒绝运行，按原授权恢复，不转回开发根。controller.json 唯一确定当前 Controller ID/epoch，历史 literal 只作 audit。
-
-普通 pin 非 sealed stable 则阻断。已完成 root -LocalCandidatePilot 准入后，仅复核 LOCAL_PILOT 与当前 candidate 快照，不重跑完整测试、Source Review 或旧 schema3 授权。schema4+ 的 transactionComplete=true 证明完成，false 须原授权续完；快照或绑定漂移拒绝。完成态不读取历史升级任务，允许其更新/归档；当前 task 仍由 DISCOVER 独立校验。
-
+新事实只重建受影响来源、决定或正文；压缩/换主体/正文不确定须完整恢复当前必需正文，健康调用不逐步FULL_COLD。LOAD_PLAN_RESOLVE只服务支持材料、Framework维护说明、原兼容或无法证明映射时的有界模块回退，不筛catalog或绕保护。实际Git再核对应仓库。普通观察不取项目/source协调锁，不自动重放publication journal；真实事务写者竞争的BUSY保持holder=UNKNOWN，收起本次尝试。显式相关journal的IN_PROGRESS沿原恢复入口；不删同步对象、改pin或补载开发模块。报告真实下一动作及证据上限。
 <!-- AIW-REQUIREMENT:PR_RECOVERY_CURRENT_AUTHORITY:END -->
 
 <!-- AIW-REQUIREMENT:PR_PROCESS_REQUIREMENTS_PROGRESSIVE_BOUNDARIES:BEGIN -->
-`DISCOVER` 从完整 sealed catalog 选择并校验 fragment/Markdown locator，返回完整 `fullText` 与 obligations，不授予权限。每个独立 action 用 `ADMIT_ACTION`，最终输出前用 `FINALIZE_OUTPUT`；二者复用 compact receipt，UNKNOWN 或 mapping 缺口只保守扩到 affected block/module。无适用 task 的解释/现状/方案使用 `PROJECT_READ_ONLY`，仅允许 `NONE + PLAN/USER_RESPONSE`。
+DISCOVER验证必要全局三源声明与当前权威，按同一真实Intent选择，再验证命中规则的完整公共条件、依赖和正文，返回当前义务及所需全文，不授权。未命中的独立外部正文不读取，不证明其健康；真实采用/变更边界仍验证完整目标集合。受治理动作各自checker/ADMIT，正式输出按真实结果和消费者FINALIZE。没有适用任务的合法只读解释、查证和方案可组成一个有界NONE批次，不逐文件ADMIT或编造任务；转为真实副作用、正式审核或新边界时重新选择并独立准入。
 
-Recovery 分开维护：`source composition`=来源身份及 task/task actor/action grantee/role/phase/profile/capability；`boundary decision`=objective/exact scope/action/result/authorization/receipt；`current model fullText availability`=当前模型实际持有的 selected blocks。standard locator/path/whole identity/section/dependency 属于 source binding。事实变化只重建受影响项；actual authority、task route 或 phase drift 不得沿用。健康来源、选择和正文可复用；fresh authorization、tool call、progress、authorized postimage 或 continuation receipt 只失效相关 decision，不自动全文重载、`FULL_COLD` 或复活已解决问题。
+分开处理来源组合、当前动作决定及正文可用性：来源/规范单元及有序依赖的变化重绑相应内容，权限、任务路线、阶段、决定或执行目标变化重验当前动作；fresh包、工具调用、正常进展和已授权后像本身不要求全部重读。scoped来源身份只证明当前完整选择闭包；授权/不可变对象及实际消费成员仍按各自完整字节严格核对。
 
-compaction、pause/resume、handoff 或正文不确定时，对齐最新请求、已观察结果与 next action；下一 substantive action 前读取 current `DISCOVER` 的每个 `fullText`。summary、cache、source hash、compact/continuation receipt、旧 receipt 或“机械校验通过”不能证明正文已在当前模型上下文：正文丢失只恢复正文，composition/decision 漂移才重建。
+首次、压缩、换主体或正文不确定请求FULL，按当前意图选择完整条件与依赖，同次去重后组装全部当前必需正文。真正动作切换（含实际自测、返修）、新增适用要求或来源实变时重新完整加载。退出coverage差集执行和未来正文预载；旧REUSE仅兼容为FULL，不打开previousCoverageRef，不返回REUSED零正文或DELTA局部正文。coverage仅为本次来源索引，不证明模型记忆或attention，不要求宿主提供不存在的“当前模型持有全文证明”。真实来源拒绝、撤权、保护或未完采用不能以FULL变成PASS。
 
-本版C05为UNSUPPORTED_FULLTEXT_FALLBACK：未取得可信的当前模型输入全文成员证据时，重新DISCOVER的显示始终包含当前全部命中正文。PROMPTS的同次去重和完整分页可减少重复机器输出，但不保存跨请求loaded状态；只有整块或全部有序片段实际可见后才继续依赖它的动作，截断或未知则补读缺失正文。实际健康续作不因此变成逐工具重跑DISCOVER。
+同一健康意图与动作新增普通文件或更新动作包，先经原checker/ADMIT核当前权限、范围、任务路线、来源及同一选择器的适用结果。全部仍一致时只重绑定当前动作，不调用正文装配或显示；不能先装配全文再以零输出声称复用。新增适用规则、必要来源事实变化或正文不确定时返回RULE_LOAD_REQUIRED，重新DISCOVER取得当前完整正文。该边界不扩旧包权限，不承接未来动作，也不新增缓存、触发台账或模型记忆证明。
 
-input/receipt 默认进被忽略的 `.ai-workspace/runtime/<task>/<actor>/`，不可用才用 system temp 并暴露 ceiling；清理遵循 `TOOL_CONTRACT.md` 的 receipt lifecycle，尤其 continuation 引用的原 compact 必须留到最后消费者完成。机械 PASS 不证明 semantic correctness、模型 attention 或 host invocation。
+模型视图以单一text输出模式、真实兼容说明与限制、短来源、每规则有序短引用和当前义务；同次必要完整正文只显示一次，不裁剪条件、依赖或重叠正文。机器来源索引留程序侧。默认一次完整输出；实际宿主截断时从同一结果补读真实缺失的完整单元及义务，不主动分页、不建页票据、不重跑选择。失败和未知保留，不能变成空规则成功。summary、hash、旧receipt或机械PASS不能替代实际缺失正文。
+
+实际宿主跨进程编码/输出限制需要时，按TOOL_CONTRACT在同次DISCOVER显式保留官方UTF-8 text副本（DisplayPath）；机器AsJson由程序捕获，不打印给模型。补文只消费同一结果/官方副本，不重跑解析或重扫项目源文件；默认不保存、不分页，最后消费者完成按原runtime生命周期释放。旧固定版本使用同次AsJson结果及原官方renderer，不热改运行包。
+
+输入、compact、continuation及正式证据的存放/清理取TOOL_CONTRACT；最后消费者未完成前保留其原引用。这里不新增缓存台账、意图服务或模型请求步骤。结构通过不证明语义正确或实际宿主执行。
+仅本次实际NONE、无包无副作用，向当前USER作普通PLAN/USER_RESPONSE，且无正式Review/接受、TASK_MESSAGE、关闭/责任转换或continuation消费者时，可省独立机械FINALIZE。当前必要完整规则仍实际读取，事实/来源/限制/未知仍如实说明；不产生假PASS或可被后继借用的成功收据。任一条件不符仍走原收口；显式FINALIZE公共入口保持严格。
+
+质量策略启用不改变固定运行来源或恢复权威；当前与原成功历史分别按TOOL_CONTRACT核绑定，不能用今日policy重算旧接受，也不因C而给只读问题造卡。
+
 <!-- AIW-REQUIREMENT:PR_PROCESS_REQUIREMENTS_PROGRESSIVE_BOUNDARIES:END -->
 
 <!-- AIW-REQUIREMENT:PR_RECOVERY_ROLE_REBIND:BEGIN -->
-Recovery 分别报告 current task owner、任务 Work route actor 与临时 action grantee/Reviewer/resource route。健康的 same-task role/action rebind 可以使用 NONE/WARM recovery 加新 package；仅 package invalidation 不要求 FULL_COLD 或 Controller issuance。
+恢复分别绑定任务Owner、Work route actor、临时action grantee/Reviewer和资源安排。健康同任务的role/action rebind可沿NONE/WARM及当前新包继续，单独包失效不自动要求FULL_COLD或Controller签发；旧格式actor缺失保持只读并按MIGRATION_MATRIX完成声明的迁移。
 
-1.11/1.12 两字段 route 可在 `LEGACY_ACTOR_CONTEXT_UNBOUND` 下只读恢复。升级到要求 `actor + role + phase` 的 release 时，先在 target projection 中迁移任务卡并完成 resolver preflight，再原子写入项目 pin；不得先让旧 resolver 因两字段格式或旧预算阻断升级。
-
-涉及责任身份的组合转换按TOOL_CONTRACT的CONTROL_TRANSITION处理；发现原任务或Controller的transitionRef时先恢复原事务。旧主体只保留计划内恢复权；完成证明持久保存后再清标记，不用fresh授权追认旧写入。
+真实Owner/Work route/profile或Controller组合转换按TOOL_CONTRACT的schema1 CONTROL_TRANSITION恢复；发现原controller/task的transitionRef先处理原责任事务，旧主体仅有原计划恢复资格，完成证明持久后再清标记。普通当前卡归档不建立locator或事务：archive完整已保存而active仍为原像可续；active已删且archive完整时，原FINALIZE核窄后像并让所有任务消费者读取实际archive，原逻辑身份不变。缺失、不完整或第三方状态拒绝，不以fresh授权追认，也不全局阻断无关任务。
 <!-- AIW-REQUIREMENT:PR_RECOVERY_ROLE_REBIND:END -->
 
 <!-- AIW-REQUIREMENT:PR_FRAMEWORK_BACKEND_SELECTION:BEGIN -->
-backend selection 是 project-level Framework-use configuration，不是 task/action authority。调用 operation 前，必须让项目选择精确匹配 `TOOLCHAIN.json`，并满足 declared runtime/platform。selection change 通过 `projectConfigIdentity` 使未完成 package 失效，并要求安全 project adoption boundary 与 fresh recovery。unknown backend、missing entrypoint、unsupported platform 或 unavailable runtime 必须 fail closed；不得自动 fallback、install 或生成 adapter。
+backend是项目Framework使用配置，不是任务或动作授权。首次调用或相关来源变化时，以project配置精确匹配TOOLCHAIN的语言无关operation及sealed entrypoint，满足声明runtime/platform；健康绑定可复用。当前只提供powershell7，只有实际发行提供第二个official backend才可沿项目采用切换。
+
+backend变更使受影响配置/包绑定失效，须安全采用边界及fresh recovery。未知backend、缺入口、不支持平台或runtime不可用均停止受影响调用，不从shell猜测，不自动fallback、安装、生成adapter、另造launcher或让用户逐任务选后端。操作格式唯一取TOOL_CONTRACT，真实入口/支持事实唯一取TOOLCHAIN。
 <!-- AIW-REQUIREMENT:PR_FRAMEWORK_BACKEND_SELECTION:END -->

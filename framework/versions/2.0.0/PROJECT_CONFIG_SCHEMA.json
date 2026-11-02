@@ -1,79 +1,80 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "AI-Workspace repo-local project control configuration",
-  "$comment": "routineExcludedPaths is a routine recovery/search/Git presentation and operation exclusion list, not a secrecy or source-authorization policy. Runtime consumers fail closed with UNVERIFIED when an entry cannot be used safely.",
-  "type": "object",
-  "additionalProperties": false,
-  "required": [
-    "schemaVersion",
-    "id",
-    "displayName",
-    "controlPlaneLayout",
-    "repositoryRoot",
-    "frameworkVersion",
-    "frameworkToolBackend",
-    "routineExcludedPaths",
-    "frameworkCapabilities",
-    "processPolicy"
-  ],
-  "properties": {
-    "schemaVersion": {
-      "const": 5
-    },
-    "id": {
-      "type": "string",
-      "minLength": 1
-    },
-    "displayName": {
-      "type": "string",
-      "minLength": 1
-    },
-    "controlPlaneLayout": {
-      "const": "repo-local"
-    },
-    "repositoryRoot": {
-      "const": ".."
-    },
-    "frameworkVersion": {
-      "type": "string",
-      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
-    },
-    "frameworkToolBackend": {
-      "const": "powershell7"
-    },
-    "routineExcludedPaths": {
-      "type": "array",
-      "uniqueItems": true,
-      "items": {
-        "type": "string",
-        "minLength": 1
-      }
-    },
-    "frameworkCapabilities": {
+  "title": "AI-Workspace repo-local project control configuration (strict historical and current formats)",
+  "oneOf": [
+    {
+      "$comment": "routineExcludedPaths is a routine recovery/search/Git presentation and operation exclusion list, not a secrecy or source-authorization policy. Runtime consumers fail closed with UNVERIFIED when an entry cannot be used safely.",
       "type": "object",
       "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "id",
+        "displayName",
+        "controlPlaneLayout",
+        "repositoryRoot",
+        "frameworkVersion",
+        "frameworkToolBackend",
+        "routineExcludedPaths",
+        "frameworkCapabilities",
+        "processPolicy",
+        "sourceBindings"
+      ],
       "properties": {
-        "KNOWLEDGE_REFERENCE": {
+        "schemaVersion": {
+          "const": 6
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "controlPlaneLayout": {
+          "const": "repo-local"
+        },
+        "repositoryRoot": {
+          "const": ".."
+        },
+        "frameworkVersion": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "frameworkToolBackend": {
+          "const": "powershell7"
+        },
+        "routineExcludedPaths": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "frameworkCapabilities": {
           "type": "object",
           "additionalProperties": false,
-          "required": [
-            "enabled",
-            "sources"
-          ],
           "properties": {
-            "enabled": {
-              "type": "boolean"
-            },
-            "sources": {
-              "type": "array",
-              "items": {
-                "oneOf": [
-                  {
+            "KNOWLEDGE_REFERENCE": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "enabled",
+                "sources"
+              ],
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "sources": {
+                  "type": "array",
+                  "items": {
                     "type": "object",
                     "additionalProperties": false,
                     "required": [
                       "id",
-                      "root",
+                      "bindingId",
                       "indexLocator",
                       "selectionHints",
                       "updatePolicy"
@@ -83,43 +84,9 @@
                         "type": "string",
                         "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
                       },
-                      "root": {
-                        "oneOf": [
-                          {
-                            "type": "object",
-                            "additionalProperties": false,
-                            "required": [
-                              "kind",
-                              "locator"
-                            ],
-                            "properties": {
-                              "kind": {
-                                "const": "PROJECT"
-                              },
-                              "locator": {
-                                "const": "."
-                              }
-                            }
-                          },
-                          {
-                            "type": "object",
-                            "additionalProperties": false,
-                            "required": [
-                              "kind",
-                              "locator"
-                            ],
-                            "properties": {
-                              "kind": {
-                                "const": "LOCAL_DIRECTORY"
-                              },
-                              "locator": {
-                                "type": "string",
-                                "minLength": 1,
-                                "pattern": "^[A-Za-z]:[\\\\/]"
-                              }
-                            }
-                          }
-                        ]
+                      "bindingId": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
                       },
                       "indexLocator": {
                         "type": "string",
@@ -134,7 +101,139 @@
                         }
                       },
                       "updatePolicy": {
-                        "const": "FOLLOW"
+                        "enum": [
+                          "PINNED",
+                          "FOLLOW"
+                        ]
+                      },
+                      "indexIdentity": {
+                        "type": "string",
+                        "pattern": "^\\d+\\|[A-F0-9]{64}$"
+                      },
+                      "revision": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "kind",
+                          "value"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "enum": [
+                              "CONTENT_IDENTITY",
+                              "GIT_COMMIT"
+                            ]
+                          },
+                          "value": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        }
+                      },
+                      "revisionSelector": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "allOf": [
+                      {
+                        "else": {
+                          "not": {
+                            "anyOf": [
+                              {
+                                "required": [
+                                  "indexIdentity"
+                                ]
+                              },
+                              {
+                                "required": [
+                                  "revision"
+                                ]
+                              }
+                            ]
+                          },
+                          "required": [
+                            "revisionSelector"
+                          ]
+                        },
+                        "if": {
+                          "properties": {
+                            "updatePolicy": {
+                              "const": "PINNED"
+                            }
+                          }
+                        },
+                        "then": {
+                          "not": {
+                            "required": [
+                              "revisionSelector"
+                            ]
+                          },
+                          "required": [
+                            "indexIdentity",
+                            "revision"
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "processPolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schemaVersion",
+            "locator"
+          ],
+          "properties": {
+            "schemaVersion": {
+              "const": 2
+            },
+            "locator": {
+              "const": ".ai-workspace/process-policy.json"
+            }
+          }
+        },
+        "sourceBindings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "provider",
+              "locator",
+              "allowedPaths",
+              "decisionLocator"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+              },
+              "provider": {
+                "enum": [
+                  "LOCAL_DIRECTORY",
+                  "GIT_REVISION",
+                  "HTTPS_RESOURCE"
+                ]
+              },
+              "locator": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "root"
+                    ],
+                    "properties": {
+                      "root": {
+                        "type": "string",
+                        "minLength": 1
                       }
                     }
                   },
@@ -142,55 +241,256 @@
                     "type": "object",
                     "additionalProperties": false,
                     "required": [
+                      "repository"
+                    ],
+                    "properties": {
+                      "repository": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "baseUrl"
+                    ],
+                    "properties": {
+                      "baseUrl": {
+                        "type": "string",
+                        "pattern": "^https://"
+                      }
+                    }
+                  }
+                ]
+              },
+              "allowedPaths": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "kind",
+                    "locator"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "FILE",
+                        "DIRECTORY"
+                      ]
+                    },
+                    "locator": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                },
+                "minItems": 1,
+                "uniqueItems": true
+              },
+              "decisionLocator": {
+                "type": "string",
+                "minLength": 1
+              },
+              "credentialRef": {
+                "type": "string",
+                "minLength": 1
+              },
+              "transportLimits": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "maxObjectBytes",
+                  "timeoutMs",
+                  "maxRedirects"
+                ],
+                "properties": {
+                  "maxObjectBytes": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "timeoutMs": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "maxRedirects": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              }
+            },
+            "allOf": [
+              {
+                "then": {
+                  "properties": {
+                    "locator": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "root"
+                      ],
+                      "properties": {
+                        "root": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    }
+                  }
+                },
+                "if": {
+                  "properties": {
+                    "provider": {
+                      "const": "LOCAL_DIRECTORY"
+                    }
+                  }
+                }
+              },
+              {
+                "then": {
+                  "properties": {
+                    "locator": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "repository"
+                      ],
+                      "properties": {
+                        "repository": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    }
+                  }
+                },
+                "if": {
+                  "properties": {
+                    "provider": {
+                      "const": "GIT_REVISION"
+                    }
+                  }
+                }
+              },
+              {
+                "then": {
+                  "properties": {
+                    "locator": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "baseUrl"
+                      ],
+                      "properties": {
+                        "baseUrl": {
+                          "type": "string",
+                          "pattern": "^https://"
+                        }
+                      }
+                    }
+                  }
+                },
+                "if": {
+                  "properties": {
+                    "provider": {
+                      "const": "HTTPS_RESOURCE"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "$comment": "routineExcludedPaths is a routine recovery/search/Git presentation and operation exclusion list, not a secrecy or source-authorization policy. Runtime consumers fail closed with UNVERIFIED when an entry cannot be used safely.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "id",
+        "displayName",
+        "controlPlaneLayout",
+        "repositoryRoot",
+        "frameworkVersion",
+        "frameworkToolBackend",
+        "routineExcludedPaths",
+        "frameworkCapabilities",
+        "processPolicy",
+        "sourceBindings"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 7
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "controlPlaneLayout": {
+          "const": "repo-local"
+        },
+        "repositoryRoot": {
+          "const": ".."
+        },
+        "frameworkVersion": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "frameworkToolBackend": {
+          "const": "powershell7"
+        },
+        "routineExcludedPaths": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "frameworkCapabilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "KNOWLEDGE_REFERENCE": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "enabled",
+                "sources"
+              ],
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "sources": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
                       "id",
-                      "root",
+                      "bindingId",
                       "indexLocator",
                       "selectionHints",
-                      "updatePolicy",
-                      "indexIdentity"
+                      "updatePolicy"
                     ],
                     "properties": {
                       "id": {
                         "type": "string",
                         "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
                       },
-                      "root": {
-                        "oneOf": [
-                          {
-                            "type": "object",
-                            "additionalProperties": false,
-                            "required": [
-                              "kind",
-                              "locator"
-                            ],
-                            "properties": {
-                              "kind": {
-                                "const": "PROJECT"
-                              },
-                              "locator": {
-                                "const": "."
-                              }
-                            }
-                          },
-                          {
-                            "type": "object",
-                            "additionalProperties": false,
-                            "required": [
-                              "kind",
-                              "locator"
-                            ],
-                            "properties": {
-                              "kind": {
-                                "const": "LOCAL_DIRECTORY"
-                              },
-                              "locator": {
-                                "type": "string",
-                                "minLength": 1,
-                                "pattern": "^[A-Za-z]:[\\\\/]"
-                              }
-                            }
-                          }
-                        ]
+                      "bindingId": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
                       },
                       "indexLocator": {
                         "type": "string",
@@ -205,36 +505,310 @@
                         }
                       },
                       "updatePolicy": {
-                        "const": "PINNED"
+                        "enum": [
+                          "PINNED",
+                          "FOLLOW"
+                        ]
                       },
                       "indexIdentity": {
                         "type": "string",
                         "pattern": "^\\d+\\|[A-F0-9]{64}$"
+                      },
+                      "revision": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "kind",
+                          "value"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "enum": [
+                              "CONTENT_IDENTITY",
+                              "GIT_COMMIT"
+                            ]
+                          },
+                          "value": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        }
+                      },
+                      "revisionSelector": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "allOf": [
+                      {
+                        "else": {
+                          "not": {
+                            "anyOf": [
+                              {
+                                "required": [
+                                  "indexIdentity"
+                                ]
+                              },
+                              {
+                                "required": [
+                                  "revision"
+                                ]
+                              }
+                            ]
+                          },
+                          "required": [
+                            "revisionSelector"
+                          ]
+                        },
+                        "if": {
+                          "properties": {
+                            "updatePolicy": {
+                              "const": "PINNED"
+                            }
+                          }
+                        },
+                        "then": {
+                          "not": {
+                            "required": [
+                              "revisionSelector"
+                            ]
+                          },
+                          "required": [
+                            "indexIdentity",
+                            "revision"
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "processPolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schemaVersion",
+            "locator"
+          ],
+          "properties": {
+            "schemaVersion": {
+              "const": 3
+            },
+            "locator": {
+              "const": ".ai-workspace/process-policy.json"
+            }
+          }
+        },
+        "sourceBindings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "provider",
+              "locator",
+              "allowedPaths",
+              "decisionLocator"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+              },
+              "provider": {
+                "enum": [
+                  "LOCAL_DIRECTORY",
+                  "GIT_REVISION",
+                  "HTTPS_RESOURCE"
+                ]
+              },
+              "locator": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "root"
+                    ],
+                    "properties": {
+                      "root": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "repository"
+                    ],
+                    "properties": {
+                      "repository": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "baseUrl"
+                    ],
+                    "properties": {
+                      "baseUrl": {
+                        "type": "string",
+                        "pattern": "^https://"
                       }
                     }
                   }
                 ]
+              },
+              "allowedPaths": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "kind",
+                    "locator"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "FILE",
+                        "DIRECTORY"
+                      ]
+                    },
+                    "locator": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                },
+                "minItems": 1,
+                "uniqueItems": true
+              },
+              "decisionLocator": {
+                "type": "string",
+                "minLength": 1
+              },
+              "credentialRef": {
+                "type": "string",
+                "minLength": 1
+              },
+              "transportLimits": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "maxObjectBytes",
+                  "timeoutMs",
+                  "maxRedirects"
+                ],
+                "properties": {
+                  "maxObjectBytes": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "timeoutMs": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "maxRedirects": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
               }
-            }
+            },
+            "allOf": [
+              {
+                "then": {
+                  "properties": {
+                    "locator": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "root"
+                      ],
+                      "properties": {
+                        "root": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    }
+                  }
+                },
+                "if": {
+                  "properties": {
+                    "provider": {
+                      "const": "LOCAL_DIRECTORY"
+                    }
+                  }
+                }
+              },
+              {
+                "then": {
+                  "properties": {
+                    "locator": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "repository"
+                      ],
+                      "properties": {
+                        "repository": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    }
+                  }
+                },
+                "if": {
+                  "properties": {
+                    "provider": {
+                      "const": "GIT_REVISION"
+                    }
+                  }
+                }
+              },
+              {
+                "then": {
+                  "properties": {
+                    "locator": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "baseUrl"
+                      ],
+                      "properties": {
+                        "baseUrl": {
+                          "type": "string",
+                          "pattern": "^https://"
+                        }
+                      }
+                    }
+                  }
+                },
+                "if": {
+                  "properties": {
+                    "provider": {
+                      "const": "HTTPS_RESOURCE"
+                    }
+                  }
+                }
+              }
+            ]
           }
         }
       }
-    },
-    "processPolicy": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "schemaVersion",
-        "locator"
-      ],
-      "properties": {
-        "schemaVersion": {
-          "const": 1
-        },
-        "locator": {
-          "const": ".ai-workspace/process-policy.json"
-        }
-      }
     }
-  }
+  ]
 }

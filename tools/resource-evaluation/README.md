@@ -68,3 +68,5 @@ node cli.cjs freeze --source materials --kind materials --out work/materials-man
 - 数值复算、哈希和机械检查不证明题目有效、完整合同正确、语义审查独立或总体模型排名。这些判断留给人/模型。
 
 R4示例的组织验证见运行后 `work/my-workflow-proof/proof.json`：首次结果哈希不变；第二次新增结果为0；追加仅为F2--C2；原D8机械3/5失败及外部假阴性解释分开保留。示例重用的是原R4完整费用账本，这些费用不是两次本地导入动作或CLI开发的费用。
+
+2026-09-30计量正确性候选补充：比较前从冻结dispatch.json绑定每个subject turn的dispatchRef；配置偏离、阶段未声明、时钟同域证据缺失均保留实际消耗而排除比较。token总数矛盾拒绝，计量完整与费用完整分开。具体字段、阶段映射、时钟依据及缓存失效见FORMAT.md；不新增模型执行、消息、调度或采用机制。

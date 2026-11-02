@@ -1,8 +1,7 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "contractVersion": {{PROCESS_CONTRACT_VERSION_JSON}},
   "projectId": {{PROJECT_ID_JSON}},
-  "selectedRulePackBytes": {{SELECTED_RULE_PACK_BYTES}},
   "rules": [
     {
       "ruleId": "FRAMEWORK_MAINTENANCE_SIBLING_TOPOLOGY",

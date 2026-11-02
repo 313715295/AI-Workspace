@@ -7,15 +7,24 @@ param(
     [string[]]$ForbiddenPaths=@(),
     [switch]$AsJson
 )
+# @project-source-entry-scope
+Import-Module (Join-Path $PSScriptRoot 'ProjectSourcePublication.psm1') -ErrorAction Stop
+$aiwPublicationScopeLease=$null
+try {
+$aiwPublicationEntryRoot=$ProjectRoot
+if($aiwPublicationEntryRoot){$aiwPublicationScopeLease=Enter-AiwProjectSourceScope -ProjectRoot ([IO.Path]::GetFullPath($aiwPublicationEntryRoot,$PWD.ProviderPath)) -Mode OBSERVE}
+
 $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
 if($PSVersionTable.PSEdition-cne'Core'-or$PSVersionTable.PSVersion.Major-lt7){Write-Output 'FAIL|tool-runtime|POWERSHELL7_REQUIRED';exit 4}
 try{
     Import-Module (Join-Path $PSScriptRoot 'KnowledgeSources.psm1') -Force
     $result=Invoke-AiwKnowledgeImpact -ProjectRoot $ProjectRoot -ExpectedProjectConfigIdentity $ExpectedProjectConfigIdentity -ChangedAuthorityPath $ChangedAuthorityPath -SourceId $SourceId -ForbiddenPaths $ForbiddenPaths
-    if($AsJson){$result|ConvertTo-Json -Depth 100 -Compress}else{$result|ConvertTo-Json -Depth 100}
+    if($AsJson){$result|ConvertTo-Json -Depth 100 -Compress -EscapeHandling EscapeNonAscii}else{$result|ConvertTo-Json -Depth 100 -EscapeHandling EscapeNonAscii}
     exit 0
 }catch{
     $result=[pscustomobject]@{status='KNOWLEDGE_IMPACT_UNAVAILABLE';reason=$_.Exception.Message;referenceOnly=$true;authority=$false;sources=@();entries=@()}
-    if($AsJson){$result|ConvertTo-Json -Depth 10 -Compress}else{Write-Output ('KNOWLEDGE_IMPACT_UNAVAILABLE|'+$result.reason)}
+    if($AsJson){$result|ConvertTo-Json -Depth 10 -Compress -EscapeHandling EscapeNonAscii}else{Write-Output ('KNOWLEDGE_IMPACT_UNAVAILABLE|'+$result.reason)}
     exit 3
 }
+
+} finally { Exit-AiwProjectSourceScope $aiwPublicationScopeLease }

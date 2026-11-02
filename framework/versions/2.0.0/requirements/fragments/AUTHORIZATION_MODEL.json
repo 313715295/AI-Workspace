@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "frameworkVersion": "2.0.0",
   "ownerModule": "AUTHORIZATION_MODEL.md",
   "requirements": [
@@ -38,7 +38,8 @@
         ],
         "pathPrefixes": [],
         "capabilities": [],
-        "semanticTerms": []
+        "semanticTerms": [],
+        "facets": {}
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_ACTION_AUTHORIZATION_INDEPENDENT",
       "preparationRequirements": [
@@ -79,7 +80,8 @@
         ],
         "pathPrefixes": [],
         "capabilities": [],
-        "semanticTerms": []
+        "semanticTerms": [],
+        "facets": {}
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_PROTECTED_PATH_FAIL_CLOSED",
       "preparationRequirements": [
@@ -119,7 +121,8 @@
         ],
         "pathPrefixes": [],
         "capabilities": [],
-        "semanticTerms": []
+        "semanticTerms": [],
+        "facets": {}
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_AUTHORITY_CONTEXT_INTENT_RECONCILIATION",
       "preparationRequirements": [
@@ -134,7 +137,7 @@
       "requirementId": "PR_DYNAMIC_ROLE_DIRECT_ISSUANCE",
       "legacyAliases": [],
       "title": "Dynamic role and direct issuance",
-      "description": "Fix admitted long-term responsibility resources while keeping temporary roles and direct scoped issuance separate.",
+      "description": "Keep project-persistent Controller and finite-outcome Owner responsibility separate from temporary actors and direct scoped issuance.",
       "selectors": {
         "profiles": [
           "*"
@@ -153,7 +156,8 @@
         ],
         "pathPrefixes": [],
         "capabilities": [],
-        "semanticTerms": []
+        "semanticTerms": [],
+        "facets": {}
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_DYNAMIC_ROLE_DIRECT_ISSUANCE",
       "preparationRequirements": [
@@ -196,7 +200,8 @@
           "scope",
           "drift",
           "confirmation"
-        ]
+        ],
+        "facets": {}
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_USER_DECISION_DRIFT",
       "preparationRequirements": [
@@ -206,5 +211,6 @@
         "DECISION_DRIFT_CLASSIFIED"
       ]
     }
-  ]
+  ],
+  "facetVocabulary": []
 }

@@ -1,16 +1,6 @@
 {
-  "required": [
-    "schemaVersion",
-    "taskId",
-    "actor",
-    "candidateObjects",
-    "requirementsRef",
-    "outcome",
-    "checks",
-    "evidenceLocators"
-  ],
-  "type": "object",
-  "title": "AI Workspace typed evidence record 1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AI Workspace typed evidence records 1 and 2",
   "$defs": {
     "objectRef": {
       "required": [
@@ -95,100 +85,246 @@
         }
       },
       "type": "object"
+    },
+    "targetState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "branch",
+        "head"
+      ],
+      "properties": {
+        "branch": {
+          "type": "string",
+          "minLength": 1
+        },
+        "head": {
+          "type": "string",
+          "pattern": "^(?:[A-F0-9]{40}|[A-F0-9]{64})$"
+        }
+      }
     }
   },
-  "additionalProperties": false,
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "properties": {
-    "authorizationRef": {
-      "$ref": "#/$defs/objectRef"
-    },
-    "requirementsRef": {
-      "$ref": "#/$defs/requirementsRef"
-    },
-    "outcome": {
-      "enum": [
-        "PASS",
-        "FAIL",
-        "INCOMPLETE",
-        "APPROVED",
-        "CHANGES_REQUESTED",
-        "REJECTED",
-        "ACCEPTED"
-      ]
-    },
-    "checks": {
-      "items": {
-        "required": [
-          "id",
-          "method",
-          "outcome",
-          "reason",
-          "evidenceLocators"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "id": {
-            "type": "string",
-            "minLength": 1
-          },
-          "reason": {
-            "type": "string",
-            "minLength": 1
-          },
-          "evidenceLocators": {
-            "items": {
-              "$ref": "#/$defs/objectRef"
+  "oneOf": [
+    {
+      "required": [
+        "schemaVersion",
+        "taskId",
+        "actor",
+        "candidateObjects",
+        "requirementsRef",
+        "outcome",
+        "checks",
+        "evidenceLocators"
+      ],
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "authorizationRef": {
+          "$ref": "#/$defs/objectRef"
+        },
+        "requirementsRef": {
+          "$ref": "#/$defs/requirementsRef"
+        },
+        "outcome": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "INCOMPLETE",
+            "APPROVED",
+            "CHANGES_REQUESTED",
+            "REJECTED",
+            "ACCEPTED"
+          ]
+        },
+        "checks": {
+          "items": {
+            "required": [
+              "id",
+              "method",
+              "outcome",
+              "reason",
+              "evidenceLocators"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1
+              },
+              "evidenceLocators": {
+                "items": {
+                  "$ref": "#/$defs/objectRef"
+                },
+                "minItems": 1,
+                "type": "array"
+              },
+              "outcome": {
+                "enum": [
+                  "PASS",
+                  "FAIL",
+                  "INCOMPLETE"
+                ]
+              },
+              "method": {
+                "enum": [
+                  "COMMAND",
+                  "MODEL_JUDGMENT"
+                ]
+              }
             },
-            "minItems": 1,
-            "type": "array"
+            "type": "object"
           },
-          "outcome": {
-            "enum": [
-              "PASS",
-              "FAIL",
-              "INCOMPLETE"
-            ]
+          "minItems": 1,
+          "type": "array"
+        },
+        "acceptedCommit": {
+          "type": "string",
+          "pattern": "^(?:[A-F0-9]{40}|[A-F0-9]{64})$"
+        },
+        "schemaVersion": {
+          "const": 1
+        },
+        "candidateObjects": {
+          "items": {
+            "$ref": "#/$defs/candidateRef"
           },
-          "method": {
-            "enum": [
-              "COMMAND",
-              "MODEL_JUDGMENT"
-            ]
+          "minItems": 1,
+          "type": "array"
+        },
+        "evidenceLocators": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/objectRef"
           }
         },
-        "type": "object"
-      },
-      "minItems": 1,
-      "type": "array"
-    },
-    "acceptedCommit": {
-      "type": "string",
-      "pattern": "^(?:[A-F0-9]{40}|[A-F0-9]{64})$"
-    },
-    "schemaVersion": {
-      "const": 1
-    },
-    "candidateObjects": {
-      "items": {
-        "$ref": "#/$defs/candidateRef"
-      },
-      "minItems": 1,
-      "type": "array"
-    },
-    "evidenceLocators": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/objectRef"
+        "actor": {
+          "type": "string",
+          "minLength": 1
+        },
+        "taskId": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
-    "actor": {
-      "type": "string",
-      "minLength": 1
-    },
-    "taskId": {
-      "type": "string",
-      "minLength": 1
+    {
+      "required": [
+        "schemaVersion",
+        "taskId",
+        "actor",
+        "candidateObjects",
+        "requirementsRef",
+        "outcome",
+        "checks",
+        "evidenceLocators",
+        "executionTargetRef",
+        "candidateTargetState"
+      ],
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "authorizationRef": {
+          "$ref": "#/$defs/objectRef"
+        },
+        "requirementsRef": {
+          "$ref": "#/$defs/requirementsRef"
+        },
+        "outcome": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "INCOMPLETE",
+            "APPROVED",
+            "CHANGES_REQUESTED",
+            "REJECTED",
+            "ACCEPTED"
+          ]
+        },
+        "checks": {
+          "items": {
+            "required": [
+              "id",
+              "method",
+              "outcome",
+              "reason",
+              "evidenceLocators"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1
+              },
+              "evidenceLocators": {
+                "items": {
+                  "$ref": "#/$defs/objectRef"
+                },
+                "minItems": 1,
+                "type": "array"
+              },
+              "outcome": {
+                "enum": [
+                  "PASS",
+                  "FAIL",
+                  "INCOMPLETE"
+                ]
+              },
+              "method": {
+                "enum": [
+                  "COMMAND",
+                  "MODEL_JUDGMENT"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "acceptedCommit": {
+          "type": "string",
+          "pattern": "^(?:[A-F0-9]{40}|[A-F0-9]{64})$"
+        },
+        "schemaVersion": {
+          "const": 2
+        },
+        "candidateObjects": {
+          "items": {
+            "$ref": "#/$defs/candidateRef"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "evidenceLocators": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/objectRef"
+          }
+        },
+        "actor": {
+          "type": "string",
+          "minLength": 1
+        },
+        "taskId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "executionTargetRef": {
+          "$ref": "#/$defs/objectRef"
+        },
+        "candidateTargetState": {
+          "$ref": "#/$defs/targetState"
+        }
+      }
     }
-  }
+  ]
 }

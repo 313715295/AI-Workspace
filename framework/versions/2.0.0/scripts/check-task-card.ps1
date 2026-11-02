@@ -232,7 +232,7 @@ if ($taskSchema -in @('1.5.2','1.9.0','1.10.0','1.11.0','1.12.0','1.13.0','2.0.0
     $phaseGateMatches = [regex]::Matches($text, '(?m)^- Phase gate:\s*(?<value>TRUE|FALSE)\s*$')
     if ($phaseGateMatches.Count -ne 1) {
         Add-Reason $reasons 'PHASE_GATE_FIELD'
-    } elseif ($phaseGateMatches[0].Groups['value'].Value -ceq 'TRUE') {
+    } elseif ($phaseGateMatches[0].Groups['value'].Value -ceq 'TRUE' -and $taskSchema -cne '2.0.0') {
         $technicalMatches = [regex]::Matches($text, '(?m)^- Technical evidence:\s*(?<value>PENDING|READY;\s*producer=(?<actor>[^;\s]+);\s*evidence=(?<evidence>.+))\s*$')
         $domainMatches = [regex]::Matches($text, '(?m)^- Domain contract check:\s*(?<value>PENDING|ACCEPTED;\s*owner=(?<actor>[^;\s]+);\s*evidence=(?<evidence>.+)|NOT_APPLICABLE;\s*reason=(?<reason>.+))\s*$')
         $runtimeMatches = [regex]::Matches($text, '(?m)^- Runtime/platform check:\s*(?<value>PENDING|ACCEPTED;\s*owner=(?<actor>[^;\s]+);\s*evidence=(?<evidence>.+)|NOT_APPLICABLE;\s*reason=(?<reason>.+))\s*$')

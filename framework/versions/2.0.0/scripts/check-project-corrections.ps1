@@ -9,6 +9,13 @@ param(
     [switch]$AllowMissingCorrections,
     [switch]$AsJson
 )
+# @project-source-entry-scope
+Import-Module (Join-Path $PSScriptRoot 'ProjectSourcePublication.psm1') -ErrorAction Stop
+$aiwPublicationScopeLease=$null
+try {
+$aiwPublicationEntryRoot=$ProjectRoot
+if($aiwPublicationEntryRoot){$aiwPublicationScopeLease=Enter-AiwProjectSourceScope -ProjectRoot ([IO.Path]::GetFullPath($aiwPublicationEntryRoot,$PWD.ProviderPath)) -Mode OBSERVE}
+
 
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
@@ -19,13 +26,16 @@ try {
     if([string]$result.correctionsIdentity-ceq'MISSING'-and-not$AllowMissingCorrections){throw 'CORRECTIONS_MISSING'}
     $status=if(@($result.conflicts).Count-ne0){'CONFLICT'}else{'PASS'}
     $legacy=[ordered]@{status=$status;operation=$Operation;projectId=$result.projectId;targetVersion=$TargetVersion;correctionsIdentity=$result.correctionsIdentity;stillEffective=@($result.stillEffective);inactive=@($result.inactive);conflicts=@($result.conflicts);sourceCompositionIdentity=$result.sourceCompositionIdentity;composer='ProcessRequirementComposition'}
-    if($AsJson){$legacy|ConvertTo-Json -Depth 12 -Compress}else{
+    if($AsJson){$legacy|ConvertTo-Json -Depth 12 -Compress -EscapeHandling EscapeNonAscii}else{
         Write-Output ('PROJECT_CORRECTIONS|status='+$status+'|target='+$TargetVersion+'|effective='+@($result.stillEffective).Count+'|conflicts='+@($result.conflicts).Count)
         foreach($item in @($result.stillEffective)){Write-Output ('STILL_EFFECTIVE|'+$item.correctionId+'|reason='+$item.requirementReason)}
         foreach($item in @($result.conflicts)){Write-Output ('CONFLICT|'+$item.correctionId+'|reason='+$item.requirementReason)}
     }
     if($status-ceq'CONFLICT'){exit 3}
 } catch {
-    if($AsJson){[ordered]@{status='FAIL';reason=[string]$_.Exception.Message}|ConvertTo-Json -Compress}else{Write-Output ('FAIL|'+[string]$_.Exception.Message)}
+    if($AsJson){[ordered]@{status='FAIL';reason=[string]$_.Exception.Message}|ConvertTo-Json -Compress -EscapeHandling EscapeNonAscii}else{Write-Output ('FAIL|'+[string]$_.Exception.Message)}
     exit 2
 }
+
+} finally { Exit-AiwProjectSourceScope $aiwPublicationScopeLease }
+exit 0

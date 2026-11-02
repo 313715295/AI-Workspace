@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "contractVersion": "2.0.0",
   "projectId": "{{PROJECT_ID}}",
   "corrections": []

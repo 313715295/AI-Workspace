@@ -1,6 +1,8 @@
 [CmdletBinding()]
-param()
+param([switch]$JsonTransportOnly)
 $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
+Import-Module (Join-Path $PSScriptRoot 'TestHarness.psm1')
+Import-Module (Join-Path $PSScriptRoot '../scripts/StrictJsonInput.psm1')
 $script:passed=0;$script:pwshExecutable=[Environment]::ProcessPath;$utf8=[Text.UTF8Encoding]::new($false)
 function Assert-True([bool]$Condition,[string]$Name) {
     if (-not $Condition) { throw "ASSERT_FAIL|$Name" }
@@ -62,14 +64,34 @@ function Invoke-WorkflowRawCase([string]$Resolver,[string]$Root,[string]$Name,[s
 
 $candidateRoot=Split-Path -Parent $PSScriptRoot
 $maintenanceOverlayRoot=Join-Path ([IO.Path]::GetFullPath((Join-Path $candidateRoot '../../..'))) 'framework/maintenance-overlay'
-$workflowEntryDocuments = @((Join-Path $candidateRoot 'TASK_AND_SCOPE.md'),(Join-Path $candidateRoot 'HOST_CODEX.md'),(Join-Path $candidateRoot 'PROMPTS.md'),(Join-Path $candidateRoot 'project-starter/BOOTSTRAP.md'),(Join-Path $maintenanceOverlayRoot 'BOOTSTRAP.md'))
-foreach ($entryPath in $workflowEntryDocuments) {
-    $entryText = Get-Content -LiteralPath $entryPath -Raw -Encoding utf8
-    Assert-True ($entryText.Contains('WORKFLOW_ROUTE_RESOLVE') -and $entryText.Contains('TOOLCHAIN.json') -and $entryText.Contains('ephemeral') -and $entryText.Contains('fail closed')) ('workflow-live-entry-fail-closed|' + $entryPath)
+# Entry documents navigate to their semantic owner. The exact fields and
+# temporary-input behavior remain in the unique Tool Contract below.
+$workflowEntryDocuments = @(
+    @{path=(Join-Path $candidateRoot 'TASK_AND_SCOPE.md');required=@('WORKFLOW_ROUTE_RESOLVE','TOOL_CONTRACT','必需输入缺失或冲突时停止该转换')},
+    @{path=(Join-Path $candidateRoot 'HOST_CODEX.md');required=@('TOOLCHAIN','TOOL_CONTRACT','精确operation入口','失败停依赖链')},
+    @{path=(Join-Path $candidateRoot 'PROMPTS.md');required=@('WORKFLOW_ROUTE_RESOLVE','TOOL_CONTRACT','ephemeral','fail closed')},
+    @{path=(Join-Path $candidateRoot 'project-starter/BOOTSTRAP.md');required=@('TOOLCHAIN','TOOL_CONTRACT','PROCESS_REQUIREMENTS_RESOLVE','具体输入、schema、continuation')},
+    @{path=(Join-Path $maintenanceOverlayRoot 'BOOTSTRAP.md');required=@('TOOL_CONTRACT','resolve-framework-maintenance-process-requirements.ps1','临时材料的具体合同','不授予移动仓库或切换运行包权限')}
+)
+foreach ($entry in $workflowEntryDocuments) {
+    $entryText = Get-Content -LiteralPath $entry.path -Raw -Encoding utf8
+    Assert-True (@($entry.required|Where-Object{-not$entryText.Contains($_,[StringComparison]::Ordinal)}).Count-eq0) ('workflow-live-entry-delegates-exact-contract|' + $entry.path)
 }
+$workflowToolContract=Get-Content -LiteralPath (Join-Path $candidateRoot 'TOOL_CONTRACT.md') -Raw -Encoding utf8
+Assert-True ($workflowToolContract.Contains('WORKFLOW_ROUTE_RESOLVE')-and$workflowToolContract.Contains('`-InputJson` 与 `-InputPath` 互斥')-and$workflowToolContract.Contains('直接输入不落盘')-and$workflowToolContract.Contains('转义后重复键、未知字段及错误类型')) 'workflow-owning-contract-keeps-strict-json-and-temporary-input-boundary'
 $temp=Join-Path ([IO.Path]::GetTempPath()) ('aiw-workflow-focused-'+[guid]::NewGuid().ToString('N'))
 try{New-Item -ItemType Directory -Path $temp|Out-Null
     $workflowResolver = Join-Path $candidateRoot 'scripts\resolve-workflow-route.ps1'
+    $transport=Invoke-AiwTestProcess $script:pwshExecutable @('-NoProfile','-NonInteractive','-File',$workflowResolver,'-InputJson','{"operation":"LAUNCH","recoveryComplete":true,"packageValid":true,"bindingsMatch":true}','-AsJson') -WorkingDirectory $temp -GroupId 'workflow-json-success'
+    $transportValue=(ConvertFrom-AiwStrictInputJson $transport.StdoutText).Value
+    Assert-True ($transport.Code-eq0-and$transport.StderrText-ceq''-and$transportValue.status-ceq'IMPLEMENTATION_READY'-and@($transport.StdoutText.Trim()-split"`n").Count-eq1) 'workflow-asjson-native-success-is-one-strict-json-with-empty-stderr'
+    foreach($case in @(@{name='malformed';raw='{"operation":';reason='INPUT_JSON'},@{name='unicode-reason';raw='{"operation":"LAUNCH","中文":false,"\u4e2d\u6587":true}';reason='INPUT_FIELD_COUNT|中文'})){
+        $failed=Invoke-AiwTestProcess $script:pwshExecutable @('-NoProfile','-NonInteractive','-File',$workflowResolver,'-InputJson',$case.raw,'-AsJson') -WorkingDirectory $temp -GroupId ('workflow-json-'+$case.name)
+        $failure=(ConvertFrom-AiwStrictInputJson $failed.StdoutText).Value
+        $reasonMatches=if($case.name-ceq'malformed'){$failure.reason.StartsWith($case.reason,[StringComparison]::Ordinal)}else{$failure.reason-ceq$case.reason}
+        Assert-True ($failed.Code-ne0-and$failed.StderrText-ceq''-and$failure.status-ceq'FAIL'-and$reasonMatches-and@($failed.StdoutText.Trim()-split"`n").Count-eq1-and$failed.StdoutText-cnotmatch'[^\x00-\x7F]') ('workflow-asjson-native-'+$case.name+'-preserves-real-reason-without-pretty-stderr')
+    }
+    if($JsonTransportOnly){Write-Output ('PARTIAL|JSON_TRANSPORT_ONLY|checks='+$script:passed);return}
     foreach($layout in @('CRLF','NO_FINAL_LF')){
         $raw='{"operation":"LAUNCH",'+"`n"+'"recoveryComplete":true,"packageValid":true,"bindingsMatch":true}'
         if($layout-ceq'CRLF'){$raw=$raw.Replace("`n","`r`n")+"`r`n"}

@@ -1,0 +1,794 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AI Workspace shared content catalog (strict historical and current formats)",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "catalogId",
+        "items"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "catalogId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "kind",
+              "title",
+              "description",
+              "facets",
+              "tags",
+              "revision",
+              "descriptor",
+              "maintenance",
+              "provenance"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+              },
+              "kind": {
+                "enum": [
+                  "RULE",
+                  "STANDARD",
+                  "METHOD",
+                  "TEMPLATE",
+                  "KNOWLEDGE_LIBRARY"
+                ]
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": {
+                "type": "string",
+                "minLength": 1
+              },
+              "facets": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [],
+                "properties": {
+                  "domain": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "workType": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "deliverableType": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "stage": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              },
+              "tags": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "revision": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "value"
+                ],
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "CONTENT_IDENTITY",
+                      "GIT_COMMIT"
+                    ]
+                  },
+                  "value": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "descriptor": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "rootSourceId",
+                      "documents"
+                    ],
+                    "properties": {
+                      "rootSourceId": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                      },
+                      "documents": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "sourceId",
+                            "sourceRef",
+                            "revision",
+                            "locator",
+                            "identity",
+                            "mode",
+                            "sectionStart",
+                            "sectionEnd",
+                            "dependencies"
+                          ],
+                          "properties": {
+                            "sourceId": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                            },
+                            "sourceRef": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                            },
+                            "revision": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": [
+                                "kind",
+                                "value"
+                              ],
+                              "properties": {
+                                "kind": {
+                                  "enum": [
+                                    "CONTENT_IDENTITY",
+                                    "GIT_COMMIT"
+                                  ]
+                                },
+                                "value": {
+                                  "type": "string",
+                                  "minLength": 1
+                                }
+                              }
+                            },
+                            "locator": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "identity": {
+                              "type": "string",
+                              "pattern": "^\\d+\\|[A-F0-9]{64}$"
+                            },
+                            "mode": {
+                              "enum": [
+                                "FULL_FILE",
+                                "MARKED_SECTION"
+                              ]
+                            },
+                            "sectionStart": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "sectionEnd": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "dependencies": {
+                              "type": "array",
+                              "uniqueItems": true,
+                              "items": {
+                                "type": "string",
+                                "minLength": 1
+                              }
+                            }
+                          }
+                        },
+                        "minItems": 1
+                      },
+                      "selectors": {
+                        "type": "object"
+                      },
+                      "preparationRequirements": {
+                        "type": "array",
+                        "uniqueItems": true,
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "resultRequirements": {
+                        "type": "array",
+                        "uniqueItems": true,
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "indexLocator"
+                    ],
+                    "properties": {
+                      "indexLocator": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "locator"
+                    ],
+                    "properties": {
+                      "locator": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "identity": {
+                        "type": "string",
+                        "pattern": "^\\d+\\|[A-F0-9]{64}$"
+                      }
+                    }
+                  }
+                ]
+              },
+              "maintenance": {
+                "type": "string",
+                "minLength": 1
+              },
+              "provenance": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "sourceRefs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "provider",
+              "locator"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+              },
+              "provider": {
+                "enum": [
+                  "LOCAL_DIRECTORY",
+                  "GIT_REVISION",
+                  "HTTPS_RESOURCE"
+                ]
+              },
+              "locator": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "root"
+                    ],
+                    "properties": {
+                      "root": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "repository"
+                    ],
+                    "properties": {
+                      "repository": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "baseUrl"
+                    ],
+                    "properties": {
+                      "baseUrl": {
+                        "type": "string",
+                        "pattern": "^https://"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "catalogId",
+        "items"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 2
+        },
+        "catalogId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "kind",
+              "title",
+              "description",
+              "facets",
+              "tags",
+              "revision",
+              "descriptor",
+              "maintenance",
+              "provenance"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+              },
+              "kind": {
+                "enum": [
+                  "RULE",
+                  "STANDARD",
+                  "METHOD",
+                  "TEMPLATE",
+                  "KNOWLEDGE_LIBRARY"
+                ]
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": {
+                "type": "string",
+                "minLength": 1
+              },
+              "facets": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [],
+                "properties": {
+                  "domain": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "workType": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "deliverableType": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "stage": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              },
+              "tags": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "revision": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "value"
+                ],
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "CONTENT_IDENTITY",
+                      "GIT_COMMIT"
+                    ]
+                  },
+                  "value": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "descriptor": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "rootSourceId",
+                      "documents"
+                    ],
+                    "properties": {
+                      "rootSourceId": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                      },
+                      "documents": {
+                        "type": "array",
+                        "items": {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": [
+                                "sourceId",
+                                "sourceRef",
+                                "revision",
+                                "locator",
+                                "identity",
+                                "mode",
+                                "sectionStart",
+                                "sectionEnd",
+                                "dependencies"
+                              ],
+                              "properties": {
+                                "sourceId": {
+                                  "type": "string",
+                                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                                },
+                                "sourceRef": {
+                                  "type": "string",
+                                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                                },
+                                "revision": {
+                                  "type": "object",
+                                  "additionalProperties": false,
+                                  "required": [
+                                    "kind",
+                                    "value"
+                                  ],
+                                  "properties": {
+                                    "kind": {
+                                      "enum": [
+                                        "CONTENT_IDENTITY",
+                                        "GIT_COMMIT"
+                                      ]
+                                    },
+                                    "value": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    }
+                                  }
+                                },
+                                "locator": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "identity": {
+                                  "type": "string",
+                                  "pattern": "^\\d+\\|[A-F0-9]{64}$"
+                                },
+                                "mode": {
+                                  "enum": [
+                                    "FULL_FILE",
+                                    "MARKED_SECTION"
+                                  ]
+                                },
+                                "sectionStart": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "sectionEnd": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "dependencies": {
+                                  "type": "array",
+                                  "uniqueItems": true,
+                                  "items": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                }
+                              }
+                            },
+                            {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": [
+                                "sourceId",
+                                "sourceRef",
+                                "revision",
+                                "locator",
+                                "mode",
+                                "sectionStart",
+                                "sectionEnd",
+                                "dependencies",
+                                "unitId",
+                                "normativeIdentity",
+                                "commonConditionSourceIds"
+                              ],
+                              "properties": {
+                                "sourceId": {
+                                  "type": "string",
+                                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                                },
+                                "revision": {
+                                  "type": "object",
+                                  "additionalProperties": false,
+                                  "required": [
+                                    "kind",
+                                    "value"
+                                  ],
+                                  "properties": {
+                                    "kind": {
+                                      "enum": [
+                                        "CONTENT_IDENTITY",
+                                        "GIT_COMMIT"
+                                      ]
+                                    },
+                                    "value": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    }
+                                  }
+                                },
+                                "locator": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "mode": {
+                                  "const": "NORMATIVE_UNIT"
+                                },
+                                "sectionStart": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "sectionEnd": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "dependencies": {
+                                  "type": "array",
+                                  "uniqueItems": true,
+                                  "items": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "unitId": {
+                                  "type": "string",
+                                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                                },
+                                "normativeIdentity": {
+                                  "type": "string",
+                                  "pattern": "^\\d+\\|[A-F0-9]{64}$"
+                                },
+                                "commonConditionSourceIds": {
+                                  "type": "array",
+                                  "uniqueItems": true,
+                                  "items": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "sourceRef": {
+                                  "type": "string",
+                                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                                }
+                              }
+                            }
+                          ]
+                        },
+                        "minItems": 1
+                      },
+                      "selectors": {
+                        "type": "object"
+                      },
+                      "preparationRequirements": {
+                        "type": "array",
+                        "uniqueItems": true,
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "resultRequirements": {
+                        "type": "array",
+                        "uniqueItems": true,
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "indexLocator"
+                    ],
+                    "properties": {
+                      "indexLocator": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "locator"
+                    ],
+                    "properties": {
+                      "locator": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "identity": {
+                        "type": "string",
+                        "pattern": "^\\d+\\|[A-F0-9]{64}$"
+                      }
+                    }
+                  }
+                ]
+              },
+              "maintenance": {
+                "type": "string",
+                "minLength": 1
+              },
+              "provenance": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "sourceRefs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "provider",
+              "locator"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+              },
+              "provider": {
+                "enum": [
+                  "LOCAL_DIRECTORY",
+                  "GIT_REVISION",
+                  "HTTPS_RESOURCE"
+                ]
+              },
+              "locator": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "root"
+                    ],
+                    "properties": {
+                      "root": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "repository"
+                    ],
+                    "properties": {
+                      "repository": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "baseUrl"
+                    ],
+                    "properties": {
+                      "baseUrl": {
+                        "type": "string",
+                        "pattern": "^https://"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

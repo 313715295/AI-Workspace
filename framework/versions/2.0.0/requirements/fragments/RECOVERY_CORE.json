@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "frameworkVersion": "2.0.0",
   "ownerModule": "RECOVERY_CORE.md",
   "requirements": [
@@ -7,7 +7,7 @@
       "requirementId": "PR_RECOVERY_CURRENT_AUTHORITY",
       "legacyAliases": [],
       "title": "Current authority recovery",
-      "description": "Bind the current project pin, Controller, task, exact scope and sealed rule catalog before governed work.",
+      "description": "Use the project Bootstrap to bind current control authority, fixed adopted source and necessary complete rules without granting actions.",
       "selectors": {
         "profiles": [
           "*"
@@ -33,7 +33,8 @@
         ],
         "pathPrefixes": [],
         "capabilities": [],
-        "semanticTerms": []
+        "semanticTerms": [],
+        "facets": {}
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_RECOVERY_CURRENT_AUTHORITY",
       "preparationRequirements": [
@@ -44,8 +45,8 @@
     {
       "requirementId": "PR_PROCESS_REQUIREMENTS_PROGRESSIVE_BOUNDARIES",
       "legacyAliases": [],
-      "title": "Progressive rule boundary",
-      "description": "Discover from the complete catalog, load selected complete rule blocks and reuse only unchanged bindings.",
+      "title": "Complete current loading and action rebinding",
+      "description": "Load the complete current rule closure once; revalidate unchanged-action scope without assembling bodies. Neither grants authority.",
       "selectors": {
         "profiles": [
           "*"
@@ -71,7 +72,8 @@
         ],
         "pathPrefixes": [],
         "capabilities": [],
-        "semanticTerms": []
+        "semanticTerms": [],
+        "facets": {}
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_PROCESS_REQUIREMENTS_PROGRESSIVE_BOUNDARIES",
       "preparationRequirements": [
@@ -122,7 +124,15 @@
           "resume",
           "actor",
           "role"
-        ]
+        ],
+        "facets": {
+          "workType": [
+            "aiw:recovery",
+            "aiw:controller-handoff",
+            "aiw:task-organization",
+            "aiw:collaboration"
+          ]
+        }
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_RECOVERY_ROLE_REBIND",
       "preparationRequirements": [
@@ -135,8 +145,8 @@
     {
       "requirementId": "PR_FRAMEWORK_BACKEND_SELECTION",
       "legacyAliases": [],
-      "title": "Project-level backend selection",
-      "description": "Resolve the project-selected backend and sealed entrypoint without task-level fallback.",
+      "title": "Project backend binding",
+      "description": "Resolve the project-selected sealed backend and supported runtime without automatic fallback.",
       "selectors": {
         "profiles": [
           "*"
@@ -162,7 +172,8 @@
         ],
         "pathPrefixes": [],
         "capabilities": [],
-        "semanticTerms": []
+        "semanticTerms": [],
+        "facets": {}
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_FRAMEWORK_BACKEND_SELECTION",
       "preparationRequirements": [
@@ -170,6 +181,487 @@
       ],
       "resultRequirements": [
         "TOOL_ENTRYPOINT_RESOLVED"
+      ]
+    }
+  ],
+  "facetVocabulary": [
+    {
+      "dimension": "domain",
+      "id": "aiw:governance",
+      "description": "domain classification: governance",
+      "aliases": [
+        "governance",
+        "治理"
+      ]
+    },
+    {
+      "dimension": "domain",
+      "id": "aiw:software",
+      "description": "domain classification: software",
+      "aliases": [
+        "software",
+        "软件"
+      ]
+    },
+    {
+      "dimension": "domain",
+      "id": "aiw:knowledge",
+      "description": "domain classification: knowledge",
+      "aliases": [
+        "knowledge",
+        "知识"
+      ]
+    },
+    {
+      "dimension": "domain",
+      "id": "aiw:version-control",
+      "description": "domain classification: version-control",
+      "aliases": [
+        "version-control"
+      ]
+    },
+    {
+      "dimension": "domain",
+      "id": "aiw:architecture",
+      "description": "domain classification: architecture",
+      "aliases": [
+        "architecture"
+      ]
+    },
+    {
+      "dimension": "domain",
+      "id": "aiw:visual-art",
+      "description": "domain classification: visual-art",
+      "aliases": [
+        "visual-art"
+      ]
+    },
+    {
+      "dimension": "domain",
+      "id": "aiw:rendering",
+      "description": "domain classification: rendering",
+      "aliases": [
+        "rendering"
+      ]
+    },
+    {
+      "dimension": "domain",
+      "id": "aiw:gameplay",
+      "description": "domain classification: gameplay",
+      "aliases": [
+        "gameplay"
+      ]
+    },
+    {
+      "dimension": "domain",
+      "id": "aiw:operations",
+      "description": "domain classification: operations",
+      "aliases": [
+        "operations"
+      ]
+    },
+    {
+      "dimension": "domain",
+      "id": "aiw:research",
+      "description": "domain classification: research",
+      "aliases": [
+        "research"
+      ]
+    },
+    {
+      "dimension": "workType",
+      "id": "aiw:discussion",
+      "description": "workType classification: discussion",
+      "aliases": [
+        "discussion",
+        "讨论"
+      ]
+    },
+    {
+      "dimension": "workType",
+      "id": "aiw:planning",
+      "description": "workType classification: planning",
+      "aliases": [
+        "planning",
+        "规划"
+      ]
+    },
+    {
+      "dimension": "workType",
+      "id": "aiw:implementation",
+      "description": "workType classification: implementation",
+      "aliases": [
+        "implementation",
+        "实现",
+        "实施"
+      ]
+    },
+    {
+      "dimension": "workType",
+      "id": "aiw:verification",
+      "description": "workType classification: verification",
+      "aliases": [
+        "verification",
+        "验证",
+        "测试"
+      ]
+    },
+    {
+      "dimension": "workType",
+      "id": "aiw:review",
+      "description": "workType classification: review",
+      "aliases": [
+        "review",
+        "审核",
+        "审查"
+      ]
+    },
+    {
+      "dimension": "workType",
+      "id": "aiw:acceptance",
+      "description": "workType classification: acceptance",
+      "aliases": [
+        "acceptance"
+      ]
+    },
+    {
+      "dimension": "workType",
+      "id": "aiw:adoption",
+      "description": "workType classification: adoption",
+      "aliases": [
+        "adoption",
+        "采用"
+      ]
+    },
+    {
+      "dimension": "workType",
+      "id": "aiw:registration",
+      "description": "workType classification: registration",
+      "aliases": [
+        "registration"
+      ]
+    },
+    {
+      "dimension": "workType",
+      "id": "aiw:release",
+      "description": "workType classification: release",
+      "aliases": [
+        "release"
+      ]
+    },
+    {
+      "dimension": "workType",
+      "id": "aiw:recovery",
+      "description": "workType classification: recovery",
+      "aliases": [
+        "recovery"
+      ]
+    },
+    {
+      "dimension": "workType",
+      "id": "aiw:rule-maintenance",
+      "description": "workType classification: rule-maintenance",
+      "aliases": [
+        "rule-maintenance"
+      ]
+    },
+    {
+      "dimension": "workType",
+      "id": "aiw:knowledge-query",
+      "description": "workType classification: knowledge-query",
+      "aliases": [
+        "knowledge-query"
+      ]
+    },
+    {
+      "dimension": "workType",
+      "id": "aiw:knowledge-maintenance",
+      "description": "workType classification: knowledge-maintenance",
+      "aliases": [
+        "knowledge-maintenance"
+      ]
+    },
+    {
+      "dimension": "workType",
+      "id": "aiw:resource-selection",
+      "description": "workType classification: resource-selection",
+      "aliases": [
+        "resource-selection"
+      ]
+    },
+    {
+      "dimension": "workType",
+      "id": "aiw:task-organization",
+      "description": "workType classification: task-organization",
+      "aliases": [
+        "task-organization"
+      ]
+    },
+    {
+      "dimension": "workType",
+      "id": "aiw:collaboration",
+      "description": "workType classification: collaboration",
+      "aliases": [
+        "collaboration"
+      ]
+    },
+    {
+      "dimension": "workType",
+      "id": "aiw:output-delivery",
+      "description": "workType classification: output-delivery",
+      "aliases": [
+        "output-delivery"
+      ]
+    },
+    {
+      "dimension": "workType",
+      "id": "aiw:closure",
+      "description": "workType classification: closure",
+      "aliases": [
+        "closure"
+      ]
+    },
+    {
+      "dimension": "workType",
+      "id": "aiw:controller-handoff",
+      "description": "workType classification: controller-handoff",
+      "aliases": [
+        "controller-handoff"
+      ]
+    },
+    {
+      "dimension": "workType",
+      "id": "aiw:decision-reconciliation",
+      "description": "workType classification: decision-reconciliation",
+      "aliases": [
+        "decision-reconciliation"
+      ]
+    },
+    {
+      "dimension": "workType",
+      "id": "aiw:tool-operation",
+      "description": "workType classification: tool-operation",
+      "aliases": [
+        "tool-operation"
+      ]
+    },
+    {
+      "dimension": "workType",
+      "id": "aiw:design",
+      "description": "workType classification: design",
+      "aliases": [
+        "design"
+      ]
+    },
+    {
+      "dimension": "workType",
+      "id": "aiw:research",
+      "description": "workType classification: research",
+      "aliases": [
+        "research"
+      ]
+    },
+    {
+      "dimension": "deliverableType",
+      "id": "aiw:plan",
+      "description": "deliverableType classification: plan",
+      "aliases": [
+        "plan"
+      ]
+    },
+    {
+      "dimension": "deliverableType",
+      "id": "aiw:code",
+      "description": "deliverableType classification: code",
+      "aliases": [
+        "code"
+      ]
+    },
+    {
+      "dimension": "deliverableType",
+      "id": "aiw:configuration",
+      "description": "deliverableType classification: configuration",
+      "aliases": [
+        "configuration"
+      ]
+    },
+    {
+      "dimension": "deliverableType",
+      "id": "aiw:test-result",
+      "description": "deliverableType classification: test-result",
+      "aliases": [
+        "test-result"
+      ]
+    },
+    {
+      "dimension": "deliverableType",
+      "id": "aiw:review-verdict",
+      "description": "deliverableType classification: review-verdict",
+      "aliases": [
+        "review-verdict"
+      ]
+    },
+    {
+      "dimension": "deliverableType",
+      "id": "aiw:acceptance-result",
+      "description": "deliverableType classification: acceptance-result",
+      "aliases": [
+        "acceptance-result"
+      ]
+    },
+    {
+      "dimension": "deliverableType",
+      "id": "aiw:report",
+      "description": "deliverableType classification: report",
+      "aliases": [
+        "report"
+      ]
+    },
+    {
+      "dimension": "deliverableType",
+      "id": "aiw:handoff",
+      "description": "deliverableType classification: handoff",
+      "aliases": [
+        "handoff"
+      ]
+    },
+    {
+      "dimension": "deliverableType",
+      "id": "aiw:message",
+      "description": "deliverableType classification: message",
+      "aliases": [
+        "message"
+      ]
+    },
+    {
+      "dimension": "deliverableType",
+      "id": "aiw:rule",
+      "description": "deliverableType classification: rule",
+      "aliases": [
+        "rule"
+      ]
+    },
+    {
+      "dimension": "deliverableType",
+      "id": "aiw:knowledge-entry",
+      "description": "deliverableType classification: knowledge-entry",
+      "aliases": [
+        "knowledge-entry"
+      ]
+    },
+    {
+      "dimension": "deliverableType",
+      "id": "aiw:design",
+      "description": "deliverableType classification: design",
+      "aliases": [
+        "design"
+      ]
+    },
+    {
+      "dimension": "deliverableType",
+      "id": "aiw:release-package",
+      "description": "deliverableType classification: release-package",
+      "aliases": [
+        "release-package"
+      ]
+    },
+    {
+      "dimension": "deliverableType",
+      "id": "aiw:diagnosis",
+      "description": "deliverableType classification: diagnosis",
+      "aliases": [
+        "diagnosis"
+      ]
+    },
+    {
+      "dimension": "stage",
+      "id": "aiw:discovery",
+      "description": "stage classification: discovery",
+      "aliases": [
+        "discovery"
+      ]
+    },
+    {
+      "dimension": "stage",
+      "id": "aiw:discussion",
+      "description": "stage classification: discussion",
+      "aliases": [
+        "discussion"
+      ]
+    },
+    {
+      "dimension": "stage",
+      "id": "aiw:planning",
+      "description": "stage classification: planning",
+      "aliases": [
+        "planning",
+        "计划阶段"
+      ]
+    },
+    {
+      "dimension": "stage",
+      "id": "aiw:implementation",
+      "description": "stage classification: implementation",
+      "aliases": [
+        "implementation",
+        "实施阶段"
+      ]
+    },
+    {
+      "dimension": "stage",
+      "id": "aiw:verification",
+      "description": "stage classification: verification",
+      "aliases": [
+        "verification"
+      ]
+    },
+    {
+      "dimension": "stage",
+      "id": "aiw:review",
+      "description": "stage classification: review",
+      "aliases": [
+        "review",
+        "审核阶段"
+      ]
+    },
+    {
+      "dimension": "stage",
+      "id": "aiw:acceptance",
+      "description": "stage classification: acceptance",
+      "aliases": [
+        "acceptance"
+      ]
+    },
+    {
+      "dimension": "stage",
+      "id": "aiw:adoption",
+      "description": "stage classification: adoption",
+      "aliases": [
+        "adoption"
+      ]
+    },
+    {
+      "dimension": "stage",
+      "id": "aiw:release",
+      "description": "stage classification: release",
+      "aliases": [
+        "release"
+      ]
+    },
+    {
+      "dimension": "stage",
+      "id": "aiw:recovery",
+      "description": "stage classification: recovery",
+      "aliases": [
+        "recovery"
+      ]
+    },
+    {
+      "dimension": "stage",
+      "id": "aiw:closure",
+      "description": "stage classification: closure",
+      "aliases": [
+        "closure"
       ]
     }
   ]

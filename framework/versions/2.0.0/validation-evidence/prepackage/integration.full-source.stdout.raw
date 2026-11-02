@@ -1,0 +1,21 @@
+WARNING: The names of some imported commands from the module 'IntegrationFixture' include unapproved verbs that might make them less discoverable. To find the commands with unapproved verbs, run the Import-Module command again with the Verbose parameter. For a list of approved verbs, type Get-Verb.
+PASS|flow-construction-boundary3-empty-admit
+PASS|flow-construction-boundary3-filled-finalize
+PASS|flow-construction-rejects-boundary2-evidence-combination
+PASS|flow-construction-rejects-evidence-at-admit
+PASS|flow-construction-rejects-unknown-field
+PASS|flow-owned-source-view-root-consumed
+PASS|maintenance-register-complete-native-JSON-fields-arrays-and-transaction
+PASS|flow-cold-real-registration-complete
+PASS|flow-real-root-action-checker
+PASS|flow-discover-current-task-and-target-root
+PASS|flow-source-admit-before-product
+PASS|flow-real-finite-product-native-complete
+PASS|flow-real-write-finalize-next-discover-admit
+PASS|flow-source-finalize-real-postimage
+PASS|flow-next-test-checker-and-admit-consume-source-finalize
+PASS|flow-real-test-product-reader-preserves-bytes
+PASS|flow-test-finalize-after-real-native-consumer
+PASS|flow-later-root-consumer-current-binding
+FIXTURE_CLEAN|integration-private-root
+RESULT|18/18 passed|scope=Framework-2.0.0-flow|

@@ -74,6 +74,7 @@ try {
     $expectedSidecars = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     $expectedOwners = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     $requirements = @()
+    $facetVocabulary = @()
     $ids = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     foreach ($entry in @($manifest.requirementFragments)) {
         Assert-ExactFields $entry @('ownerModule','sidecar') 'REQUIREMENT_FRAGMENT_ENTRY'
@@ -83,8 +84,9 @@ try {
         if (-not (Test-Path -LiteralPath $ownerPath -PathType Leaf)) { throw ('REQUIREMENT_OWNER_MODULE_MISSING|' + $owner) }
         $ownerText = Read-StrictText $ownerPath
         $fragment = Read-StrictJson (Join-Path $root $sidecar)
-        Assert-ExactFields $fragment @('schemaVersion','frameworkVersion','ownerModule','requirements') 'REQUIREMENT_FRAGMENT'
-        if ([int]$fragment.schemaVersion -ne 2 -or [string]$fragment.frameworkVersion -cne '2.0.0' -or [string]$fragment.ownerModule -cne $owner -or -not ($fragment.requirements -is [Array])) { throw 'REQUIREMENT_FRAGMENT_VALUES' }
+        Assert-ExactFields $fragment @('schemaVersion','frameworkVersion','ownerModule','facetVocabulary','requirements') 'REQUIREMENT_FRAGMENT'
+        if ([int]$fragment.schemaVersion -ne 3 -or [string]$fragment.frameworkVersion -cne '2.0.0' -or [string]$fragment.ownerModule -cne $owner -or -not ($fragment.requirements -is [Array])-or$fragment.facetVocabulary-isnot[Array]) { throw 'REQUIREMENT_FRAGMENT_VALUES' }
+        $facetVocabulary+=@($fragment.facetVocabulary)
         $ownerIds = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
         foreach ($rule in @($fragment.requirements)) {
             Assert-ExactFields $rule @('requirementId','legacyAliases','title','description','selectors','exactBlockLocator','preparationRequirements','resultRequirements') 'REQUIREMENT_RULE'
@@ -106,6 +108,7 @@ try {
             Assert-StringArray $rule.preparationRequirements 'REQUIREMENT_PREPARATION'
             Assert-StringArray $rule.resultRequirements 'REQUIREMENT_RESULT'
             & $compositionModule { param($selectors) Assert-AiwSelectorContract $selectors 'REQUIREMENT_SELECTORS' } $rule.selectors
+            if($null-eq$rule.selectors.PSObject.Properties['facets']){throw 'REQUIREMENT_FACETS_REQUIRED'}
             $requirements += [ordered]@{
                 requirementId = [string]$rule.requirementId
                 legacyAliases = @($rule.legacyAliases)
@@ -134,12 +137,37 @@ try {
     if ([string]::Join("`n", (Get-OrdinalSortedStrings @($expectedSidecars))) -cne [string]::Join("`n", $actualSidecars)) { throw 'REQUIREMENT_FRAGMENT_ORPHAN_OR_MISSING' }
     $requirementsById=@{};foreach($item in $requirements){$requirementsById[[string]$item.requirementId]=$item}
     $orderedRequirements=@();foreach($id in (Get-OrdinalSortedStrings @($requirementsById.Keys))){$orderedRequirements+=$requirementsById[$id]}
-    $projection = [ordered]@{schemaVersion=2;frameworkVersion='2.0.0';catalogVersion='3';requirements=@($orderedRequirements)}
+    $vocabulary=& $compositionModule {param($entries) Get-AiwFacetVocabulary -NativeVocabulary $entries} $facetVocabulary
+    foreach($rule in $orderedRequirements){& $compositionModule {param($facets,$vocabulary) Assert-AiwFacetSelector -Facets $facets -Vocabulary $vocabulary} $rule.selectors.facets $vocabulary}
+    $vocabularyByKey=@{};foreach($entry in $facetVocabulary){$vocabularyByKey[$entry.dimension+'|'+$entry.id]=$entry}
+    $orderedVocabulary=@();foreach($key in (Get-OrdinalSortedStrings @($vocabularyByKey.Keys))){$orderedVocabulary+=$vocabularyByKey[$key]}
+    $projection = [ordered]@{schemaVersion=3;frameworkVersion='2.0.0';catalogVersion='4';facetVocabulary=@($orderedVocabulary);requirements=@($orderedRequirements)}
     $text = ($projection | ConvertTo-Json -Depth 100).Replace("`r`n", "`n").Replace("`r", "`n").TrimEnd("`n") + "`n"
     $catalogPath = Join-Path $root 'PROCESS_REQUIREMENTS.json'
     if ($Write) { [IO.File]::WriteAllText($catalogPath, $text, [Text.UTF8Encoding]::new($false)) }
     if ($Check) {
         if (-not (Test-Path -LiteralPath $catalogPath -PathType Leaf) -or [IO.File]::ReadAllText($catalogPath, $utf8) -cne $text) { throw 'PROCESS_REQUIREMENTS_PROJECTION_DRIFT' }
+    }
+
+    if($Check){
+        $budget=Read-StrictJson (Join-Path $root 'tests/PROCESS_REQUIREMENTS_BUDGETS.json')
+        $bytes=[IO.File]::ReadAllBytes($catalogPath)
+        $identity=$bytes.Length.ToString()+'|'+[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes))
+        if($budget.candidate.catalogIdentity-cne$identity){throw 'PROCESS_REQUIREMENTS_CANDIDATE_REFERENCE_DRIFT'}
+        $fixtureBytes=[IO.File]::ReadAllBytes((Join-Path $root 'tests/PROCESS_REQUIREMENTS_FIXTURES.json'))
+        $fixtureRef=$fixtureBytes.Length.ToString()+'|'+[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($fixtureBytes))
+        if($budget.candidate.fixtureContractIdentity-cne$fixtureRef-or$budget.candidate.discoverInputVersion-ne5-or$budget.candidate.compactReceiptVersion-ne4){throw 'PROCESS_REQUIREMENTS_FIXTURE_REFERENCE_DRIFT'}
+        $harnessBytes=[IO.File]::ReadAllBytes((Join-Path $root 'tests/measure-process-requirements.ps1'))
+        $harnessRef=$harnessBytes.Length.ToString()+'|'+[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($harnessBytes))
+        if($budget.candidate.measurementHarnessIdentity-cne$harnessRef){throw 'PROCESS_REQUIREMENTS_MEASUREMENT_REFERENCE_DRIFT'}
+        $fixtures=Read-StrictJson (Join-Path $root 'tests/PROCESS_REQUIREMENTS_FIXTURES.json')
+        $seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        foreach($fixture in $fixtures.fixtures){
+            if(-not$seen.Add($fixture.fixtureId)){throw 'PROCESS_REQUIREMENTS_FIXTURE_DUPLICATE'}
+            $ordered=[ordered]@{};foreach($property in $fixture.PSObject.Properties){if($property.Name-cne'fixtureIdentity'){$ordered[$property.Name]=$property.Value}}
+            $expected=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($utf8.GetBytes(($ordered|ConvertTo-Json -Depth 100 -Compress))))
+            if($fixture.fixtureIdentity-cne$expected-or$fixture.discoverInputVersion-ne5-or$fixture.compactVersion-ne4){throw 'PROCESS_REQUIREMENTS_FIXTURE_REFERENCE_DRIFT'}
+        }
     }
     Write-Output ('PASS|requirements=' + $requirements.Count + '|fragments=' + $expectedSidecars.Count)
 } catch {

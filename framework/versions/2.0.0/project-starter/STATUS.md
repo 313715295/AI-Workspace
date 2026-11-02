@@ -1,27 +1,24 @@
 # {{DISPLAY_NAME}} — current status
 
-> 初始化于 {{CREATED_DATE}}。本文件只提供 current routing；recovery 仍需校验 Git top、schema4 config、controller object、task card 与实际 repository state。
+> 初始化于 {{CREATED_DATE}}。本文件提供项目与当前任务导航；实际恢复按已采用入口核对当前配置、Controller、任务及动作所需事实。
 
 ## Baseline
 
 - Project ID：`{{PROJECT_ID}}`
-- Control plane：`repo-local`，repository root `..`
+- Control plane：`{{CONTROL_PLANE_LAYOUT}}`；实际根与布局读取 [项目配置](project.json)
 - Pinned Framework：`{{FRAMEWORK_VERSION}}`
-- Controller：读取 `.ai-workspace/controller.json`
-- Routine excluded paths：读取 `.ai-workspace/project.json`
-- Optional capabilities：`DISABLED`（`frameworkCapabilities={}`）
-- Project corrections：`.ai-workspace/corrections.json / recovery 与 pin adoption 前后评估`
-- Process budget：`.ai-workspace/process-policy.json.selectedRulePackBytes`
-- Initialization result：`CONTROL_PLANE_READY`；未从用户资料确认的项目事实不由模板代填
+- Controller：读取 [当前责任](controller.json)
+- Routine excluded paths / optional capabilities：读取 [项目配置](project.json)，不在此复制可变状态
+- Project corrections：[项目纠正](corrections.json)
+- Adopted standards / selectors：[项目规则](process-policy.json)
+- Initialization result：`CONTROL_PLANE_READY`；仅表示基础控制面完成，原有要求承接、宿主加载与业务验证按接入任务报告
 
 ## Current work
 
-- Current phase：等待用户任务；按任务需要读取用户已指定的项目资料，不要求先补齐通用模板。
 - Current task：none。
-- Current writer/reviewer：`NONE / NONE`
-- HEAD/index/source state：`UNVERIFIED`
-- Git/push/external：分别授权前保持 closed。
+- 当前角色、阶段、writer/reviewer 及下一动作读取实际任务卡；其他工作见 [任务索引](tasks/README.md)。
+- Git/push/external 按实际动作分别授权；普通项目工作不以 Git 为前提。
 
 ## Next action
 
-首次实际任务从本 `BOOTSTRAP.md` 执行 FULL_COLD recovery。AI 优先复用用户给出的产品、架构、质量或标准文档；只对当前任务确实缺失且会改变结果的事实集中询问一次。规范性标准需要时由 AI 写入 process-policy 的显式来源绑定；用户不必手写机器 JSON。
+按已采用的共享入口从 [BOOTSTRAP](BOOTSTRAP.md) 恢复实际任务，健康续作复用仍有效内容。优先复用用户已指定的要求、设计、质量标准和研究资料；资料读取、规范采用与任务命中分别核对。可选标准和知识引用仅在项目明确选择时采用，未选择知识引用不妨碍读取普通研究资料。基础注册不替代接入任务中尚未完成的要求承接。

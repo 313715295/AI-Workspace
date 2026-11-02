@@ -69,9 +69,31 @@ function Assert-AiwNoReparse([string]$Path,[string]$Label) {
 function Get-AiwGitTop([string]$Path,[string]$Label) {
     foreach($name in @('GIT_DIR','GIT_WORK_TREE','GIT_COMMON_DIR')){if(-not[string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($name,'Process'))){throw ('GIT_ENVIRONMENT_OVERRIDE_'+$name)}}
     Assert-AiwNoReparse $Path $Label
-    $output=@(& git -C $Path rev-parse --show-toplevel 2>$null)
-    if($LASTEXITCODE-ne0-or$output.Count-ne1){throw "${Label}_GIT_TOP_UNAVAILABLE"}
-    $top=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath([string]$output[0]))
+    # Git writes UTF-8 independently of the caller's console code page.
+    # Drain both native streams before decoding so an error cannot fill a pipe.
+    $process=[Diagnostics.Process]::new();$stdout=[IO.MemoryStream]::new()
+    try {
+        $start=[Diagnostics.ProcessStartInfo]::new()
+        $start.FileName=(Get-Command git -CommandType Application -ErrorAction Stop).Source
+        $start.UseShellExecute=$false;$start.CreateNoWindow=$true
+        $start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
+        foreach($argument in @('-C',$Path,'rev-parse','--show-toplevel')){$start.ArgumentList.Add($argument)}
+        $process.StartInfo=$start
+        if(-not$process.Start()){throw "${Label}_GIT_TOP_UNAVAILABLE"}
+        $stdoutRead=$process.StandardOutput.BaseStream.CopyToAsync($stdout)
+        $stderrRead=$process.StandardError.BaseStream.CopyToAsync([IO.Stream]::Null)
+        $process.WaitForExit()
+        $null=$stdoutRead.GetAwaiter().GetResult();$null=$stderrRead.GetAwaiter().GetResult()
+        $exitCode=$process.ExitCode
+        $text=$script:Utf8Strict.GetString($stdout.ToArray())
+    } catch {throw "${Label}_GIT_TOP_UNAVAILABLE"}
+    finally {$stdout.Dispose();$process.Dispose()}
+    $reader=[IO.StringReader]::new($text)
+    try {
+        $line=$reader.ReadLine()
+        if($exitCode-ne0-or$null-eq$line-or$null-ne$reader.ReadLine()){throw "${Label}_GIT_TOP_UNAVAILABLE"}
+    } finally {$reader.Dispose()}
+    $top=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($line))
     $resolved=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Resolve-Path -LiteralPath $Path).ProviderPath))
     if($top-cne$resolved){throw "${Label}_NOT_GIT_TOP"}
     Assert-AiwNoReparse $top $Label
@@ -99,7 +121,7 @@ function New-AiwMaintenanceProjectConfig {
         [Parameter(Mandatory=$true)][string]$ProjectId,
         [Parameter(Mandatory=$true)][string]$DisplayName,
         [Parameter(Mandatory=$true)][string]$FrameworkVersion,
-        [ValidateSet(4,5)][int]$ProjectSchemaVersion=4,
+        [ValidateSet(4,5,6,7)][int]$ProjectSchemaVersion=4,
         [Parameter(Mandatory=$true)][string]$TargetRepositoryId,
         [Parameter(Mandatory=$true)][string]$TargetSiblingDirectory,
         [string[]]$ControlRoutineExcludedPaths=@(),
@@ -111,6 +133,7 @@ function New-AiwMaintenanceProjectConfig {
     $controlPaths=@(ConvertTo-AiwRoutinePaths $ControlRoutineExcludedPaths 'CONTROL_ROUTINE_PATH')
     $targetPaths=@(ConvertTo-AiwRoutinePaths $TargetRoutineExcludedPaths 'TARGET_ROUTINE_PATH')
     $config=[ordered]@{schemaVersion=$ProjectSchemaVersion;id=$ProjectId;displayName=$DisplayName;controlPlaneLayout='framework-maintenance-sibling';repositoryRoot='..';frameworkVersion=$FrameworkVersion;frameworkToolBackend='powershell7';routineExcludedPaths=$controlPaths;frameworkCapabilities=[ordered]@{};processPolicy=[ordered]@{schemaVersion=1;locator='.ai-workspace/process-policy.json'};frameworkTarget=[ordered]@{repositoryId=$TargetRepositoryId;siblingDirectory=$sibling;routineExcludedPaths=$targetPaths}}
+    if($ProjectSchemaVersion-in@(6,7)){$config.sourceBindings=@();$config.processPolicy.schemaVersion=$(if($ProjectSchemaVersion-eq7){3}else{2})}
     return (($config|ConvertTo-Json -Depth 20)+"`n")
 }
 

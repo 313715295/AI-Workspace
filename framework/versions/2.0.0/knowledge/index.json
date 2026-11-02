@@ -126,6 +126,121 @@
         "owner": "Framework content maintainers",
         "locator": "knowledge/README.md"
       }
+    },
+    {
+      "id": "ARTIFACT_CLASSIFICATION",
+      "kind": "METHOD",
+      "state": "CURRENT",
+      "title": "产物分类：用途、形式与效力",
+      "summary": "同PNG异用途、同一要求多种表示、混合文档与交付集合；分类不等于规范采用。",
+      "tags": [
+        "cross-domain",
+        "classification",
+        "用途",
+        "产物分类",
+        "workType:aiw:design",
+        "workType:aiw:planning"
+      ],
+      "locator": "knowledge/cross-domain/ARTIFACT_CLASSIFICATION.md",
+      "identity": "6894|85F8D33D4C33CB3CCC9B86D4DB2CA67C321E4BC95C9332AA558C10E7F6ADA21C",
+      "verifiedAt": "2026-10-01T23:51:27Z",
+      "invalidatesOn": [
+        "REFERENCE_IDENTITY_CHANGE",
+        "CONTENT_VERSION_CHANGE"
+      ],
+      "tokenEstimate": 1724,
+      "originalSources": [],
+      "applicability": [
+        "因形式或同名术语误选质量要求",
+        "混合文档与交付集合需要保留语义、责任和关系"
+      ],
+      "contentVersion": "1",
+      "maintenance": {
+        "owner": "Framework content maintainers",
+        "locator": "knowledge/README.md"
+      }
+    },
+    {
+      "id": "PROBLEM_DRIVEN_IMPROVEMENT",
+      "kind": "METHOD",
+      "state": "CURRENT",
+      "title": "问题驱动的学习与改进",
+      "summary": "按真实缺口选择学习内容和来源，分清实读、建议与效果，应用对应验证并维护下次入口。",
+      "tags": [
+        "cross-domain",
+        "learning",
+        "学习",
+        "失败复盘",
+        "workType:aiw:research",
+        "workType:aiw:verification",
+        "workType:aiw:knowledge-maintenance"
+      ],
+      "locator": "knowledge/cross-domain/PROBLEM_DRIVEN_IMPROVEMENT.md",
+      "identity": "13090|20AC396D3D9454C8A93063AF414E6DE9A23E163DAAA5122F3285816FEC8A0B0B",
+      "verifiedAt": "2026-10-01T23:51:27Z",
+      "invalidatesOn": [
+        "REFERENCE_IDENTITY_CHANGE",
+        "CONTENT_VERSION_CHANGE"
+      ],
+      "tokenEstimate": 3273,
+      "originalSources": [],
+      "applicability": [
+        "真实失败、专业不确定性或基础知识不足",
+        "需要核实来源冲突、验证效果并有条件沉淀；已有知识充分可直接应用"
+      ],
+      "contentVersion": "1",
+      "maintenance": {
+        "owner": "Framework content maintainers",
+        "locator": "knowledge/README.md"
+      }
+    },
+    {
+      "id": "BEHAVIOR_SPEC_CHANGE",
+      "kind": "METHOD",
+      "state": "CURRENT",
+      "title": "软件行为规格与变更",
+      "summary": "保留完整条件、例外及并发基线，表达真实增量、可观察场景和维护接点。",
+      "tags": [
+        "software",
+        "behavior",
+        "specification",
+        "change",
+        "domain:aiw:software",
+        "workType:aiw:design",
+        "workType:aiw:implementation",
+        "workType:aiw:verification"
+      ],
+      "locator": "knowledge/software/BEHAVIOR_SPEC_CHANGE.md",
+      "identity": "9073|F0FE4CD8FF2CE8E5F83B38D85B7EE8886A3AD11BFF9FE8CC51C9D7A5C101FD8F",
+      "verifiedAt": "2026-10-02T12:02:10Z",
+      "invalidatesOn": [
+        "REFERENCE_IDENTITY_CHANGE",
+        "CONTENT_VERSION_CHANGE"
+      ],
+      "tokenEstimate": 2269,
+      "originalSources": [
+        {
+          "title": "OpenSpec concepts at fixed commit 9d4e597",
+          "url": "https://github.com/Fission-AI/OpenSpec/blob/9d4e5974e5c0d9a09b9c6c1e1eb0975e80ec4461/docs/concepts.md",
+          "accessedAt": "2026-10-02T12:02:10Z",
+          "licenseNotice": "独立整理并链接固定原始材料；原资料版权归原权利人，未复制完整Skill、模板或工具链，不推定转载许可。"
+        },
+        {
+          "title": "OpenSpec spec-driven schema at fixed commit 9d4e597",
+          "url": "https://github.com/Fission-AI/OpenSpec/blob/9d4e5974e5c0d9a09b9c6c1e1eb0975e80ec4461/schemas/spec-driven/schema.yaml",
+          "accessedAt": "2026-10-02T12:02:10Z",
+          "licenseNotice": "独立整理并链接固定原始材料；原资料版权归原权利人，未复制完整Skill、模板或工具链，不推定转载许可。"
+        }
+      ],
+      "applicability": [
+        "软件输入、输出、错误语义、条件、例外或兼容承诺发生变化",
+        "需要表达完整规格增量、可观察场景、并发基线及维护责任；可沿用项目原载体"
+      ],
+      "contentVersion": "1",
+      "maintenance": {
+        "owner": "Framework content maintainers",
+        "locator": "knowledge/README.md"
+      }
     }
   ]
 }

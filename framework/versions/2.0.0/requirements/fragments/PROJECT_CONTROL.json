@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "frameworkVersion": "2.0.0",
   "ownerModule": "PROJECT_CONTROL.md",
   "requirements": [
@@ -7,7 +7,7 @@
       "requirementId": "PR_PROJECT_REGISTRATION_EXPLICIT_VERSION",
       "legacyAliases": [],
       "title": "Explicit project registration",
-      "description": "Register only an explicit sealed version and exact Controller into a safe destination.",
+      "description": "Register an explicitly adopted qualified source into a safe project, preserving original human authority and finite first work.",
       "selectors": {
         "profiles": [
           "STANDARD",
@@ -34,7 +34,17 @@
           "register",
           "registration",
           "new project"
-        ]
+        ],
+        "facets": {
+          "stage": [
+            "aiw:planning",
+            "aiw:adoption",
+            "aiw:verification"
+          ],
+          "workType": [
+            "aiw:registration"
+          ]
+        }
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_PROJECT_REGISTRATION_EXPLICIT_VERSION",
       "preparationRequirements": [
@@ -49,7 +59,7 @@
       "requirementId": "PR_PROJECT_UPGRADE_ACTOR_BOUND",
       "legacyAliases": [],
       "title": "Actor-bound project upgrade",
-      "description": "Upgrade a project only from an exact actor-bound pre/post image plan and promoted recovery boundary.",
+      "description": "Carry exact original and target sources, obligations, admission, projections and recovery through project adoption.",
       "selectors": {
         "profiles": [
           "CRITICAL"
@@ -79,7 +89,17 @@
           "migration",
           "pin"
         ],
-        "semanticMatch": "TOKEN"
+        "semanticMatch": "TOKEN",
+        "facets": {
+          "stage": [
+            "aiw:planning",
+            "aiw:adoption",
+            "aiw:verification"
+          ],
+          "workType": [
+            "aiw:adoption"
+          ]
+        }
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_PROJECT_UPGRADE_ACTOR_BOUND",
       "preparationRequirements": [
@@ -94,8 +114,8 @@
     {
       "requirementId": "PR_PROCESS_REQUIREMENTS_THREE_SOURCE_COMPOSITION",
       "legacyAliases": [],
-      "title": "Three-source process composition",
-      "description": "Compose sealed Framework rules, effective corrections and permanent project policy without merging authority.",
+      "title": "Three-source normative composition",
+      "description": "Validate the full effective set, current permission and complete ordered normative units before selection.",
       "selectors": {
         "profiles": [
           "*"
@@ -135,7 +155,19 @@
           "项目纠正",
           "项目策略"
         ],
-        "semanticMatch": "TOKEN"
+        "semanticMatch": "TOKEN",
+        "facets": {
+          "domain": [
+            "aiw:governance"
+          ],
+          "workType": [
+            "aiw:rule-maintenance",
+            "aiw:adoption",
+            "aiw:registration",
+            "aiw:recovery",
+            "aiw:implementation"
+          ]
+        }
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_PROCESS_REQUIREMENTS_THREE_SOURCE_COMPOSITION",
       "preparationRequirements": [
@@ -143,51 +175,6 @@
       ],
       "resultRequirements": [
         "SOURCE_COMPOSITION_IDENTITY_REPORTED"
-      ]
-    },
-    {
-      "requirementId": "PR_TOOL_CONTRACT_BACKEND",
-      "legacyAliases": [],
-      "title": "Tool Contract backend",
-      "description": "Resolve language-independent operations through the project-selected sealed backend.",
-      "selectors": {
-        "profiles": [
-          "*"
-        ],
-        "roles": [
-          "*"
-        ],
-        "phases": [
-          "RECOVER",
-          "DISCOVER",
-          "PLAN",
-          "IMPLEMENT",
-          "VERIFY",
-          "REVIEW",
-          "GIT",
-          "EXTERNAL"
-        ],
-        "actionKinds": [
-          "*"
-        ],
-        "resultKinds": [
-          "*"
-        ],
-        "pathPrefixes": [],
-        "capabilities": [],
-        "semanticTerms": [
-          "toolchain",
-          "backend",
-          "operation",
-          "runtime"
-        ]
-      },
-      "exactBlockLocator": "AIW-REQUIREMENT:PR_TOOL_CONTRACT_BACKEND",
-      "preparationRequirements": [
-        "TOOL_CONTRACT_BOUND"
-      ],
-      "resultRequirements": [
-        "BACKEND_OPERATION_RESOLVED"
       ]
     },
     {
@@ -227,7 +214,12 @@
           "主控切换",
           "主控移交"
         ],
-        "semanticMatch": "TOKEN"
+        "semanticMatch": "TOKEN",
+        "facets": {
+          "workType": [
+            "aiw:controller-handoff"
+          ]
+        }
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_CONTROLLER_HANDOFF_DIRECTIONAL",
       "preparationRequirements": [
@@ -273,7 +265,16 @@
           "knowledge maintenance",
           "知识查询",
           "知识维护"
-        ]
+        ],
+        "facets": {
+          "domain": [
+            "aiw:knowledge"
+          ],
+          "workType": [
+            "aiw:knowledge-query",
+            "aiw:knowledge-maintenance"
+          ]
+        }
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_KNOWLEDGE_REFERENCE_LIFECYCLE",
       "preparationRequirements": [
@@ -286,8 +287,8 @@
     {
       "requirementId": "PR_OWNER_FIRST_DIRECT_DOMAIN_ROUTE",
       "legacyAliases": [],
-      "title": "Owner-first direct domain route",
-      "description": "Let the current Domain Owner route unchanged domain work directly and escalate only real Controller boundaries.",
+      "title": "Direct finite outcome responsibility",
+      "description": "Route domain results to their finite outcome owner and recover genuine inflight transitions.",
       "selectors": {
         "profiles": [
           "*"
@@ -331,7 +332,8 @@
             "REVIEW_VERDICT",
             "RESULT_ACCEPTANCE"
           ]
-        }
+        },
+        "facets": {}
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_OWNER_FIRST_DIRECT_DOMAIN_ROUTE",
       "preparationRequirements": [
@@ -344,8 +346,8 @@
     {
       "requirementId": "PR_CORRECTIONS_V2_COMPATIBILITY",
       "legacyAliases": [],
-      "title": "Project correction daily lifecycle and history",
-      "description": "Install, revise, pause, resume and uninstall project-owned effects with complete history, independently of a Framework upgrade.",
+      "title": "Project correction lifecycle and history",
+      "description": "Maintain project-owned correction effects and complete original history through the existing exact lifecycle transaction.",
       "selectors": {
         "profiles": [
           "*"
@@ -374,7 +376,14 @@
           "纠正生命周期",
           "规则修订"
         ],
-        "semanticMatch": "TOKEN"
+        "semanticMatch": "TOKEN",
+        "facets": {
+          "workType": [
+            "aiw:rule-maintenance",
+            "aiw:adoption",
+            "aiw:registration"
+          ]
+        }
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_CORRECTIONS_V2_COMPATIBILITY",
       "preparationRequirements": [
@@ -387,8 +396,8 @@
     {
       "requirementId": "PR_CORRECTION_ADOPTION_ANALYSIS",
       "legacyAliases": [],
-      "title": "Local correction analysis during adoption",
-      "description": "Project-owned semantic analysis and exact migration preserve guarantees when native behavior changes; no central project-ID mapping.",
+      "title": "Correction adoption analysis",
+      "description": "Distinguish full, partial, conflicting and unknown adoption without suppressing project authority.",
       "selectors": {
         "profiles": [
           "*"
@@ -416,7 +425,13 @@
           "采用",
           "迁移",
           "降级"
-        ]
+        ],
+        "facets": {
+          "workType": [
+            "aiw:adoption",
+            "aiw:registration"
+          ]
+        }
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_CORRECTION_ADOPTION_ANALYSIS",
       "preparationRequirements": [
@@ -426,5 +441,6 @@
         "CORRECTION_EFFECTIVE_SET_REPORTED"
       ]
     }
-  ]
+  ],
+  "facetVocabulary": []
 }

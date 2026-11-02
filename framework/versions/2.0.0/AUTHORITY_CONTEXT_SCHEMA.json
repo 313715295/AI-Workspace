@@ -1,41 +1,777 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://ai-workspace.local/framework/2.0.0/authority-context.schema.json",
-  "title": "AI Workspace ephemeral AuthorityContext",
-  "type": "object",
-  "additionalProperties": false,
-  "required": [
-    "schemaVersion", "projectId", "projectRoot", "repositoryGitTop",
-    "frameworkVersion", "frameworkSealIdentity", "controllerIdentity", "taskIdentity",
-    "taskActor", "actor", "role", "phase", "profile", "exactScope", "forbiddenScope",
-    "protectedScope", "authorizationIdentity", "authorizedActions", "observedCapabilities", "projectConfigIdentity",
-    "correctionsIdentity", "policyIdentity", "userDecision", "recoveryState", "hostEnforcementGrade"
-  ],
-  "properties": {
-    "schemaVersion": {"const": 1},
-    "projectId": {"type": "string", "minLength": 1},
-    "projectRoot": {"type": "string", "minLength": 1},
-    "repositoryGitTop": {"type": "string", "minLength": 1},
-    "frameworkVersion": {"const": "2.0.0"},
-    "frameworkSealIdentity": {"type": "string", "minLength": 1},
-    "controllerIdentity": {"type": "string", "pattern": "^(MISSING|[0-9]+\\|[A-F0-9]{64})$"},
-    "taskIdentity": {"type": "string", "pattern": "^[0-9]+\\|[A-F0-9]{64}$"},
-    "taskActor": {"type": "string", "minLength": 1},
-    "actor": {"type": "string", "minLength": 1},
-    "role": {"enum": ["CONTROLLER", "TASK_OWNER", "EXECUTOR", "REVIEWER", "FRAMEWORK_MAINTAINER"]},
-    "phase": {"enum": ["DISCOVER", "PLAN", "IMPLEMENT", "VERIFY", "REVIEW", "GIT", "EXTERNAL", "RECOVER"]},
-    "profile": {"enum": ["MICRO", "STANDARD", "CRITICAL"]},
-    "exactScope": {"type": "array", "maxItems": 256, "items": {"type": "string", "maxLength": 512}},
-    "forbiddenScope": {"type": "array", "maxItems": 256, "items": {"type": "string", "maxLength": 512}},
-    "protectedScope": {"type": "array", "maxItems": 256, "items": {"type": "string", "maxLength": 512}},
-    "authorizationIdentity": {"type": "string", "pattern": "^(NOT_REQUIRED|[0-9]+\\|[A-F0-9]{64})$"},
-    "authorizedActions": {"type": "array", "maxItems": 16, "uniqueItems": true, "items": {"type": "string", "maxLength": 64}},
-    "observedCapabilities": {"type": "array", "maxItems": 32, "uniqueItems": true, "items": {"type": "string", "maxLength": 128}},
-    "projectConfigIdentity": {"type": "string", "pattern": "^[0-9]+\\|[A-F0-9]{64}$"},
-    "correctionsIdentity": {"type": "string", "pattern": "^(MISSING|[0-9]+\\|[A-F0-9]{64})$"},
-    "policyIdentity": {"type": "string", "pattern": "^(MISSING|[0-9]+\\|[A-F0-9]{64})$"},
-    "userDecision": {"type": "string", "minLength": 1},
-    "recoveryState": {"enum": ["FULL_COLD", "WARM", "CURRENT", "UNKNOWN"]},
-    "hostEnforcementGrade": {"enum": ["HOST_ENFORCED", "FRAMEWORK_GATED", "INSTRUCTION_BOUND"]}
-  }
+  "title": "AuthorityContext strict1/2 historical and3 control/object context",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "projectId",
+        "projectRoot",
+        "repositoryGitTop",
+        "frameworkVersion",
+        "frameworkSealIdentity",
+        "controllerIdentity",
+        "taskIdentity",
+        "taskActor",
+        "actor",
+        "role",
+        "phase",
+        "profile",
+        "exactScope",
+        "forbiddenScope",
+        "protectedScope",
+        "authorizationIdentity",
+        "authorizedActions",
+        "observedCapabilities",
+        "projectConfigIdentity",
+        "correctionsIdentity",
+        "policyIdentity",
+        "userDecision",
+        "recoveryState",
+        "hostEnforcementGrade"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "projectId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "projectRoot": {
+          "type": "string",
+          "minLength": 1
+        },
+        "repositoryGitTop": {
+          "type": "string",
+          "minLength": 1
+        },
+        "frameworkVersion": {
+          "const": "2.0.0"
+        },
+        "frameworkSealIdentity": {
+          "type": "string",
+          "minLength": 1
+        },
+        "controllerIdentity": {
+          "type": "string",
+          "pattern": "^(MISSING|[0-9]+\\|[A-F0-9]{64})$"
+        },
+        "taskIdentity": {
+          "type": "string",
+          "pattern": "^[0-9]+\\|[A-F0-9]{64}$"
+        },
+        "taskActor": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actor": {
+          "type": "string",
+          "minLength": 1
+        },
+        "role": {
+          "enum": [
+            "CONTROLLER",
+            "TASK_OWNER",
+            "EXECUTOR",
+            "REVIEWER",
+            "FRAMEWORK_MAINTAINER"
+          ]
+        },
+        "phase": {
+          "enum": [
+            "DISCOVER",
+            "PLAN",
+            "IMPLEMENT",
+            "VERIFY",
+            "REVIEW",
+            "GIT",
+            "EXTERNAL",
+            "RECOVER"
+          ]
+        },
+        "profile": {
+          "enum": [
+            "MICRO",
+            "STANDARD",
+            "CRITICAL"
+          ]
+        },
+        "exactScope": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 512
+          }
+        },
+        "forbiddenScope": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 512
+          }
+        },
+        "protectedScope": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 512
+          }
+        },
+        "authorizationIdentity": {
+          "type": "string",
+          "pattern": "^(NOT_REQUIRED|[0-9]+\\|[A-F0-9]{64})$"
+        },
+        "authorizedActions": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "observedCapabilities": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "maxLength": 128
+          }
+        },
+        "projectConfigIdentity": {
+          "type": "string",
+          "pattern": "^[0-9]+\\|[A-F0-9]{64}$"
+        },
+        "correctionsIdentity": {
+          "type": "string",
+          "pattern": "^(MISSING|[0-9]+\\|[A-F0-9]{64})$"
+        },
+        "policyIdentity": {
+          "type": "string",
+          "pattern": "^(MISSING|[0-9]+\\|[A-F0-9]{64})$"
+        },
+        "userDecision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "recoveryState": {
+          "enum": [
+            "FULL_COLD",
+            "WARM",
+            "CURRENT",
+            "UNKNOWN"
+          ]
+        },
+        "hostEnforcementGrade": {
+          "enum": [
+            "HOST_ENFORCED",
+            "FRAMEWORK_GATED",
+            "INSTRUCTION_BOUND"
+          ]
+        },
+        "continuationReceiptPath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "continuationReceiptIdentity": {
+          "type": "string",
+          "minLength": 1
+        },
+        "continuationStepIndex": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "dependentRequired": {
+        "continuationReceiptPath": [
+          "continuationReceiptIdentity",
+          "continuationStepIndex"
+        ],
+        "continuationReceiptIdentity": [
+          "continuationReceiptPath",
+          "continuationStepIndex"
+        ],
+        "continuationStepIndex": [
+          "continuationReceiptPath",
+          "continuationReceiptIdentity"
+        ]
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "projectId",
+        "projectRoot",
+        "repositoryGitTop",
+        "frameworkVersion",
+        "frameworkSealIdentity",
+        "controllerIdentity",
+        "taskIdentity",
+        "taskActor",
+        "actor",
+        "role",
+        "phase",
+        "profile",
+        "exactScope",
+        "forbiddenScope",
+        "protectedScope",
+        "authorizationIdentity",
+        "authorizedActions",
+        "observedCapabilities",
+        "projectConfigIdentity",
+        "correctionsIdentity",
+        "policyIdentity",
+        "userDecision",
+        "recoveryState",
+        "hostEnforcementGrade",
+        "contextType",
+        "contextLocator",
+        "taskId",
+        "taskOwner"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 2
+        },
+        "projectId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "projectRoot": {
+          "type": "string",
+          "minLength": 1
+        },
+        "repositoryGitTop": {
+          "type": "string",
+          "minLength": 1
+        },
+        "frameworkVersion": {
+          "const": "2.0.0"
+        },
+        "frameworkSealIdentity": {
+          "type": "string",
+          "minLength": 1
+        },
+        "controllerIdentity": {
+          "type": "string",
+          "pattern": "^(MISSING|[0-9]+\\|[A-F0-9]{64})$"
+        },
+        "taskIdentity": {
+          "type": "string",
+          "pattern": "^(?:NOT_APPLICABLE|\\d+\\|[A-F0-9]{64})$"
+        },
+        "taskActor": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actor": {
+          "type": "string",
+          "minLength": 1
+        },
+        "role": {
+          "enum": [
+            "CONTROLLER",
+            "TASK_OWNER",
+            "EXECUTOR",
+            "REVIEWER",
+            "FRAMEWORK_MAINTAINER"
+          ]
+        },
+        "phase": {
+          "enum": [
+            "DISCOVER",
+            "PLAN",
+            "IMPLEMENT",
+            "VERIFY",
+            "REVIEW",
+            "GIT",
+            "EXTERNAL",
+            "RECOVER"
+          ]
+        },
+        "profile": {
+          "enum": [
+            "MICRO",
+            "STANDARD",
+            "CRITICAL"
+          ]
+        },
+        "exactScope": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 512
+          }
+        },
+        "forbiddenScope": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 512
+          }
+        },
+        "protectedScope": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 512
+          }
+        },
+        "authorizationIdentity": {
+          "type": "string",
+          "pattern": "^(NOT_REQUIRED|[0-9]+\\|[A-F0-9]{64})$"
+        },
+        "authorizedActions": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "observedCapabilities": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "maxLength": 128
+          }
+        },
+        "projectConfigIdentity": {
+          "type": "string",
+          "pattern": "^[0-9]+\\|[A-F0-9]{64}$"
+        },
+        "correctionsIdentity": {
+          "type": "string",
+          "pattern": "^(MISSING|[0-9]+\\|[A-F0-9]{64})$"
+        },
+        "policyIdentity": {
+          "type": "string",
+          "pattern": "^(MISSING|[0-9]+\\|[A-F0-9]{64})$"
+        },
+        "userDecision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "recoveryState": {
+          "enum": [
+            "FULL_COLD",
+            "WARM",
+            "CURRENT",
+            "UNKNOWN"
+          ]
+        },
+        "hostEnforcementGrade": {
+          "enum": [
+            "HOST_ENFORCED",
+            "FRAMEWORK_GATED",
+            "INSTRUCTION_BOUND"
+          ]
+        },
+        "contextType": {
+          "enum": [
+            "TASK",
+            "PROJECT_READ_ONLY"
+          ]
+        },
+        "contextLocator": {
+          "type": "string",
+          "minLength": 1
+        },
+        "taskId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "taskOwner": {
+          "type": "string",
+          "minLength": 1
+        },
+        "continuationReceiptPath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "continuationReceiptIdentity": {
+          "type": "string",
+          "minLength": 1
+        },
+        "continuationStepIndex": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "dependentRequired": {
+        "continuationReceiptPath": [
+          "continuationReceiptIdentity",
+          "continuationStepIndex"
+        ],
+        "continuationReceiptIdentity": [
+          "continuationReceiptPath",
+          "continuationStepIndex"
+        ],
+        "continuationStepIndex": [
+          "continuationReceiptPath",
+          "continuationReceiptIdentity"
+        ]
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "projectId",
+        "projectRoot",
+        "repositoryGitTop",
+        "frameworkVersion",
+        "frameworkSealIdentity",
+        "controllerIdentity",
+        "taskIdentity",
+        "taskActor",
+        "actor",
+        "role",
+        "phase",
+        "profile",
+        "exactScope",
+        "forbiddenScope",
+        "protectedScope",
+        "authorizationIdentity",
+        "authorizedActions",
+        "observedCapabilities",
+        "projectConfigIdentity",
+        "correctionsIdentity",
+        "policyIdentity",
+        "userDecision",
+        "recoveryState",
+        "hostEnforcementGrade",
+        "contextType",
+        "contextLocator",
+        "taskId",
+        "taskOwner",
+        "controlRoot",
+        "objectRoot",
+        "repositoryId",
+        "executionContext"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 3
+        },
+        "projectId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "projectRoot": {
+          "type": "string",
+          "minLength": 1
+        },
+        "repositoryGitTop": {
+          "type": "string",
+          "minLength": 1
+        },
+        "frameworkVersion": {
+          "const": "2.0.0"
+        },
+        "frameworkSealIdentity": {
+          "type": "string",
+          "minLength": 1
+        },
+        "controllerIdentity": {
+          "type": "string",
+          "pattern": "^(MISSING|[0-9]+\\|[A-F0-9]{64})$"
+        },
+        "taskIdentity": {
+          "type": "string",
+          "pattern": "^(?:NOT_APPLICABLE|\\d+\\|[A-F0-9]{64})$"
+        },
+        "taskActor": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actor": {
+          "type": "string",
+          "minLength": 1
+        },
+        "role": {
+          "enum": [
+            "CONTROLLER",
+            "TASK_OWNER",
+            "EXECUTOR",
+            "REVIEWER",
+            "FRAMEWORK_MAINTAINER"
+          ]
+        },
+        "phase": {
+          "enum": [
+            "DISCOVER",
+            "PLAN",
+            "IMPLEMENT",
+            "VERIFY",
+            "REVIEW",
+            "GIT",
+            "EXTERNAL",
+            "RECOVER"
+          ]
+        },
+        "profile": {
+          "enum": [
+            "MICRO",
+            "STANDARD",
+            "CRITICAL"
+          ]
+        },
+        "exactScope": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 512
+          }
+        },
+        "forbiddenScope": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 512
+          }
+        },
+        "protectedScope": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 512
+          }
+        },
+        "authorizationIdentity": {
+          "type": "string",
+          "pattern": "^(NOT_REQUIRED|[0-9]+\\|[A-F0-9]{64})$"
+        },
+        "authorizedActions": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "observedCapabilities": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "maxLength": 128
+          }
+        },
+        "projectConfigIdentity": {
+          "type": "string",
+          "pattern": "^[0-9]+\\|[A-F0-9]{64}$"
+        },
+        "correctionsIdentity": {
+          "type": "string",
+          "pattern": "^(MISSING|[0-9]+\\|[A-F0-9]{64})$"
+        },
+        "policyIdentity": {
+          "type": "string",
+          "pattern": "^(MISSING|[0-9]+\\|[A-F0-9]{64})$"
+        },
+        "userDecision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "recoveryState": {
+          "enum": [
+            "FULL_COLD",
+            "WARM",
+            "CURRENT",
+            "UNKNOWN"
+          ]
+        },
+        "hostEnforcementGrade": {
+          "enum": [
+            "HOST_ENFORCED",
+            "FRAMEWORK_GATED",
+            "INSTRUCTION_BOUND"
+          ]
+        },
+        "contextType": {
+          "enum": [
+            "TASK",
+            "PROJECT_READ_ONLY"
+          ]
+        },
+        "contextLocator": {
+          "type": "string",
+          "minLength": 1
+        },
+        "taskId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "taskOwner": {
+          "type": "string",
+          "minLength": 1
+        },
+        "continuationReceiptPath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "continuationReceiptIdentity": {
+          "type": "string",
+          "minLength": 1
+        },
+        "continuationStepIndex": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "controlRoot": {
+          "type": "string",
+          "pattern": "^(?:[A-Za-z]:[\\\\/]|/).+"
+        },
+        "objectRoot": {
+          "type": "string",
+          "pattern": "^(?:[A-Za-z]:[\\\\/]|/).+"
+        },
+        "repositoryId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "executionContext": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schemaVersion",
+            "targetKind",
+            "controlRoot",
+            "executionRoot",
+            "executionTargetRef",
+            "targetObservation"
+          ],
+          "properties": {
+            "schemaVersion": {
+              "const": 1
+            },
+            "targetKind": {
+              "enum": [
+                "SAME_ROOT",
+                "GIT_WORKTREE"
+              ]
+            },
+            "controlRoot": {
+              "type": "string",
+              "pattern": "^(?:[A-Za-z]:[\\\\/]|/).+"
+            },
+            "executionRoot": {
+              "type": "string",
+              "pattern": "^(?:[A-Za-z]:[\\\\/]|/).+"
+            },
+            "executionTargetRef": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "path",
+                    "identity"
+                  ],
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "identity": {
+                      "type": "string",
+                      "pattern": "^\\d+\\|[A-F0-9]{64}$"
+                    }
+                  }
+                }
+              ]
+            },
+            "targetObservation": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "schemaVersion",
+                    "descriptorIdentity",
+                    "commonGitDir",
+                    "worktreeGitDir",
+                    "gitTop",
+                    "branch",
+                    "head",
+                    "observedUtc",
+                    "overridesAbsent"
+                  ],
+                  "properties": {
+                    "schemaVersion": {
+                      "const": 1
+                    },
+                    "descriptorIdentity": {
+                      "type": "string",
+                      "pattern": "^\\d+\\|[A-F0-9]{64}$"
+                    },
+                    "commonGitDir": {
+                      "type": "string",
+                      "pattern": "^(?:[A-Za-z]:[\\\\/]|/).+"
+                    },
+                    "worktreeGitDir": {
+                      "type": "string",
+                      "pattern": "^(?:[A-Za-z]:[\\\\/]|/).+"
+                    },
+                    "gitTop": {
+                      "type": "string",
+                      "pattern": "^(?:[A-Za-z]:[\\\\/]|/).+"
+                    },
+                    "branch": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "head": {
+                      "type": "string",
+                      "pattern": "^[0-9a-fA-F]{40}(?:[0-9a-fA-F]{24})?$"
+                    },
+                    "observedUtc": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "overridesAbsent": {
+                      "const": true
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "dependentRequired": {
+        "continuationReceiptPath": [
+          "continuationReceiptIdentity",
+          "continuationStepIndex"
+        ],
+        "continuationReceiptIdentity": [
+          "continuationReceiptPath",
+          "continuationStepIndex"
+        ],
+        "continuationStepIndex": [
+          "continuationReceiptPath",
+          "continuationReceiptIdentity"
+        ]
+      }
+    }
+  ]
 }

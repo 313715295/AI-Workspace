@@ -44,6 +44,7 @@ function Test-JsonInteger($Value) {
         $Value -is [int32] -or $Value -is [uint32] -or $Value -is [int64] -or $Value -is [uint64]
 }
 
+try {
 $inputDocument = if($PSCmdlet.ParameterSetName -ceq 'Json'){ConvertFrom-AiwStrictInputJson $InputJson}else{Read-AiwStrictInputJson $InputPath}
 $inputMemberNames = [string[]]@($inputDocument.MemberNames)
 $inputObject = $inputDocument.Value
@@ -54,8 +55,67 @@ $operation = [string]$inputObject.operation
 $result = $null
 
 switch ($operation) {
+    'QUALITY_PLAN_PREPARE' {
+        Assert-ExactFields $inputObject $inputMemberNames @('operation','schemaVersion','projectRoot','taskPath','expectedTaskIdentity','projectConfigRef','policyRef','subject','requirementsRef')
+        if(-not(Test-JsonInteger $inputObject.schemaVersion)-or$inputObject.schemaVersion-ne1){throw 'QUALITY_PREPARE_SCHEMA'}
+        Import-Module (Join-Path $PSScriptRoot 'ProcessRequirementComposition.psm1')
+        Import-Module (Join-Path $PSScriptRoot 'ControlTransition.psm1')
+        $evidenceModule=@(Import-Module (Join-Path $PSScriptRoot 'ResultEvidence.psm1') -PassThru)[0]
+        $root=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Resolve-Path -LiteralPath $inputObject.projectRoot)))
+        $framework=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../../..'))
+        $ctx=New-AiwEvidenceContext $root '' $framework
+        $config=Read-AiwEvidenceReference $ctx $inputObject.projectConfigRef -Json
+        $configFull=Resolve-AiwEvidenceObservationPath $ctx $inputObject.projectConfigRef.path
+        if(-not$configFull.Equals((Join-Path $root '.ai-workspace/project.json'),[StringComparison]::OrdinalIgnoreCase)){throw 'QUALITY_CONFIG_REF_CANONICAL'}
+        $policy=Read-AiwEvidenceReference $ctx $inputObject.policyRef -Json
+        $policyFull=Resolve-AiwEvidenceObservationPath $ctx $inputObject.policyRef.path
+        if(-not$policyFull.Equals((Join-Path $root '.ai-workspace/process-policy.json'),[StringComparison]::OrdinalIgnoreCase)){throw 'QUALITY_POLICY_REF_CANONICAL'}
+        $taskRelative=[IO.Path]::GetRelativePath($root,[IO.Path]::GetFullPath($inputObject.taskPath,$root)).Replace('\','/')
+        if($taskRelative-cnotmatch'^\.ai-workspace/tasks/active/[^/]+\.md$'){throw 'QUALITY_ACTIVE_TASK_REQUIRED'}
+        $task=Read-AiwControlTransitionTask $root $taskRelative
+        if($task.Identity-cne$inputObject.expectedTaskIdentity){throw 'QUALITY_TASK_DRIFT'}
+        $profile=[regex]::Match($task.Text,'(?m)^- Range summary:\s*profile=(MICRO|STANDARD|CRITICAL);').Groups[1].Value
+        $owner=[regex]::Match($task.Text,'(?m)^- Owner:\s*([^\s]+)\s*$').Groups[1].Value
+        if(-not$profile-or-not$owner-or$task.Text-cmatch'(?m)^- Range summary:[^\r\n]*lifecycle=CLOSED;'){throw 'QUALITY_ACTIVE_TASK_REQUIRED'}
+        $null=Invoke-ProcessRequirementComposition -ProjectRoot $root -FrameworkRoot $framework -TargetVersion $config.frameworkVersion -ExpectedProjectConfigIdentity $inputObject.projectConfigRef.identity -ExpectedCorrectionsIdentity $(if([IO.File]::Exists((Join-Path $root '.ai-workspace/corrections.json'))){Get-AiwFileIdentity (Join-Path $root '.ai-workspace/corrections.json')}else{'MISSING'}) -Profile $profile -Role TASK_OWNER -Phase PLAN -Actor $owner -TaskIdentity $task.Identity -Objective 'Prepare stable finite outcome quality plan without authority or persistence' -ActionKind NONE -ResultKind PLAN -ExactPaths @() -UseDeclaredCapabilities -ValidateCompleteAdoptedSet
+        $selection=Get-AiwQualitySelection $policy $inputObject.policyRef.identity $profile $inputObject.subject
+        if($selection.mode-ceq'LEGACY'){$result=[ordered]@{status='READY';authorityGranted=$false;mode='LEGACY';plan=$null;limits=@('No policy qualityAssurance is enabled; original LEGACY gates apply.')} ;break}
+        $repo=$inputObject.subject.repositoryId
+        if($config.controlPlaneLayout-ceq'repo-local'){
+            Import-Module (Join-Path $PSScriptRoot 'ExecutionTargetContext.psm1')
+            $execution=Resolve-AiwExecutionTargetContext -ProjectRoot $root -ProjectId $config.id -TaskPath $taskRelative
+            if($execution.targetKind-ceq'GIT_WORKTREE'){
+                if($repo-cne'PROJECT'){throw 'QUALITY_SUBJECT_REPOSITORY_DRIFT'}
+                $package=[pscustomobject]@{schemaVersion=4;repositoryId='PROJECT';controlRoot=$root;executionTargetRef=$execution.executionTargetRef;expectedTargetState=(Get-AiwExecutionTargetState $execution)}
+            }else{
+                if($repo-cne'REPO_LOCAL'){throw 'QUALITY_SUBJECT_REPOSITORY_DRIFT'}
+                $package=[pscustomobject]@{schemaVersion=1}
+            }
+        }elseif($config.controlPlaneLayout-ceq'framework-maintenance-sibling'){
+            if($repo-cne'CONTROL'-and$repo-cne$config.frameworkTarget.repositoryId){throw 'QUALITY_SUBJECT_REPOSITORY_DRIFT'}
+            $package=[pscustomobject]@{schemaVersion=2;repositoryId=$repo}
+        }else{throw 'QUALITY_PREPARE_EXECUTION_TARGET_UNSUPPORTED'}
+        $subjectContext=New-AiwPackageEvidenceContext $root $package $framework -TaskPath $taskRelative
+        foreach($path in $inputObject.subject.exactPaths){$null=& $evidenceModule {param($c,$p) Resolve-EvPath $c $p -Candidate -AllowMissing} $subjectContext $path}
+        $requirementsFull=Resolve-AiwEvidenceObservationPath $ctx $inputObject.requirementsRef.path
+        if($requirementsFull.Equals($policyFull,[StringComparison]::OrdinalIgnoreCase)-or$requirementsFull.Equals($task.Path,[StringComparison]::OrdinalIgnoreCase)-or$requirementsFull.Replace('\','/')-cmatch'/\.ai-workspace/tasks/'){throw 'QUALITY_IMMUTABLE_REQUIREMENTS_REQUIRED'}
+        $null=& $evidenceModule {param($c,$r) Read-EvRef $c $r -Section} $ctx $inputObject.requirementsRef
+        $stages=@();$preceding=@()
+        foreach($kind in $selection.effectiveStages){
+            $id='quality-'+$kind.ToLowerInvariant().Replace('_','-')
+            $stages+=[pscustomobject]@{id=$id;kind=$kind;requiredBy=$inputObject.requirementsRef;dependsOn=@($preceding);candidateRef=@();evidenceRefs=@()}
+            $preceding+=@($id)
+        }
+        $result=[ordered]@{status='READY';authorityGranted=$false;mode='EXPLICIT';effectiveStages=$selection.effectiveStages;qualityBinding=$selection.qualityBinding;plan=[ordered]@{schemaVersion=2;qualityBinding=$selection.qualityBinding;stages=$stages};limits=@('Read-only candidate; original CONTROL authorization must bind the task.','Owner must retain real user/professional stages and dependencies.','Pending candidate/evidence arrays do not satisfy Review, acceptance or SUCCESS.','No SELF, verdict, acceptance or permission is generated.')}
+    }
+
     'REPAIR_REVIEW' {
-        Assert-ExactFields $inputObject $inputMemberNames @('operation','repositoryRoot','binding')
+        Import-Module (Join-Path $PSScriptRoot 'ResultEvidence.psm1') -Force
+        $fields=@('operation','repositoryRoot','binding')
+        $explicitControl=$null-ne$inputObject.PSObject.Properties['controlRoot'];$explicitTask=$null-ne$inputObject.PSObject.Properties['taskPath']
+        if($explicitControl-ne$explicitTask){throw 'REPAIR_REVIEW_CONTROL_TASK_PAIR_REQUIRED'}
+        if($explicitControl){$fields+=@('controlRoot','taskPath')}
+        Assert-ExactFields $inputObject $inputMemberNames $fields
         $binding=$inputObject.binding
         $parentDoc=Read-AiwStrictInputJson $binding.parentPackagePath
         $bytes=[IO.File]::ReadAllBytes($binding.parentPackagePath)
@@ -64,6 +124,11 @@ switch ($operation) {
         $candidate=$parentDoc.Value
         if($null-eq$candidate.PSObject.Properties['repairReviewPlan']-or$binding.phase-cnotin@('INITIAL_REVIEW','REPAIR','REREVIEW')){throw 'REPAIR_REVIEW_PLAN_REQUIRED'}
         $plan=$candidate.repairReviewPlan
+        $parent=$candidate|ConvertTo-Json -Depth 100 -Compress|ConvertFrom-Json -Depth 100
+        $null=@(Get-AiwReviewExcludedActors $candidate.owner $candidate.issuer $plan.writer $plan.materialContributors)
+        if($candidate.schemaVersion-eq4-and-not$explicitControl){throw 'REPAIR_REVIEW_CONTROL_TASK_PAIR_REQUIRED'}
+        $writeScope=@($candidate.exactPaths)
+        $reviewScope=@(Get-AiwPlannedReviewScope $candidate)
         # A child is anchored to the original through repairReviewBinding. Its
         # parent-only receiver binding cannot be reused by another grantee.
         $candidate.PSObject.Properties.Remove('receiverBinding')
@@ -82,20 +147,58 @@ switch ($operation) {
         $candidate.grantee=if($binding.phase-ceq'REPAIR'){$plan.writer}else{$reviewerActor}
         if($binding.phase-cin@('INITIAL_REVIEW','REREVIEW')){
             $candidate.PSObject.Properties.Remove('continuationPlan')
+            $candidate.PSObject.Properties.Remove('selfCheckRepairLimit')
             $candidate.actions=@('REVIEW_EXECUTE');$candidate.reviewIndependence='INDEPENDENT'
             if('CONTRIBUTOR_SET_CHANGE'-cnotin$candidate.invalidatesOn){$candidate.invalidatesOn+=@('CONTRIBUTOR_SET_CHANGE')}
             $candidate|Add-Member candidateWriter $plan.writer
             $candidate|Add-Member materialContributors @($plan.materialContributors)
         }
         $root=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($inputObject.repositoryRoot))
-        $candidate.objectIdentities=@(foreach($path in $candidate.exactPaths){
-            if([IO.Path]::IsPathRooted($path)-or$path.Contains(':')-or$path.Contains('\')-or@($path.Split('/')|Where-Object{$_-in@('','..','.')}).Count){throw 'REPAIR_REVIEW_PATH'}
-            $full=Join-Path $root $path;$cursor=$root
-            foreach($part in $path.Split('/')){$cursor=Join-Path $cursor $part;if((Test-Path -LiteralPath $cursor)-and((Get-Item -LiteralPath $cursor -Force).Attributes-band[IO.FileAttributes]::ReparsePoint)){throw 'REPAIR_REVIEW_REPARSE'}}
-            $value='NEW'
-            if(Test-Path -LiteralPath $full -PathType Leaf){$data=[IO.File]::ReadAllBytes($full);$value=$data.Length.ToString()+'|'+[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($data))}
-            [pscustomobject]@{path=$path;identity=$value}
-        })
+        if($explicitControl){
+            $evidenceContext=New-AiwEvidenceContext $inputObject.controlRoot '' ([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../../..')))
+            $scopeInputRef=if($binding.phase-ceq'REPAIR'){[pscustomobject]@{path=$binding.verdictFinalizeInputPath;identity=$binding.verdictFinalizeInputIdentity}}else{[pscustomobject]@{path=$binding.repairFinalizeInputPath;identity=$binding.repairFinalizeInputIdentity}}
+            $scopeInput=Read-AiwEvidenceReference $evidenceContext $scopeInputRef -Json
+            $scopeSource=Read-AiwEvidenceReference $evidenceContext ([pscustomobject]@{path=$scopeInput.discoverReceiptPath;identity=$scopeInput.expectedDiscoverReceiptIdentity}) -Json
+            $scopeAuthority=if($scopeSource.schemaVersion-eq1){$scopeSource.authorityContext}else{$scopeSource.binding}
+            if($scopeAuthority.projectRoot-cne$inputObject.controlRoot-or$scopeAuthority.taskIdentity-cne$parent.taskIdentity){throw 'REPAIR_REVIEW_CONTROL_AUTHORITY_DRIFT'}
+            $evidenceContext=New-AiwPackageEvidenceContext $inputObject.controlRoot $parent ([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../../..'))) $scopeAuthority.forbiddenScope -TaskPath $inputObject.taskPath -ProtectedPaths $scopeAuthority.protectedScope
+            if($evidenceContext.RepositoryRoot-cne$root){throw 'REPAIR_REVIEW_OBJECT_ROOT_DRIFT'}
+        }else{$evidenceContext=New-AiwEvidenceContext (Get-Location).Path $root ([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../../..')))}
+        if($binding.phase-ceq'REPAIR'){
+            $null=Assert-AiwFinalizedReviewFinding $evidenceContext $parent $binding
+            $verdict=Read-AiwEvidenceReference $evidenceContext ([pscustomobject]@{path=$binding.verdictPath;identity=$binding.verdictIdentity}) -Json
+            if(@($verdict.findingPaths|Where-Object{$_-cnotin$writeScope}).Count){throw 'REPAIR_REVIEW_FINDING_OUTSIDE_WRITE_SCOPE'}
+            # Repair preimages come from the original finding, not a new live
+            # snapshot that could silently accept a third-party change.
+            $candidate.objectIdentities=@($verdict.objectIdentities|Where-Object{$_.path-cin$writeScope})
+            if($candidate.objectIdentities.Count-ne$writeScope.Count){throw 'REPAIR_REVIEW_PRODUCTION_SCOPE_DRIFT'}
+        }else{
+            $finalInput=Read-AiwEvidenceReference $evidenceContext ([pscustomobject]@{path=$binding.repairFinalizeInputPath;identity=$binding.repairFinalizeInputIdentity}) -Json
+            $finalResult=Read-AiwEvidenceReference $evidenceContext ([pscustomobject]@{path=$binding.repairFinalizeResultPath;identity=$binding.repairFinalizeResultIdentity}) -Json
+            if($finalInput.mode-cne'FINALIZE_OUTPUT'-or$finalResult.mode-cne'FINALIZE_OUTPUT'-or$finalResult.status-cne'PASS'){throw 'REPAIR_REVIEW_FINALIZE_REQUIRED'}
+            $source=Read-AiwEvidenceReference $evidenceContext ([pscustomobject]@{path=$finalInput.discoverReceiptPath;identity=$finalInput.expectedDiscoverReceiptIdentity}) -Json
+            $sourceContext=if($source.schemaVersion-eq1){$source.authorityContext}else{$source.binding}
+            $sourceAction=if($source.schemaVersion-eq1){$source.actionKind}else{$source.intentEnvelope.requestedActionKind}
+            $producer=Read-AiwEvidenceReference $evidenceContext ([pscustomobject]@{path=$source.sourceLocators.authorizationPackagePath;identity=$sourceContext.authorizationIdentity}) -Json
+            $projectRoot=if($source.schemaVersion-eq1){$source.sourceLocators.projectRoot}else{$sourceContext.projectRoot}
+            $evidenceContext=New-AiwPackageEvidenceContext $projectRoot $producer $source.sourceLocators.frameworkRoot $sourceContext.forbiddenScope -TaskPath $source.sourceLocators.taskRelativePath -ProtectedPaths $sourceContext.protectedScope
+            if($producer.grantee-cne$plan.writer-or$sourceAction-cnotin@('SOURCE_WRITE','TEST_WRITE','TEST_RUN','CONTROL_WRITE')-or
+               (@($producer.exactPaths|Sort-Object)-join'|')-cne(@($writeScope|Sort-Object)-join'|')){throw 'REPAIR_REVIEW_PRODUCTION_SCOPE_DRIFT'}
+            $postimages=@(Get-AiwFinalizedObjectPostimages $finalInput $writeScope)
+            if($sourceAction-ceq'TEST_RUN'){
+                Assert-AiwReviewSelfCheck $evidenceContext $finalInput.evidenceRefs $producer.taskId @(Get-AiwPackageCandidateReferences ([pscustomobject]@{objectIdentities=$postimages}))
+            }
+            if($binding.phase-ceq'REREVIEW'){
+                foreach($field in @('verdictFinalizeInputPath','verdictFinalizeInputIdentity','verdictFinalizeResultPath','verdictFinalizeResultIdentity')){if($null-eq$binding.PSObject.Properties[$field]-or$null-eq$producer.repairReviewBinding.PSObject.Properties[$field]-or$binding.$field-cne$producer.repairReviewBinding.$field){throw 'REPAIR_REVIEW_VERDICT_FINALIZE_LINK_DRIFT'}}
+                $null=Assert-AiwFinalizedReviewFinding $evidenceContext $parent $binding -FrozenCandidates
+            }
+            if($candidate.schemaVersion-eq4){
+                if($null-eq$finalResult.PSObject.Properties['postTargetState']){throw 'REPAIR_REVIEW_PRODUCTION_TARGET_STATE_REQUIRED'}
+                $candidate.expectedTargetState=$finalResult.postTargetState
+            }
+            $candidate.exactPaths=@($reviewScope.path)
+            $candidate.objectIdentities=@(Get-AiwComposedReviewCandidate $evidenceContext $producer $postimages)
+        }
         $candidate|Add-Member repairReviewBinding $binding
         $result=[ordered]@{status='PREPARED';authorityGranted=$false;requiresCurrentAdmission=$true;package=$candidate}
     }
@@ -211,11 +314,16 @@ switch ($operation) {
     default { throw 'INPUT_OPERATION_UNSUPPORTED' }
 }
 
-if ($AsJson) { Write-Output ($result | ConvertTo-Json -Depth 8 -Compress) }
+if ($AsJson) { Write-Output ($result | ConvertTo-Json -Depth 100 -Compress -EscapeHandling EscapeNonAscii) }
 else {
     if ($result -is [System.Collections.IDictionary]) {
         foreach ($entry in $result.GetEnumerator()) { Write-Output ($entry.Key + '=' + [string]$entry.Value) }
     } else {
         foreach ($entry in $result.PSObject.Properties) { Write-Output ($entry.Name + '=' + [string]$entry.Value) }
     }
+}
+} catch {
+    if(-not$AsJson){throw}
+    Write-Output ([ordered]@{status='FAIL';reason=[string]$_.Exception.Message}|ConvertTo-Json -Depth 100 -Compress -EscapeHandling EscapeNonAscii)
+    exit 2
 }

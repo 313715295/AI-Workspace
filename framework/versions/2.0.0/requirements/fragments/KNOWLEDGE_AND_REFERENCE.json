@@ -1,13 +1,13 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "frameworkVersion": "2.0.0",
   "ownerModule": "KNOWLEDGE_AND_REFERENCE.md",
   "requirements": [
     {
       "requirementId": "PR_KNOWLEDGE_REFERENCE_QUERY",
       "legacyAliases": [],
-      "title": "Knowledge reference query",
-      "description": "Discover compact metadata and query explicitly selected request-scoped non-authoritative entries.",
+      "title": "Explicit knowledge query",
+      "description": "Use explicitly selected non-authority sources and preserve per-entry status and fulltext boundaries.",
       "selectors": {
         "profiles": [
           "STANDARD",
@@ -37,7 +37,15 @@
         "semanticTerms": [
           "knowledge",
           "reference"
-        ]
+        ],
+        "facets": {
+          "domain": [
+            "aiw:knowledge"
+          ],
+          "workType": [
+            "aiw:knowledge-query"
+          ]
+        }
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_KNOWLEDGE_REFERENCE_QUERY",
       "preparationRequirements": [
@@ -51,7 +59,7 @@
       "requirementId": "PR_KNOWLEDGE_IMPACT_MAINTENANCE",
       "legacyAliases": [],
       "title": "Knowledge impact maintenance",
-      "description": "After accepted authority changes, detect affected entries and refresh or mark stale without background writes.",
+      "description": "Maintain references only when used or affected, with truthful source responsibility.",
       "selectors": {
         "profiles": [
           "STANDARD",
@@ -79,7 +87,15 @@
           "知识查询影响",
           "权威变更",
           "knowledge maintenance"
-        ]
+        ],
+        "facets": {
+          "domain": [
+            "aiw:knowledge"
+          ],
+          "workType": [
+            "aiw:knowledge-maintenance"
+          ]
+        }
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_KNOWLEDGE_IMPACT_MAINTENANCE",
       "preparationRequirements": [],
@@ -87,5 +103,6 @@
         "KNOWLEDGE_IMPACT_RESOLVED"
       ]
     }
-  ]
+  ],
+  "facetVocabulary": []
 }

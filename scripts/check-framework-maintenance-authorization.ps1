@@ -15,8 +15,17 @@ param(
     [string]$TaskPath,
     [string]$ExpectedTaskIdentity,
     [string]$ContinuationReceiptPath,
-    [string]$ExpectedContinuationReceiptIdentity
+    [string]$ExpectedContinuationReceiptIdentity,
+    [string[]]$ForbiddenPaths=@(),
+    [string[]]$ProtectedPaths=@()
 )
+# @project-source-entry-scope
+Import-Module (Join-Path $PSScriptRoot 'ProjectAdoptionState.psm1') -ErrorAction Stop
+$aiwPublicationScopeLease=$null
+try {
+$aiwPublicationEntryRoot=$ControlRepositoryPath
+if($aiwPublicationEntryRoot){$aiwPublicationScopeLease=Enter-AiwRootProjectSourceScope -ProjectRoot ([IO.Path]::GetFullPath($aiwPublicationEntryRoot,$PWD.ProviderPath)) -Mode OBSERVE}
+
 
 $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
 if($PSVersionTable.PSEdition-cne'Core'-or$PSVersionTable.PSVersion.Major-lt7){Write-Output 'FAIL|tool-runtime|POWERSHELL7_REQUIRED';exit 4}
@@ -26,15 +35,18 @@ try{
     if($resolvedCode-ne0-or$resolvedOutput.Count-ne1){throw ('MAINTENANCE_TARGET_RESOLUTION_FAILED|'+($resolvedOutput-join';'))}
     $resolved=$resolvedOutput[0]|ConvertFrom-Json
     if($null-eq$resolved.PSObject.Properties['runtimeRoot']){
-        Import-Module (Join-Path $PSScriptRoot 'ProjectAdoptionState.psm1') -ErrorAction Stop
-        if($null-ne(Get-AiwAdoptedDistributionBinding ([string]$resolved.controlRoot) ([string]$resolved.frameworkVersion))){throw 'FIXED_RUNTIME_ADAPTER_REQUIRED'}
-        # Old health source has no fixed-runtime carrier; keep its verified target.
-        $resolved|Add-Member -NotePropertyName runtimeRoot -NotePropertyValue ([string]$resolved.targetRoot)
+        throw 'FIXED_RUNTIME_ADAPTER_REQUIRED'
     }
     if($ObservedRepositoryId-cnotin@('CONTROL',[string]$resolved.targetRepositoryId)){throw 'REPOSITORY_ID_UNKNOWN'}
     $checkerVersion=[string]$resolved.frameworkVersion
     $packageSelectionPath=if([IO.Path]::IsPathRooted($PackagePath)){$PackagePath}else{Join-Path ([string]$resolved.controlRoot) $PackagePath}
-    try{$packageSelection=Get-Content -LiteralPath $packageSelectionPath -Raw -Encoding utf8|ConvertFrom-Json}catch{throw 'AUTHORIZATION_PACKAGE_SELECTION_UNAVAILABLE'}
+    try{$packageSelection=(Read-AiwProjectJson $packageSelectionPath 'AUTHORIZATION_PACKAGE_SELECTION').Value}
+    catch{
+        if($_.Exception.Message.StartsWith('AUTHORIZATION_PACKAGE_SELECTION_DUPLICATE_MEMBER|')-and$_.Exception.Data.Contains('AiwJsonDuplicateMember')){
+            throw ('PACKAGE_DUPLICATE_MEMBER|'+[string]$_.Exception.Data['AiwJsonDuplicateMember'])
+        }
+        throw 'AUTHORIZATION_PACKAGE_SELECTION_UNAVAILABLE'
+    }
     $effectiveTaskPath=if([string]::IsNullOrWhiteSpace($TaskPath)){'.ai-workspace/tasks/active/'+$ObservedTaskId+'.md'}else{$TaskPath}
     $effectiveTaskIdentity=if([string]::IsNullOrWhiteSpace($ExpectedTaskIdentity)){[string]$packageSelection.taskIdentity}else{$ExpectedTaskIdentity}
     $sameVersionStateRebind=$false;$sameVersionProjectionRefresh=$false
@@ -66,6 +78,7 @@ try{
     try{
         $args=@{PackagePath=$PackagePath;ObservedActor=$ObservedActor;ObservedTaskId=$ObservedTaskId;ObservedOwner=$ObservedOwner;ObservedAction=@($ObservedAction);ObservedPath=@($ObservedPath);ObservedIdentity=@($ObservedIdentity);ControllerControlPath=$ControllerControlPath;ObservedRepositoryId=$ObservedRepositoryId;ProjectConfigPath=$ProjectConfigPath;ExpectedProjectConfigIdentity=$ExpectedProjectConfigIdentity;TaskPath=$effectiveTaskPath;ExpectedTaskIdentity=$effectiveTaskIdentity;RootRepositoryBindingValidated=$true}
         if(-not[string]::IsNullOrWhiteSpace($ContinuationReceiptPath)-or-not[string]::IsNullOrWhiteSpace($ExpectedContinuationReceiptIdentity)){$args.ContinuationReceiptPath=$ContinuationReceiptPath;$args.ExpectedContinuationReceiptIdentity=$ExpectedContinuationReceiptIdentity}
+        if($ForbiddenPaths.Count-or$ProtectedPaths.Count){$args.ForbiddenPaths=@($ForbiddenPaths);$args.ProtectedPaths=@($ProtectedPaths)}
         if($sameVersionStateRebind-or$sameVersionProjectionRefresh){
             $result=@(& $checker @args 2>&1|ForEach-Object{[string]$_});$code=$LASTEXITCODE
             if($code-eq2-and$result.Count-eq1-and[string]$result[0]-ceq'FAIL|POST_IDENTITY_RECOVERY_PATH'){$exception=if($sameVersionProjectionRefresh){'SAME_VERSION_CANDIDATE_MANAGED_PROJECTION_REFRESH'}else{'SAME_VERSION_CANDIDATE_STATE_REBIND'};Write-Output ('PASS|task='+$ObservedTaskId+'|actor='+$ObservedActor+'|action=CONTROL_WRITE|paths='+@($ObservedPath).Count+'|root-exception='+$exception);exit 0}
@@ -74,3 +87,5 @@ try{
         & $checker @args;exit $LASTEXITCODE
     }finally{Pop-Location}
 }catch{Write-Output ('FAIL|framework-maintenance-authorization|'+[string]$_.Exception.Message);exit 2}
+
+} finally { Exit-AiwRootProjectSourceScope $aiwPublicationScopeLease }

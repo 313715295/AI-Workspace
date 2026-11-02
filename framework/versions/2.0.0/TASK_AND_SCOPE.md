@@ -1,44 +1,43 @@
 # Task 与 scope contract
 
 <!-- AIW-REQUIREMENT:PR_TASK_LAUNCH_AND_ROUTE:BEGIN -->
-有效 implementation package 与当前 task/Owner/actor、Controller epoch、动作、路径/对象、决定及 repository/config 一致即完成 launch，无第二次 START；否则只读 RECOVERY_READY，writer=NONE。
+当前任务、主体、决定、对象和适用配置/仓库与有效包一致，且独立checker及ADMIT通过，即可开始已授权动作，无第二次START；缺失时只保持已知安全读取并报告具体条件。
 
-仅新分派或组织事实变化时判断：REUSE=同边界且现 actor 合格；MUST_NEW=同边界确需独立成果、上下文、生命周期、writer 隔离或当前会话不可用资源；BLOCKED=项目、Owner、authority、保护、外部路线或用户决定实变。复用项目 AGENTS 中用户已确认且仍有效的框架工作决定约定，不逐任务或逐步骤重复确认。委托来源、后续决定及保留事项遵循 AUTHORIZATION_MODEL；规则本身不制造用户授权。为取得签包便利不把临时 writer 升为 Owner；原 Owner 在完整委派中预授权有界写测、交审、修复和局部复审，临时主体沿原决定直接续接，实质范围或决定变化才回 Owner。
+仅在新分派或组织事实变化时判断：同边界且actor合格则REUSE；确需独立成果、上下文、生命周期、写入隔离或当前会话不可用资源则MUST_NEW；项目、责任、授权、保护、外部路线或用户决定实变则处理相应BLOCKED。健康续作复用原组织决定。临时writer不能为签包便利升为Owner；原Owner可一次预授权有界写测、交审及修复复审，实质扩面或决定变化才回Owner。
 
-先满足质量、风险、独立性、隔离和持续时间，再比较直接执行与委派中Owner及执行者双方的模型往返、上下文、执行、工具、澄清、交接、验证、集成、返工及用户介入总成本；可依据任务和同类证据定性估计，不要求事前证明节省或新增实验/审批。没有明确收益则 DIRECT_SELF；机械重复用既有脚本。需要独立成果、审核或持续独立生命周期时使用可见 APPLICATION_TASK。框架不支持内部子 agent，包括内部 Reviewer，不因停用内部载体把普通工作全部委派。正式 Review 按 REVIEW_AND_EVIDENCE 核对真实主体、材料和结果追溯。一次安排同时决定组织、能力足够的模型与支持的 effort；创建时传入所选配置及按当前基线/隔离结论选定且宿主支持的环境和精确起点，核对实际接受。新建时一次提供完整任务/候选/验收/消费者材料和限域待绑定授权的路径、身份及委派编号；接收者从实际初始委派取得这三项，并用宿主真实自身 ID 经 AUTHORIZATION_RECEIVER_BIND 在自身过程目录派生精确包，随后走原 checker、DISCOVER、ADMIT。待绑定材料不可执行；不修改原件、Owner、issuer、决定、范围、候选和独立性。已知 ID 的新委派直接绑定新 scope，有效健康续作复用原绑定；宿主身份缺失或实际初始委派不符时停在只读，报告具体阻塞，不向接收者交空白权限。clientThreadId 不是正式主体。用户指定的环境/起点优先，不把某项目的 LOCAL/WORKTREE 默认推广为通用规则。健康续作复用组织结论，不逐动作重评。
+先满足质量、风险、独立性、隔离和持续时间，再比较直接执行与委派双方的上下文、模型往返、工具、交接、验证、集成、返工和用户介入总成本。可依据任务和同类证据定性判断，不要求新增实验或事前证明节省；无明确收益则DIRECT_SELF，机械重复优先现有脚本。需要独立成果、审核或持续独立生命周期时使用可见APPLICATION_TASK；当前Framework不支持内部子agent，包括内部Reviewer，不因此把普通工作全部委派。
 
-创建时用简短「职责｜主题」标题；职责/主题实变才更新显示。长期以项目/领域、临时以对象消歧，不逐轮附加状态或日期。标题不授权；存量仅在自然边界按已知职责整理，不扫描无关聊天。
+同次组织决定选足够的资源及适当环境/起点，分别遵循PR_TASK_RESOURCE_SELECTION和HOST_CODEX。委派一次给齐目标、范围、候选、验收、原始用户来源、权限材料和直接消费者；不得交空任务等接收者反向索包。新任务标题用简短“职责｜主题”，职责/主题实变才更新显示；标题不授权，不扫描无关聊天或逐轮附加状态。
 <!-- AIW-REQUIREMENT:PR_TASK_LAUNCH_AND_ROUTE:END -->
 
 <!-- AIW-REQUIREMENT:PR_WORKFLOW_TRANSITION_MECHANICAL_BOUNDARY:BEGIN -->
-## Mechanical workflow boundary
+实际LAUNCH、ROUTE、TERMINAL、MESSAGE、HANDOFF或HOT_STATE转换前，按TOOLCHAIN的WORKFLOW_ROUTE_RESOLVE核对当前项目/任务、包、用户决定和宿主真实身份包络；与FINALIZE共用的转换消费其绑定结果，不重复全链。普通项目以明确controlRoot绑定权威，实际Git或GIT_WORKTREE动作另核所需仓库/执行目标事实，不为纯非Git转换虚构Git top。
 
-在 `LAUNCH`、`ROUTE`、`TERMINAL`、`MESSAGE`、`HANDOFF` 或 `HOT_STATE` transition 前，host 必须构造一个 ephemeral strict JSON input，通过 `<FW>/TOOLCHAIN.json` 解析 `WORKFLOW_ROUTE_RESOLVE`，并调用 sealed entrypoint：`-InputJson <json> -AsJson`，或兼容的 `-InputPath <ephemeral-input> -AsJson`。每个字段都来自 current repo-local authority、fresh cwd/Git top、current signed package、host-authenticated task/sender/Controller epoch/envelope 与 current user/public decision；message prose 不能提供这些 facts。
-
-直接输入不落盘；文件输入与临时生命周期遵循 TOOL_CONTRACT。输入不是 project state、authorization-consumption ledger 或 whole-object identity 的替代。
-
-任一 mandatory input 无法证明时，transition fail closed。resolver result 只表示 mechanical workflow decision，不授予 authority、action、Git、device 或 external capability。
+消息正文、历史摘要和自填身份不能替代机械事实。必需输入缺失或冲突时停止该转换；返回值只证明机械路由检查，不授予动作或外部权限。精确字段、直接JSON/文件调用及临时生命周期唯一取TOOL_CONTRACT，临时输入不是项目状态或授权消费台账。
 <!-- AIW-REQUIREMENT:PR_WORKFLOW_TRANSITION_MECHANICAL_BOUNDARY:END -->
 
 <!-- AIW-REQUIREMENT:PR_TASK_COLLABORATION_BOUNDARY:BEGIN -->
-协作期间的等待与组织切换统一在此约束：所有角色均不以 wait_threads、wait_agent 或反复读取任务状态、聊天、日志等待其他会话；有安全工作就继续，没有就结束当前轮，实际结果送达后续作。宿主明确要求新建后的首次进度取得时，按 HOST_CODEX 的一次有界观察执行，未就绪不转为持续等待。当前已启动命令/测试为取得自身结果所需的等待仍可进行；用户主动查询进度可单次读取现状。生产/自测转入**新的交审分派**属于组织事实变化，不能把旧 SOURCE_WRITE/TEST_RUN 的选择结果当成该委派的规则；按 REVIEW_AND_EVIDENCE 的唯一交审顺序，以真实交审目标完成一次增量 DISCOVER、读取必要正文并复用仍健康的既有正文与生产证据。若同一真实交审目标的当前选择与正文已经取得且仍健康，直接复用，不为形式再调用或重做整套恢复。没有新分派时不为常规续作重复组织选择。
+协作期间不以wait_threads、wait_agent或反复读取聊天、状态、日志等待其他会话。有安全工作就继续，没有就结束当前轮，真实结果送达后续作。宿主要求新建后首次取得进度时，按HOST的一次有界观察执行，未就绪不转为持续等待。已启动的当前命令/测试可等待自身必要结果；用户主动查询可单次读取现状。
+
+生产/自测转入新的交审分派是组织事实变化，按PR_REVIEW_ROUTE_PREPARATION处理真实新意图、选择及准入。相同目标的健康正文和证据可复用；没有新分派不重复组织选择，不重做完整恢复或制造纯记账回合。
 <!-- AIW-REQUIREMENT:PR_TASK_COLLABORATION_BOUNDARY:END -->
 
 <!-- AIW-REQUIREMENT:PR_TASK_SCOPE_AND_FORBIDDEN:BEGIN -->
-active card 保存用户成果与实际增量、验收场景、Owner/actor、范围/排除、候选与证据入口、权限、当前结果/阻塞及唯一下一动作。方案同时核对根因、当前机制与直接消费者、可推翻错误方案的验证依据、重要失败恢复及未解重大假设；已有充分结论直接引用。实现取舍遵循同次加载的PR_TASK_IMPLEMENTATION_JUDGMENT，不另建方案判断。专业材料沿原职责/标准导航读取，已知合法材料可同批取得，新依赖才补读；不全量加载专业目录或按固定数量凑反例。
+TASK_OWNER是当前有限成果唯一负责人，负责目标明确、实施组织、验证、接受和产物处置；成果闭合释放活跃责任，历史签认及明确移交的未解义务保留。父任务只在确有持续成果及协调责任时保存范围、下级入口、资源界限和升级条件；父子关系只导航，不授跨Owner签发权。真实跨任务依赖由责任人直接协调，项目级决定才路由Controller。角色整理须把未解工作交给实际成果、规范、知识或协调责任，不能丢回主控。
 
-每张新 schema 2.0.0 card 恰有一条 `Work route: actor=<HOST_TASK_ID>; role=<ROLE>; phase=<PHASE>`，Owner在 task CONTROL_WRITE 中原子修改三者。Owner负责成果，taskActor负责当前生产路线，action actor是有界grantee；纯Review可另指定grantee而不改Owner/Work route/whole-task identity。index只定位，package不改route。legacy卡不批量迁移；未绑定actor的1.11/1.12卡仅可只读，首个实质动作前按 PROJECT_CONTROL 升级合同完成target preflight与task-last迁移，actor不得从Owner、package或标题推断。
+当前任务保存目标与实际增量、验收场景、Owner/actor、精确范围/排除、候选与证据、权限、当前结果/阻塞和唯一下一动作。方案核对根因、当前机制、直接消费者、能推翻错误方案的验证、重要失败恢复及重大假设；已有充分结论直接引用。实现取舍取PR_TASK_IMPLEMENTATION_JUDGMENT，专业材料按实际要求读取，不全量加载目录或凑反例。
 
-同一目标/范围/质量/资源边界的可预测步骤组成可验收的 bounded batch。Executor 自主选择实现方法、工具和执行顺序，不把 diagnosis、文件或局部修复拆成新决定。安全且范围内的缺项继续完成，分析、测试或局部成功不替代请求成果。跨写测由原包 continuationPlan、原FINALIZE postimage与当前receipt承接；independent Review、`RESULT_ACCEPT`、Git/发布/采用及保护门仍独立。每个动作和正式输出按 AUTHORIZATION_MODEL 与 TOOL_CONTRACT 完成checker、ADMIT_ACTION、FINALIZE_OUTPUT；缺项安全可补则补，否则交代exact blocker，MISSING/NOT_DELIVERED不算完成。
+Owner负责成果，Work route actor负责当前生产路线，action grantee只承担有界动作；纯Review不改变Owner/Work route。卡片的唯一route语法、原子修改及旧格式迁移取TOOL_CONTRACT、任务模板与MIGRATION_MATRIX，不能从Owner、包或标题猜actor。普通任务默认SAME_ROOT；确需已授权隔离时，以原任务绑定的不可变descriptor选择GIT_WORKTREE。唯一controlRoot保有任务、pin、采用及恢复，executionRoot承载指定候选；复制的旧控制目录不成为新权威。目标缺失、根关系/HEAD/保护漂移只停止受影响动作，重新绑定须先完成原动作并取得当前明确范围；不自动移除worktree。
 
-恢复及健康复用只遵循 RECOVERY_CORE.md。无在途lease的正常结果消费由Owner在原卡替换过时当前事实，详细证据/历史引用原载体，不新增状态表。实际影响已有恢复、交接或用户说明时，同步并读回可宣称的当前事实；候选不投为已接受，未解义务与失败证据保留，无受影响载体不额外写。routine writer/reviewer/权限变化留卡；STATUS仅随稳定阶段、长期Owner、保护集合或唯一下一动作改变，index仅随lifecycle/routing改变。可变卡不建字段级manifest；writer lease与package invalidators控制并发，protected/immutable对象保持whole-object检查。写后产物与关闭按 PR_TASK_CHANGED_OUTPUT_DISPOSITION。
+同一目标、范围、质量及资源边界内的可预测步骤组成可验收有界批次。Executor自主选择方法、工具和顺序；必需诊断、依赖和局部修复不拆成新决定。Owner按完整成果及实际不确定性预授足够的有限写测续作；次数用于防失控，不以固定小轮数代替任务判断，刻意只授线性计划时保留其实际理由。Executor依据原始失败、实际后像和最短验证判断进展：范围内、许可有效且下一修正有可检验依据时直接续作；重复同根因而无新证据时先诊断或停止，方案/能力/资源及权限边界改变时交实际责任者。进展判断不扩权，不为每轮新增审核或模型请求。停止后由Owner消费已有失败、候选和未完成项，只重绑失效或新授部分，不重建健康任务或清零历史。具体分支、计数和收据只取TOOL_CONTRACT。分析、原型、自测或局部成功不能替代用户请求成果。明确扩展更新实际范围和授权，可独立交付的新成果取得自己的目标、验收和关闭责任；紧密相关且可共同验收的工作可合批，不要求一功能一卡。聊天及actor可健康复用，但不扩旧目标和权限。并行/隔离按真实收益选择，共享冲突只限制冲突写集。
 
-自然维护受影响的当前材料时，精简重复或过时文字，同时保留责任、条件、范围、例外、失效和证据；健康续作只报告实际变化及影响，无变化不另写卡或重复恢复。
+Controller和Owner可因质量、能力缺口或有据总成本收益安排有界专家，不以任务类别、profile、耗时或先失败作门槛。设计给结论、依据、取舍、适用条件及实施/验收；调查给根因、证据、修正和验证；困难实现可由足够能力者直接完成。Owner必须理解并消费结论，按需组织执行、合格专业审核或明确受托接受。设计/实现贡献者不能充任同成果独立Reviewer；普通简单任务不强制专家。仅实质新事实重新咨询。
 
-涉及责任身份的组合转换按TOOL_CONTRACT的CONTROL_TRANSITION处理；发现原任务或Controller的transitionRef时先恢复原事务。旧主体只保留计划内恢复权；完成证明持久保存后再清标记，不用fresh授权追认旧写入。
-TASK_OWNER 是当前任务唯一成果负责人；父任务只在确有持续成果和协调责任时保存范围、下级入口、可自行决定事项、资源界限和升级条件。父子关系仅导航，不授予父 Owner 对其他 Owner 任务的签发权。跨任务依赖由实际责任人直接协调，项目级决定才路由 Controller。旧分管按真实责任映射为成果 Owner、按需 reviewer/专家，或有明确承接任务的规范/知识/协调工作；不能删除角色名称后把未解工作丢回主控。
+Owner在正常结果消费时替换唯一任务卡的过时当前事实，候选不投为已接受，详细历史/失败引用原件。writer/reviewer/授权变化留卡；STATUS仅随稳定阶段、长期责任、保护或唯一下一动作变化，index仅随lifecycle/routing变化。无新结果不写卡，不为可变卡建字段manifest；并发沿原lease/package约束，保护/不可变对象仍整体验证。涉及身份组合转换先按RECOVERY恢复原事务；收尾取PR_TASK_CHANGED_OUTPUT_DISPOSITION。
+项目显式qualityAssurance1按完整稳定成果subject并集选择SELF_CHECK/RESULT_REVIEW/RESULT_ACCEPT，规则/格式和准备唯一取TOOL_CONTRACT。缺省LEGACY，启用缺plan2不得降为无门；真零不伪造证据，用户/专业阶段和真实失败保留。qualityBinding是当前选择投影，不授动作、跨仓、专门门或接受权。
 
-专业专家按有界成果参与，不新增权限角色或固定管理层。关键设计交付结论、依据、取舍、适用条件、实施划分与验收要求；复杂调查交付根因、证据、修正范围和验证办法；实现本身困难时可直接承担完整实现与自查。Owner消费结论并持续组织执行和接受，只有实质新事实才重新咨询。专家可另以符合独立性的Reviewer或明确受托接受者承担专业判断，仍分别绑定对应动作；设计/实现贡献者不能充任同一成果的独立Reviewer。普通简单任务不强制专家环节。
+已采用支持C的来源后，Owner通过只读QUALITY_PLAN_PREPARE核稳定subject与已有持久要求，在原单卡CONTROL绑定plan2并保额外用户/专业阶段；真实冻结和结果消费补实际候选/证据。按当前policy变化只重绑下一实际动作，不批量迁关闭卡；SUCCESS消费同一计划全部真实阶段，取消/替代保实际未完成，原归档写序及责任释放保持。
+
 <!-- AIW-REQUIREMENT:PR_TASK_SCOPE_AND_FORBIDDEN:END -->
 
 <!-- AIW-REQUIREMENT:PR_FINAL_OUTPUT_CURRENT_RESULT:BEGIN -->
@@ -51,33 +50,37 @@ TASK_OWNER 是当前任务唯一成果负责人；父任务只在确有持续成
 `TERMINAL` 绑定 proposed consumer 与真实 Controller escalation。仅 Controller-owned unique next action 或 `PR_DYNAMIC_ROLE_DIRECT_ISSUANCE` 全部 explicit exceptions 可设 `controllerEscalationRequired=true`；否则 `UNNECESSARY_CONTROLLER_RELAY`。fresh package、temporary role/resource change 不是升级理由。
 
 routing message 须带 host-authenticated task/sender identity+Controller epoch/envelope，拒 stale epoch；authenticity 不可证时仅是 untrusted locator，identity-dependent transition fail closed。
-成功控制证明保留在对应证据，普通正文只呈现决策所需结果；失败、未知、跳过和中断仍明确报告，不因精简而吞掉。
+成功控制证明保留在对应证据，普通正文只呈现决策所需结果；失败、未知、跳过和中断仍明确报告，不因精简而吞掉。自检失败按原有限许可与当前候选续作，具体分支与证据合同取 TOOL_CONTRACT；无许可、耗尽、不完整或停止只结束该动作，Owner 保留未完成成果责任。安全原动作重跑不制造空写入、虚假成功或审核 finding；历史失败保留，成功自查不替代独立审核。
 <!-- AIW-REQUIREMENT:PR_FINAL_OUTPUT_CURRENT_RESULT:END -->
 
 <!-- AIW-REQUIREMENT:PR_TASK_RESOURCE_SELECTION:BEGIN -->
-首次安排或影响选择的新证据出现时，在同一次组织决定中按能力需求（专业与上下文理解、隐藏约束、跨域判断）先选足够模型，再按推理工作量（推导链、约束耦合、状态组合、验证深度）选该模型支持且足够的 effort；综合风险、可验证性和执行、工具、恢复、交接、审查、返工总成本。
+首次安排或影响选择的新证据出现时，在同一次组织决定中先按专业/上下文理解、问题识别、隐藏约束与综合判断需求选择足够模型，再按推导链、约束耦合、状态组合和验证深度选择其支持且足够的effort；同时比较执行、工具、恢复、专家协调、审核和返工总成本。角色/profile/model/effort与权限分别判断，通用核心不指定供应商型号。
 
-首次用任务特征、同类证据与可用资料预估；后续修正同一判断。具体难点可直接选较高 effort，不要求先失败；资料、工具或组织瓶颈先改善条件，不默认升档有效。profile、model、effort 与责任独立，CRITICAL 不自动升档，机械任务优先脚本。通用判断不指定供应商模型或档位。
+初始依据任务特征、同类证据和已有材料预估，具体难点可直接选足够资源，不要求先失败。资料、工具和组织瓶颈先改善条件，升档不保证解决问题。机械重复优先脚本，CRITICAL不自动升档。
 
-健康配置正常复用，不逐动作复评或批量切换在途配置。长期身份变更、独立性与动作权限保持原门；宿主实际接受由 HOST_CODEX 核对。任务只记录实际选择及必要理由/新观察，不复制指引，不新增资源表、固定复评、样本配额或实验门。
+按委派后本人持续承担的职责评估：Controller负责项目统筹与公共/跨域/资源决定，Owner负责当前有限成果的规划、证据消费、整合和收尾。双方都须足以理解目标、冲突及专业证据，不能机械转抄专家结论。困难局部可委托有界专家；整项成果持续困难且拆分无净收益时，也可由足够能力Owner直接承担。Owner持续整合不足可在该成果有界调整；单个难题不自动永久提高Controller配置，其常态策略只随持续项目职责变化调整。
 
-Owner需要足以理解目标、处理冲突、判断专业证据适用范围的资源；成本较低不能代替这项能力。专业难点可由较强专家提供可执行方案，再由合格Owner组织实施，也可由足够能力的执行者完成整项困难工作。若Owner无法消费结论，调整其资源或明确受托接受安排，不能机械抄录专家裁决；责任身份变化仍走原转换。专家、协调、重载、审核与返工一并计入原总成本判断。
+健康配置复用，不逐动作复评或批量切换在途资源。人类临时覆盖遵守原用途、期限/退出条件及后续决定，不静默变成长期默认。身份变更、独立性和动作权限各守原门，实际接受由HOST核对。原任务只记录实际选择、必要理由和新观察，不新增资源表、固定复评、样本配额或实验门。
 <!-- AIW-REQUIREMENT:PR_TASK_RESOURCE_SELECTION:END -->
 
 <!-- AIW-REQUIREMENT:PR_TASK_CHANGED_OUTPUT_DISPOSITION:BEGIN -->
-拥有的仓库字节变化达到候选、接受或交付边界时，Owner在原任务说明产物及Git去向：READY（候选/路径、证据、实际closer）、DEFERRED（理由、触发、负责任务）或EXCLUDED（理由）。尚未闭合的责任在后续 NONE/USER_RESPONSE 仍有效；全程只读豁免。只有接收人确有下一动作才发送一次结果；不普遍新建Git任务。Review/接受不证明Git就绪，此处不授予Git或后台动作。
-收尾先 FINALIZE 文档/产物动作，再以当前卡单对象 CONTROL_WRITE 更新任务；普通 checker/ADMIT 在写前拒绝当前卡与其他对象的混合写集。其他任务/文档的正常批次、已校验的 CONTROL_TRANSITION 及专用根升级仍按各自合同执行；不得靠恢复前像重试或泛化豁免 task drift。每步仍核对原包、来源和 postimage。Owner消费结果时替换过时当前事实，详细历史及证据只引用原载体；无新结果不写卡。
+拥有的仓库字节变化到候选、接受或交付边界时，Owner在原任务说明产物与Git去向：READY含候选/路径、证据和实际closer；DEFERRED含理由、触发和责任；EXCLUDED含理由。未闭合责任在后续NONE答复仍有效，全程只读豁免。Review/接受不证明Git就绪，不普遍新建Git任务；仅实际接收者有下一动作才发送结果。
 
-CLOSED 必须有 Closure outcome=SUCCESS / CANCELLED / SUPERSEDED、关闭依据与产物/Git去向，writer/reviewer/authorization 均释放。SUCCESS 完成适用验收；CANCELLED/SUPERSEDED 保留实际未完成项及决定/承接任务，不能冒称成功。新关闭按上述字段表达；未带Closure outcome的既有卡继续按legacy成功验收校验，不批量迁移，也不能借旧格式绕过新关闭合同。等待或阻塞保持 active。任务事实关闭、权限释放与宿主侧边栏归档分开；仍可能同候选修复的健康执行者可保留。正常消费时由实际消费方按已有授权归档无后续的临时任务，未授权则列可归档项；长期Owner与明确续作保留，不为归档往返恢复或新增清理回合。
+先FINALIZE文档/产物动作，再以当前卡单对象CONTROL_WRITE更新任务。普通当前卡与其他对象混合写集仍拒绝；当前卡关闭并物理归档仅允许普通纯CONTROL_WRITE的精确active+同basename archive两对象：active存在时核原包及前像并准入，先完整保存、读回和实际验证闭合archive，再复核原active后删除，原FINALIZE消费已验证的实际archive路径，正文ID及原逻辑准入保持。已有相同archive可复用，不同历史仅按明确原像处理；中断留两张有效卡或完整archive可沿原动作补完，不造归档事务/全局locator。其他合法文档批次、schema1真实责任转换及专用根采用按自身合同；不泛化混合写、missing或第三方豁免。
 
-原任务自然收尾一次交代材料保留、归档、清理及未解依赖，复用产物去向；执行者按 TOOL_CONTRACT 的统一材料生命周期处理已知临时集合和正式证据归属，不逐文件新建状态或另开清理回合。最后消费者可同批提取已有请求、工具、加载、统筹、返工和用户介入观察；缺数据保留限制，不另设费用证明门。
+CLOSED写明SUCCESS、CANCELLED或SUPERSEDED、关闭依据、产物/Git去向和未解义务承接，并释放writer/reviewer/动作授权。SUCCESS满足适用验收；取消/替代保留实际未完成项与决定，等待/阻塞保持active。旧卡按其原兼容检查，不批量伪补成功。任务关闭、责任释放和宿主侧边栏归档是不同事实；健康可修复会话及长期Owner可保留，无后续临时会话由实际消费方在已有权限内自然归档，未授权仅说明可归档项。
 
+原任务自然收尾一次处理正式材料持久归属、有效引用、已知临时集合和未解依赖，生命周期取TOOL_CONTRACT；不按目录大小/年龄/关闭状态推定可删，不另开清理或统计回合。已有请求、工具、加载、协调、返工和用户介入数据可由最后消费者同批提取，缺数据保留限制，不设费用证明门。
 <!-- AIW-REQUIREMENT:PR_TASK_CHANGED_OUTPUT_DISPOSITION:END -->
 
 <!-- AIW-REQUIREMENT:PR_TASK_IMPLEMENTATION_JUDGMENT:BEGIN -->
 在已接受目标、精确授权与保护范围内，先理解真实机制、直接消费者及失败恢复；有多条实质可行路线时比较现有实现、标准库/平台、已授权依赖和必要新代码的正确性及总成本，选择最小充分方案。复用不安全或适配代价更高时可有据换用，不为假设未来新增机器。成果类别及验收以用户目标为准，分析、测试或原型不替代请求的正式产物。普通低影响修复不新增写前审查或表单；重大契约/风险/范围冲突只停止受影响链。健康已审结论复用，实际新增证据才重开。MICRO同样遵守这些原则，不因此加载完整任务维护程序。
 
 通用规则归版本、项目标准归项目、方案归任务、私有算法归实现。只有真实外部消费者、兼容、安全、确定性或外部性能承诺需要，才把实现机制提升为公共合同；测试方便不是理由，引用不形成第二权威。声称实现已接受契约时，在原任务绑定当前权威、负责接点、直接消费者/测试与证据；来源实质变化先重绑。允许轻量 @design-contract <locator> 定位原设计并保留项目已有合理标记；不复制语义、哈希或通过状态，不声称标记证明实现一致，不要求全仓补标、台账或扫描。技术事实先有界查证，只把实质目标、范围、权限或风险取舍交用户；中间回答不是整案授权，仍有效决定不重复确认。重大冲突与必要用户取舍已解决、剩余假设有界且可验证和恢复时，方案足够就绪，沿现有授权推进；未处理重大冲突只停受影响链。按实际 Review profile 保留必要审核，普通低影响修复不新增写前审核阶段。
+
+变更实际影响现行契约或说明时，在原任务定位受影响完整正文、维护者、基线和直接依赖，保留条件、例外及并发有效变更，形成合并后候选；增量不代替原文，规格预期不代替实现证据。必要规范候选随成果在适用审核和接受前准备，Owner按原合同接受精确候选；后续必要写入、生效、发行或采用仍需对应授权。落地前复核基线，新增语义或冲突须重绑候选并复核受影响部分，不以“同步”发布未审变化。未完成本批承诺的规范维护不宣称该项完成；合法后置事项保留真实前置和原责任。按实际影响触发，不强制新建规格、加载方法或全库扫描；候选已在最终目录时不要求接受后再复制。可选软件表达见[软件行为规格与变更](knowledge/software/BEHAVIOR_SPEC_CHANGE.md)。
+
+遇真实失败、专业不确定性或知识缺口时，原参与者在原任务先区分已知缺陷、使用偏差、资料/能力不足和规则冲突；已有知识充分则直接应用，基础不足可按目标系统补学。按欠缺的判断选择内容与来源，分清实际阅读、专业解释、待验建议和真实效果；关键冲突或能力缺口只限制受影响决定。将依据落实为具体判断/动作、事前预期及对应验证，由Owner消费结果，按需安排有界专家及具备专业/工具能力的验证者，独立审核仍满足原独立性。已有规则充分则留有价值案例，确有义务缺口才沿原规则变更门修订；沉淀保留条件、失败、未知、维护责任和下次入口。上述任务责任不依赖启用KNOWLEDGE_REFERENCE或加载METHOD；不增加普遍研究表单、常驻队伍、每题联网或额外模型请求。完整可选方法见[问题驱动改进](knowledge/cross-domain/PROBLEM_DRIVEN_IMPROVEMENT.md)，仅在实际需要时读取。
 
 具体软件设计、实现和测试方法由项目选择的完整标准提供；Framework随包可选正文见standards/README.md，未采用不自动进入规则集合。生产和审核对同一成果消费同一适用专业要求，职责程序仍按各自角色选择。
 <!-- AIW-REQUIREMENT:PR_TASK_IMPLEMENTATION_JUDGMENT:END -->

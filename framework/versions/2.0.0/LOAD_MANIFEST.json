@@ -90,10 +90,6 @@
       "sidecar": "requirements/fragments/KNOWLEDGE_AND_REFERENCE.json"
     },
     {
-      "ownerModule": "PERSPECTIVE_LENSES.md",
-      "sidecar": "requirements/fragments/PERSPECTIVE_LENSES.json"
-    },
-    {
       "ownerModule": "PROJECT_CONTROL.md",
       "sidecar": "requirements/fragments/PROJECT_CONTROL.json"
     },
@@ -118,7 +114,6 @@
     "PROJECT_CONTROL.md",
     "AUTHORIZATION_MODEL.md",
     "HOST_CODEX.md",
-    "KNOWLEDGE_AND_REFERENCE.md",
-    "PERSPECTIVE_LENSES.md"
+    "KNOWLEDGE_AND_REFERENCE.md"
   ]
 }

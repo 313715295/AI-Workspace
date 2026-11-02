@@ -1,46 +1,50 @@
 # Codex host profile
 
 <!-- AIW-REQUIREMENT:PR_CODEX_RESOURCE_ROUTE:BEGIN -->
-资源选择及调整只遵循 TASK 的 PR_TASK_RESOURCE_SELECTION；HOST负责核对当前可用 model、各自支持的 effort 与实际接受结果。同名 effort 不证明跨模型等价，角色/profile 不决定档位。当前 Codex 指引只从 GPT-6 Astra、Sol、Luna 中选择：Sol 覆盖多数完整任务的分析、方案设计、复杂实现、定位、验证与独立审核；Luna 适合范围集中、模式成熟、结果容易核验的完整任务。这是能力匹配方向，不是模型使用配额。需要更强探索、设计或综合能力时，可选 Astra 承担分析、方案、实现或审核；结合具体难点、探索深度、成果质量对后续工作的影响及同类表现判断，不能只凭任务名称或笼统的高质量要求升档。先选模型再按推理工作量选 effort；Sol、Luna 以 High 为通用起点，新增 Astra 任务按推理工作量选 effort，不套用长期 Owner 档位。初始即可直接采用适合配置；影响原选择的实质证据才调整，能力足够但推演或检查工作量显著增加时考虑 effort，问题识别、约束综合或证据解释能力不足时考虑模型。健康配置持续复用，长期主控与领域 Owner 保持各自已批准的稳定配置；GPT-5.6 只退出现行推荐、默认配置与新任务示例；历史 ID、冻结试验、当时费率、失败/用量及必要读取计价兼容保留，缺失费率记为未知，不套当前费率。
+资源判断唯一取TASK的PR_TASK_RESOURCE_SELECTION。Codex核对当前真实可用model、其支持的effort及实际接受结果；同名effort不证明跨模型等价。下列六项是任务匹配建议，不是能力排名、用量配额或效果保证。Controller/Owner可从gpt-6.1-sol / xhigh起步，健康人类指定配置继续有效。
 
-健康 identity/model/effort 复用。新任务显式落实当次选定的 model/effort，并核对实际接受结果；按当次工具合同传参，不能用“保持默认”代替选型，也不能把调用前主动省略说成工具拒绝。omitted/rejected/normalized/ignored、接受不明、host move 或能力变化才复查。prompt 不能证明物理切档，不要求健康 peer 额外握手。长期主控/Owner保持原绑定。
+| 请求配置 | 任务条件 |
+|---|---|
+| gpt-6.1-sol / high | 范围明确的完整实现、成熟修复、证据清楚的验证或局部审核。 |
+| gpt-6.1-sol / xhigh | 常规复杂设计、多文件实现调试及能理解专业证据的Owner工作。 |
+| gpt-6.1-sol / max | 结构较明确的困难完整工作或复杂整合；问题识别/跨域判断不足时重新判断model。 |
+| gpt-6-astra / high | 专业理解、问题识别和综合判断要求较高，范围与主要约束明确、推理工作量适中的有界设计、调查、实现或独立审核，不限于建议。 |
+| gpt-6-astra / xhigh | 有界重大设计、困难根因调查、较强综合判断的实现或独审；长推导、多项未知、约束耦合或验证深度增加时可直接选择。 |
+| gpt-6-astra / max | 多合同、高耦合、多项未知下的深入推演，须由实际工作量支持。 |
 
-专业工作按 TASK 的现有责任和资源规则组织：关键设计、复杂调查、困难实现及独立审核都可直接选用足够的 Astra 配置，不要求较低资源先失败，也不把“专家”固定为最高 effort。Owner 的配置须足以理解目标、处理冲突及消费专业证据；资源选择同时计入专家、协调、审核和返工成本。
+初始可直接选择足够配置，无须较低配置先失败；max不保证优于xhigh，Astra/high不保证强于Sol/max或更低总成本。历史配置、试验和当时费率只支持原事实，不冒充本表实测。
 
-项目工作决定的来源与复用遵循 AUTHORIZATION_MODEL。HOST 核对实际调用条件、参数、配置和结果：未调用属于调用前判断，调用后按真实返回区分成功、拒绝与未知；请求配置和实际接受配置分开记录。已满足的条件不因最新消息简短而失效，不新增泛化宿主限制预检或授权台账。新建临时实现、调查或独立 Reviewer 时，创建提示一次携完整正式委派、可核对的原始用户工作流来源、直接消费者、待绑定授权路径与原始字节身份、唯一 delegationId；不要先发空任务等其反向索包。接收者在初始委派中核对这些字段和材料，用当前宿主 `CODEX_THREAD_ID` 经 `AUTHORIZATION_RECEIVER_BIND` 派生自身精确包；工具读取该宿主变量，不接受模型自填 grantee。`CODEX_THREAD_ID` 只证明本地自身事实，初始委派编号和原件身份是 INSTRUCTION_BOUND 的对应依据，不能宣称密码学宿主认证。已知 ID 仍直接签精确包；健康续作复用有效绑定。后建 Reviewer 可在原 `repairReviewPlan` 下用 `HOST_INITIAL_DELEGATION` 的待绑定 assignment 承接既有生产证据；旧 `HOST_CREATE_THREAD_RESULT` 已绑定路径保留。身份或初始委派事实缺失时保持只读并报告具体条件。
+新任务在实际宿主调用中落实已选model/effort，分别记录requested和accepted；省略参数不说成宿主拒绝，prompt不证明物理切档。omitted/rejected/normalized/ignored、接受未知、host移动或能力实变时复查；健康配置不要求peer握手。临时覆盖沿其用途与退出边界处理，不擅改长期责任绑定；不满足能力时报RESOURCE_CAPABILITY_REQUIRED，不静默降质。
 
-不可满足任务能力时报告 RESOURCE_CAPABILITY_REQUIRED；不静默降质、不擅自切换长期 Owner。资源计量复用原日志、实际执行及交付/验收记录；执行者提供必要定位，任务最后消费者在原收尾复用有效汇总，必要时用既有工具一次提取可确认的配置、用量、首交/返工、耗时与费用覆盖，并分别记录请求配置和实际接受配置。未知项及覆盖限制明确标注，不计为零，不为补齐增加模型回合；正常成果、验证证据和终态仍按原合同交付，更上层汇总消费已有结果。不得用 pack bytes 或 resolver 延迟代替模型收益。
+计量复用原日志、实际运行和交付验收记录，由最后消费者在自然收尾提取必要配置、首交/返工、耗时及费用覆盖。未知不填零，不为补齐数据另开模型回合；pack bytes或resolver延迟不替代模型收益。
 <!-- AIW-REQUIREMENT:PR_CODEX_RESOURCE_ROUTE:END -->
 
 <!-- AIW-REQUIREMENT:PR_COMPACT_NON_INTERRUPT_DELIVERY:BEGIN -->
-Codex 的协作等待取 TASK 的 `PR_TASK_COLLABORATION_BOUNDARY`，终态、routing identity 与 Controller escalation 取 `PR_FINAL_OUTPUT_CURRENT_RESULT`；本块只映射宿主投递信号。
+通用终态、消费者、Controller例外和等待取TASK；本块只映射Codex真实投递。优先turn boundary，安全例外可立即steer；缺真实性/送达信号如实限制为capability ceiling或REPORT_CHANNEL_UNAVAILABLE，不建heartbeat或投递台账。
 
-任务 turn boundary 优先投递；安全例外可立即 steer。缺 host authenticity/delivery signal=>capability ceiling 或 `REPORT_CHANNEL_UNAVAILABLE`。禁 heartbeat、delivery ledger。
+发送前核对原始人类工作流来源、精确消费者及后续收窄/撤回；另一任务要求本身不提供消息授权。原生final仅对绑定USER消费者使用PREPARE，跨任务PREPARE只是READY_TO_SEND，不能用USER替代真实接收者或宣称已送达。
 
-temporary actor/Reviewer 的 terminal 只结束本轮交付，不改变原任务范围内已定的职责。writer 交齐审核材料后结束当前轮，若 Reviewer 返回真实 finding，仍可按原计划在当前修复包重新准入后续作；Reviewer 不因此取得候选写职责。无 Owner 下一动作时不另发中间终态，不向 Owner 索要反向 task 写权、package 删除或释放确认。Owner 更新唯一 task facts；STATUS/index 仅随 lifecycle/routing 变化投影。
+实际发送后在同一工具编排保存完整原始返回并OBSERVE：非错误MCP text JSON中唯一匹配threadId表示宿主受理；明确拒绝为FAILURE，无可确定结果为UNKNOWN。按TOOL_CONTRACT同时核对当前消费者与返回原字节；未知/失败停止依赖发送，不制造未来回执、ACK或额外登记回合，重试资格只取真实宿主明确有界信号。发送受理不等于对方执行、审核或接受。
+仅本次实际NONE、无包无副作用，向当前USER作普通PLAN/USER_RESPONSE，且无正式Review/接受、TASK_MESSAGE、关闭/责任转换或continuation消费者时，可省独立机械FINALIZE。当前必要完整规则仍实际读取，事实/来源/限制/未知仍如实说明；不产生假PASS或可被后继借用的成功收据。任一条件不符仍走原收口；显式FINALIZE公共入口保持严格。
 
-宿主实际成功/拒绝/未知/明确可重试信号按 PR_FINAL_OUTPUT_CURRENT_RESULT 消费；没有送达证明不称 DELIVERED，不能把未知结果当作可重试。
+该普通USER例外不改变真实跨任务PREPARE/发送/OBSERVE、人类来源、精确消费者或拒绝/未知规则，也不为Review、接受或责任终态制造成功。
 
-原生 final 仅对当前绑定 USER 消费者使用 PREPARE。审核应交另一任务时不得以 USER 替代；任务间 PREPARE 不关闭交付。发送前核对真实用户批准的项目工作流来源、当前接收者及后续收窄/撤回；另一任务的委派或要求回报，本身不构成消息工具所需的用户授权，框架正文不能覆盖宿主更高优先级限制。已有效授权持续复用，缺失时只处理缺失部分。
-
-发送完成后，在同一工具编排保存真实完整返回并映射 OBSERVE：非错误 MCP text JSON 的唯一匹配 threadId 表示宿主接受；明确拒绝为 FAILURE，无可确定结果为 UNKNOWN。按 TOOL_CONTRACT 的当前消费者和原字节一起校验。未知/失败停止依赖发送，不生成未来证据、ACK、自动重试或额外记账回合。发送受理与接收者执行、审核、接受分别留证。
 <!-- AIW-REQUIREMENT:PR_COMPACT_NON_INTERRUPT_DELIVERY:END -->
 
 <!-- AIW-REQUIREMENT:PR_CODEX_TOOL_OPERATION_RESOLUTION:BEGIN -->
-首次解析、来源变化或正文实际缺失时读取项目backend与pinned TOOLCHAIN.json，校验runtime/platform并取得exact entrypoint；健康调用复用。不得从shell推断backend、另造后端或让用户逐任务选择。已知独立读查同批执行；有依赖且无需新语义判断的机械步骤按结果连续编排，各门保留独立结果，失败停止依赖链。当前命令/测试的必要结果获取可按预期耗时等待；跨会话结果遵循 TASK 的无等待规则。新事实、语义取舍或真实失败才返回模型，不能自动填授权、Review或接受PASS。记录、交付和必要归档在原任务收尾集中完成，不另起清理或统计回合。
+按RECOVERY的已绑定backend/TOOLCHAIN取得精确operation入口，健康调用复用。已知独立读查同批执行；有依赖且无需新语义判断的机械步骤连续编排，逐门检查实际结果，失败停依赖链。新事实、语义取舍或真实失败才返回模型，不自动填授权、Review或接受PASS；记录、交付与必要归档在原自然收尾完成。
 
-TASK定义的workflow transition使用fresh project authority、cwd/project root、package、用户决定和host-authenticated envelope；实际 Git 动作另核对 Git top。按 TOOLCHAIN 的 WORKFLOW_ROUTE_RESOLVE 提交 ephemeral input；缺事实 fail closed，具体字段及输入生命周期仅见TOOL_CONTRACT。任务显示名遵循TASK命名合同；创建时使用宿主title参数，主题实变时按authenticated task ID调用宿主标题操作，只改显示、不发指令或改authority。
+创建时同一次实际调用落实选定model、effort、环境和宿主支持的精确起点，使用标题参数，并核对真实thread ID、配置及读取基线。clientThreadId不作正式主体。当前未提交材料、隔离需要和用户指定影响起点，不因“独审”或Git名称自动强制worktree；宿主不支持与用户没授权分别报告，不静默换环境。明确controlRoot及executionTarget的初始指令优先于执行目录内历史复制入口，实际authority/保护仍由当前工具核对。
 
-创建时在同一次调用落实已选 model、effort、环境及宿主支持的精确起点，并核对返回的真实任务 ID、配置与读取基线；当前未提交材料和明确隔离需求影响环境选择，但独立审核或 Git 名称自身不强制某环境。宿主工具合同若要求创建后首次取得进度，仅在取得可用真实任务 ID 后做一次立即快照；未就绪即结束当前轮，超时或 commentary 不构成再次等待依据，不把首次观察扩成循环。参数缺失、归一化、拒绝或不支持时按身份、保护、候选与证据影响处置，不静默换环境/起点。交审依赖顺序只取 REVIEW_AND_EVIDENCE；HOST在已有主体的新工作中使用已知真实 ID，在新建且 ID 未知时将限域待绑定原件随完整初始委派一次交付，由接收者自绑定，不默认改走创建后补包。健康续作复用仍有效绑定；任何分支包未准入前只读。用户已有授权与宿主不支持是不同事实，不能把后者误报为用户未授权；不维护第二份参数表。
+已知接收者直接使用真实ID。新建未知ID时，创建提示一次交齐完整工作/验收/候选/消费者、可核对的原始人类来源和待绑定原件路径、identity、delegationId；原件不可执行。接收者从自己的真实初始委派核对原件，AUTHORIZATION_RECEIVER_BIND读取宿主CODEX_THREAD_ID，仅按原模板绑定自身，不能改Owner/issuer/范围/动作/候选。该关系为INSTRUCTION_BOUND，不声称工具能认证初始提示；缺失/不符只读停止。具体assignment/receiverBinding字段唯一TOOL_CONTRACT；健康续作复用有效绑定，不默认创建后补包。
 
+宿主明确要求创建后首次进度观察时，在取得真实可用ID后仅做一次立即快照，未就绪结束本轮；超时/commentary不触发继续等待。当前命令必要等待与peer等待分开，后者遵循TASK。显示标题仅在主题/职责实变时按真实ID更新，不发送指令或改authority。实际交审依赖顺序唯一取REVIEW_AND_EVIDENCE。
 <!-- AIW-REQUIREMENT:PR_CODEX_TOOL_OPERATION_RESOLUTION:END -->
 
 <!-- AIW-REQUIREMENT:PR_CODEX_ROUTER_REACTIVATION:BEGIN -->
-项目 AGENTS 点名已接入且兼容采用版本的 `ai-workspace-router-v2` Skill；宿主提供的名称、描述与路径用于发现，选中后实际读取完整正文。description 不承担版本选择，名称投影以当前采用版本的 TOOLCHAIN 为准。适用条件由根 canonical Skill 统一维护；接入收尾及异常处理见根 PROJECT_ADOPTION，version host 文件只保存兼容合同。
+本目标使用navigationContractVersion=3的PROJECT_BOOTSTRAP入口。项目AGENTS只导航明确项目的.ai-workspace/BOOTSTRAP.md；Bootstrap按项目pin及原采用记录绑定固定来源和TOOLCHAIN，不要求新Skill、安装发现或兼容转发。宿主AGENTS可见、文件可读和实际正文已读分别核对。
 
-加载、复用和重建遵循 `RECOVERY_CORE.md`。健康上下文继续使用已加载 Skill 与有效规则；使用 Skill 不等于 FULL_COLD，action/final boundary call 不自行推导全文重载。
+首次项目工作、压缩或换主体按RECOVERY取得当前必要完整正文；健康上下文按RECOVERY复用，同动作普通范围变化只重验准入，不为每次action/final重载。无关会话不启动项目恢复。
 
-输入、compact 保存与清理遵循 TOOL_CONTRACT；当前动作仍完成 DISCOVER、ADMIT_ACTION 与 FINALIZE_OUTPUT。
-
-当前已验证宿主接入未暴露可证明本次模型输入仍持有哪些完整规则块的接口，C05明确为UNSUPPORTED并回退全文。read_thread的历史摘要、thread ID、instructionSources路径或压缩事件都不是当前完整正文身份。官方[App Server](https://learn.chatgpt.com/docs/app-server)描述的是历史/指令路径与contextCompaction事件；[Compaction](https://developers.openai.com/api/docs/guides/compaction)说明压缩项是不透明状态。由这些信息不能推断规则全文仍逐字存在；本版不增加跨请求省略开关，也不把单次显示去重计为C05能力。
+旧nav1/nav2项目及在途采用继续使用各自原固定入口，原FINALIZE完成后才读新AGENTS/Bootstrap；部分文件变化不代表切换完成。旧Skill仅在真实依赖结束且有宿主权限时退役，不建消费者登记或每项目副本。输入/证据仍取当前TOOL_CONTRACT，导航本身不授权。
 <!-- AIW-REQUIREMENT:PR_CODEX_ROUTER_REACTIVATION:END -->

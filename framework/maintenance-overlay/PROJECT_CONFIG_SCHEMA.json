@@ -1,82 +1,80 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "AI-Workspace Framework Maintenance sibling configuration",
-  "type": "object",
-  "additionalProperties": false,
-  "required": [
-    "schemaVersion",
-    "id",
-    "displayName",
-    "controlPlaneLayout",
-    "repositoryRoot",
-    "frameworkVersion",
-    "frameworkToolBackend",
-    "routineExcludedPaths",
-    "frameworkCapabilities",
-    "processPolicy",
-    "frameworkTarget"
-  ],
-  "properties": {
-    "schemaVersion": {
-      "enum": [
-        4,
-        5
-      ]
-    },
-    "id": {
-      "type": "string",
-      "minLength": 1
-    },
-    "displayName": {
-      "type": "string",
-      "minLength": 1
-    },
-    "controlPlaneLayout": {
-      "const": "framework-maintenance-sibling"
-    },
-    "repositoryRoot": {
-      "const": ".."
-    },
-    "frameworkVersion": {
-      "type": "string",
-      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
-    },
-    "frameworkToolBackend": {
-      "const": "powershell7"
-    },
-    "routineExcludedPaths": {
-      "type": "array",
-      "uniqueItems": true,
-      "items": {
-        "type": "string",
-        "minLength": 1
-      }
-    },
-    "frameworkCapabilities": {
+  "title": "AI-Workspace Framework Maintenance sibling configuration (strict historical and current formats)",
+  "oneOf": [
+    {
       "type": "object",
       "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "id",
+        "displayName",
+        "controlPlaneLayout",
+        "repositoryRoot",
+        "frameworkVersion",
+        "frameworkToolBackend",
+        "routineExcludedPaths",
+        "frameworkCapabilities",
+        "processPolicy",
+        "frameworkTarget",
+        "sourceBindings"
+      ],
       "properties": {
-        "KNOWLEDGE_REFERENCE": {
+        "schemaVersion": {
+          "const": 6
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "controlPlaneLayout": {
+          "const": "framework-maintenance-sibling"
+        },
+        "repositoryRoot": {
+          "const": ".."
+        },
+        "frameworkVersion": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "frameworkToolBackend": {
+          "const": "powershell7"
+        },
+        "routineExcludedPaths": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "frameworkCapabilities": {
           "type": "object",
           "additionalProperties": false,
-          "required": [
-            "enabled",
-            "sources"
-          ],
           "properties": {
-            "enabled": {
-              "type": "boolean"
-            },
-            "sources": {
-              "type": "array",
-              "items": {
-                "oneOf": [
-                  {
+            "KNOWLEDGE_REFERENCE": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "enabled",
+                "sources"
+              ],
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "sources": {
+                  "type": "array",
+                  "items": {
                     "type": "object",
                     "additionalProperties": false,
                     "required": [
                       "id",
-                      "root",
+                      "bindingId",
                       "indexLocator",
                       "selectionHints",
                       "updatePolicy"
@@ -86,43 +84,9 @@
                         "type": "string",
                         "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
                       },
-                      "root": {
-                        "oneOf": [
-                          {
-                            "type": "object",
-                            "additionalProperties": false,
-                            "required": [
-                              "kind",
-                              "locator"
-                            ],
-                            "properties": {
-                              "kind": {
-                                "const": "PROJECT"
-                              },
-                              "locator": {
-                                "const": "."
-                              }
-                            }
-                          },
-                          {
-                            "type": "object",
-                            "additionalProperties": false,
-                            "required": [
-                              "kind",
-                              "locator"
-                            ],
-                            "properties": {
-                              "kind": {
-                                "const": "LOCAL_DIRECTORY"
-                              },
-                              "locator": {
-                                "type": "string",
-                                "minLength": 1,
-                                "pattern": "^[A-Za-z]:[\\\\/]"
-                              }
-                            }
-                          }
-                        ]
+                      "bindingId": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
                       },
                       "indexLocator": {
                         "type": "string",
@@ -137,7 +101,167 @@
                         }
                       },
                       "updatePolicy": {
-                        "const": "FOLLOW"
+                        "enum": [
+                          "PINNED",
+                          "FOLLOW"
+                        ]
+                      },
+                      "indexIdentity": {
+                        "type": "string",
+                        "pattern": "^\\d+\\|[A-F0-9]{64}$"
+                      },
+                      "revision": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "kind",
+                          "value"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "enum": [
+                              "CONTENT_IDENTITY",
+                              "GIT_COMMIT"
+                            ]
+                          },
+                          "value": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        }
+                      },
+                      "revisionSelector": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "allOf": [
+                      {
+                        "else": {
+                          "not": {
+                            "anyOf": [
+                              {
+                                "required": [
+                                  "indexIdentity"
+                                ]
+                              },
+                              {
+                                "required": [
+                                  "revision"
+                                ]
+                              }
+                            ]
+                          },
+                          "required": [
+                            "revisionSelector"
+                          ]
+                        },
+                        "if": {
+                          "properties": {
+                            "updatePolicy": {
+                              "const": "PINNED"
+                            }
+                          }
+                        },
+                        "then": {
+                          "not": {
+                            "required": [
+                              "revisionSelector"
+                            ]
+                          },
+                          "required": [
+                            "indexIdentity",
+                            "revision"
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "processPolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schemaVersion",
+            "locator"
+          ],
+          "properties": {
+            "schemaVersion": {
+              "const": 2
+            },
+            "locator": {
+              "const": ".ai-workspace/process-policy.json"
+            }
+          }
+        },
+        "frameworkTarget": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "repositoryId",
+            "siblingDirectory",
+            "routineExcludedPaths"
+          ],
+          "properties": {
+            "repositoryId": {
+              "type": "string",
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+            },
+            "siblingDirectory": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\\\/:*?\"<>|]+$"
+            },
+            "routineExcludedPaths": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "sourceBindings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "provider",
+              "locator",
+              "allowedPaths",
+              "decisionLocator"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+              },
+              "provider": {
+                "enum": [
+                  "LOCAL_DIRECTORY",
+                  "GIT_REVISION",
+                  "HTTPS_RESOURCE"
+                ]
+              },
+              "locator": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "root"
+                    ],
+                    "properties": {
+                      "root": {
+                        "type": "string",
+                        "minLength": 1
                       }
                     }
                   },
@@ -145,117 +269,230 @@
                     "type": "object",
                     "additionalProperties": false,
                     "required": [
-                      "id",
-                      "root",
-                      "indexLocator",
-                      "selectionHints",
-                      "updatePolicy",
-                      "indexIdentity"
+                      "repository"
                     ],
                     "properties": {
-                      "id": {
-                        "type": "string",
-                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
-                      },
-                      "root": {
-                        "oneOf": [
-                          {
-                            "type": "object",
-                            "additionalProperties": false,
-                            "required": [
-                              "kind",
-                              "locator"
-                            ],
-                            "properties": {
-                              "kind": {
-                                "const": "PROJECT"
-                              },
-                              "locator": {
-                                "const": "."
-                              }
-                            }
-                          },
-                          {
-                            "type": "object",
-                            "additionalProperties": false,
-                            "required": [
-                              "kind",
-                              "locator"
-                            ],
-                            "properties": {
-                              "kind": {
-                                "const": "LOCAL_DIRECTORY"
-                              },
-                              "locator": {
-                                "type": "string",
-                                "minLength": 1,
-                                "pattern": "^[A-Za-z]:[\\\\/]"
-                              }
-                            }
-                          }
-                        ]
-                      },
-                      "indexLocator": {
+                      "repository": {
                         "type": "string",
                         "minLength": 1
-                      },
-                      "selectionHints": {
-                        "type": "array",
-                        "uniqueItems": true,
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "updatePolicy": {
-                        "const": "PINNED"
-                      },
-                      "indexIdentity": {
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "baseUrl"
+                    ],
+                    "properties": {
+                      "baseUrl": {
                         "type": "string",
-                        "pattern": "^\\d+\\|[A-F0-9]{64}$"
+                        "pattern": "^https://"
                       }
                     }
                   }
                 ]
+              },
+              "allowedPaths": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "kind",
+                    "locator"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "FILE",
+                        "DIRECTORY"
+                      ]
+                    },
+                    "locator": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                },
+                "minItems": 1,
+                "uniqueItems": true
+              },
+              "decisionLocator": {
+                "type": "string",
+                "minLength": 1
+              },
+              "credentialRef": {
+                "type": "string",
+                "minLength": 1
+              },
+              "transportLimits": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "maxObjectBytes",
+                  "timeoutMs",
+                  "maxRedirects"
+                ],
+                "properties": {
+                  "maxObjectBytes": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "timeoutMs": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "maxRedirects": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              }
+            },
+            "allOf": [
+              {
+                "then": {
+                  "properties": {
+                    "locator": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "root"
+                      ],
+                      "properties": {
+                        "root": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    }
+                  }
+                },
+                "if": {
+                  "properties": {
+                    "provider": {
+                      "const": "LOCAL_DIRECTORY"
+                    }
+                  }
+                }
+              },
+              {
+                "then": {
+                  "properties": {
+                    "locator": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "repository"
+                      ],
+                      "properties": {
+                        "repository": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    }
+                  }
+                },
+                "if": {
+                  "properties": {
+                    "provider": {
+                      "const": "GIT_REVISION"
+                    }
+                  }
+                }
+              },
+              {
+                "then": {
+                  "properties": {
+                    "locator": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "baseUrl"
+                      ],
+                      "properties": {
+                        "baseUrl": {
+                          "type": "string",
+                          "pattern": "^https://"
+                        }
+                      }
+                    }
+                  }
+                },
+                "if": {
+                  "properties": {
+                    "provider": {
+                      "const": "HTTPS_RESOURCE"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "schemaVersion": {
+                "const": 4
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "frameworkCapabilities": {
+                "maxProperties": 0
               }
             }
           }
         }
-      }
+      ]
     },
-    "processPolicy": {
+    {
       "type": "object",
       "additionalProperties": false,
       "required": [
         "schemaVersion",
-        "locator"
+        "id",
+        "displayName",
+        "controlPlaneLayout",
+        "repositoryRoot",
+        "frameworkVersion",
+        "frameworkToolBackend",
+        "routineExcludedPaths",
+        "frameworkCapabilities",
+        "processPolicy",
+        "frameworkTarget",
+        "sourceBindings"
       ],
       "properties": {
         "schemaVersion": {
-          "const": 1
+          "const": 7
         },
-        "locator": {
-          "const": ".ai-workspace/process-policy.json"
-        }
-      }
-    },
-    "frameworkTarget": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "repositoryId",
-        "siblingDirectory",
-        "routineExcludedPaths"
-      ],
-      "properties": {
-        "repositoryId": {
+        "id": {
           "type": "string",
-          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          "minLength": 1
         },
-        "siblingDirectory": {
+        "displayName": {
           "type": "string",
-          "minLength": 1,
-          "pattern": "^[^\\\\/:*?\"<>|]+$"
+          "minLength": 1
+        },
+        "controlPlaneLayout": {
+          "const": "framework-maintenance-sibling"
+        },
+        "repositoryRoot": {
+          "const": ".."
+        },
+        "frameworkVersion": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "frameworkToolBackend": {
+          "const": "powershell7"
         },
         "routineExcludedPaths": {
           "type": "array",
@@ -264,26 +501,406 @@
             "type": "string",
             "minLength": 1
           }
-        }
-      }
-    }
-  },
-  "allOf": [
-    {
-      "if": {
-        "properties": {
-          "schemaVersion": {
-            "const": 4
+        },
+        "frameworkCapabilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "KNOWLEDGE_REFERENCE": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "enabled",
+                "sources"
+              ],
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "sources": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "id",
+                      "bindingId",
+                      "indexLocator",
+                      "selectionHints",
+                      "updatePolicy"
+                    ],
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                      },
+                      "bindingId": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                      },
+                      "indexLocator": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "selectionHints": {
+                        "type": "array",
+                        "uniqueItems": true,
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "updatePolicy": {
+                        "enum": [
+                          "PINNED",
+                          "FOLLOW"
+                        ]
+                      },
+                      "indexIdentity": {
+                        "type": "string",
+                        "pattern": "^\\d+\\|[A-F0-9]{64}$"
+                      },
+                      "revision": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "kind",
+                          "value"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "enum": [
+                              "CONTENT_IDENTITY",
+                              "GIT_COMMIT"
+                            ]
+                          },
+                          "value": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        }
+                      },
+                      "revisionSelector": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "allOf": [
+                      {
+                        "else": {
+                          "not": {
+                            "anyOf": [
+                              {
+                                "required": [
+                                  "indexIdentity"
+                                ]
+                              },
+                              {
+                                "required": [
+                                  "revision"
+                                ]
+                              }
+                            ]
+                          },
+                          "required": [
+                            "revisionSelector"
+                          ]
+                        },
+                        "if": {
+                          "properties": {
+                            "updatePolicy": {
+                              "const": "PINNED"
+                            }
+                          }
+                        },
+                        "then": {
+                          "not": {
+                            "required": [
+                              "revisionSelector"
+                            ]
+                          },
+                          "required": [
+                            "indexIdentity",
+                            "revision"
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "processPolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schemaVersion",
+            "locator"
+          ],
+          "properties": {
+            "schemaVersion": {
+              "const": 3
+            },
+            "locator": {
+              "const": ".ai-workspace/process-policy.json"
+            }
+          }
+        },
+        "frameworkTarget": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "repositoryId",
+            "siblingDirectory",
+            "routineExcludedPaths"
+          ],
+          "properties": {
+            "repositoryId": {
+              "type": "string",
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+            },
+            "siblingDirectory": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\\\/:*?\"<>|]+$"
+            },
+            "routineExcludedPaths": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "sourceBindings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "provider",
+              "locator",
+              "allowedPaths",
+              "decisionLocator"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+              },
+              "provider": {
+                "enum": [
+                  "LOCAL_DIRECTORY",
+                  "GIT_REVISION",
+                  "HTTPS_RESOURCE"
+                ]
+              },
+              "locator": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "root"
+                    ],
+                    "properties": {
+                      "root": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "repository"
+                    ],
+                    "properties": {
+                      "repository": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "baseUrl"
+                    ],
+                    "properties": {
+                      "baseUrl": {
+                        "type": "string",
+                        "pattern": "^https://"
+                      }
+                    }
+                  }
+                ]
+              },
+              "allowedPaths": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "kind",
+                    "locator"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "FILE",
+                        "DIRECTORY"
+                      ]
+                    },
+                    "locator": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                },
+                "minItems": 1,
+                "uniqueItems": true
+              },
+              "decisionLocator": {
+                "type": "string",
+                "minLength": 1
+              },
+              "credentialRef": {
+                "type": "string",
+                "minLength": 1
+              },
+              "transportLimits": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "maxObjectBytes",
+                  "timeoutMs",
+                  "maxRedirects"
+                ],
+                "properties": {
+                  "maxObjectBytes": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "timeoutMs": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "maxRedirects": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              }
+            },
+            "allOf": [
+              {
+                "then": {
+                  "properties": {
+                    "locator": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "root"
+                      ],
+                      "properties": {
+                        "root": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    }
+                  }
+                },
+                "if": {
+                  "properties": {
+                    "provider": {
+                      "const": "LOCAL_DIRECTORY"
+                    }
+                  }
+                }
+              },
+              {
+                "then": {
+                  "properties": {
+                    "locator": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "repository"
+                      ],
+                      "properties": {
+                        "repository": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    }
+                  }
+                },
+                "if": {
+                  "properties": {
+                    "provider": {
+                      "const": "GIT_REVISION"
+                    }
+                  }
+                }
+              },
+              {
+                "then": {
+                  "properties": {
+                    "locator": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "baseUrl"
+                      ],
+                      "properties": {
+                        "baseUrl": {
+                          "type": "string",
+                          "pattern": "^https://"
+                        }
+                      }
+                    }
+                  }
+                },
+                "if": {
+                  "properties": {
+                    "provider": {
+                      "const": "HTTPS_RESOURCE"
+                    }
+                  }
+                }
+              }
+            ]
           }
         }
       },
-      "then": {
-        "properties": {
-          "frameworkCapabilities": {
-            "maxProperties": 0
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "schemaVersion": {
+                "const": 4
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "frameworkCapabilities": {
+                "maxProperties": 0
+              }
+            }
           }
         }
-      }
+      ]
     }
   ]
 }

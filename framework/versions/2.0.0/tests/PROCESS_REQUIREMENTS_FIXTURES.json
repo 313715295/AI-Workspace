@@ -5,7 +5,7 @@
   "fixtures": [
     {
       "fixtureId": "no_match",
-      "fixtureIdentity": "0602BDA60CC317A45C8BC3695EABA6A980E8444C32B549E3C336246B855E1DCE",
+      "fixtureIdentity": "0FDC847584B57D7A6F44D7583E3D1B731C347A2E22F55B2E1A36CDF793272DCC",
       "profile": "MICRO",
       "actor": "fixture-actor",
       "role": "EXECUTOR",
@@ -30,11 +30,39 @@
         "DISCOVER": 0,
         "ADMIT_ACTION": 0,
         "FINALIZE_OUTPUT": 0
-      }
+      },
+      "facets": {
+        "domain": {
+          "state": "KNOWN",
+          "values": [
+            "aiw:software"
+          ]
+        },
+        "workType": {
+          "state": "KNOWN",
+          "values": [
+            "aiw:discussion"
+          ]
+        },
+        "deliverableType": {
+          "state": "KNOWN",
+          "values": [
+            "aiw:plan"
+          ]
+        },
+        "stage": {
+          "state": "KNOWN",
+          "values": [
+            "aiw:discovery"
+          ]
+        }
+      },
+      "discoverInputVersion": 5,
+      "compactVersion": 4
     },
     {
       "fixtureId": "ordinary_source",
-      "fixtureIdentity": "0D5A91362CDC5ECA625E4FCCC4D10E1834EEA0B0C8CC006EFF821F51A66E6923",
+      "fixtureIdentity": "4E197C1D21227732A90F1AC7EFE9CC2A2B26CA0FBB8A3784D3DDB0C26873DB1E",
       "profile": "STANDARD",
       "actor": "fixture-owner",
       "role": "TASK_OWNER",
@@ -61,11 +89,39 @@
         "DISCOVER": 0,
         "ADMIT_ACTION": 0,
         "FINALIZE_OUTPUT": 0
-      }
+      },
+      "facets": {
+        "domain": {
+          "state": "KNOWN",
+          "values": [
+            "aiw:software"
+          ]
+        },
+        "workType": {
+          "state": "KNOWN",
+          "values": [
+            "aiw:implementation"
+          ]
+        },
+        "deliverableType": {
+          "state": "KNOWN",
+          "values": [
+            "aiw:code"
+          ]
+        },
+        "stage": {
+          "state": "KNOWN",
+          "values": [
+            "aiw:implementation"
+          ]
+        }
+      },
+      "discoverInputVersion": 5,
+      "compactVersion": 4
     },
     {
       "fixtureId": "critical_review",
-      "fixtureIdentity": "62C1C37232E3F20DAF4165E8A9C65F3CCEC08D2B0AFFE8CC5DE221EAA9C60589",
+      "fixtureIdentity": "21CAA0487873B2D62BFCBDA7ACE728CE8A12B183D89EBC407EFB59E41AA15359",
       "profile": "CRITICAL",
       "actor": "fixture-reviewer",
       "role": "REVIEWER",
@@ -93,11 +149,39 @@
         "DISCOVER": 0,
         "ADMIT_ACTION": 0,
         "FINALIZE_OUTPUT": 0
-      }
+      },
+      "facets": {
+        "domain": {
+          "state": "KNOWN",
+          "values": [
+            "aiw:software"
+          ]
+        },
+        "workType": {
+          "state": "KNOWN",
+          "values": [
+            "aiw:review"
+          ]
+        },
+        "deliverableType": {
+          "state": "KNOWN",
+          "values": [
+            "aiw:review-verdict"
+          ]
+        },
+        "stage": {
+          "state": "KNOWN",
+          "values": [
+            "aiw:review"
+          ]
+        }
+      },
+      "discoverInputVersion": 5,
+      "compactVersion": 4
     },
     {
       "fixtureId": "domain_external",
-      "fixtureIdentity": "56720DEAABB95178C01363A3FFC3D5FD2994FA050DB23291C8954B76892609D3",
+      "fixtureIdentity": "57DC119479CB7DE786572A7B8C13D01CA918AFB6A54765871419F46F2A64DD96",
       "profile": "STANDARD",
       "actor": "fixture-owner",
       "role": "TASK_OWNER",
@@ -126,11 +210,39 @@
         "DISCOVER": 0,
         "ADMIT_ACTION": 0,
         "FINALIZE_OUTPUT": 0
-      }
+      },
+      "facets": {
+        "domain": {
+          "state": "KNOWN",
+          "values": [
+            "aiw:operations"
+          ]
+        },
+        "workType": {
+          "state": "KNOWN",
+          "values": [
+            "aiw:tool-operation"
+          ]
+        },
+        "deliverableType": {
+          "state": "KNOWN",
+          "values": [
+            "aiw:report"
+          ]
+        },
+        "stage": {
+          "state": "KNOWN",
+          "values": [
+            "aiw:implementation"
+          ]
+        }
+      },
+      "discoverInputVersion": 5,
+      "compactVersion": 4
     },
     {
       "fixtureId": "framework_maintenance_review",
-      "fixtureIdentity": "FB3AF72BBA73512D68AC38687B58CE44145606AD1FB95643CC52A395E887DCAA",
+      "fixtureIdentity": "C72ECBCD2A0FAEA5926201AE4B2257191F87A120CD98683B43DB74869F73F7D5",
       "profile": "CRITICAL",
       "actor": "fixture-framework-reviewer",
       "role": "FRAMEWORK_MAINTAINER",
@@ -158,11 +270,40 @@
         "DISCOVER": 0,
         "ADMIT_ACTION": 0,
         "FINALIZE_OUTPUT": 0
-      }
+      },
+      "facets": {
+        "domain": {
+          "state": "KNOWN",
+          "values": [
+            "aiw:governance",
+            "aiw:software"
+          ]
+        },
+        "workType": {
+          "state": "KNOWN",
+          "values": [
+            "aiw:review"
+          ]
+        },
+        "deliverableType": {
+          "state": "KNOWN",
+          "values": [
+            "aiw:review-verdict"
+          ]
+        },
+        "stage": {
+          "state": "KNOWN",
+          "values": [
+            "aiw:review"
+          ]
+        }
+      },
+      "discoverInputVersion": 5,
+      "compactVersion": 4
     },
     {
       "fixtureId": "worst_unknown",
-      "fixtureIdentity": "F56055458B276B427F6BCF0D778448046D628D48918798C18388721AF007FC0D",
+      "fixtureIdentity": "60E91BB22334219B1F5B6D30D90BD403CD9DE7EAE2EA4A0F66FA39949F156A9B",
       "profile": "CRITICAL",
       "actor": "fixture-controller",
       "role": "CONTROLLER",
@@ -202,7 +343,27 @@
         "DISCOVER": 0,
         "ADMIT_ACTION": 3,
         "FINALIZE_OUTPUT": 3
-      }
+      },
+      "facets": {
+        "domain": {
+          "state": "UNKNOWN",
+          "values": []
+        },
+        "workType": {
+          "state": "UNKNOWN",
+          "values": []
+        },
+        "deliverableType": {
+          "state": "UNKNOWN",
+          "values": []
+        },
+        "stage": {
+          "state": "UNKNOWN",
+          "values": []
+        }
+      },
+      "discoverInputVersion": 5,
+      "compactVersion": 4
     }
   ]
 }

@@ -11,4 +11,4 @@
 
 历史inventory只记录数量或稳定locator；逐任务历史从Git或`tasks/archive/`读取，不进入首次恢复热上下文。
 
-没有 active task 时保持空表；初始化不创建占位任务。
+没有 active task 时保持空表。首次候选接入依据真实采用目标准备有限首卡，由 REGISTER 事务写入并定位；不能创建无目标或无限期 Root 占位任务。之后任务和索引按正常当前授权维护。

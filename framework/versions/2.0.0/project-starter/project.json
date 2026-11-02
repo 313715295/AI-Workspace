@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 5,
+  "schemaVersion": 7,
   "id": {{PROJECT_ID_JSON}},
   "displayName": {{DISPLAY_NAME_JSON}},
   "controlPlaneLayout": "repo-local",
@@ -8,8 +8,9 @@
   "frameworkToolBackend": "powershell7",
   "routineExcludedPaths": [],
   "frameworkCapabilities": {},
+  "sourceBindings": [],
   "processPolicy": {
-    "schemaVersion": 1,
+    "schemaVersion": 3,
     "locator": ".ai-workspace/process-policy.json"
   }
 }

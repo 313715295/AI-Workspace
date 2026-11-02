@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Immutable task execution target (not authority)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "kind",
+    "projectId",
+    "taskId",
+    "controlRoot",
+    "targetKind",
+    "targetRoot",
+    "gitBinding",
+    "selectionDecisionRef",
+    "hostWorktreeRef"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "kind": {
+      "const": "EXECUTION_TARGET"
+    },
+    "projectId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "taskId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "controlRoot": {
+      "type": "string",
+      "pattern": "^(?:[A-Za-z]:[\\\\/]|/).+"
+    },
+    "targetKind": {
+      "const": "GIT_WORKTREE"
+    },
+    "targetRoot": {
+      "type": "string",
+      "pattern": "^(?:[A-Za-z]:[\\\\/]|/).+"
+    },
+    "gitBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "commonGitDir",
+        "worktreeGitDir",
+        "gitTop",
+        "branch",
+        "baselineCommit"
+      ],
+      "properties": {
+        "commonGitDir": {
+          "type": "string",
+          "pattern": "^(?:[A-Za-z]:[\\\\/]|/).+"
+        },
+        "worktreeGitDir": {
+          "type": "string",
+          "pattern": "^(?:[A-Za-z]:[\\\\/]|/).+"
+        },
+        "gitTop": {
+          "type": "string",
+          "pattern": "^(?:[A-Za-z]:[\\\\/]|/).+"
+        },
+        "branch": {
+          "type": "string",
+          "minLength": 1
+        },
+        "baselineCommit": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{40}(?:[0-9a-fA-F]{24})?$"
+        }
+      }
+    },
+    "selectionDecisionRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "identity"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "identity": {
+          "type": "string",
+          "pattern": "^\\d+\\|[A-F0-9]{64}$"
+        }
+      }
+    },
+    "hostWorktreeRef": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path",
+            "identity"
+          ],
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "identity": {
+              "type": "string",
+              "pattern": "^\\d+\\|[A-F0-9]{64}$"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

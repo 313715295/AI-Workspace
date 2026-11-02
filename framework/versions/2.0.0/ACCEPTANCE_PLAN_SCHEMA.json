@@ -6,6 +6,66 @@
   "type": "object",
   "title": "AI Workspace acceptance plan 1",
   "$defs": {
+    "evidenceConsumption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "purpose",
+        "originalFinalize"
+      ],
+      "properties": {
+        "purpose": {
+          "enum": [
+            "CURRENT_CANDIDATE",
+            "HISTORICAL_SUCCESS"
+          ]
+        },
+        "originalFinalize": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "inputRef",
+              "resultRef"
+            ],
+            "properties": {
+              "inputRef": {
+                "$ref": "#/$defs/objectRef"
+              },
+              "resultRef": {
+                "$ref": "#/$defs/objectRef"
+              }
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "purpose": {
+                "const": "CURRENT_CANDIDATE"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "originalFinalize": {
+                "maxItems": 0
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "originalFinalize": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    },
     "objectRef": {
       "required": [
         "path",
@@ -95,11 +155,14 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
     "schemaVersion": {
-      "const": 1
+      "enum": [
+        1,
+        2
+      ]
     },
     "stages": {
       "maxItems": 128,
-      "minItems": 1,
+      "minItems": 0,
       "items": {
         "required": [
           "id",
@@ -111,6 +174,9 @@
         ],
         "additionalProperties": false,
         "properties": {
+          "evidenceConsumption": {
+            "$ref": "#/$defs/evidenceConsumption"
+          },
           "kind": {
             "enum": [
               "DESIGN",
@@ -155,6 +221,25 @@
             "if": {
               "properties": {
                 "kind": {
+                  "enum": [
+                    "DESIGN",
+                    "USER_DECISION"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "not": {
+                "required": [
+                  "evidenceConsumption"
+                ]
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "kind": {
                   "const": "USER_DECISION"
                 }
               }
@@ -172,6 +257,155 @@
         ]
       },
       "type": "array"
+    },
+    "qualityBinding": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "policyRef",
+        "subject",
+        "effectiveStages"
+      ],
+      "properties": {
+        "effectiveStages": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "SELF_CHECK",
+              "RESULT_REVIEW",
+              "RESULT_ACCEPT"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "policyRef": {
+          "type": "object",
+          "required": [
+            "path",
+            "identity"
+          ],
+          "properties": {
+            "identity": {
+              "type": "string",
+              "pattern": "^\\d+\\|[A-F0-9]{64}$"
+            },
+            "path": {
+              "const": ".ai-workspace/process-policy.json"
+            }
+          },
+          "additionalProperties": false
+        },
+        "schemaVersion": {
+          "const": 1
+        },
+        "subject": {
+          "type": "object",
+          "required": [
+            "repositoryId",
+            "exactPaths",
+            "facets"
+          ],
+          "properties": {
+            "exactPaths": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "minItems": 1,
+              "uniqueItems": true
+            },
+            "repositoryId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "facets": {
+              "type": "object",
+              "required": [
+                "domain",
+                "deliverableType"
+              ],
+              "properties": {
+                "deliverableType": {
+                  "type": "object",
+                  "required": [
+                    "state",
+                    "values"
+                  ],
+                  "properties": {
+                    "state": {
+                      "const": "KNOWN"
+                    },
+                    "values": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "minItems": 1,
+                      "uniqueItems": true
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "domain": {
+                  "type": "object",
+                  "required": [
+                    "state",
+                    "values"
+                  ],
+                  "properties": {
+                    "state": {
+                      "const": "KNOWN"
+                    },
+                    "values": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "minItems": 1,
+                      "uniqueItems": true
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "schemaVersion": {
+            "const": 1
+          }
+        }
+      },
+      "else": {
+        "required": [
+          "qualityBinding"
+        ]
+      },
+      "then": {
+        "not": {
+          "required": [
+            "qualityBinding"
+          ]
+        },
+        "properties": {
+          "stages": {
+            "minItems": 1
+          }
+        }
+      }
+    }
+  ]
 }

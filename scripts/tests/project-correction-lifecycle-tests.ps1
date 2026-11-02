@@ -1,5 +1,7 @@
 [CmdletBinding()]
 param()
+Import-Module (Join-Path $PSScriptRoot '../../framework/versions/2.0.0/tests/TestNativeOutput.psm1')
+Initialize-AiwTestNativeOutput
 $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
 $scripts=Split-Path -Parent $PSScriptRoot
 $framework=Split-Path -Parent $scripts
@@ -22,6 +24,8 @@ function Plan([string]$Operation,[string]$Name='A',$Changes=@(),$Depends=@()){
     $install=$Operation-cin@('INSTALL','REGISTER_HISTORY')
     [pscustomobject]@{schemaVersion=1;operation=$Operation;correctionId=$Name;expectedCorrectionsIdentity=(Id '.ai-workspace/corrections.json');decisionLocator='fixture:decision';forbiddenPaths=@('private/');record=$(if($Operation-ceq'INSTALL'){Record $Name}else{'NOT_APPLICABLE'});installation=$(if($install){[pscustomobject]@{schemaVersion=1;correctionId=$Name;decisionLocator='fixture:original-install-evidence';dependsOn=@($Depends);changes=@($Changes)}}else{'NOT_APPLICABLE'});installationRelativePath=$(if($install){".ai-workspace/upgrade-recovery/corrections/$Name/$serial/installation.json"}else{'NOT_APPLICABLE'});transactionRelativePath=".ai-workspace/upgrade-recovery/corrections/$Name/$serial/state.json";impact=[pscustomobject]@{stoppedObligations=@('fixture owned rule');independentObligations=@('user changes');inFlightEffects=@();recovery='resume from original ownership';semanticAssessment='fixture has explicit dependencies only'}}
 }
+# Low-level effect/ownership transaction tests; ordinary no-effect public
+# actions are covered by source-postimage-transition-tests.
 function ApplyPlan($Plan){
     $preview=New-AiwCorrectionLifecycleProjection $temp $Plan
     if($preview.status-cne'READY'){throw ($preview|ConvertTo-Json -Depth 5 -Compress)}
@@ -30,6 +34,7 @@ function ApplyPlan($Plan){
     return $result
 }
 function Reject([scriptblock]$Action,[string]$Reason,[string]$Name){$message='';try{& $Action|Out-Null}catch{$message=$_.Exception.Message};Check ($message.Contains($Reason)) $Name}
+function Clone-GroupValue($Value){$Value|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100}
 try{
     Json '.ai-workspace/project.json' @{schemaVersion=4;id='fixture';displayName='Fixture';controlPlaneLayout='repo-local';repositoryRoot='..';frameworkVersion='1.16.0';frameworkToolBackend='powershell7';routineExcludedPaths=@();frameworkCapabilities=@{};processPolicy=@{schemaVersion=1;locator='.ai-workspace/process-policy.json'}}
     Json '.ai-workspace/corrections.json' @{schemaVersion=2;contractVersion='1.16.0';projectId='fixture';corrections=@()}
@@ -178,6 +183,62 @@ try{
     $null=Invoke-AiwProjectProjectionTransaction $temp $projection '.ai-workspace/upgrade-recovery/adoption-test/state.json' {param($r,$p) $true} {param($r,$p) $true}
     $current=Read '.ai-workspace/corrections.json'|ConvertFrom-Json
     Check (@($current.corrections|Where-Object correctionId -CEQ COVERED).Count-eq0-and@($current.corrections|Where-Object correctionId -CEQ MIXED)[0].effectiveRule-ceq$mixed.effectiveRule-and(Read '.ai-workspace/upgrade-recovery/corrections/COVERED/adopt/history.json'|ConvertFrom-Json).priorRecord.effectiveRule-ceq'fixture rule COVERED') 'adoption-retains-project-delta-and-full-retired-history'
+    # Adoption composes the actual lifecycle algorithm without applying its
+    # component transactions to the project. Shared TEXT has one working view.
+    Text 'group.txt' "left=base; right=base; independent=keep"
+    $left=[pscustomobject]@{kind='TEXT';path='group.txt';before='base';after='owned';prefix='left=';suffix=';'}
+    $right=[pscustomobject]@{kind='TEXT';path='group.txt';before='base';after='first';prefix='right=';suffix=';'}
+    $binary=[pscustomobject]@{kind='FILE';path='group/old.bin';beforeExists=$false;afterExists=$true;beforeBase64='';afterBase64=[Convert]::ToBase64String([byte[]]@(0,255,42))}
+    $null=ApplyPlan (Plan INSTALL GROUP_PARENT @($left,$binary))
+    $null=ApplyPlan (Plan INSTALL GROUP_CHILD @() @('GROUP_PARENT'))
+    $null=ApplyPlan (Plan INSTALL GROUP_REV @($right))
+    $groupOriginal=Read '.ai-workspace/corrections.json'|ConvertFrom-Json
+    $priorRevision=@($groupOriginal.corrections|Where-Object correctionId -CEQ GROUP_REV)[0]
+    function AdoptionChange($Operation,$Name,$Record='NOT_APPLICABLE',$Installation='NOT_APPLICABLE',$Paths=@()){
+        [pscustomobject]@{correctionId=$Name;operation=$Operation;decisionLocator='fixture:group-adoption';record=$Record;installation=$Installation;installationRelativePath=$(if($Installation-is[pscustomobject]){".ai-workspace/upgrade-recovery/corrections/$Name/group/installation.json"}else{'NOT_APPLICABLE'});historyRelativePath=".ai-workspace/upgrade-recovery/corrections/$Name/group/history.json";effectPaths=@($Paths);impact=[pscustomobject]@{stoppedObligations=@('old owned rule');independentObligations=@('independent text');inFlightEffects=@();recovery='one original adoption journal';semanticAssessment='disjoint text and explicit dependency exit'}}
+    }
+    $rightNew=Clone-GroupValue $right
+    $rightNew.after='revised'
+    $newBinary=[pscustomobject]@{kind='FILE';path='group/new.bin';beforeExists=$false;afterExists=$true;beforeBase64='';afterBase64=[Convert]::ToBase64String([byte[]]@(255,0,1,128))}
+    $newInstallation=[pscustomobject]@{schemaVersion=1;correctionId='GROUP_REV';decisionLocator='fixture:revised-installation';dependsOn=@();changes=@($rightNew,$newBinary)}
+    $group=[pscustomobject]@{schemaVersion=2;expectedCorrectionsIdentity=(Id '.ai-workspace/corrections.json');changes=@(
+        (AdoptionChange UNINSTALL GROUP_PARENT -Paths @('group.txt','group/old.bin')),
+        (AdoptionChange REVISE GROUP_REV (Record GROUP_REV) $newInstallation @('group.txt','group/new.bin')),
+        (AdoptionChange UNINSTALL GROUP_CHILD))}
+    $scope=Get-AiwCorrectionAdoptionScope $temp $group @('private')
+    $oldGroupText=Read 'group.txt';$oldGroupCarrier=Id '.ai-workspace/corrections.json'
+    Reject {New-AiwCorrectionAdoptionGroupProjection $temp $group @() @($scope|Where-Object{$_-cne'group/old.bin'}) @('private')} 'UNDECLARED_PATH' 'group-missing-scope-rejected-before-effects'
+    $denied=Clone-GroupValue $group;$denied.changes[0].effectPaths=@('private/no-read.bin')
+    Reject {Get-AiwCorrectionAdoptionScope $temp $denied @('private')} 'SOURCE_DENIED' 'group-scope-navigation-denies-protected-path-before-probe'
+    $absoluteDeny=Join-Path $temp 'group/old.bin'
+    Reject {Get-AiwCorrectionAdoptionScope $temp $group @($absoluteDeny)} 'SOURCE_DENIED' 'group-absolute-protection-before-effects'
+    $reserved=Clone-GroupValue $group;$reserved.changes[0].effectPaths=@('.ai-workspace/controller.json')
+    Reject {Get-AiwCorrectionAdoptionScope $temp $reserved @()} 'RESERVED_EFFECT' 'group-cannot-rewrite-controller-as-an-effect'
+    $reserved.changes[0].effectPaths=@('.AI-WORKSPACE/CONTROLLER.JSON')
+    Reject {Get-AiwCorrectionAdoptionScope $temp $reserved @()} 'RESERVED_EFFECT' 'group-reserved-object-case-alias-rejected'
+    $undeclared=Clone-GroupValue $group;$undeclared.changes[0].effectPaths=@('group.txt')
+    Reject {New-AiwCorrectionAdoptionGroupProjection $temp $undeclared @() $scope @()} 'EFFECT_PATHSET' 'group-hidden-installation-effect-rejected'
+    $dependency=Clone-GroupValue $group;$dependency.changes=@($dependency.changes|Where-Object correctionId -CNE GROUP_CHILD)
+    Reject {New-AiwCorrectionAdoptionGroupProjection $temp $dependency @() $scope @()} 'ACTIVE_DEPENDENT' 'group-retained-dependent-prevents-exit'
+    $drift=Clone-GroupValue $group;$drift.expectedCorrectionsIdentity='1|'+('0'*64)
+    Reject {New-AiwCorrectionAdoptionGroupProjection $temp $drift @() $scope @()} 'SOURCE_DRIFT' 'group-rejects-carrier-drift'
+    $preparedGroup=New-AiwCorrectionAdoptionGroupProjection $temp $group @('GROUP_PARENT','GROUP_REV') $scope @('private')
+    Check ((Read 'group.txt')-ceq$oldGroupText-and(Id '.ai-workspace/corrections.json')-ceq$oldGroupCarrier-and-not(Test-Path (Join-Path $temp 'group/new.bin'))) 'group-preview-no-live-effects-or-new-evidence'
+    $projectedText=$utf8.GetString([Convert]::FromBase64String(@($preparedGroup.projection.objects|Where-Object path -CEQ 'group.txt')[0].newBase64))
+    Check ($projectedText-ceq'left=base; right=revised; independent=keep') 'group-disjoint-text-one-working-view-preserves-independent-edits'
+    Check (-not@($preparedGroup.projection.objects|Where-Object path -CEQ 'group/old.bin')[0].newExists-and@($preparedGroup.projection.objects|Where-Object path -CEQ 'group/new.bin')[0].oldIdentity-ceq'MISSING') 'group-delete-and-new-binary-in-same-projection'
+    $historyObject=@($preparedGroup.projection.objects|Where-Object path -CEQ '.ai-workspace/upgrade-recovery/corrections/GROUP_REV/group/history.json')[0]
+    $groupHistory=$utf8.GetString([Convert]::FromBase64String($historyObject.newBase64))|ConvertFrom-Json
+    Check (($groupHistory.priorRecord|ConvertTo-Json -Depth 64 -Compress)-ceq($priorRevision|ConvertTo-Json -Depth 64 -Compress)-and$preparedGroup.sourceReferences.Count-ge6) 'group-full-prior-record-and-original-immutable-evidence'
+    $null=Invoke-AiwProjectProjectionTransaction $temp $preparedGroup.projection '.ai-workspace/upgrade-recovery/group-apply/state.json' {$true} {$true}
+    Check ((Read 'group.txt')-ceq$projectedText-and-not(Test-Path (Join-Path $temp 'group/old.bin'))-and[Convert]::ToBase64String([IO.File]::ReadAllBytes((Join-Path $temp 'group/new.bin')))-ceq$newBinary.afterBase64) 'group-real-single-transaction-binary-create-delete'
+    $null=ApplyPlan (Plan PAUSE GROUP_REV)
+    $pausedChange=AdoptionChange UNINSTALL GROUP_REV -Paths @('group.txt','group/new.bin');$pausedChange.historyRelativePath=$pausedChange.historyRelativePath.Replace('/group/','/paused-exit/')
+    $pausedGroup=[pscustomobject]@{schemaVersion=2;expectedCorrectionsIdentity=(Id '.ai-workspace/corrections.json');changes=@($pausedChange)}
+    $pausedScope=@(Get-AiwCorrectionAdoptionScope $temp $pausedGroup @())
+    $pausedProjection=New-AiwCorrectionAdoptionGroupProjection $temp $pausedGroup @() $pausedScope @()
+    $absent=@($pausedProjection.projection.objects|Where-Object path -CEQ 'group/new.bin')[0]
+    Check (-not$absent.oldExists-and-not$absent.newExists-and-not$absent.changed-and(Read 'group.txt')-ceq'left=base; right=base; independent=keep') 'group-paused-exit-does-not-invent-or-reverse-already-absent-effects'
     Write-Output ("RESULT|project-correction-lifecycle|passed=$script:passed")
 }finally{
     $full=[IO.Path]::GetFullPath($temp);$parent=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath([IO.Path]::GetTempPath()))

@@ -132,6 +132,53 @@
         },
         "semanticMatch": {
           "const": "TOKEN"
+        },
+        "facets": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [],
+          "properties": {
+            "domain": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*:[A-Za-z0-9][A-Za-z0-9._-]*$"
+              },
+              "minItems": 1
+            },
+            "workType": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*:[A-Za-z0-9][A-Za-z0-9._-]*$"
+              },
+              "minItems": 1
+            },
+            "deliverableType": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*:[A-Za-z0-9][A-Za-z0-9._-]*$"
+              },
+              "minItems": 1
+            },
+            "stage": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*:[A-Za-z0-9][A-Za-z0-9._-]*$"
+              },
+              "minItems": 1
+            }
+          }
         }
       }
     },
@@ -177,64 +224,7 @@
       ],
       "properties": {
         "schemaVersion": {
-          "const": 1
-        },
-        "contractVersion": {
-          "const": "1.10.0"
-        },
-        "projectId": {
-          "type": "string",
-          "pattern": "^[a-z0-9][a-z0-9-]*$"
-        },
-        "corrections": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "correctionId",
-              "introducedAgainstFramework",
-              "requirementReason",
-              "effectiveRule",
-              "applicability",
-              "decisionLocator"
-            ],
-            "properties": {
-              "correctionId": {
-                "$ref": "#/$defs/historicalFields/properties/correctionId"
-              },
-              "introducedAgainstFramework": {
-                "$ref": "#/$defs/historicalFields/properties/introducedAgainstFramework"
-              },
-              "requirementReason": {
-                "$ref": "#/$defs/historicalFields/properties/requirementReason"
-              },
-              "effectiveRule": {
-                "$ref": "#/$defs/historicalFields/properties/effectiveRule"
-              },
-              "applicability": {
-                "$ref": "#/$defs/historicalFields/properties/applicability"
-              },
-              "decisionLocator": {
-                "$ref": "#/$defs/historicalFields/properties/decisionLocator"
-              }
-            }
-          }
-        }
-      }
-    },
-    {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "schemaVersion",
-        "contractVersion",
-        "projectId",
-        "corrections"
-      ],
-      "properties": {
-        "schemaVersion": {
-          "const": 2
+          "const": 3
         },
         "contractVersion": {
           "const": "2.0.0"
@@ -339,24 +329,26 @@
                   },
                   "installation": {
                     "oneOf": [
-                      {"const": "NOT_APPLICABLE"},
                       {
-                    "required": [
-                      "locator",
-                      "identity"
-                    ],
-                    "additionalProperties": false,
-                    "properties": {
-                      "identity": {
-                        "pattern": "^\\d+\\|[A-F0-9]{64}$",
-                        "type": "string"
+                        "const": "NOT_APPLICABLE"
                       },
-                      "locator": {
-                        "pattern": "^\\.ai-workspace/upgrade-recovery/corrections/",
-                        "type": "string"
-                      }
-                    },
-                    "type": "object"
+                      {
+                        "required": [
+                          "locator",
+                          "identity"
+                        ],
+                        "additionalProperties": false,
+                        "properties": {
+                          "identity": {
+                            "pattern": "^\\d+\\|[A-F0-9]{64}$",
+                            "type": "string"
+                          },
+                          "locator": {
+                            "pattern": "^\\.ai-workspace/upgrade-recovery/corrections/",
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
                       }
                     ]
                   },

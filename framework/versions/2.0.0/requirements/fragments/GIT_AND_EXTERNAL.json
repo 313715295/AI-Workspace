@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "frameworkVersion": "2.0.0",
   "ownerModule": "GIT_AND_EXTERNAL.md",
   "requirements": [
@@ -28,7 +28,8 @@
         ],
         "pathPrefixes": [],
         "capabilities": [],
-        "semanticTerms": []
+        "semanticTerms": [],
+        "facets": {}
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_GIT_PUSH_SEPARATE",
       "preparationRequirements": [
@@ -64,7 +65,8 @@
         ],
         "pathPrefixes": [],
         "capabilities": [],
-        "semanticTerms": []
+        "semanticTerms": [],
+        "facets": {}
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_EXTERNAL_DEVICE_BROWSER_SEPARATE",
       "preparationRequirements": [
@@ -78,14 +80,15 @@
       "requirementId": "PR_TASK_OWNER_DIRECT_DOMAIN_EXTERNAL",
       "legacyAliases": [],
       "title": "Bounded domain-owner external action",
-      "description": "Permit one exact free domain-local external batch while preserving Controller exception boundaries.",
+      "description": "Permit a bounded domain-local external batch under the current resource grant, including its explicitly permitted named executor, while preserving exception boundaries.",
       "selectors": {
         "profiles": [
           "STANDARD",
           "CRITICAL"
         ],
         "roles": [
-          "TASK_OWNER"
+          "TASK_OWNER",
+          "EXECUTOR"
         ],
         "phases": [
           "EXTERNAL"
@@ -98,7 +101,8 @@
         ],
         "pathPrefixes": [],
         "capabilities": [],
-        "semanticTerms": []
+        "semanticTerms": [],
+        "facets": {}
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_TASK_OWNER_DIRECT_DOMAIN_EXTERNAL",
       "preparationRequirements": [
@@ -143,11 +147,22 @@
           "push",
           "提交",
           "推送"
-        ]
+        ],
+        "facets": {
+          "domain": [
+            "aiw:version-control"
+          ],
+          "workType": [
+            "aiw:discussion",
+            "aiw:planning",
+            "aiw:closure"
+          ]
+        }
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_GIT_PLANNING_BOUNDARY",
       "preparationRequirements": [],
       "resultRequirements": []
     }
-  ]
+  ],
+  "facetVocabulary": []
 }

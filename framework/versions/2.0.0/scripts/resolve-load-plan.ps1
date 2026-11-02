@@ -33,14 +33,37 @@ param(
 
     [switch]$AsJson
 )
-
-$ErrorActionPreference = 'Stop'
-Set-StrictMode -Version Latest
-
+# @project-source-entry-scope
+Import-Module (Join-Path $PSScriptRoot 'ProjectSourcePublication.psm1') -ErrorAction Stop
+$aiwPublicationScopeLease=$null
 if ($PSVersionTable.PSEdition -cne 'Core' -or $PSVersionTable.PSVersion.Major -lt 7) {
     Write-Output 'FAIL|tool-runtime|POWERSHELL7_REQUIRED'
     exit 4
 }
+$loadPlanPrimaryError=$null
+$loadPlanCleanupError=$null
+# Only the real -File entry owns the process exit. In-process and dot-source
+# callers retain their original terminating ErrorRecord and caller lifetime.
+$loadPlanNativeFileEntry=$false
+$loadPlanProcessArguments=[Environment]::GetCommandLineArgs()
+if([string]::IsNullOrEmpty($MyInvocation.ScriptName)-and$MyInvocation.InvocationName-cnotin@('.','&')){
+    for($loadPlanArgumentIndex=1;$loadPlanArgumentIndex-lt$loadPlanProcessArguments.Length-1;$loadPlanArgumentIndex++){
+        if($loadPlanProcessArguments[$loadPlanArgumentIndex]-ieq'-File'){
+            $loadPlanEntryPath=$loadPlanProcessArguments[$loadPlanArgumentIndex+1]
+            if(-not[IO.Path]::IsPathRooted($loadPlanEntryPath)){$loadPlanEntryPath=Join-Path $PWD.ProviderPath $loadPlanEntryPath}
+            $loadPlanNativeFileEntry=[IO.Path]::GetFullPath($loadPlanEntryPath).Equals($PSCommandPath,[StringComparison]::OrdinalIgnoreCase)
+            break
+        }
+    }
+}
+try {
+$aiwPublicationEntryRoot=$(if($ProjectRoot){$ProjectRoot}elseif([IO.Path]::IsPathFullyQualified($TaskPath)-and$TaskPath.Replace("\","/")-match"^(.*)/\.ai-workspace/tasks/(active|archive)/[^/]+\.md$"){$Matches[1]}else{$null})
+if($aiwPublicationEntryRoot){$aiwPublicationScopeLease=Enter-AiwProjectSourceScope -ProjectRoot ([IO.Path]::GetFullPath($aiwPublicationEntryRoot,$PWD.ProviderPath)) -Mode OBSERVE}
+
+
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+
 $utf8Strict = New-Object Text.UTF8Encoding($false, $true)
 Import-Module (Join-Path $PSScriptRoot 'ControlTransition.psm1') -Force
 if($ProjectRoot){Assert-AiwNoControlTransition $ProjectRoot $TaskPath}
@@ -248,7 +271,61 @@ $output = [pscustomobject]@{
 }
 
 if ($AsJson) {
-    $output | ConvertTo-Json -Depth 6
+    $output | ConvertTo-Json -Depth 6 -EscapeHandling EscapeNonAscii
 } else {
     Write-Output ('PASS|load-plan|lifecycle=' + $resolvedLifecycle + '|candidatePilotStateIdentity=' + $candidatePilotStateIdentity + '|routeSource=' + $routeSource + '|actor=' + $resolvedActor + '|role=' + $resolvedRole + '|profile=' + $resolvedProfile + '|workPhase=' + $workPhase + '|phases=' + ($resolvedPhases -join ',') + '|host=' + $HostName + '|topology=' + $Topology + '|capabilities=' + (@($capabilitySet | Sort-Object) -join ',') + '|fallback=' + (@($fallbackSet | Sort-Object) -join ',') + '|modules=' + $result.Count + '|paths=' + (@($result | ForEach-Object { $_.path }) -join '|') + '|bytes=' + $output.totalBytes + '|estimatedTokens=' + $output.estimatedTokens + '|evidenceCeiling=' + $evidenceCeiling)
+}
+
+} catch {
+    $loadPlanPrimaryError=$_
+} finally {
+    try { Exit-AiwProjectSourceScope $aiwPublicationScopeLease }
+    catch {
+        # Keep the existing legacy-runtime exit/cleanup behavior. The original
+        # PS5 guard still exits4 from the body before this PS7-only serializer.
+        if($PSVersionTable.PSEdition-cne'Core'-or$PSVersionTable.PSVersion.Major-lt7){throw}
+        $loadPlanCleanupError=$_
+    }
+}
+if($null-ne$loadPlanPrimaryError-or$null-ne$loadPlanCleanupError){
+    if($loadPlanNativeFileEntry-and$PSVersionTable.PSEdition-ceq'Core'-and$PSVersionTable.PSVersion.Major-ge7){
+        $loadPlanErrorDetails=[object[]]@($null,$null)
+        for($loadPlanErrorIndex=0;$loadPlanErrorIndex-lt2;$loadPlanErrorIndex++){
+            $loadPlanFailure=if($loadPlanErrorIndex-eq0){$loadPlanPrimaryError}else{$loadPlanCleanupError}
+            if($null-eq$loadPlanFailure){continue}
+            $loadPlanErrorDetails[$loadPlanErrorIndex]=[ordered]@{
+                reason=[string]$loadPlanFailure.Exception.Message
+                exceptionType=$loadPlanFailure.Exception.GetType().FullName
+                exception=[string]$loadPlanFailure.Exception.ToString()
+                errorDetails=[string]$loadPlanFailure.ErrorDetails
+                exceptionStackTrace=[string]$loadPlanFailure.Exception.StackTrace
+                scriptStackTrace=[string]$loadPlanFailure.ScriptStackTrace
+                fullyQualifiedErrorId=[string]$loadPlanFailure.FullyQualifiedErrorId
+                category=[string]$loadPlanFailure.CategoryInfo
+                script=[string]$loadPlanFailure.InvocationInfo.ScriptName
+                line=$loadPlanFailure.InvocationInfo.ScriptLineNumber
+                position=[string]$loadPlanFailure.InvocationInfo.PositionMessage
+            }
+        }
+        $loadPlanFirstDetail=if($null-ne$loadPlanPrimaryError){$loadPlanErrorDetails[0]}else{$loadPlanErrorDetails[1]}
+        [Console]::Error.WriteLine(([ordered]@{
+            kind='LOAD_PLAN_FAILURE';status='FAIL'
+            reason=$loadPlanFirstDetail.reason
+            exceptionType=$loadPlanFirstDetail.exceptionType
+            exception=$loadPlanFirstDetail.exception
+            errorDetails=$loadPlanFirstDetail.errorDetails
+            exceptionStackTrace=$loadPlanFirstDetail.exceptionStackTrace
+            scriptStackTrace=$loadPlanFirstDetail.scriptStackTrace
+            fullyQualifiedErrorId=$loadPlanFirstDetail.fullyQualifiedErrorId
+            category=$loadPlanFirstDetail.category
+            script=$loadPlanFirstDetail.script;line=$loadPlanFirstDetail.line;position=$loadPlanFirstDetail.position
+            cleanupError=$loadPlanErrorDetails[1]
+        }|ConvertTo-Json -Depth 12 -Compress -EscapeHandling EscapeNonAscii))
+        exit 1
+    }
+    if($null-ne$loadPlanPrimaryError){
+        if($null-ne$loadPlanCleanupError){$loadPlanPrimaryError.Exception.Data['loadPlanCleanupError']=$loadPlanCleanupError}
+        throw $loadPlanPrimaryError
+    }
+    throw $loadPlanCleanupError
 }

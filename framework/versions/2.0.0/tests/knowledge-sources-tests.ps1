@@ -1,15 +1,56 @@
-[CmdletBinding()]param()
+[CmdletBinding()]param([switch]$KeepFixture)
+Import-Module (Join-Path $PSScriptRoot 'TestNativeOutput.psm1')
+Initialize-AiwTestNativeOutput
 $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
 Import-Module (Join-Path $PSScriptRoot '../scripts/KnowledgeSources.psm1') -Force
 $utf8=[Text.UTF8Encoding]::new($false);$passed=0
 $temp=Join-Path ([IO.Path]::GetTempPath()) ('aiw-knowledge-sources-'+[guid]::NewGuid().ToString('N'))
 $junctions=@()
 function Text([string]$Path,[string]$Value){$null=[IO.Directory]::CreateDirectory((Split-Path -Parent $Path));[IO.File]::WriteAllText($Path,$Value,$utf8)}
-function Json([string]$Path,$Value){Text $Path (($Value|ConvertTo-Json -Depth 100 -Compress)+"`n")}
+function Json([string]$Path,$Value){
+    # Legacy records below remain explicit fixture authoring inputs. Publish
+    # project7/policy3 through the complete declared pure segments before any
+    # normal query; this does not enable a schema5 runtime compatibility mode.
+    if([IO.Path]::GetFileName($Path)-ceq'project.json'-and$Value.schemaVersion-eq5){
+        Import-Module (Join-Path $PSScriptRoot '../scripts/ObjectFormats.psm1')
+        Import-Module (Join-Path $PSScriptRoot '../scripts/ContentSources.psm1')
+        $legacyPolicy=[pscustomobject]@{schemaVersion=1;contractVersion='2.0.0';projectId=$Value.id;selectedRulePackBytes=100;rules=@()}
+        $context=[pscustomobject]@{LegacyPolicy=$legacyPolicy;TargetProcessContractVersion='2.0.0'}
+        $current=& (Join-Path $PSScriptRoot '../object-formats/adapters/project-config-5-to-6.ps1') -Value $Value -Context $context
+        $current=& (Join-Path $PSScriptRoot '../object-formats/adapters/project-config-6-to-7.ps1') -Value $current -Context $context
+        $context|Add-Member SourceBindings @($current.sourceBindings)
+        $policy=& (Join-Path $PSScriptRoot '../object-formats/adapters/process-policy-1-to-2.ps1') -Value $legacyPolicy -Context $context
+        $policy=& (Join-Path $PSScriptRoot '../object-formats/adapters/process-policy-2-to-3.ps1') -Value $policy -Context $context
+        Text (Join-Path ([IO.Path]::GetDirectoryName($Path)) 'process-policy.json') (($policy|ConvertTo-Json -Depth 100 -Compress)+"`n")
+        $Value=$current
+    }
+    Text $Path (($Value|ConvertTo-Json -Depth 100 -Compress)+"`n")
+}
 function Id([string]$Path){$b=[IO.File]::ReadAllBytes($Path);return $b.Length.ToString()+'|'+[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($b))}
 function CopyValue($Value){$raw=$Value|ConvertTo-Json -Depth 100;$args=@{Depth=100};if((Get-Command ConvertFrom-Json).Parameters.ContainsKey('DateKind')){$args.DateKind='String'};return $raw|ConvertFrom-Json @args}
 function Check([bool]$Value,[string]$Name){if(-not$Value){throw ('ASSERT_FAIL|'+$Name)};$script:passed++;Write-Output ('PASS|'+$Name)}
 function Reject([scriptblock]$Action,[string]$Reason,[string]$Name){$caught='';try{$null=& $Action}catch{$caught=$_.Exception.Message};Check ($caught.Contains($Reason)) ($Name+'|reason='+$caught)}
+function Invoke-KnowledgeFixtureCli([string]$Path,[string[]]$Arguments,[string]$ObservationName=''){
+    # Capture bytes from the normal public entry point, without changing the
+    # child's console encoding or replacing its module/output implementation.
+    $start=[Diagnostics.ProcessStartInfo]::new((Get-Command pwsh -CommandType Application).Source)
+    $start.UseShellExecute=$false;$start.CreateNoWindow=$true;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
+    foreach($argument in @('-NoProfile','-NonInteractive','-File',$Path)+$Arguments){$start.ArgumentList.Add($argument)}
+    $process=[Diagnostics.Process]::Start($start);$bytes=[IO.MemoryStream]::new()
+    try{
+        $copy=$process.StandardOutput.BaseStream.CopyToAsync($bytes);$errorText=$process.StandardError.ReadToEndAsync()
+        $process.WaitForExit();$null=$copy.GetAwaiter().GetResult();$errorOutput=$errorText.GetAwaiter().GetResult()
+        $raw=$bytes.ToArray();$text=[Text.UTF8Encoding]::new($false,$true).GetString($raw)
+        if(@($raw|Where-Object{$_-gt127}).Count){throw 'CLI_JSON_NOT_ASCII_TRANSPORT'}
+        $value=$text|ConvertFrom-Json -Depth 100
+        $result=[pscustomobject]@{code=$process.ExitCode;value=$value;stderr=$errorOutput}
+        $record=[ordered]@{tool=$Path;arguments=$Arguments;code=$process.ExitCode;stdout=$text;stderr=$errorOutput;parsed=$value}
+        $recordPath=Join-Path $temp ('cli-observations/'+[guid]::NewGuid().ToString('N')+'.json')
+        Json $recordPath $record
+        if($ObservationName){Write-Host ('CLI_OBSERVATION|'+$ObservationName+'|'+($record|ConvertTo-Json -Depth 100 -Compress))}
+        return $result
+    }finally{$process.Dispose();$bytes.Dispose()}
+}
 function Source([string]$Id,[string]$Kind,[string]$Root,[string]$Index='index.json'){
     return [pscustomobject]@{id=$Id;root=[pscustomobject]@{kind=$Kind;locator=$Root};indexLocator=$Index;selectionHints=@('fixture');updatePolicy='FOLLOW'}
 }
@@ -56,6 +97,26 @@ try{
     Check ($full.entries[0].fullText-ceq[IO.File]::ReadAllText((Join-Path $project $derived.locator))-and$full.entries[1].fullText-ceq[IO.File]::ReadAllText((Join-Path $shared 'method.md'))) 'explicit-batch-fulltext-is-complete'
     Check ($full.entries[0].authorityDependencies[0].observedIdentity-ceq$derived.authorityDependencies[0].identity) 'project-root-includes-real-src-authority-dependency'
     Check (-not(Test-Path -LiteralPath (Join-Path $project '.git'))-and-not$full.authority-and$full.referenceOnly) 'knowledge-does-not-create-git-or-authority'
+
+    # Consume the TOOL_CONTRACT examples through the public CLI in a current
+    # project. The configured method and its applicability are explicit facts.
+    $exampleProject=Join-Path $temp 'contract-examples';$exampleLibrary=Join-Path $temp 'contract-methods'
+    Text (Join-Path $exampleLibrary 'method.md') 'Complete contract example method body.'
+    $exampleMethod=CopyValue $method;$exampleMethod.id='METHOD_001';$exampleMethod.identity=Id (Join-Path $exampleLibrary 'method.md')
+    $exampleMethod.tags=@('domain:aiw:software','workType:aiw:verification')
+    Json (Join-Path $exampleLibrary 'index.json') @{schemaVersion=3;libraryId='contract-methods';entries=@($exampleMethod)}
+    $exampleConfigPath=Join-Path $exampleProject '.ai-workspace/project.json';Json $exampleConfigPath (Config contract-examples @((Source PROJECT_METHODS LOCAL_DIRECTORY $exampleLibrary)))
+    $exampleCli=Join-Path $PSScriptRoot '../scripts/check-knowledge-entry.ps1'
+    $exampleArgs=@('-ProjectRoot',$exampleProject,'-ExpectedProjectConfigIdentity',(Id $exampleConfigPath))
+    $example=Invoke-KnowledgeFixtureCli $exampleCli ($exampleArgs+@('-EntryId','PROJECT_METHODS:METHOD_001','-AsJson')) 'contract-locator'
+    Check ($example.code-eq0-and$example.value.operation-ceq'QUERY'-and$example.value.contentMode-ceq'LOCATOR_ONLY'-and$example.value.entries.Count-eq1-and$example.value.entries[0].status-ceq'CURRENT'-and$example.value.entries[0].id-ceq'PROJECT_METHODS:METHOD_001'-and$example.value.entries[0].locator-ceq'method.md'-and$example.value.entries[0].identity-ceq$exampleMethod.identity-and$null-eq$example.value.entries[0].PSObject.Properties['fullText']-and$example.value.referenceOnly-and-not$example.value.authority) 'contract-example-entry-infers-query-and-default-locator-only'
+    $exampleFacets=@{domain=@{state='KNOWN';values=@('aiw:software')};workType=@{state='KNOWN';values=@('aiw:verification')};deliverableType=@{state='NOT_APPLICABLE';values=@()};stage=@{state='NOT_APPLICABLE';values=@()}}|ConvertTo-Json -Depth 8 -Compress
+    $example=Invoke-KnowledgeFixtureCli $exampleCli ($exampleArgs+@('-SourceId','PROJECT_METHODS','-FacetQueryJson',$exampleFacets,'-AsJson')) 'contract-facets'
+    Check ($example.code-eq0-and$example.value.operation-ceq'QUERY'-and$example.value.entries.Count-eq1-and$example.value.entries[0].status-ceq'CURRENT'-and$example.value.entries[0].id-ceq'PROJECT_METHODS:METHOD_001'-and$example.value.entries[0].locator-ceq'method.md'-and$example.value.entries[0].identity-ceq$exampleMethod.identity-and$example.value.sources.Count-eq1-and$example.value.sources[0].status-ceq'CURRENT'-and$example.value.sources[0].sourceId-ceq'PROJECT_METHODS'-and$example.value.referenceOnly-and-not$example.value.authority) 'contract-example-facets-infer-query-with-explicit-source-and-optional-entry'
+    $example=Invoke-KnowledgeFixtureCli $exampleCli ($exampleArgs+@('-FacetQueryJson',$exampleFacets,'-AsJson')) 'contract-no-source'
+    Check ($example.code-eq3-and$example.value.status-ceq'KNOWLEDGE_UNAVAILABLE'-and$example.value.operation-ceq'QUERY') 'contract-example-facets-without-source-rejected-by-public-entry'
+    $example=Invoke-KnowledgeFixtureCli $exampleCli ($exampleArgs+@('-EntryId','PROJECT_METHODS:METHOD_001','-ContentMode','FULLTEXT','-AsJson')) 'contract-fulltext'
+    Check ($example.code-eq0-and$example.value.contentMode-ceq'FULLTEXT'-and$example.value.entries.Count-eq1-and$example.value.entries[0].status-ceq'CURRENT'-and$example.value.entries[0].id-ceq'PROJECT_METHODS:METHOD_001'-and$example.value.entries[0].fullText-ceq[IO.File]::ReadAllText((Join-Path $exampleLibrary 'method.md'))-and$example.value.referenceOnly-and-not$example.value.authority) 'contract-example-explicit-fulltext-is-complete-reference-only'
 
     # Entry kind describes the knowledge, independently of who supplies it.
     $original=CopyValue $method;$original.id='ORIGINAL';$original.locator='.ai-workspace/knowledge/original-method.md';$original.originalSources=@()
@@ -151,11 +212,17 @@ try{
         {param($c)$c.KNOWLEDGE_REFERENCE.sources[1]|Add-Member unexpected $true},
         {param($c)$c.KNOWLEDGE_REFERENCE.sources+=@($c.KNOWLEDGE_REFERENCE.sources[0])}
     )){$bad=CopyValue $config.frameworkCapabilities;& $mutator $bad;Reject {Assert-AiwFrameworkCapabilities $bad} 'KNOWLEDGE_' 'malformed-capability-rejected-without-source-io'}
-    $raw=[IO.File]::ReadAllText($configPath);Text $configPath $raw.Replace('"schemaVersion":5','"schemaVersion":5,"schemaVersion":5')
+    $raw=[IO.File]::ReadAllText($configPath)
+    $malformed=[regex]::new('"schemaVersion"\s*:\s*(\d+)').Replace($raw,'$0,"schemaVersion":$1',1)
+    Check ($malformed-cne$raw) 'duplicate-config-fixture-is-actually-malformed'
+    Text $configPath $malformed
     Reject {Query @('project:SAME')} 'INPUT_FIELD_COUNT' 'duplicate-config-field-rejected'
     Json $configPath $config
-    $old=CopyValue $projectIndex;$old.schemaVersion=2;Json $projectIndexPath $old
-    Check ((Query @('project:SAME')).entries[0].reason-ceq'KNOWLEDGE_INDEX_SCHEMA') 'legacy-index-is-not-a-second-runtime-mode'
+    # A current index with only its version relabeled lacks the actual legacy
+    # projectId. It must be rejected without supplying that missing fact.
+    $old=CopyValue $projectIndex;$old.schemaVersion=2;Json $projectIndexPath $old;$malformedIdentity=Id $projectIndexPath
+    $malformed=Query @('project:SAME') FULLTEXT
+    Check ($null-eq$old.PSObject.Properties['projectId']-and$malformed.entries[0].status-ceq'UNAVAILABLE'-and$malformed.entries[0].reason.Contains('projectId')-and$null-eq$malformed.entries[0].PSObject.Properties['fullText']-and(Id $projectIndexPath)-ceq$malformedIdentity) 'malformed-old-index-cannot-invent-original-project-facts-or-rewrite-bytes'
     $projectIndex.entries=@($derived);Json $projectIndexPath $projectIndex
     $legacyEntry=[pscustomobject]@{id=$derived.id;state=$derived.state;title=$derived.title;summary=$derived.summary;locator=$derived.locator;identity=$derived.identity;authorityLocator=$derived.authorityDependencies[0].locator;authorityIdentity=$derived.authorityDependencies[0].identity;verifiedAt=$derived.verifiedAt;invalidatesOn=@('LOCATOR_IDENTITY_CHANGE','AUTHORITY_IDENTITY_CHANGE');tokenEstimate=$derived.tokenEstimate}
     $legacy=[pscustomobject]@{schemaVersion=1;projectId='knowledge-fixture';entries=@($legacyEntry)};$before=Id $projectIndexPath
@@ -163,6 +230,10 @@ try{
     Check ($converted.schemaVersion-eq3-and$converted.entries[0].authorityDependencies[0].locator-ceq'src/core.txt'-and(Id $projectIndexPath)-ceq$before) 'legacy-one-conversion-preserves-authority-and-does-not-write'
     $legacy.schemaVersion=2;$legacyEntry.PSObject.Properties.Remove('authorityLocator');$legacyEntry.PSObject.Properties.Remove('authorityIdentity');$legacyEntry|Add-Member tags @('fixture');$legacyEntry|Add-Member authorityDependencies $derived.authorityDependencies;$legacyEntry.invalidatesOn=$derived.invalidatesOn
     Check ((Convert-AiwLegacyKnowledgeIndex $legacy knowledge-fixture migrated).entries[0].tags[0]-ceq'fixture') 'legacy-two-conversion-preserves-tags-and-dependencies'
+    Json $projectIndexPath $legacy;$legacyIdentity=Id $projectIndexPath
+    $defaultConverted=Query @('project:SAME') FULLTEXT
+    Check ($defaultConverted.entries[0].status-ceq'CURRENT'-and$defaultConverted.entries[0].indexIdentity-ceq$legacyIdentity-and(Id $projectIndexPath)-ceq$legacyIdentity-and$defaultConverted.entries[0].fullText-ceq[IO.File]::ReadAllText((Join-Path $project $derived.locator))) 'declared-old-index-default-read-preserves-original-bytes-and-fulltext'
+    Json $projectIndexPath $projectIndex
     Reject {Convert-AiwLegacyKnowledgeIndex $legacy different-project migrated} 'LEGACY_KNOWLEDGE_INDEX_VALUES' 'legacy-conversion-binds-original-project'
 
     $large=('完整方法正文🎮'*2500)+"`nEND`n";Text (Join-Path $shared 'method.md') $large;$sharedIndex.entries[0].identity=Id (Join-Path $shared 'method.md');$sharedIndex.entries[0].tokenEstimate=20000;Json (Join-Path $shared 'index.json') $sharedIndex
@@ -175,6 +246,20 @@ try{
     $impactCli=Join-Path $PSScriptRoot '../scripts/check-knowledge-impact.ps1'
     $output=@(& pwsh -NoProfile -File $impactCli -ProjectRoot $project -ExpectedProjectConfigIdentity (Id $configPath) -ChangedAuthorityPath src/core.txt -AsJson);$code=$LASTEXITCODE;$value=($output-join"`n")|ConvertFrom-Json
     Check ($code-eq0-and@($value.entries|Where-Object{$_.impact-ceq'DIRECT_AFFECTED'}).Count-eq5) 'actual-impact-cli-uses-same-multi-source-validator'
+    $unicode=CopyValue $derived;$unicode.id='UNICODE';$unicode.locator='.ai-workspace/knowledge/知识🎮.md'
+    $unicodeAuthority='src/权威🎮.txt';Text (Join-Path $project $unicodeAuthority) 'Actual Unicode authority.'
+    Text (Join-Path $project $unicode.locator) "原始知识全文 🎮`nsecond line`n"
+    $unicode.identity=Id (Join-Path $project $unicode.locator)
+    $unicode.authorityDependencies=@([pscustomobject]@{locator=$unicodeAuthority;identity=(Id (Join-Path $project $unicodeAuthority))})
+    $projectIndex.entries=@($unicode);Json $projectIndexPath $projectIndex
+    $normal=Invoke-KnowledgeFixtureCli $cli @('-ProjectRoot',$project,'-ExpectedProjectConfigIdentity',(Id $configPath),'-EntryId','project:UNICODE','-ContentMode','FULLTEXT','-AsJson')
+    Check ($normal.code-eq0-and$normal.stderr.Length-eq0-and$normal.value.entries[0].status-ceq'CURRENT'-and$normal.value.entries[0].fullText-ceq[IO.File]::ReadAllText((Join-Path $project $unicode.locator))-and$normal.value.entries[0].locator-ceq$unicode.locator-and$normal.value.entries[0].identity-ceq$unicode.identity-and$normal.value.entries[0].indexIdentity-ceq(Id $projectIndexPath)-and$normal.value.entries[0].authorityDependencies[0].locator-ceq$unicodeAuthority) 'default-query-cli-json-preserves-unicode-body-paths-and-original-identities'
+    $normal=Invoke-KnowledgeFixtureCli $impactCli @('-ProjectRoot',$project,'-ExpectedProjectConfigIdentity',(Id $configPath),'-ChangedAuthorityPath',$unicodeAuthority,'-AsJson')
+    Check ($normal.code-eq0-and$normal.stderr.Length-eq0-and$normal.value.entries[0].impact-ceq'DIRECT_AFFECTED'-and$normal.value.entries[0].overlap[0]-ceq$unicodeAuthority-and$normal.value.entries[0].indexIdentity-ceq(Id $projectIndexPath)) 'default-impact-cli-json-preserves-unicode-dependency-path'
+    $normal=Invoke-KnowledgeFixtureCli $cli @('-ProjectRoot',$project,'-ExpectedProjectConfigIdentity',(Id $configPath),'-EntryId','unknown:UNICODE','-AsJson')
+    Check ($normal.code-eq3-and$normal.value.status-ceq'KNOWLEDGE_UNAVAILABLE'-and$normal.value.reason.Contains('KNOWLEDGE_SOURCE_UNKNOWN')-and$normal.value.entries.Count-eq0) 'default-query-cli-failure-is-complete-json'
+    $normal=Invoke-KnowledgeFixtureCli $impactCli @('-ProjectRoot',$project,'-ExpectedProjectConfigIdentity',(Id $configPath),'-ChangedAuthorityPath','../权威🎮.txt','-AsJson')
+    Check ($normal.code-eq3-and$normal.value.status-ceq'KNOWLEDGE_IMPACT_UNAVAILABLE'-and$normal.value.reason.Contains('KNOWLEDGE_PATH_COMPONENT')-and$normal.value.entries.Count-eq0) 'default-impact-cli-failure-is-complete-json'
     # Preserve the failure mechanisms from the old single-index suite under
     # the new protocol, including both CLI consumers and decoded duplicates.
     $projectIndex.entries=@($derived);Json $projectIndexPath $projectIndex
@@ -197,19 +282,43 @@ try{
     Check ((Query @('project:SAME')).entries[0].status-ceq'UNAVAILABLE') 'unknown-index-field-rejected'
     Text $projectIndexPath $savedIndex
     $badConfig=CopyValue $config;$badConfig.schemaVersion=4;Json $configPath $badConfig
-    Reject {Query @('project:SAME')} 'PROJECT_CONFIG_VALUES' 'old-project-requires-explicit-migration'
+    Reject {Query @('project:SAME')} 'FORMAT_BOOTSTRAP_GROUP_REQUIRED' 'old-project-requires-explicit-bootstrap-group'
     $badConfig=CopyValue $config;$badConfig.processPolicy.locator='.ai-workspace/other.json';Json $configPath $badConfig
-    Reject {Query @('project:SAME')} 'PROJECT_CONFIG_POLICY' 'query-rejects-invalid-policy-locator'
-    Reject {Invoke-AiwKnowledgeImpact -ProjectRoot $project -ExpectedProjectConfigIdentity (Id $configPath) -ChangedAuthorityPath src/core.txt} 'PROJECT_CONFIG_POLICY' 'impact-rejects-invalid-policy-locator'
+    Reject {Query @('project:SAME')} 'FORMAT_CURRENT_VALIDATION_FAILED|PROJECT_CONFIG' 'query-rejects-invalid-policy-locator'
+    Reject {Invoke-AiwKnowledgeImpact -ProjectRoot $project -ExpectedProjectConfigIdentity (Id $configPath) -ChangedAuthorityPath src/core.txt} 'FORMAT_CURRENT_VALIDATION_FAILED|PROJECT_CONFIG' 'impact-rejects-invalid-policy-locator'
     Text $configPath $savedProject
     $bundleRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
     $bundleSource=Source bundled LOCAL_DIRECTORY $bundleRoot 'knowledge/index.json'
     $bundleConfig=Config 'knowledge-fixture' @($bundleSource);Json $configPath $bundleConfig
     $bundle=Invoke-AiwKnowledgeQuery -ProjectRoot $project -ExpectedProjectConfigIdentity (Id $configPath) -SourceId bundled
-    Check ($bundle.entries.Count-eq3-and$bundle.sources[0].libraryId-ceq'ai-workspace-methods') 'actual-bundled-index-discovers-three-methods'
-    $methods=Query @('bundled:UI_INPUT_CANCELLATION','bundled:PRESENTATION_AUTHORITY','bundled:BEHAVIOR_AND_PERFORMANCE') FULLTEXT
-    Check (@($methods.entries|Where-Object{$_.status-ceq'CURRENT'-and$_.fullText.Length-gt0}).Count-eq3) 'actual-bundled-method-identities-and-fulltext-validate'
-    Check (@($methods.entries|Where-Object{$_.kind-ceq'METHOD'-and$_.authorityDependencies.Count-eq0}).Count-eq3) 'bundled-methods-have-no-project-authority-dependencies'
+    $bundleIds=@('UI_INPUT_CANCELLATION','PRESENTATION_AUTHORITY','BEHAVIOR_AND_PERFORMANCE','ARTIFACT_CLASSIFICATION','PROBLEM_DRIVEN_IMPROVEMENT','BEHAVIOR_SPEC_CHANGE')
+    Check ($bundle.entries.Count-eq$bundleIds.Count-and$bundle.sources[0].libraryId-ceq'ai-workspace-methods'-and@($bundleIds|Where-Object{('bundled:'+$_)-cnotin@($bundle.entries.id)}).Count-eq0) 'actual-bundled-index-discovers-game-cross-domain-and-software-methods'
+    $methods=Query @($bundleIds|ForEach-Object{'bundled:'+$_}) FULLTEXT
+    Check (@($methods.entries|Where-Object{$_.status-ceq'CURRENT'-and$_.fullText.Length-gt0}).Count-eq$bundleIds.Count) 'actual-bundled-method-identities-and-fulltext-validate'
+    Check (@($methods.entries|Where-Object{$_.kind-ceq'METHOD'-and$_.authorityDependencies.Count-eq0}).Count-eq$bundleIds.Count) 'bundled-methods-have-no-project-authority-dependencies'
+    foreach($id in @('ARTIFACT_CLASSIFICATION','PROBLEM_DRIVEN_IMPROVEMENT')){
+        $entry=@($methods.entries|Where-Object{$_.id-ceq('bundled:'+$id)})[0]
+        Check ($entry.fullText-ceq[IO.File]::ReadAllText((Join-Path $bundleRoot ('knowledge/cross-domain/'+$id+'.md')))-and$entry.originalSources.Count-eq0) ('actual-cross-domain-fulltext-complete-no-invented-citation-'+$id)
+    }
+    $software=@($methods.entries|Where-Object{$_.id-ceq'bundled:BEHAVIOR_SPEC_CHANGE'})[0]
+    Check ($software.fullText-ceq[IO.File]::ReadAllText((Join-Path $bundleRoot 'knowledge/software/BEHAVIOR_SPEC_CHANGE.md'))-and$software.kind-ceq'METHOD'-and$software.originalSources.Count-eq2-and$methods.referenceOnly-and-not$methods.authority) 'actual-software-method-fulltext-complete-with-fixed-provenance-reference-only'
+    # Select by current use, not by the container format or all configured libraries.
+    $bundleConfig=Config 'knowledge-fixture' @($bundleSource,$sources[1],$sources[3]);Json $configPath $bundleConfig
+    $policyBefore=Id (Join-Path $project '.ai-workspace/process-policy.json');$configBefore=Id $configPath
+    foreach($case in @(@{work='aiw:design';keep='ARTIFACT_CLASSIFICATION';drop='PROBLEM_DRIVEN_IMPROVEMENT'},@{work='aiw:research';keep='PROBLEM_DRIVEN_IMPROVEMENT';drop='ARTIFACT_CLASSIFICATION'})){
+        $facets=[ordered]@{domain=@{state='UNKNOWN';values=@()};workType=@{state='KNOWN';values=@($case.work)};deliverableType=@{state='UNKNOWN';values=@()};stage=@{state='UNKNOWN';values=@()}}|ConvertTo-Json -Depth 8 -Compress
+        $selected=Invoke-AiwKnowledgeQuery -ProjectRoot $project -ExpectedProjectConfigIdentity (Id $configPath) -Operation QUERY -SourceId bundled -FacetQueryJson $facets -ContentMode FULLTEXT
+        $ids=@($selected.entries.id)
+        Check (('bundled:'+$case.keep)-cin$ids-and('bundled:'+$case.drop)-cnotin$ids-and@($ids|Where-Object{$_-cnotlike'bundled:*'}).Count-eq0-and$selected.sources.Count-eq1) ('actual-method-use-selects-within-explicit-source-'+$case.work)
+        Check (@($selected.entries|Where-Object{$_.id-ceq'bundled:UI_INPUT_CANCELLATION'}).Count-eq1) 'legacy-tags-remain-conservative-not-silently-excluded'
+    }
+    $softwareFacets=[ordered]@{domain=@{state='KNOWN';values=@('aiw:software')};workType=@{state='KNOWN';values=@('aiw:design')};deliverableType=@{state='UNKNOWN';values=@()};stage=@{state='UNKNOWN';values=@()}}|ConvertTo-Json -Depth 8 -Compress
+    $softwareSelected=Invoke-AiwKnowledgeQuery -ProjectRoot $project -ExpectedProjectConfigIdentity (Id $configPath) -Operation QUERY -SourceId bundled -EntryId bundled:BEHAVIOR_SPEC_CHANGE -FacetQueryJson $softwareFacets -ContentMode FULLTEXT
+    Check ($softwareSelected.entries.Count-eq1-and$softwareSelected.entries[0].id-ceq'bundled:BEHAVIOR_SPEC_CHANGE'-and$softwareSelected.entries[0].fullText-ceq[IO.File]::ReadAllText((Join-Path $bundleRoot 'knowledge/software/BEHAVIOR_SPEC_CHANGE.md'))-and$softwareSelected.entries[0].kind-ceq'METHOD'-and$softwareSelected.sources.Count-eq1-and$softwareSelected.sources[0].sourceId-ceq'bundled'-and$softwareSelected.referenceOnly-and-not$softwareSelected.authority) 'software-method-selected-within-explicit-source-by-use-with-complete-reference-body'
+    Check ((Id $configPath)-ceq$configBefore-and(Id (Join-Path $project '.ai-workspace/process-policy.json'))-ceq$policyBefore) 'software-method-query-does-not-rewrite-config-or-adopt-rules'
+    $alternative=Invoke-AiwKnowledgeQuery -ProjectRoot $project -ExpectedProjectConfigIdentity (Id $configPath) -Operation QUERY -EntryId shared:SAME -ContentMode FULLTEXT
+    Check ($alternative.entries.Count-eq1-and$alternative.entries[0].fullText-ceq[IO.File]::ReadAllText((Join-Path $shared 'method.md'))-and$alternative.sources.Count-eq1) 'explicit-other-source-does-not-inject-bundled-methods'
+    Check ((Id $configPath)-ceq$configBefore-and(Id (Join-Path $project '.ai-workspace/process-policy.json'))-ceq$policyBefore-and-not$alternative.authority-and$alternative.referenceOnly) 'learning-reference-never-rewrites-config-or-adopts-rules'
     # A Maintenance library may point at TARGET or a nested directory. Its
     # configured exclusions must remain anchored to TARGET, before any I/O.
     $maintParent=Join-Path $temp 'maintenance';$maintRoot=Join-Path $maintParent 'control';$maintTarget=Join-Path $maintParent 'target'
@@ -242,11 +351,12 @@ try{
     Json (Join-Path $maintTarget 'library/index.json') ([pscustomobject]@{schemaVersion=3;libraryId='target-library';entries=@($entry)});Json $maintConfigPath $maintConfig
     Check ((Maint-Query).entries[0].status-ceq'CURRENT') 'maintenance-control-exclusions-do-not-borrow-target-relative-paths'
     $maintConfig.frameworkTarget.siblingDirectory='../target';Json $maintConfigPath $maintConfig
-    Reject {Maint-Query} 'KNOWLEDGE_' 'maintenance-invalid-target-topology-fails-before-source-read'
+    Reject {Maint-Query} 'FORMAT_CURRENT_VALIDATION_FAILED|PROJECT_CONFIG' 'maintenance-invalid-target-topology-fails-before-source-read'
     Write-Output ('RESULT|'+$passed+'/'+$passed+' passed|scope=knowledge-sources|evidence=ISOLATED_REFERENCE_PROTOCOL_ONLY')
 }finally{
     foreach($junction in $junctions){if(Test-Path -LiteralPath $junction){Remove-Item -LiteralPath $junction -Force}}
     $resolved=[IO.Path]::GetFullPath($temp);$parent=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath([IO.Path]::GetTempPath()))
     if([IO.Path]::GetDirectoryName($resolved)-cne$parent-or[IO.Path]::GetFileName($resolved)-cnotmatch'^aiw-knowledge-sources-[a-f0-9]{32}$'){throw 'KNOWLEDGE_FIXTURE_CLEANUP_BOUNDARY'}
-    if(Test-Path -LiteralPath $resolved){Remove-Item -LiteralPath $resolved -Recurse -Force}
+    if($KeepFixture){Write-Output ('FIXTURE_RETAINED|'+$resolved)}
+    elseif(Test-Path -LiteralPath $resolved){Remove-Item -LiteralPath $resolved -Recurse -Force}
 }

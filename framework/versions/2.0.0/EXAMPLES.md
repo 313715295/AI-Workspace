@@ -16,7 +16,7 @@ current card 可声明 `Work route: actor=task-123; role=EXECUTOR; phase=VERIFY`
 
 例如范围、writer和Reviewer均已确定的任务，在本地写测包配置`repairReviewPlan={writer,reviewer,maxCycles,materialContributors}`，maxCycles取本任务的有限计划。生产FINALIZE后，REPAIR_REVIEW以INITIAL_REVIEW/cycle=0及生产FINALIZE准备首次审核包；verdict字段为NOT_APPLICABLE。审核提出真实CHANGES_REQUESTED后，以cycle=1准备REPAIR，修复FINALIZE后准备REREVIEW。每包都独立准入，最终Owner接受单独处理。普通无需独立审核的任务直接完成，不强制造计划或新任务。
 
-临时只读观察用PROJECT_READ_ONLY、真实EXECUTOR职责、NONE与PLAN；相同context请求SOURCE_WRITE或REVIEW_VERDICT仍拒绝。CRITICAL普通修复可省略Proportionality和Phase gate；重大方案仍给比例性结论，实际里程碑仍声明阶段验收。
+临时只读观察用PROJECT_READ_ONLY、真实EXECUTOR职责、NONE与PLAN；相同context请求SOURCE_WRITE或REVIEW_VERDICT仍拒绝。CRITICAL普通修复按实际影响选择完整规则；重大方案说明实质取舍和验收依据，实际里程碑遵循当前阶段验收合同。
 
 ## Progressive requirements
 
@@ -141,6 +141,14 @@ if (checked.exit_code !== 0) throw new Error("删除后核验未通过");
 
 示例须绑定当前真实身份；PROJECT_CONTROLLER按AUTHORIZATION_MODEL增加Controller字段，多仓schema2经原root adapter绑定repository。CRITICAL纯Review另绑定candidateWriter/materialContributors及独立性；不改Owner/Work route，不从示例取得权限。
 
+## 隔离目标与窄事务示例
+
+原项目 C:/work/sample 的 active 卡引用其 runtime 内不可变 descriptor，同仓工作树为 C:/work/sample-target。writer 从 target cwd 调 checker，显式 -ControlRoot C:/work/sample；package4 的 repositoryId=PROJECT、controlRoot、executionTargetRef/expectedTargetState 绑定原卡和当前 Git。目标旧 .ai-workspace 不供权威；缺绑定或另一 HEAD 拒绝。typed2 记录同 ref/当前状态，continuation3 只承接实际 FINALIZE，初始 baseline 不改。可执行正负链由有界测试夹具检验，示例不证明运行。
+
+正文 ID TASK-001、文件名 release-work.md 的卡，普通归档使用纯 CONTROL_WRITE，精确写集仅为原 active/release-work.md 与同 basename 的 archive/release-work.md。先保存完整 CLOSED/接受及产物去向的 archive 并读回验证，复核 active 原前像后再删除；taskId 不由文件名推断，原 FINALIZE 验证后读取实际 archive。此普通路径不建 plan、locator、journal 或联合完成证明。原件、中断与第三方字节仍须核对，不覆盖冲突的 archive，也不因此删除 worktree；schema1 责任转换继续走其原合同。
+
+原用户允许本项目已有付费账户的一次明确用途而无固定金额/期限：externalBinding2 列有限操作、精确 payload/outputUse 和原 grant/current coverage，不补造 0/无限。若原限五次调用，连最坏重试比较 operationCeiling；若有金额，用明确币种/单位的十进制 limit/requested 值。撤回、用途/操作不符、超原限额或新购买拒绝。夹具 grant/宿主返回为模拟，无真实付费服务调用。
+
 ## 当前语义成对示例
 
 “不要另开任务，继续原实现”：objective保留否定；semanticHints只含当前实现概念，不含assignment。“另开一个会话，本地目录就行”：归一为assignment和实际环境决定，不能用原话恰好包含某个英文单词作为理解证据。
@@ -164,3 +172,7 @@ if (checked.exit_code !== 0) throw new Error("删除后核验未通过");
 示例 identity 是占位，不能准入。没有 sourceId 的 DISCOVER 只列配置元数据，不打开目录。指定 sourceId 才读该索引；QUERY 明确 `official:UI_INPUT_CANCELLATION`，默认 LOCATOR_ONLY，需要正文再指定 `ContentMode=FULLTEXT`。FOLLOW 也检查正文/依赖身份；它不替旧方案改来源。成功处理请求后，每条 CURRENT/STALE/UNAVAILABLE 必须分别消费，不能把顶层成功当全部内容可用。
 
 旧 schema1/2 索引只通过显式迁移转为 index3；库读写不隐式采用标准、创建权威、联网或变更 pin。
+
+## 显式质量选择示例
+
+未启用的CRITICAL任务保持原必审。已采用支持C的匿名项目可沿原来源维护将policy3启用qualityAssurance1/defaultStages=[SELF_CHECK]，只读prepare→原卡plan2→fresh普通成果包；真实SELF后可按实际需要另作接受/关闭，不凭CRITICAL额外造普通Review。若稳定规则profiles=[STANDARD]、pathPrefixes=[src]且qualityStages=[RESULT_REVIEW]命中，所有角色阶段都保Review门，缺实际verdict不能接受/成功关闭。defaultStages=[]且无命中规则是真零，可交如实未验证成果，但保USER_DECISION等额外阶段、实际测试失败和专门通道要求。字段未知、孤立qualityStages、假空/漏条件阶段、策略/subject漂移一律拒绝。无SELF而选Review时提供真实生产FINALIZE input/result及完整冻结A；删SELF不改一次失败TEST_RUN，也不能造成功后继。旧runtime仍拒新字段/operation，未完成活跃及历史C消费者前不能透明降级。

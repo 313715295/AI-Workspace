@@ -1,6 +1,9 @@
+Import-Module (Join-Path $PSScriptRoot 'ProjectSourcePublication.psm1')
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 Import-Module (Join-Path $PSScriptRoot 'StrictJsonInput.psm1')
+Import-Module (Join-Path $PSScriptRoot 'ContentSources.psm1')
+Import-Module (Join-Path $PSScriptRoot 'ObjectFormats.psm1')
 $script:KnowledgeUtf8=[Text.UTF8Encoding]::new($false,$true)
 
 function Assert-KsFields($Value,[string[]]$Fields,[string]$Reason) {
@@ -54,6 +57,15 @@ function Assert-AiwFrameworkCapabilities {
     $seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     foreach($source in $knowledge.sources){
         if($source-isnot[pscustomobject]-or$null-eq$source.PSObject.Properties['updatePolicy']){throw 'KNOWLEDGE_SOURCE_FIELDS'}
+        if($null-ne$source.PSObject.Properties['bindingId']){
+            $fields=@('id','bindingId','indexLocator','selectionHints','updatePolicy')
+            if($source.updatePolicy-ceq'PINNED'){$fields+=@('indexIdentity','revision')}elseif($source.updatePolicy-ceq'FOLLOW'){$fields+='revisionSelector'}else{throw 'KNOWLEDGE_UPDATE_POLICY'}
+            Assert-KsFields $source $fields 'KNOWLEDGE_SOURCE_FIELDS';Assert-KsId $source.id 'KNOWLEDGE_SOURCE_ID';Assert-KsId $source.bindingId 'KNOWLEDGE_BINDING_ID'
+            if(-not$seen.Add($source.id)){throw 'KNOWLEDGE_SOURCE_DUPLICATE'}
+            Assert-KsLocator $source.indexLocator;Assert-KsStrings $source.selectionHints 'KNOWLEDGE_SELECTION_HINTS'
+            if($source.updatePolicy-ceq'PINNED'){Assert-KsIdentity $source.indexIdentity;Assert-KsFields $source.revision @('kind','value') 'KNOWLEDGE_REVISION';if($source.revision.kind-cnotin@('CONTENT_IDENTITY','GIT_COMMIT')){throw 'KNOWLEDGE_REVISION'};Assert-KsString $source.revision.value 'KNOWLEDGE_REVISION'}else{Assert-KsString $source.revisionSelector 'KNOWLEDGE_REVISION_SELECTOR'}
+            continue
+        }
         $fields=@('id','root','indexLocator','selectionHints','updatePolicy')
         if($source.updatePolicy-ceq'PINNED'){$fields+='indexIdentity'}
         Assert-KsFields $source $fields 'KNOWLEDGE_SOURCE_FIELDS'
@@ -120,16 +132,19 @@ function New-KsContext([string]$ProjectRoot,[string]$ExpectedProjectConfigIdenti
     })
     Assert-KsUnexcluded $root $forbidden;Assert-KsNoReparse $root
     Assert-KsIdentity $ExpectedProjectConfigIdentity
-    $configDoc=Read-KsDocument (Resolve-KsFile $root '.ai-workspace/project.json' $forbidden) -Json
+    $configPath=Resolve-KsFile $root '.ai-workspace/project.json' $forbidden
+    $configDoc=Read-KsDocument $configPath -Json
     if($configDoc.identity-cne$ExpectedProjectConfigIdentity){throw 'PROJECT_CONFIG_IDENTITY_DRIFT'}
+    $current=Read-AiwCurrentObject PROJECT_CONFIG $configPath $configDoc.identity ([pscustomobject]@{ForbiddenPaths=$forbidden})
+    if($current.Status-cne'CURRENT'){throw 'FORMAT_WRITE_REQUIRED'}
     $config=$configDoc.value
-    $fields=@('schemaVersion','id','displayName','controlPlaneLayout','repositoryRoot','frameworkVersion','frameworkToolBackend','routineExcludedPaths','frameworkCapabilities','processPolicy')
+    $fields=@('schemaVersion','id','displayName','controlPlaneLayout','repositoryRoot','frameworkVersion','frameworkToolBackend','routineExcludedPaths','frameworkCapabilities','processPolicy','sourceBindings')
     if($null-ne$config.PSObject.Properties['controlPlaneLayout']-and$config.controlPlaneLayout-ceq'framework-maintenance-sibling'){$fields+='frameworkTarget'}
     Assert-KsFields $config $fields 'PROJECT_CONFIG_FIELDS'
-    if(-not(Test-KsInteger $config.schemaVersion)-or$config.schemaVersion-ne5-or$config.controlPlaneLayout-cnotin@('repo-local','framework-maintenance-sibling')-or$config.repositoryRoot-cne'..'-or$config.frameworkVersion-cne'2.0.0'-or$config.frameworkToolBackend-cne'powershell7'){throw 'PROJECT_CONFIG_VALUES'}
+    if(-not(Test-KsInteger $config.schemaVersion)-or$config.schemaVersion-ne7-or$config.controlPlaneLayout-cnotin@('repo-local','framework-maintenance-sibling')-or$config.repositoryRoot-cne'..'-or$config.frameworkVersion-cne'2.0.0'-or$config.frameworkToolBackend-cne'powershell7'){throw 'PROJECT_CONFIG_VALUES'}
     Assert-KsId $config.id 'PROJECT_CONFIG_ID';Assert-KsString $config.displayName 'PROJECT_CONFIG_DISPLAY_NAME'
     Assert-KsFields $config.processPolicy @('schemaVersion','locator') 'PROJECT_CONFIG_POLICY'
-    if(-not(Test-KsInteger $config.processPolicy.schemaVersion)-or$config.processPolicy.schemaVersion-ne1-or$config.processPolicy.locator-cne'.ai-workspace/process-policy.json'){throw 'PROJECT_CONFIG_POLICY'}
+    if(-not(Test-KsInteger $config.processPolicy.schemaVersion)-or$config.processPolicy.schemaVersion-ne3-or$config.processPolicy.locator-cne'.ai-workspace/process-policy.json'){throw 'PROJECT_CONFIG_POLICY'}
     Assert-KsStrings $config.routineExcludedPaths 'PROJECT_CONFIG_EXCLUSIONS'
     foreach($scope in $config.routineExcludedPaths){Assert-KsLocator $scope.TrimEnd('/');$forbidden+=[IO.Path]::GetFullPath((Join-Path $root $scope.TrimEnd('/')))}
     if($config.controlPlaneLayout-ceq'framework-maintenance-sibling'){
@@ -150,7 +165,16 @@ function New-KsContext([string]$ProjectRoot,[string]$ExpectedProjectConfigIdenti
     }
     $enabled=@(Assert-AiwFrameworkCapabilities $config.frameworkCapabilities)
     if('KNOWLEDGE_REFERENCE'-cnotin$enabled){throw 'KNOWLEDGE_CAPABILITY_DISABLED'}
-    return [pscustomobject]@{root=$root;projectId=$config.id;configIdentity=$configDoc.identity;sources=@($config.frameworkCapabilities.KNOWLEDGE_REFERENCE.sources);forbidden=$forbidden}
+    $content=New-AiwContentContext -ProjectRoot $root -ExpectedProjectConfigIdentity $configDoc.identity -ForbiddenPaths $forbidden
+    $sources=@()
+    foreach($source in $config.frameworkCapabilities.KNOWLEDGE_REFERENCE.sources){
+        $binding=@($config.sourceBindings|Where-Object{$_.id-ceq$source.bindingId});if($binding.Count-ne1){throw 'DEPENDENCY_NOT_ADOPTED|KNOWLEDGE_BINDING'}
+        $view=($source|ConvertTo-Json -Depth 100 -Compress)|ConvertFrom-Json -Depth 100
+        $sourceRoot='NOT_OBSERVED';$kind=$binding[0].provider
+        if($binding[0].provider-ceq'LOCAL_DIRECTORY'){$sourceRoot=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($(if([IO.Path]::IsPathRooted($binding[0].locator.root)){$binding[0].locator.root}else{Join-Path $root $binding[0].locator.root})));if($sourceRoot.Equals($root,[StringComparison]::OrdinalIgnoreCase)){$kind='PROJECT'}}
+        $view|Add-Member root ([pscustomobject]@{kind=$kind;locator=$sourceRoot});$view|Add-Member declared $source;$sources+=$view
+    }
+    return [pscustomobject]@{root=$root;projectId=$config.id;configIdentity=$configDoc.identity;sources=$sources;forbidden=$forbidden;content=$content}
 }
 
 function Assert-KsIndex($Index,$Source,[string]$ProjectId) {
@@ -196,18 +220,41 @@ function Assert-KsIndex($Index,$Source,[string]$ProjectId) {
         }
     }
 }
+function Get-KsProviderFailureReason([string]$Reason) {
+    switch -CaseSensitive ($Reason){
+        'SOURCE_DENIED|FORBIDDEN_PATH' {return 'KNOWLEDGE_FORBIDDEN_PATH'}
+        'SOURCE_DENIED|REPARSE' {return 'KNOWLEDGE_PATH_REPARSE'}
+        'SOURCE_DENIED|LOCATOR' {return 'KNOWLEDGE_PATH_COMPONENT'}
+        default {return $Reason}
+    }
+}
 function Open-KsSource($Context,$Source) {
-    $result=[ordered]@{sourceId=$Source.id;libraryId='NOT_OBSERVED';root='NOT_OBSERVED';indexLocator=$Source.indexLocator;indexIdentity='NOT_OBSERVED';status='UNAVAILABLE';reason='NOT_OBSERVED';entries=@()}
+    $result=[ordered]@{sourceId=$Source.id;libraryId='NOT_OBSERVED';root='NOT_OBSERVED';indexLocator=$Source.indexLocator;indexIdentity='NOT_OBSERVED';status='UNAVAILABLE';reason='NOT_OBSERVED';contentObservation='NOT_OBSERVED';resolvedRevision=$null;physicalSource='NOT_OBSERVED';providerReason='NONE';entries=@();openedIndex=$null}
     try{
-        $root=if($Source.root.kind-ceq'PROJECT'){$Context.root}else{Get-KsAbsolute $Source.root.locator}
+        $root=$Source.root.locator
         $result.root=$root
-        Assert-KsUnexcluded $root $Context.forbidden;Assert-KsNoReparse $root
-        $index=Read-KsDocument (Resolve-KsFile $root $Source.indexLocator $Context.forbidden) -Json
+        $opened=Resolve-AiwKnowledgeSnapshot -Context $Context.content -Source $Source.declared
+        $text=$script:KnowledgeUtf8.GetString($opened.IndexBytes);$parsed=ConvertFrom-AiwStrictInputJson $text
+        $value=if((Get-Command ConvertFrom-Json).Parameters.ContainsKey('DateKind')){$text|ConvertFrom-Json -Depth 100 -DateKind String}else{$parsed.Value}
+        if($value.schemaVersion-ne3){
+            Import-Module (Join-Path $PSScriptRoot 'ObjectFormats.psm1')
+            $cached=$opened.CachePath
+            $converted=Read-AiwCurrentObject -ObjectType KNOWLEDGE_INDEX -Locator $cached -ExpectedIdentity $opened.IndexIdentity -Context ([pscustomobject]@{ProjectId=$Context.projectId;LibraryId=$Source.id;ForbiddenPaths=$Context.forbidden})
+            $value=$converted.Value
+        }
+        $index=[pscustomobject]@{identity=$opened.IndexIdentity;value=$value}
+        $result.openedIndex=$opened
+        $result.contentObservation=$opened.Observation
+        $result.resolvedRevision=$opened.Snapshot.facts.resolvedRevision;$result.physicalSource=$opened.PhysicalSource
         $result.indexIdentity=$index.identity
         if($Source.updatePolicy-ceq'PINNED'-and$index.identity-cne$Source.indexIdentity){$result.status='STALE';$result.reason='INDEX_IDENTITY_DRIFT';return [pscustomobject]$result}
         Assert-KsIndex $index.value $Source $Context.projectId
         $result.libraryId=$index.value.libraryId;$result.entries=@($index.value.entries);$result.status='CURRENT';$result.reason='INDEX_VALID'
-    }catch{$result.reason=$_.Exception.Message}
+    }catch{
+        $result.providerReason=$_.Exception.Message
+        $result.reason=Get-KsProviderFailureReason $result.providerReason
+        if($Source.updatePolicy-ceq'PINNED'-and$result.providerReason-ceq'CONTENT_IDENTITY_DRIFT|DOCUMENT'){$result.status='STALE';$result.reason='INDEX_IDENTITY_DRIFT'}
+    }
     return [pscustomobject]$result
 }
 function Get-KsSelectedSources($Context,[string[]]$SourceId) {
@@ -220,19 +267,22 @@ function Get-KsSelectedSources($Context,[string[]]$SourceId) {
     }
 }
 function Get-KsSourceObservation($Source) {
-    return [pscustomobject]@{sourceId=$Source.sourceId;libraryId=$Source.libraryId;root=$Source.root;indexLocator=$Source.indexLocator;indexIdentity=$Source.indexIdentity;status=$Source.status;reason=$Source.reason}
+    return [pscustomobject]@{sourceId=$Source.sourceId;libraryId=$Source.libraryId;root=$Source.root;indexLocator=$Source.indexLocator;indexIdentity=$Source.indexIdentity;status=$Source.status;reason=$Source.reason;contentObservation=$Source.contentObservation;resolvedRevision=$Source.resolvedRevision;physicalSource=$Source.physicalSource;providerReason=$Source.providerReason}
 }
 function Get-KsEntry($Context,$Opened,$Entry,[string]$ContentMode) {
     $row=[ordered]@{id=($Opened.sourceId+':'+$Entry.id);sourceId=$Opened.sourceId;libraryId=$Opened.libraryId;indexIdentity=$Opened.indexIdentity;kind=$Entry.kind;title=$Entry.title;declaredState=$Entry.state;locator=$Entry.locator;identity=$Entry.identity;observedIdentity='NOT_OBSERVED';authorityDependencies=@();status='UNAVAILABLE';reason='ENTRY_NOT_CURRENT'}
     if($Entry.state-cne'CURRENT'){$row.status='STALE';return [pscustomobject]$row}
+    $contentInvalidator='REFERENCE_IDENTITY_CHANGE'
     try{
-        $body=Read-KsDocument (Resolve-KsFile $Opened.root $Entry.locator $Context.forbidden)
+        $read=Read-AiwKnowledgeReference -Context $Context.content -OpenedIndex $Opened.openedIndex -Locator $Entry.locator -ExpectedIdentity $Entry.identity
+        $body=[pscustomobject]@{identity=$read.identity;text=$script:KnowledgeUtf8.GetString($read.bytes)}
         $row.observedIdentity=$body.identity
         if($body.identity-cne$Entry.identity){$row.status='STALE';$row.reason='REFERENCE_IDENTITY_CHANGE';return [pscustomobject]$row}
         if($Entry.kind-ceq'PROJECT_DERIVED'){
             foreach($dependency in $Entry.authorityDependencies){
-                $path=Resolve-KsFile $Opened.root $dependency.locator $Context.forbidden
-                $identity=Get-KsIdentity ([IO.File]::ReadAllBytes($path))
+                $contentInvalidator='AUTHORITY_DEPENDENCY_IDENTITY_CHANGE'
+                $dependencyRead=Read-AiwKnowledgeReference -Context $Context.content -OpenedIndex $Opened.openedIndex -Locator $dependency.locator -ExpectedIdentity $dependency.identity
+                $identity=$dependencyRead.identity
                 $row.authorityDependencies+=@([pscustomobject]@{locator=$dependency.locator;identity=$dependency.identity;observedIdentity=$identity})
                 if($identity-cne$dependency.identity){$row.status='STALE';$row.reason='AUTHORITY_DEPENDENCY_IDENTITY_CHANGE';return [pscustomobject]$row}
             }
@@ -241,20 +291,52 @@ function Get-KsEntry($Context,$Opened,$Entry,[string]$ContentMode) {
         }
         $row.status='CURRENT';$row.reason='REFERENCE_AND_DEPENDENCIES_VALID'
         if($ContentMode-ceq'FULLTEXT'){$row.fullText=$body.text}
-    }catch{$row.reason=$_.Exception.Message}
+    }catch{
+        $row.providerReason=$_.Exception.Message
+        $row.reason=Get-KsProviderFailureReason $row.providerReason
+        if($row.providerReason-ceq'CONTENT_IDENTITY_DRIFT|DOCUMENT'){$row.status='STALE';$row.reason=$contentInvalidator}
+    }
     return [pscustomobject]$row
 }
 
+function Get-KsFacetVocabulary($Context) {
+    $catalogPath=Resolve-KsFile (Split-Path -Parent $PSScriptRoot) 'PROCESS_REQUIREMENTS.json' $Context.forbidden
+    $catalog=(Read-KsDocument $catalogPath -Json).value
+    if($catalog.schemaVersion-ne3-or$catalog.catalogVersion-cne'4'-or$catalog.facetVocabulary-isnot[Array]){throw 'KNOWLEDGE_FACET_CATALOG'}
+    $project=@();if($null-ne$Context.content.Policy.PSObject.Properties['facetVocabulary']){$project=@($Context.content.Policy.facetVocabulary)}
+    return Get-AiwFacetVocabulary -NativeVocabulary @($catalog.facetVocabulary) -ProjectVocabulary $project
+}
+function Test-KsEntryFacets($Entry,$Query,$Vocabulary) {
+    $selector=[ordered]@{};$unknown=[Collections.Generic.List[string]]::new()
+    foreach($dimension in @('domain','workType','deliverableType','stage')){
+        $values=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal);$unclassified=$false
+        foreach($tag in @($Entry.tags|Where-Object{$_.StartsWith($dimension+':',[StringComparison]::Ordinal)})){
+            $token=$tag.Substring($dimension.Length+1)
+            try{$null=$values.Add((Resolve-AiwFacetToken -Vocabulary $Vocabulary -Dimension $dimension -Value $token -DeclaredIdOnly))}
+            catch{if($_.Exception.Message-cnotlike'FACET_TOKEN_UNDECLARED|*'){throw};$unclassified=$true}
+        }
+        if($unclassified-or$values.Count-eq0){$unknown.Add($dimension)}else{$selector[$dimension]=@($values)}
+    }
+    $match=Test-AiwFacetSelector -SelectorFacets ([pscustomobject]$selector) -IntentFacets $Query
+    return [pscustomobject]@{Match=$match.Match;decision=$(if($match.Match-and$unknown.Count){'CONSERVATIVE'}else{$match.Decision});unclassifiedDimensions=$unknown.ToArray()}
+}
 function Invoke-AiwKnowledgeQuery {
     [CmdletBinding()]param(
         [Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)][string]$ExpectedProjectConfigIdentity,
         [ValidateSet('DISCOVER','QUERY')][string]$Operation='DISCOVER',[string[]]$SourceId=@(),[string[]]$EntryId=@(),
-        [ValidateSet('LOCATOR_ONLY','FULLTEXT')][string]$ContentMode='LOCATOR_ONLY',[string[]]$ForbiddenPaths=@()
+        [ValidateSet('LOCATOR_ONLY','FULLTEXT')][string]$ContentMode='LOCATOR_ONLY',[string[]]$ForbiddenPaths=@(),[string]$FacetQueryJson
     )
+# @project-source-scope
+$aiwPublicationScopeLease=Enter-AiwProjectSourceScope -ProjectRoot $ProjectRoot -Mode OBSERVE
+try {
+
     $ctx=New-KsContext $ProjectRoot $ExpectedProjectConfigIdentity $ForbiddenPaths
+    $hasFacets=$PSBoundParameters.ContainsKey('FacetQueryJson')-and-not[string]::IsNullOrWhiteSpace($FacetQueryJson)
+    if($PSBoundParameters.ContainsKey('FacetQueryJson')-and-not$hasFacets){throw 'KNOWLEDGE_FACET_QUERY_EMPTY'}
+    if($hasFacets-and($Operation-cne'QUERY'-or$SourceId.Count-eq0)){throw 'KNOWLEDGE_FACET_QUERY_EXPLICIT_SOURCES_REQUIRED'}
     if($Operation-ceq'DISCOVER'){
         if($EntryId.Count-or$ContentMode-cne'LOCATOR_ONLY'){throw 'KNOWLEDGE_DISCOVER_METADATA_ONLY'}
-        if($SourceId.Count-eq0){return [pscustomobject]@{status='KNOWLEDGE_SOURCES';operation=$Operation;referenceOnly=$true;authority=$false;projectConfigIdentity=$ctx.configIdentity;sources=$ctx.sources;entries=@()}}
+        if($SourceId.Count-eq0){return [pscustomobject]@{status='KNOWLEDGE_SOURCES';operation=$Operation;referenceOnly=$true;authority=$false;projectConfigIdentity=$ctx.configIdentity;sources=@($ctx.sources|ForEach-Object{$_.declared});entries=@()}}
         $entries=@();$observations=@()
         foreach($source in @(Get-KsSelectedSources $ctx $SourceId)){
             $opened=Open-KsSource $ctx $source;$observations+=Get-KsSourceObservation $opened
@@ -266,24 +348,46 @@ function Invoke-AiwKnowledgeQuery {
         }
         return [pscustomobject]@{status='KNOWLEDGE_CATALOG';operation=$Operation;referenceOnly=$true;authority=$false;projectConfigIdentity=$ctx.configIdentity;sources=$observations;entries=$entries}
     }
-    if($SourceId.Count-or$EntryId.Count-eq0){throw 'KNOWLEDGE_QUERY_QUALIFIED_IDS_REQUIRED'}
+    if(-not$hasFacets-and($SourceId.Count-or$EntryId.Count-eq0)){throw 'KNOWLEDGE_QUERY_QUALIFIED_IDS_REQUIRED'}
+    $query=$null;$vocabulary=$null
+    if($hasFacets){
+        $raw=(ConvertFrom-AiwStrictInputJson $FacetQueryJson).Value
+        $vocabulary=Get-KsFacetVocabulary $ctx
+        $query=ConvertTo-AiwIntentFacets -Facets $raw -Vocabulary $vocabulary
+    }
     $requested=@();$seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     foreach($id in $EntryId){
         if($id-cnotmatch'^([A-Za-z0-9][A-Za-z0-9._-]*):([A-Za-z0-9][A-Za-z0-9._-]*)$'-or-not$seen.Add($id)){throw 'KNOWLEDGE_QUERY_ID_INVALID_OR_DUPLICATE'}
         $requested+=[pscustomobject]@{id=$id;sourceId=$Matches[1];entryId=$Matches[2]}
+        if($hasFacets-and$Matches[1]-cnotin$SourceId){throw 'KNOWLEDGE_FACET_ENTRY_OUTSIDE_SOURCE_SCOPE'}
     }
-    $selected=@(Get-KsSelectedSources $ctx @($requested.sourceId|Select-Object -Unique))
+    $sourceScope=if($hasFacets){@($SourceId)}else{@($requested.sourceId|Select-Object -Unique)}
+    $selected=@(Get-KsSelectedSources $ctx $sourceScope)
     $openedById=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal)
-    foreach($source in $selected){$openedById.Add($source.id,(Open-KsSource $ctx $source))}
+    $readTrace=[Collections.Generic.List[object]]::new()
+    foreach($source in $selected){
+        $opened=Open-KsSource $ctx $source;$openedById.Add($source.id,$opened)
+        $readTrace.Add([pscustomobject]@{sequence=$readTrace.Count;event='INDEX_SNAPSHOT_OPENED';sourceId=$source.id;indexIdentity=$opened.indexIdentity;status=$opened.status;authority=$false})
+    }
+    if($hasFacets-and$requested.Count-eq0){foreach($source in $selected){foreach($entry in $openedById[$source.id].entries){$requested+=[pscustomobject]@{id=($source.id+':'+$entry.id);sourceId=$source.id;entryId=$entry.id}}}}
     $rows=@()
     foreach($request in $requested){
         $opened=$openedById[$request.sourceId]
         $entry=@($opened.entries|Where-Object{$_.id-ceq$request.entryId})
         if($opened.status-cne'CURRENT'-or$entry.Count-ne1){
             $rows+=[pscustomobject]@{id=$request.id;sourceId=$request.sourceId;libraryId=$opened.libraryId;indexIdentity=$opened.indexIdentity;status=$(if($opened.status-ceq'CURRENT'){'UNAVAILABLE'}else{$opened.status});reason=$(if($opened.status-ceq'CURRENT'){'ENTRY_ID_UNKNOWN'}else{$opened.reason})}
-        }else{$rows+=Get-KsEntry $ctx $opened $entry[0] $ContentMode}
+        }else{
+            $match=$null;if($hasFacets){$match=Test-KsEntryFacets $entry[0] $query $vocabulary;if(-not$match.Match){continue}}
+            $row=Get-KsEntry $ctx $opened $entry[0] $ContentMode
+            if($hasFacets){$row|Add-Member -NotePropertyName facetMatch -NotePropertyValue $match}
+            $rows+=$row
+        }
     }
-    return [pscustomobject]@{status='KNOWLEDGE_QUERY_RESULT';operation=$Operation;referenceOnly=$true;authority=$false;projectConfigIdentity=$ctx.configIdentity;contentMode=$ContentMode;sources=@($selected|ForEach-Object{Get-KsSourceObservation $openedById[$_.id]});entries=$rows}
+    $result=[pscustomobject]@{status='KNOWLEDGE_QUERY_RESULT';operation=$Operation;referenceOnly=$true;authority=$false;projectConfigIdentity=$ctx.configIdentity;contentMode=$ContentMode;sources=@($selected|ForEach-Object{Get-KsSourceObservation $openedById[$_.id]});entries=$rows}
+    if($hasFacets){$result|Add-Member -NotePropertyName facets -NotePropertyValue $query;$result|Add-Member -NotePropertyName facetVocabularyIdentity -NotePropertyValue $vocabulary.identity;$result|Add-Member -NotePropertyName readTrace -NotePropertyValue $readTrace.ToArray()}
+    return $result
+
+} finally { Exit-AiwProjectSourceScope $aiwPublicationScopeLease }
 }
 
 function Invoke-AiwKnowledgeImpact {
@@ -291,6 +395,10 @@ function Invoke-AiwKnowledgeImpact {
         [Parameter(Mandatory)][string]$ProjectRoot,[Parameter(Mandatory)][string]$ExpectedProjectConfigIdentity,
         [Parameter(Mandatory)][string[]]$ChangedAuthorityPath,[string[]]$SourceId=@(),[string[]]$ForbiddenPaths=@()
     )
+# @project-source-scope
+$aiwPublicationScopeLease=Enter-AiwProjectSourceScope -ProjectRoot $ProjectRoot -Mode OBSERVE
+try {
+
     $ctx=New-KsContext $ProjectRoot $ExpectedProjectConfigIdentity $ForbiddenPaths
     $changed=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     if($ChangedAuthorityPath.Count-eq0){throw 'KNOWLEDGE_CHANGED_PATHS_REQUIRED'}
@@ -308,6 +416,8 @@ function Invoke-AiwKnowledgeImpact {
         }
     }
     return [pscustomobject]@{status='KNOWLEDGE_IMPACT_RESULT';referenceOnly=$true;authority=$false;projectConfigIdentity=$ctx.configIdentity;sources=$observations;entries=$rows}
+
+} finally { Exit-AiwProjectSourceScope $aiwPublicationScopeLease }
 }
 
 # Migration returns data only. The existing root adoption transaction owns the

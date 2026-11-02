@@ -4,6 +4,29 @@ Import-Module (Join-Path $PSScriptRoot 'ProjectAdoptionState.psm1')
 Import-Module (Join-Path $PSScriptRoot 'ProjectAdoptionProjection.psm1')
 Import-Module (Join-Path $PSScriptRoot 'ProjectAdoptionTransaction.psm1')
 
+# Forbidden descriptions are lexical values, never paths to observe. Actual
+# allowed-object containment/reparse checks remain at every original read site.
+function Get-AiwLifecycleLexicalPath([string]$Root,[string]$Relative) {
+    $relativeValue=$Relative.TrimEnd('/')
+    Assert-AiwRelativePath $relativeValue
+    $base=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($Root))
+    $full=[IO.Path]::GetFullPath([IO.Path]::Combine($base,$relativeValue))
+    if(-not$full.StartsWith($base+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)){throw 'RELATIVE_PATH_OUTSIDE_ROOT'}
+    return $full
+}
+function Assert-AiwLifecycleReadPath([string]$Root,[string]$Relative,[string[]]$Forbidden=@()) {
+    $target=Get-AiwLifecycleLexicalPath $Root $Relative
+    foreach($scope in $Forbidden){
+        $denied=Get-AiwLifecycleLexicalPath $Root $scope
+        if($target.Equals($denied,[StringComparison]::OrdinalIgnoreCase)-or$target.StartsWith($denied+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)){throw 'SOURCE_DENIED|FORBIDDEN_PATH'}
+    }
+    return $target
+}
+function Assert-AiwLifecycleForbiddenValues($Plan) {
+    if($Plan.forbiddenPaths-isnot[array]-or@($Plan.forbiddenPaths|Where-Object{$_-isnot[string]}).Count){throw 'CORRECTION_FORBIDDEN_PATHS'}
+    foreach($forbidden in $Plan.forbiddenPaths){Assert-AiwRelativePath $forbidden.TrimEnd('/')}
+}
+
 function Assert-AiwLifecycleFields($Value,[string[]]$Fields,[string]$Label) {
     if($Value-isnot[pscustomobject]){throw ($Label+'_OBJECT')}
     $actual=@($Value.PSObject.Properties.Name)
@@ -55,12 +78,11 @@ function ConvertTo-AiwCorrectionEffectView($Installation) {
 
 # @design-contract framework/versions/1.16.0/PROJECT_CONTROL.md#Project-corrections
 # Ownership is an exact reversible edit, never a whole-file rollback over later edits.
-function New-AiwCorrectionLifecycleProjection {
+function New-AiwCorrectionLifecycleWorkProjection {
     param([Parameter(Mandatory)][string]$RepositoryRoot,[Parameter(Mandatory)]$Plan)
     $root=Resolve-AiwRepositoryRoot $RepositoryRoot
     Assert-AiwLifecycleFields $Plan @('schemaVersion','operation','correctionId','expectedCorrectionsIdentity','decisionLocator','record','installation','installationRelativePath','transactionRelativePath','impact','forbiddenPaths') 'CORRECTION_PLAN'
-    if($Plan.forbiddenPaths-isnot[array]-or@($Plan.forbiddenPaths|Where-Object{$_-isnot[string]}).Count){throw 'CORRECTION_FORBIDDEN_PATHS'}
-    foreach($forbidden in $Plan.forbiddenPaths){Assert-AiwRelativePath $forbidden.TrimEnd('/')}
+    Assert-AiwLifecycleForbiddenValues $Plan
     if($Plan.schemaVersion-ne1-or$Plan.operation-cnotin@('INSTALL','REGISTER_HISTORY','REVISE','PAUSE','RESUME','UNINSTALL')-or$Plan.correctionId-cnotmatch'^[A-Z][A-Z0-9_]*$'-or[string]::IsNullOrWhiteSpace($Plan.decisionLocator)){throw 'CORRECTION_PLAN_VALUES'}
     $transactionPath=Assert-AiwProjectionTransactionPath $root $Plan.transactionRelativePath
     $historyRoot='.ai-workspace/upgrade-recovery/corrections/'+$Plan.correctionId+'/'
@@ -73,7 +95,7 @@ function New-AiwCorrectionLifecycleProjection {
     if([string]::IsNullOrWhiteSpace($Plan.impact.recovery)-or[string]::IsNullOrWhiteSpace($Plan.impact.semanticAssessment)){throw 'CORRECTION_SEMANTIC_ASSESSMENT_REQUIRED'}
     $carrierPath=Get-AiwContainedPath $root '.ai-workspace/corrections.json'
     $carrierDoc=Read-AiwProjectJson $carrierPath 'CORRECTIONS'
-    if($carrierDoc.Identity-cne$Plan.expectedCorrectionsIdentity-or$carrierDoc.Value.schemaVersion-ne2){throw 'CORRECTION_CARRIER_DRIFT_OR_LEGACY'}
+    if($carrierDoc.Identity-cne$Plan.expectedCorrectionsIdentity-or$carrierDoc.Value.schemaVersion-notin@(2,3)){throw 'CORRECTION_CARRIER_DRIFT_OR_LEGACY'}
     $carrier=$carrierDoc.Value
     $existing=@($carrier.corrections|Where-Object{$_.correctionId-ceq$Plan.correctionId})
     if($existing.Count-gt1){throw 'CORRECTION_DUPLICATE'}
@@ -141,6 +163,11 @@ function New-AiwCorrectionLifecycleProjection {
     }else{
         if($Plan.record-cne'NOT_APPLICABLE'-or$Plan.installation-cne'NOT_APPLICABLE'-or$Plan.installationRelativePath-cne'NOT_APPLICABLE'){throw 'CORRECTION_EXISTING_INSTALLATION_ONLY'}
         $record=$existing[0]
+        if($state-ceq'LEGACY'){
+            # Unknown installation history does not prevent pausing the rule.
+            # Preserve that unknown fact and never invent reversible effects.
+            $record|Add-Member lifecycle ([pscustomobject]@{state='ACTIVE';installation='NOT_APPLICABLE';decisionLocator=$Plan.decisionLocator})
+        }
         $installation=Read-AiwCorrectionInstallation $root $record
     }
     $active=@($carrier.corrections|Where-Object{(Get-AiwLifecycleState $_)-cin@('ACTIVE','LEGACY')-and$_.correctionId-cne$Plan.correctionId})
@@ -234,13 +261,96 @@ function New-AiwCorrectionLifecycleProjection {
     return [pscustomobject]@{status='READY';operation=$Plan.operation;correctionId=$Plan.correctionId;projection=$projection;impact=$Plan.impact;conflicts=@();semanticCorrectnessProven=$false}
 }
 
+function New-AiwCorrectionLifecycleProjection {
+    param([Parameter(Mandatory)][string]$RepositoryRoot,[Parameter(Mandatory)]$Plan)
+# @project-source-scope
+$aiwPublicationScopeLease=Enter-AiwRootProjectSourceScope -ProjectRoot $RepositoryRoot -Mode OBSERVE
+try {
+
+    $root=Resolve-AiwRepositoryRoot $RepositoryRoot
+    $prepared=New-AiwCorrectionLifecycleWorkProjection $root $Plan
+    if($prepared.status-cne'READY'){return $prepared}
+    $projection=$prepared.projection
+    $entry=@($projection.objects|Where-Object path -CEQ '.ai-workspace/corrections.json')[0]
+    $carrier=[Text.UTF8Encoding]::new($false,$true).GetString([Convert]::FromBase64String($entry.newBase64))|ConvertFrom-Json -Depth 64
+    if($carrier.schemaVersion-eq3){
+        $versionRoot=Join-Path (Split-Path -Parent $PSScriptRoot) 'framework/versions/2.0.0'
+        $formats=@(Import-Module (Join-Path $versionRoot 'scripts/ObjectFormats.psm1') -PassThru)[0]
+        # Read-only conversion is not adoption. Only actually current objects may
+        # enter the carrier3 effective-set projection; legacy carriers stay below
+        # their original branch without loading this current-format consumer.
+        $readCurrent={
+            param([string]$FormatRoot,[string]$Relative,[string]$ObjectType)
+            $forbidden=@(foreach($scope in $Plan.forbiddenPaths){Get-AiwLifecycleLexicalPath $FormatRoot $scope})
+            $null=Assert-AiwLifecycleReadPath $FormatRoot $Relative @($Plan.forbiddenPaths)
+            $path=Get-AiwContainedPath $FormatRoot $Relative
+            $doc=Read-AiwProjectJson $path ('CORRECTION_'+$ObjectType)
+            $value=& $formats.ExportedFunctions['Read-AiwCurrentObject'] -ObjectType $ObjectType -Locator $path -ExpectedIdentity $doc.Identity -Context ([pscustomobject]@{ForbiddenPaths=$forbidden})
+            if($value.Status-cne'CURRENT'){throw 'FORMAT_WRITE_REQUIRED'}
+            return $value
+        }
+        $config=(& $readCurrent $root '.ai-workspace/project.json' 'PROJECT_CONFIG').Value
+        $null=& $readCurrent $root $config.processPolicy.locator 'PROCESS_POLICY'
+        Import-Module (Join-Path $versionRoot 'scripts/ProcessRequirementComposition.psm1')
+        $temporary=Join-Path ([IO.Path]::GetTempPath()) ('aiw-correction-effective-'+[guid]::NewGuid().ToString('N'))
+        try{
+            $null=[IO.Directory]::CreateDirectory($temporary)
+            foreach($path in @('.ai-workspace/project.json',$config.processPolicy.locator,'.ai-workspace/BOOTSTRAP.md')){
+                $null=Assert-AiwLifecycleReadPath $root $path @($Plan.forbiddenPaths)
+                $original=Get-AiwContainedPath $root $path
+                if(Test-Path -LiteralPath $original -PathType Leaf){
+                    $null=Assert-AiwLifecycleReadPath $temporary $path @($Plan.forbiddenPaths)
+                    $copy=Get-AiwContainedPath $temporary $path
+                    $null=[IO.Directory]::CreateDirectory((Split-Path -Parent $copy))
+                    [IO.File]::WriteAllBytes($copy,[IO.File]::ReadAllBytes($original))
+                }
+            }
+            $projectedFiles=@($projection.objects|Where-Object{$_.kind-ceq'FILE'-and$_.newExists})
+            foreach($entry in $projectedFiles){
+                $copy=Get-AiwContainedPath $temporary $entry.path
+                $null=[IO.Directory]::CreateDirectory((Split-Path -Parent $copy))
+                [IO.File]::WriteAllBytes($copy,[Convert]::FromBase64String($entry.newBase64))
+            }
+            $removedFiles=@($projection.objects|Where-Object{$_.kind-ceq'FILE'-and-not$_.newExists})
+            foreach($entry in $removedFiles){$copy=Get-AiwContainedPath $temporary $entry.path;if(Test-Path -LiteralPath $copy -PathType Leaf){[IO.File]::Delete($copy)}}
+            $candidateConfig=& $readCurrent $temporary '.ai-workspace/project.json' 'PROJECT_CONFIG'
+            $policy=(& $readCurrent $temporary $candidateConfig.Value.processPolicy.locator 'PROCESS_POLICY').Value
+            $contentModule=@(Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'framework/versions/2.0.0/scripts/ContentSources.psm1') -PassThru)[0]
+            # Deleted sources are denied in both roots before any context
+            # registration or source/cache observation; this expansion is lexical.
+            $contextForbidden=@($Plan.forbiddenPaths)
+            foreach($entry in $removedFiles){
+                if($entry.kind-cne'FILE'){throw 'SOURCE_DENIED|PROJECTED_DELETION'}
+                $contextForbidden+=Get-AiwLifecycleLexicalPath $root $entry.path
+                $contextForbidden+=Get-AiwLifecycleLexicalPath $temporary $entry.path
+            }
+            $context=New-AiwContentContext -ProjectRoot $temporary -ExpectedProjectConfigIdentity $candidateConfig.OriginalIdentity -ForbiddenPaths $contextForbidden -SourceProjectRoot $root -ProjectedSourceObjects $projectedFiles
+            $custom=Get-AiwProjectCustomRegion (Get-AiwContainedPath $temporary '.ai-workspace/BOOTSTRAP.md')
+            $null=Test-AiwEffectiveRuleSet -ProjectRoot $temporary -Corrections @($carrier.corrections) -PolicyRules @($policy.rules) -Custom $custom -ForbiddenPaths @($Plan.forbiddenPaths) -ContentContext $context
+        }finally{
+            $full=[IO.Path]::GetFullPath($temporary);$tempRoot=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath([IO.Path]::GetTempPath()))
+            if([IO.Path]::GetDirectoryName($full)-cne$tempRoot-or[IO.Path]::GetFileName($full)-cnotmatch'^aiw-correction-effective-[a-f0-9]{32}$'){throw 'CORRECTION_PROJECTION_CLEANUP_BOUNDARY'}
+            if(Test-Path -LiteralPath $full){[IO.Directory]::Delete($full,$true)}
+        }
+    }
+    return $prepared
+
+} finally { Exit-AiwRootProjectSourceScope $aiwPublicationScopeLease }
+}
+
 function Invoke-AiwCorrectionLifecycle {
     param([string]$RepositoryRoot,[string]$PlanPath,[string]$ExpectedPlanIdentity,
           [string]$ProjectId,[string]$Version,[switch]$Apply,
           [string]$AdmitInputPath,[string]$ExpectedAdmitInputIdentity,[int]$InterruptAfterWrite=-1)
+# @project-source-scope
+$aiwPublicationScopeLease=Enter-AiwRootProjectSourceScope -ProjectRoot $RepositoryRoot -Mode OBSERVE
+try {
+
     $root=Resolve-AiwRepositoryRoot $RepositoryRoot
     $doc=Read-AiwProjectJson $PlanPath 'CORRECTION_PLAN'
     if($doc.Identity-cne$ExpectedPlanIdentity){throw 'CORRECTION_PLAN_DRIFT'}
+    Assert-AiwLifecycleForbiddenValues $doc.Value
+    $null=Assert-AiwLifecycleReadPath $root '.ai-workspace/project.json' @($doc.Value.forbiddenPaths)
     $config=Read-AiwProjectJson (Get-AiwContainedPath $root '.ai-workspace/project.json') 'CORRECTION_PROJECT'
     if($config.Value.id-cne$ProjectId-or$config.Value.frameworkVersion-cne$Version){throw 'CORRECTION_PROJECT_BINDING'}
     $prepared=New-AiwCorrectionLifecycleProjection $root $doc.Value
@@ -258,11 +368,13 @@ function Invoke-AiwCorrectionLifecycle {
     if($admit.Identity-cne$ExpectedAdmitInputIdentity-or$admit.Value.mode-cne'ADMIT_ACTION'){throw 'CORRECTION_ADMIT_BINDING'}
     $receipt=Read-AiwProjectJson $admit.Value.discoverReceiptPath 'CORRECTION_DISCOVER'
     if($receipt.Identity-cne$admit.Value.expectedDiscoverReceiptIdentity){throw 'CORRECTION_DISCOVER_DRIFT'}
-    $r=$receipt.Value;$ctx=if($r.schemaVersion-eq2){$r.binding}else{$r.authorityContext}
-    $action=if($r.schemaVersion-eq2){$r.intentEnvelope.requestedActionKind}else{$r.actionKind}
+    $r=$receipt.Value
+    if($r.schemaVersion-eq4-and($r.inputContractVersion-ne5-or$r.binding.schemaVersion-ne3-or$r.intentEnvelope.schemaVersion-ne2)){throw 'CORRECTION_DISCOVER_LAYOUT'}
+    $ctx=if($r.schemaVersion-in@(2,3,4)){$r.binding}else{$r.authorityContext}
+    $action=if($r.schemaVersion-in@(2,3,4)){$r.intentEnvelope.requestedActionKind}else{$r.actionKind}
     if($action-cne'CONTROL_WRITE'-or$ctx.projectRoot-cne$root){throw 'CORRECTION_ACTION_SCOPE'}
     $paths=@($prepared.projection.objects.path|Sort-Object)
-    $exact=if($r.schemaVersion-eq2){@($ctx.exactScope)}else{@($r.exactPaths)}
+    $exact=if($r.schemaVersion-in@(2,3,4)){@($ctx.exactScope)}else{@($r.exactPaths)}
     if(($paths-join"`n")-cne(@($exact|Sort-Object)-join"`n")){throw 'CORRECTION_EXACT_PATHSET'}
     $forbidden=@($ctx.forbiddenScope)
     if(($forbidden-join"`n")-cne(@($doc.Value.forbiddenPaths)-join"`n")){throw 'CORRECTION_FORBIDDEN_SCOPE_DRIFT'}
@@ -271,28 +383,65 @@ function Invoke-AiwCorrectionLifecycle {
     $result=@(& $resolver -InputPath $AdmitInputPath -AsJson);$code=$LASTEXITCODE
     if($code-ne0-or(($result-join"`n")|ConvertFrom-Json).status-cne'PASS'){throw 'CORRECTION_ADMIT_REJECTED'}
     if((Read-AiwProjectJson $PlanPath 'CORRECTION_PLAN').Identity-cne$ExpectedPlanIdentity){throw 'CORRECTION_PLAN_DRIFT'}
+    $candidateConfig=@($prepared.projection.objects|Where-Object{$_.path-ceq'.ai-workspace/project.json'})
+    $postConfigIdentity=if($candidateConfig.Count-eq1){[string]$candidateConfig[0].newIdentity}else{$config.Identity}
     $check={
         param($checkRoot,$projection)
         foreach($entry in $projection.objects){$path=Get-AiwContainedPath $checkRoot $entry.path;$id=if(Test-Path -LiteralPath $path -PathType Leaf){Get-AiwByteIdentity ([IO.File]::ReadAllBytes($path))}else{'MISSING'};if($id-cne$entry.newIdentity){throw ('CORRECTION_POSTIMAGE|'+$entry.path)}}
         Import-Module (Join-Path $runtime "framework/versions/$Version/scripts/ProcessRequirementComposition.psm1") -Force
-        $facts=if($r.schemaVersion-eq2){$r.binding}else{$r}
+        $facts=if($r.schemaVersion-in@(2,3,4)){$r.binding}else{$r}
         $intent=$r.intentEnvelope
         $semantic=Get-AiwProcessSemanticText -IntentEnvelope $intent
-        $composed=Invoke-ProcessRequirementComposition -ProjectRoot $checkRoot -FrameworkRoot $runtime -TargetVersion $Version -ExpectedProjectConfigIdentity $config.Identity -ExpectedCorrectionsIdentity (Get-AiwByteIdentity ([IO.File]::ReadAllBytes((Join-Path $checkRoot '.ai-workspace/corrections.json')))) -Profile $facts.profile -Role $facts.role -Phase $facts.phase -Actor $facts.actor -TaskIdentity $facts.taskIdentity -Objective $semantic -ActionKind CONTROL_WRITE -ResultKind $intent.requestedResultKind -ExactPaths $exact -ForbiddenPaths $forbidden -Capabilities @($ctx.observedCapabilities) -SemanticApplicabilityUnknown:($intent.ambiguityState-cne'CLEAR')
+        $intentArgs=@{}
+        if($intent.schemaVersion-eq2){$intentArgs.IntentEnvelope=$intent}
+        if((Get-Command Invoke-ProcessRequirementComposition).Parameters.ContainsKey('ValidateCompleteAdoptedSet')){$intentArgs.ValidateCompleteAdoptedSet=$true}
+        $composed=Invoke-ProcessRequirementComposition -ProjectRoot $checkRoot -FrameworkRoot $runtime -TargetVersion $Version -ExpectedProjectConfigIdentity $postConfigIdentity -ExpectedCorrectionsIdentity (Get-AiwByteIdentity ([IO.File]::ReadAllBytes((Join-Path $checkRoot '.ai-workspace/corrections.json')))) -Profile $facts.profile -Role $facts.role -Phase $facts.phase -Actor $facts.actor -TaskIdentity $facts.taskIdentity -Objective $semantic -ActionKind CONTROL_WRITE -ResultKind $intent.requestedResultKind -ExactPaths $exact -ForbiddenPaths $forbidden -Capabilities @($ctx.observedCapabilities) -SemanticApplicabilityUnknown:($intent.ambiguityState-cne'CLEAR') @intentArgs
         if($composed.status-cne'PASS'-or'PROJECT_STANDARD_SOURCE_DRIFT_CONSERVATIVE_LOAD'-cin@($composed.evidenceCeilings)){throw 'CORRECTION_COMPOSITION_POSTCHECK'}
         $packBytes=[Text.Encoding]::UTF8.GetByteCount((@($composed.selectedRequirements)|ConvertTo-Json -Depth 50 -Compress))
         # Whole-rule validity, not a historical byte quota, determines rollback.
         $true
     }
+    $historyRelative=$doc.Value.transactionRelativePath.Substring(0,$doc.Value.transactionRelativePath.Length-'state.json'.Length)+'history.json'
+    $metadataPaths=@('.ai-workspace/corrections.json',$historyRelative)
+    if($doc.Value.installationRelativePath-cne'NOT_APPLICABLE'){$metadataPaths+=@($doc.Value.installationRelativePath)}
+    $effectObjects=@($prepared.projection.objects|Where-Object{$_.changed-and$_.path-cnotin$metadataPaths})
+    if($effectObjects.Count-eq0){
+        # History and installation ownership evidence precede the carrier.
+        # There is no installation effect to coordinate or roll back.
+        $writes=0
+        $ordered=@($prepared.projection.objects|Where-Object{$_.changed-and$_.path-cne'.ai-workspace/corrections.json'})+@($prepared.projection.objects|Where-Object{$_.changed-and$_.path-ceq'.ai-workspace/corrections.json'})
+        # These byte helpers are private to their transaction owner. Reuse them
+        # in that exact module scope without adding public exports or a journal.
+        $byteOwner=@(Import-Module (Join-Path $PSScriptRoot 'ProjectAdoptionTransaction.psm1') -PassThru -ErrorAction Stop)[0]
+        foreach($entry in $ordered){
+            if($InterruptAfterWrite-eq0-or($InterruptAfterWrite-ge0-and$writes-ge$InterruptAfterWrite)){return [pscustomobject]@{status='INTERRUPTED';transactionCreated=$false;writes=$writes}}
+            $path=Get-AiwContainedPath $root $entry.path
+            & $byteOwner {
+                param($path,$entry)
+                if((Get-AiwCurrentIdentity $path)-cne$entry.oldIdentity){throw ('CORRECTION_OBJECT_DRIFT|'+$entry.path)}
+                if(-not$entry.newExists){throw 'CORRECTION_NO_EFFECT_DELETE_DENIED'}
+                Write-AiwAtomicBytes $path ([Convert]::FromBase64String($entry.newBase64))
+                if((Get-AiwCurrentIdentity $path)-cne$entry.newIdentity){throw ('CORRECTION_POSTIMAGE|'+$entry.path)}
+            } $path $entry
+            $writes++
+        }
+        $null=& $check $root $prepared.projection
+        return [pscustomobject]@{status='COMPLETE';transactionCreated=$false;writes=$writes}
+    }
+    # The original projection transaction acquires its real WRITE scope over
+    # effect writes and recovery. A second outer writer would self-conflict.
     Invoke-AiwProjectProjectionTransaction $root $prepared.projection $doc.Value.transactionRelativePath $check {param($r,$p) $true} -InterruptAfterWrite $InterruptAfterWrite -Metadata @{operation='PROJECT_CORRECTION_LIFECYCLE';planIdentity=$ExpectedPlanIdentity;impact=$doc.Value.impact}
+
+} finally { Exit-AiwRootProjectSourceScope $aiwPublicationScopeLease }
 }
 function New-AiwCorrectionAdoptionProjection {
-    param([string]$RepositoryRoot,$Plan,[string[]]$RequiredDispositionIds=@())
+    param([string]$RepositoryRoot,$Plan,[string[]]$RequiredDispositionIds=@(),[string[]]$ExactScope=@(),[string[]]$ForbiddenPaths=@())
+    if($Plan.schemaVersion-eq2){return (New-AiwCorrectionAdoptionGroupProjection $RepositoryRoot $Plan $RequiredDispositionIds $ExactScope $ForbiddenPaths).projection}
     $root=Resolve-AiwRepositoryRoot $RepositoryRoot
     Assert-AiwLifecycleFields $Plan @('schemaVersion','expectedCorrectionsIdentity','changes') 'CORRECTION_ADOPTION_PLAN'
     if($Plan.schemaVersion-ne1-or$Plan.changes-isnot[array]){throw 'CORRECTION_ADOPTION_PLAN_VALUES'}
     $doc=Read-AiwProjectJson (Get-AiwContainedPath $root '.ai-workspace/corrections.json') 'CORRECTIONS'
-    if($doc.Identity-cne$Plan.expectedCorrectionsIdentity-or$doc.Value.schemaVersion-ne2){throw 'CORRECTION_ADOPTION_SOURCE_DRIFT'}
+    if($doc.Identity-cne$Plan.expectedCorrectionsIdentity-or$doc.Value.schemaVersion-notin@(2,3)){throw 'CORRECTION_ADOPTION_SOURCE_DRIFT'}
     $carrier=$doc.Value;$seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     $targets=[Collections.Generic.List[object]]::new()
     foreach($change in $Plan.changes){
@@ -325,3 +474,131 @@ function New-AiwCorrectionAdoptionProjection {
     return New-AiwProjectProjection $root @($targets)
 }
 Export-ModuleMember -Function New-AiwCorrectionLifecycleProjection,Invoke-AiwCorrectionLifecycle,New-AiwCorrectionAdoptionProjection
+
+function Assert-AiwCorrectionAdoptionPath([string]$Root,[string]$Relative,[string[]]$ForbiddenPaths,[string[]]$ExactScope,[switch]$Effect) {
+    Assert-AiwRelativePath $Relative
+    foreach($scope in $ForbiddenPaths){
+        $absolute=[IO.Path]::GetFullPath($(if([IO.Path]::IsPathRooted($scope)){$scope}else{Join-Path $Root $scope}))
+        $candidate=[IO.Path]::GetFullPath((Join-Path $Root $Relative))
+        if($candidate.Equals($absolute.TrimEnd('\','/'),[StringComparison]::OrdinalIgnoreCase)-or$candidate.StartsWith($absolute.TrimEnd('\','/')+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)){throw 'CORRECTION_ADOPTION_SOURCE_DENIED'}
+    }
+    if($ExactScope.Count-and$Relative-cnotin$ExactScope){throw ('CORRECTION_ADOPTION_UNDECLARED_PATH|'+$Relative)}
+    if($Effect-and($Relative.Equals('.ai-workspace/controller.json',[StringComparison]::OrdinalIgnoreCase)-or$Relative.StartsWith('.ai-workspace/tasks/',[StringComparison]::OrdinalIgnoreCase)-or$Relative.StartsWith('.ai-workspace/upgrade-recovery/',[StringComparison]::OrdinalIgnoreCase)-or$Relative.StartsWith('.ai-workspace/runtime/',[StringComparison]::OrdinalIgnoreCase)-or$Relative.Equals('.ai-workspace/corrections.json',[StringComparison]::OrdinalIgnoreCase)-or$Relative.Equals('.git',[StringComparison]::OrdinalIgnoreCase)-or$Relative.StartsWith('.git/',[StringComparison]::OrdinalIgnoreCase))){throw ('CORRECTION_ADOPTION_RESERVED_EFFECT|'+$Relative)}
+}
+
+# Scope navigation validates declarations only. It never probes effect paths.
+function Get-AiwCorrectionAdoptionScope {
+    param([string]$RepositoryRoot,$Plan,[string[]]$ForbiddenPaths=@())
+    $root=[IO.Path]::GetFullPath($RepositoryRoot)
+    Assert-AiwLifecycleFields $Plan @('schemaVersion','expectedCorrectionsIdentity','changes') 'CORRECTION_ADOPTION_PLAN'
+    if($Plan.schemaVersion-isnot[long]-and$Plan.schemaVersion-isnot[int]){throw 'CORRECTION_ADOPTION_PLAN_VALUES'}
+    if($Plan.schemaVersion-notin@(1,2)-or$Plan.changes-isnot[array]-or$Plan.expectedCorrectionsIdentity-cnotmatch'^\d+\|[A-F0-9]{64}$'){throw 'CORRECTION_ADOPTION_PLAN_VALUES'}
+    $paths=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    $null=$paths.Add('.ai-workspace/corrections.json')
+    $ids=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach($item in $Plan.changes){
+        $fields=if($Plan.schemaVersion-eq1){@('correctionId','decisionLocator','record','historyRelativePath')}else{@('correctionId','operation','decisionLocator','record','installation','installationRelativePath','historyRelativePath','effectPaths','impact')}
+        Assert-AiwLifecycleFields $item $fields 'CORRECTION_ADOPTION_CHANGE'
+        if($item.correctionId-isnot[string]-or$item.correctionId-cnotmatch'^[A-Z][A-Z0-9_]*$'-or-not$ids.Add($item.correctionId)-or$item.decisionLocator-isnot[string]-or[string]::IsNullOrWhiteSpace($item.decisionLocator)){throw 'CORRECTION_ADOPTION_CHANGE_VALUES'}
+        $prefix='^\.ai-workspace/upgrade-recovery/corrections/'+[regex]::Escape($item.correctionId)+'/[A-Za-z0-9._-]+/'
+        if($item.historyRelativePath-isnot[string]-or$item.historyRelativePath-cnotmatch($prefix+'history\.json$')){throw 'CORRECTION_ADOPTION_HISTORY_PATH'}
+        Assert-AiwCorrectionAdoptionPath $root $item.historyRelativePath $ForbiddenPaths @()
+        if(-not$paths.Add($item.historyRelativePath)){throw 'CORRECTION_ADOPTION_PATH_DUPLICATE'}
+        if($Plan.schemaVersion-eq2){
+            if($item.operation-cnotin@('UNINSTALL','REVISE')-or$item.effectPaths-isnot[array]-or@($item.effectPaths|Where-Object{$_-isnot[string]}).Count){throw 'CORRECTION_ADOPTION_CHANGE_VALUES'}
+            $effects=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+            foreach($path in $item.effectPaths){Assert-AiwCorrectionAdoptionPath $root $path $ForbiddenPaths @() -Effect;if(-not$effects.Add($path)){throw 'CORRECTION_ADOPTION_EFFECT_PATH_DUPLICATE'};$null=$paths.Add($path)}
+            if($item.installation-is[pscustomobject]){
+                if($item.installationRelativePath-isnot[string]-or$item.installationRelativePath-cnotmatch($prefix+'installation\.json$')){throw 'CORRECTION_INSTALLATION_PATH'}
+                Assert-AiwCorrectionAdoptionPath $root $item.installationRelativePath $ForbiddenPaths @()
+                if(-not$paths.Add($item.installationRelativePath)){throw 'CORRECTION_ADOPTION_PATH_DUPLICATE'}
+            }elseif($item.installation-cne'NOT_APPLICABLE'-or$item.installationRelativePath-cne'NOT_APPLICABLE'){throw 'CORRECTION_INSTALLATION_PATH'}
+        }
+    }
+    return @($paths|Sort-Object -CaseSensitive)
+}
+
+function New-AiwCorrectionAdoptionGroupProjection {
+    param([string]$RepositoryRoot,$Plan,[string[]]$RequiredDispositionIds,[string[]]$ExactScope,[string[]]$ForbiddenPaths)
+    $root=Resolve-AiwRepositoryRoot $RepositoryRoot
+    $scope=@(Get-AiwCorrectionAdoptionScope $root $Plan $ForbiddenPaths)
+    if(-not$ExactScope.Count){throw 'CORRECTION_ADOPTION_EXACT_SCOPE_REQUIRED'}
+    foreach($path in $scope){Assert-AiwCorrectionAdoptionPath $root $path $ForbiddenPaths $ExactScope}
+    $carrierPath=Get-AiwContainedPath $root '.ai-workspace/corrections.json'
+    $source=Read-AiwProjectJson $carrierPath 'CORRECTIONS'
+    if($source.Identity-cne$Plan.expectedCorrectionsIdentity-or$source.Value.schemaVersion-notin@(2,3)){throw 'CORRECTION_ADOPTION_SOURCE_DRIFT'}
+    $changes=@{};foreach($item in $Plan.changes){$changes[$item.correctionId]=$item}
+    if(@($RequiredDispositionIds|Where-Object{-not$changes.ContainsKey($_)}).Count){throw 'ADOPTION_CORRECTIONS_DISPOSITION_REQUIRED'}
+    $records=@{};$installations=@{};$references=[Collections.Generic.List[object]]::new()
+    foreach($record in $source.Value.corrections){
+        if($records.ContainsKey($record.correctionId)){throw 'CORRECTION_DUPLICATE'};$records[$record.correctionId]=$record
+        $prefix='^\.ai-workspace/upgrade-recovery/corrections/'+[regex]::Escape($record.correctionId)+'/[A-Za-z0-9._-]+/'
+        foreach($kind in @('history','installation')){
+            $ref=if($kind-ceq'history'){if($null-ne$record.PSObject.Properties['history']){$record.history}else{$null}}else{if($null-ne$record.PSObject.Properties['lifecycle']){$record.lifecycle.installation}else{$null}}
+            if($null-eq$ref-or($ref-is[string]-and$ref-ceq'NOT_APPLICABLE')){continue}
+            Assert-AiwLifecycleFields $ref @('locator','identity') 'CORRECTION_EVIDENCE_REF'
+            if($ref.locator-cnotmatch($prefix+[regex]::Escape($kind)+'\.json$')){throw 'CORRECTION_EVIDENCE_PATH'}
+            Assert-AiwCorrectionAdoptionPath $root $ref.locator $ForbiddenPaths @()
+            $doc=Read-AiwProjectJson (Get-AiwContainedPath $root $ref.locator) 'CORRECTION_EVIDENCE'
+            if($doc.Identity-cne$ref.identity-or$doc.Value.correctionId-cne$record.correctionId){throw 'CORRECTION_EVIDENCE_DRIFT'}
+            $references.Add([pscustomobject]@{path=$ref.locator;identity=$doc.Identity;bytes=$doc.Bytes})
+            if($kind-ceq'installation'){$installations[$record.correctionId]=ConvertTo-AiwCorrectionEffectView $doc.Value}
+        }
+    }
+    foreach($item in $Plan.changes){
+        if(-not$records.ContainsKey($item.correctionId)){throw 'CORRECTION_ADOPTION_RECORD_SET'}
+        $actual=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+        if($installations.ContainsKey($item.correctionId)){foreach($effect in $installations[$item.correctionId].changes){$null=$actual.Add([string]$effect.path)}}
+        if($item.installation-is[pscustomobject]){foreach($effect in $item.installation.changes){$null=$actual.Add([string]$effect.path)}}
+        if((@($actual|Sort-Object -CaseSensitive)-join"`n")-cne(@($item.effectPaths|Sort-Object -CaseSensitive)-join"`n")){throw 'CORRECTION_ADOPTION_EFFECT_PATHSET'}
+    }
+    # Revise dependencies first; uninstall dependents before their dependencies.
+    $ordered=[Collections.Generic.List[object]]::new()
+    foreach($item in @($Plan.changes|Where-Object operation -CEQ 'REVISE'|Sort-Object correctionId -CaseSensitive)){$ordered.Add($item)}
+    $pending=@($Plan.changes|Where-Object operation -CEQ 'UNINSTALL'|Sort-Object correctionId -CaseSensitive)
+    while($pending.Count){
+        $ready=@($pending|Where-Object{
+            $id=$_.correctionId
+            @($pending|Where-Object{$_.correctionId-cne$id-and$installations.ContainsKey($_.correctionId)-and$id-cin@($installations[$_.correctionId].dependsOn)}).Count-eq0
+        })
+        if(-not$ready.Count){throw 'CORRECTION_DEPENDENCY_CYCLE'}
+        foreach($item in $ready){$ordered.Add($item)};$pending=@($pending|Where-Object{$_.correctionId-cnotin@($ready.correctionId)})
+    }
+    $stage=Join-Path ([IO.Path]::GetTempPath()) ('aiw-correction-adoption-'+[guid]::NewGuid().ToString('N'))
+    try{
+        $null=[IO.Directory]::CreateDirectory($stage)
+        Write-AiwCorrectionWorkBytes (Get-AiwContainedPath $stage '.ai-workspace/corrections.json') $source.Bytes
+        foreach($ref in $references){Write-AiwCorrectionWorkBytes (Get-AiwContainedPath $stage $ref.path) $ref.bytes}
+        foreach($path in @($scope|Where-Object{$_-cne'.ai-workspace/corrections.json'-and-not$_.StartsWith('.ai-workspace/upgrade-recovery/',[StringComparison]::Ordinal)})){
+            Assert-AiwCorrectionAdoptionPath $root $path $ForbiddenPaths $ExactScope -Effect
+            $live=Get-AiwContainedPath $root $path
+            if(Test-Path -LiteralPath $live -PathType Leaf){Write-AiwCorrectionWorkBytes (Get-AiwContainedPath $stage $path) ([IO.File]::ReadAllBytes($live))}
+        }
+        foreach($item in $ordered){
+            $work=[pscustomobject]@{schemaVersion=1;operation=$item.operation;correctionId=$item.correctionId;expectedCorrectionsIdentity=(Read-AiwProjectJson (Get-AiwContainedPath $stage '.ai-workspace/corrections.json') 'WORK_CARRIER').Identity;decisionLocator=$item.decisionLocator;record=$item.record;installation=$item.installation;installationRelativePath=$item.installationRelativePath;transactionRelativePath=$item.historyRelativePath.Substring(0,$item.historyRelativePath.Length-'history.json'.Length)+'state.json';impact=$item.impact;forbiddenPaths=@()}
+            $part=New-AiwCorrectionLifecycleWorkProjection $stage $work
+            if($part.status-cne'READY'){throw ('CORRECTION_ADOPTION_EFFECT_CONFLICT|'+($part.conflicts|ConvertTo-Json -Compress))}
+            foreach($entry in $part.projection.objects){
+                $target=Get-AiwContainedPath $stage $entry.path
+                if($entry.newExists){Write-AiwCorrectionWorkBytes $target ([Convert]::FromBase64String($entry.newBase64))}elseif(Test-Path -LiteralPath $target -PathType Leaf){[IO.File]::Delete($target)}
+            }
+        }
+        $targets=@($scope|ForEach-Object{
+            $path=$_;$target=Get-AiwContainedPath $stage $path
+            if(Test-Path -LiteralPath $target -PathType Leaf){[pscustomobject]@{path=$path;bytes=[IO.File]::ReadAllBytes($target)}}else{[pscustomobject]@{path=$path;exists=$false}}
+        })
+        $projection=New-AiwProjectProjection $root $targets
+        return [pscustomobject]@{projection=$projection;scope=$scope;sourceReferences=@($references|ForEach-Object{[pscustomobject]@{path=$_.path;identity=$_.identity}})}
+    }finally{
+        $full=[IO.Path]::GetFullPath($stage);$temp=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath([IO.Path]::GetTempPath()))
+        if([IO.Path]::GetDirectoryName($full)-cne$temp-or[IO.Path]::GetFileName($full)-cnotmatch'^aiw-correction-adoption-[a-f0-9]{32}$'){throw 'CORRECTION_ADOPTION_CLEANUP_BOUNDARY'}
+        if(Test-Path -LiteralPath $full){[IO.Directory]::Delete($full,$true)}
+    }
+}
+
+Export-ModuleMember -Function Get-AiwCorrectionAdoptionScope,New-AiwCorrectionAdoptionGroupProjection
+
+function Write-AiwCorrectionWorkBytes([string]$Path,[byte[]]$Bytes) {
+    $null=[IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($Path))
+    [IO.File]::WriteAllBytes($Path,$Bytes)
+}

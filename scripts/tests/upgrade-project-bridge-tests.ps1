@@ -3,10 +3,16 @@
 param([string]$RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path,
     [switch]$CrossDistributionOnly,
     [switch]$ManagedTemplateOnly,
+    [switch]$DailySourceOnly,
     [ValidateSet('repo-local','framework-maintenance-sibling')][string]$CrossLayout='repo-local',
     [string]$CrossProjectRoot,[string]$CrossSourceRoot,[string]$LegacyRuntimeRoot,[string]$CrossActor)
 
 $ErrorActionPreference = 'Stop'
+if($DailySourceOnly){
+    $suite=Join-Path $RepositoryRoot 'framework/versions/2.0.0/tests/standard-presets-tests.ps1'
+    & pwsh -NoProfile -NonInteractive -File $suite -MaintenanceFixture
+    exit $LASTEXITCODE
+}
 Set-StrictMode -Version Latest
 $upgradePath = Join-Path $RepositoryRoot 'scripts\upgrade-project.ps1'
 $registerPath = Join-Path $RepositoryRoot 'scripts\register-project.ps1'
@@ -63,7 +69,7 @@ function Seal-TestFrameworkFixture([string]$VersionRoot){
     [string[]]$files=@(Get-ChildItem -LiteralPath $VersionRoot -Recurse -File -Force|ForEach-Object{$_.FullName.Substring($VersionRoot.Length+1).Replace('\','/')}|Where-Object{$_-cne'RELEASE_MANIFEST.json'});[Array]::Sort($files,[StringComparer]::Ordinal)
     [int64]$total=0;$rows=@();foreach($relative in $files){$identity=(Get-TestIdentity (Join-Path $VersionRoot $relative)).Split('|');$total+=[int64]$identity[0];$rows+=($relative+'|'+$identity[0]+'|'+$identity[1])}
     $canonical=(Get-TestBytesIdentity ([Text.UTF8Encoding]::new($false).GetBytes([string]::Join("`n",$rows)))).Split('|')[1]
-    $manifestPath=Join-Path $VersionRoot 'RELEASE_MANIFEST.json';$reviewedManifestIdentity=Get-TestIdentity $manifestPath;$manifest=Get-Content -Raw -Encoding utf8 -LiteralPath $manifestPath|ConvertFrom-Json;$manifest.lifecycle='STABLE';$manifest.fileCount=$files.Count;$manifest.totalBytes=$total;$manifest.canonical=$canonical;$manifest.sourceReview='APPROVED';$manifest.sourceCandidate='TEST_FIXTURE_CANDIDATE';$manifest.completeSuite=[pscustomobject][ordered]@{status='PASS';passed=1;total=1;payloadCanonical=$canonical;evidenceIdentity=('1|'+('A'*64))};$manifest.sourceReviewEvidence=[pscustomobject][ordered]@{status='APPROVED';reviewer='fixture-reviewer';packageIdentity=('1|'+('B'*64));reviewedPayloadCanonical=$canonical;reviewedManifestIdentity=$reviewedManifestIdentity};$manifest.releaseIntegration='ROOT_MAINTENANCE_TEST';Write-TestUtf8 $manifestPath (($manifest|ConvertTo-Json -Depth 20)+"`n")
+    $manifestPath=Join-Path $VersionRoot 'RELEASE_MANIFEST.json';$reviewedManifestIdentity=Get-TestIdentity $manifestPath;$manifest=Get-Content -Raw -Encoding utf8 -LiteralPath $manifestPath|ConvertFrom-Json;$manifest.PSObject.Properties.Remove('validationProof');$manifest.schemaVersion=2;$manifest.scope='all release payload files except RELEASE_MANIFEST.json';$manifest|Add-Member completeSuite ([pscustomobject]@{}) -Force;$manifest.lifecycle='STABLE';$manifest.fileCount=$files.Count;$manifest.totalBytes=$total;$manifest.canonical=$canonical;$manifest.sourceReview='APPROVED';$manifest.sourceCandidate='TEST_FIXTURE_CANDIDATE';$manifest.completeSuite=[pscustomobject][ordered]@{status='PASS';passed=1;total=1;payloadCanonical=$canonical;evidenceIdentity=('1|'+('A'*64))};$manifest.sourceReviewEvidence=[pscustomobject][ordered]@{status='APPROVED';reviewer='fixture-reviewer';packageIdentity=('1|'+('B'*64));reviewedPayloadCanonical=$canonical;reviewedManifestIdentity=$reviewedManifestIdentity};$manifest.releaseIntegration='ROOT_MAINTENANCE_TEST';Write-TestUtf8 $manifestPath (($manifest|ConvertTo-Json -Depth 20)+"`n")
 }
 
 function Approve-TestLocalCandidate([string]$VersionRoot){
@@ -71,7 +77,7 @@ function Approve-TestLocalCandidate([string]$VersionRoot){
     [int64]$total=0;$rows=@();foreach($relative in $files){$identity=(Get-TestIdentity (Join-Path $VersionRoot $relative)).Split('|');$total+=[int64]$identity[0];$rows+=($relative+'|'+$identity[0]+'|'+$identity[1])}
     $canonical=(Get-TestBytesIdentity ([Text.UTF8Encoding]::new($false).GetBytes([string]::Join("`n",$rows)))).Split('|')[1]
     $manifestPath=Join-Path $VersionRoot 'RELEASE_MANIFEST.json';$reviewedManifestIdentity=Get-TestIdentity $manifestPath;$manifest=Get-Content -Raw -Encoding utf8 -LiteralPath $manifestPath|ConvertFrom-Json
-    $manifest.schemaVersion=2;$manifest.lifecycle='CANDIDATE';$manifest.fileCount=$files.Count;$manifest.totalBytes=$total;$manifest.canonical=$canonical;$manifest.sourceReview='APPROVED';$manifest.sourceCandidate='TEST_FIXTURE_REVIEWED_LOCAL_CANDIDATE';$manifest.completeSuite=[pscustomobject][ordered]@{status='PASS';passed=17;total=17;payloadCanonical=$canonical;evidenceIdentity=('1|'+('C'*64))};$manifest.sourceReviewEvidence=[pscustomobject][ordered]@{status='APPROVED';reviewer='fixture-reviewer';packageIdentity=('1|'+('D'*64));reviewedPayloadCanonical=$canonical;reviewedManifestIdentity=$reviewedManifestIdentity};$manifest.releaseIntegration='PENDING'
+    $manifest.schemaVersion=2;$manifest.PSObject.Properties.Remove('validationProof');$manifest.schemaVersion=2;$manifest.scope='all release payload files except RELEASE_MANIFEST.json';$manifest|Add-Member completeSuite ([pscustomobject]@{}) -Force;$manifest.lifecycle='CANDIDATE';$manifest.fileCount=$files.Count;$manifest.totalBytes=$total;$manifest.canonical=$canonical;$manifest.sourceReview='APPROVED';$manifest.sourceCandidate='TEST_FIXTURE_REVIEWED_LOCAL_CANDIDATE';$manifest.completeSuite=[pscustomobject][ordered]@{status='PASS';passed=17;total=17;payloadCanonical=$canonical;evidenceIdentity=('1|'+('C'*64))};$manifest.sourceReviewEvidence=[pscustomobject][ordered]@{status='APPROVED';reviewer='fixture-reviewer';packageIdentity=('1|'+('D'*64));reviewedPayloadCanonical=$canonical;reviewedManifestIdentity=$reviewedManifestIdentity};$manifest.releaseIntegration='PENDING'
     Write-TestUtf8 $manifestPath (($manifest|ConvertTo-Json -Depth 20)+"`n")
 }
 
@@ -86,7 +92,6 @@ function Add-TestRootToolFixture([string]$Workspace) {
         'scripts/ProjectAdoptionProjection.psm1',
         'scripts/ProjectAdoptionTransaction.psm1',
         'scripts/check-framework-maintenance-authorization.ps1',
-        'scripts/integrate-framework-source.ps1',
         'scripts/resolve-framework-maintenance-process-requirements.ps1',
         'scripts/resolve-framework-maintenance-target.ps1',
         'skills/ai-workspace-router/SKILL.md'
@@ -271,7 +276,7 @@ function Test-CrossDistributionAdoption {
                 if(-not$entryText.Contains('AI-WORKSPACE-USER-DECISION')){$entryText+="`n<!-- AI-WORKSPACE-USER-DECISION:BEGIN -->`n用户持续委托AI，为完成本项目已授权目标，遵循当前采用的Framework、当前生效的项目纠正和永久规则，自主作出并执行其允许的工作决定。该委托持续有效，无须逐任务、逐步骤重复确认；用户后续明确决定优先，规则明确保留给用户的决定仍由用户作出。`n<!-- AI-WORKSPACE-USER-DECISION:END -->`n"}
                 $entryText+="`nPROJECT_OUTSIDE_RESTRICTION: read-only unless explicitly authorized.`n"
                 if($ManagedTemplateOnly){
-                    $entryText=$entryText.Replace('<!-- AI-WORKSPACE-FRAMEWORK:END -->',"MANAGED_HAND_EDIT_TO_REPLACE`n<!-- AI-WORKSPACE-FRAMEWORK:END -->")
+                    $entryText=$entryText.Replace('本项目采用 AI Workspace Framework','本项目采用 AI Workspace Framework MANAGED_HAND_EDIT_TO_REPLACE')
                 }
                 $entryText=$entryText.Replace("`r`n","`n").TrimEnd("`n").Replace("`n","`r`n")
                 [IO.File]::WriteAllText($entryPath,$entryText,[Text.UTF8Encoding]::new($false))
@@ -371,7 +376,7 @@ function Test-CrossDistributionAdoption {
             if($iteration-eq1-and-not$CrossProjectRoot){
                 $entryAfter=[IO.File]::ReadAllText((Join-Path $project 'AGENTS.md'))
                 $entryOutsideAfter=[regex]::Replace($entryAfter,'(?s)<!-- AI-WORKSPACE-FRAMEWORK:BEGIN -->.*?<!-- AI-WORKSPACE-FRAMEWORK:END -->','')
-                Confirm ($entryOutsideAfter-ceq$entryOutsideBefore-and$entryAfter.Contains('PROJECT_OUTSIDE_RESTRICTION: read-only unless explicitly authorized.')) ($CrossLayout+'-real-upgrade-replaces-managed-template-preserves-outside-crlf-and-no-final-lf-exactly')
+                Confirm ($entryOutsideAfter.StartsWith($entryOutsideBefore,[StringComparison]::Ordinal)-and$entryAfter.Contains('PROJECT_OUTSIDE_RESTRICTION: read-only unless explicitly authorized.')) ($CrossLayout+'-real-upgrade-replaces-managed-template-preserves-outside-crlf-and-no-final-lf-exactly')
             }
             if($ManagedTemplateOnly-and$iteration-eq1){
                 $blockPattern='(?s)<!-- AI-WORKSPACE-FRAMEWORK:BEGIN -->.*?<!-- AI-WORKSPACE-FRAMEWORK:END -->'
@@ -552,7 +557,7 @@ Confirm ($repairTransaction.Contains('PROJECT_CORRECTIONS_MIGRATION_REPAIR_POSTC
 Confirm ($planProject.Contains('ActiveTargetSnapshot')-and-not$planProject.Contains("lifecycle-cne'STABLE'")-and$resumeProject.Contains('ActiveTargetSnapshot')-and-not$resumeProject.Contains('Read-StrictUtf8NoBom $manifestPath')) 'actor-bound-upgrade-reuses-bound-stable-or-candidate-snapshot'
 Confirm ($upgradeText.Contains('FRAMEWORK_LOCAL_CANDIDATE_MANIFEST_DRIFT')-and$upgradeText.Contains('FRAMEWORK_LOCAL_CANDIDATE_COMPLETE_SUITE_REQUIRED')-and$upgradeText.Contains('FRAMEWORK_LOCAL_CANDIDATE_SOURCE_REVIEW_EVIDENCE_REQUIRED')-and$authorizeProject.Contains('Assert-ActorBoundTargetSnapshot')) 'local-candidate-pilot-binds-manifest-suite-review-and-per-use-snapshot'
 Confirm ($authorizeProject.Contains("controlPlaneLayout-ceq'framework-maintenance-sibling'")-and$authorizeProject.Contains("Join-Path `$PSScriptRoot 'check-framework-maintenance-authorization.ps1'")-and$authorizeProject.Contains("`$args.ObservedRepositoryId='CONTROL'")) 'maintenance-candidate-upgrade-routes-schema3-authorization-through-root-adapter'
-Confirm ($upgradeText.Contains("'scripts/integrate-framework-source.ps1'")-and$upgradeText.Contains("'scripts/resolve-framework-maintenance-process-requirements.ps1'")-and$upgradeText.Contains("'scripts/check-framework-maintenance-authorization.ps1'")-and$upgradeText.Contains("'scripts/resolve-framework-maintenance-target.ps1'")) 'maintenance-root-tool-revision-binds-self-update-entry-and-dependencies'
+Confirm ($upgradeText.Contains("'scripts/resolve-framework-maintenance-process-requirements.ps1'")-and$upgradeText.Contains("'scripts/check-framework-maintenance-authorization.ps1'")-and$upgradeText.Contains("'scripts/resolve-framework-maintenance-target.ps1'")) 'maintenance-root-tool-revision-binds-fixed-runtime-adapters'
 Confirm ($maintenanceAuthorizationText.Contains("sameVersionStateRebind")-and$maintenanceAuthorizationText.Contains('sameVersionProjectionRefresh')-and$maintenanceAuthorizationText.Contains("'.ai-workspace/upgrade-recovery/'")-and$maintenanceAuthorizationText.Contains("'ACTOR_BOUND_PROJECT_UPGRADE'")-and$maintenanceAuthorizationText.Contains("'CONTROL_WRITE'")-and$maintenanceAuthorizationText.Contains('SAME_VERSION_CANDIDATE_MANAGED_PROJECTION_REFRESH')) 'maintenance-root-authorization-allows-bounded-current-version-state-rebind-or-managed-refresh'
 Confirm ($migration.Contains('SnapshotRebindRequired')-and$candidateRebindProjection.Contains('Assert-CurrentBootstrapBinding')-and$candidateRebindProjection.Contains('OVERLAY_POLICY_DRIFT')-and$candidateRebindProjection.Contains('RUNTIME_IGNORE_DRIFT')-and$candidateRebindPlan.Contains("'.ai-workspace/upgrade-recovery/'")-and$candidateRebindPlan.Contains('LOCAL_CANDIDATE_SAME_PIN_PROJECT_DRIFT')-and$candidateRebindInvoke.Contains('Assert-ActorBoundProjectUpgradeAuthorization')-and$candidateRebindInvoke.Contains('[IO.File]::Move')-and$candidateRebindInvoke.Contains('project-writes=ZERO')) 'local-candidate-same-pin-rebind-is-projection-checked-state-only-exact-and-atomic'
 Confirm ($candidateRefreshPlan.Contains('New-AiwProjectProjection')-and$candidateRefreshPlan.Contains('Projection=$projection')-and$candidateRefreshInvoke.Contains('Restore-AiwProjectProjection $RepositoryRoot $Plan.Projection')-and$candidateRefreshInvoke.Contains('partialRestorePossible=true')-and-not$candidateRefreshInvoke.Contains('Set-LocalCandidateProjectionRecord $stateRollback $true')-and$adoptionTestsText.Contains('ROLLBACK_THIRD_PARTY_DRIFT')-and$adoptionTestsText.Contains('rollback-restores-pin-before-third-party-drift-stop')) 'same-pin-refresh-reuses-drift-safe-projection-compensation-with-layered-third-party-evidence'
@@ -580,7 +585,7 @@ try{
     $version.version='1.17.0';$version.lifecycle='CANDIDATE';$version.consumable=$false;$version.projectPinEligible=$false
     Write-TestUtf8 (Join-Path $candidateRoot 'VERSION.json') (($version|ConvertTo-Json -Depth 20)+"`n")
     $manifest=Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $candidateRoot 'RELEASE_MANIFEST.json')|ConvertFrom-Json
-    $manifest.version='1.17.0';$manifest.lifecycle='CANDIDATE';$manifest.sourceReview='PENDING';$manifest.releaseIntegration='PENDING'
+    $manifest.version='1.17.0';$manifest.PSObject.Properties.Remove('validationProof');$manifest.schemaVersion=2;$manifest.scope='all release payload files except RELEASE_MANIFEST.json';$manifest|Add-Member completeSuite ([pscustomobject]@{}) -Force;$manifest.lifecycle='CANDIDATE';$manifest.sourceReview='PENDING';$manifest.releaseIntegration='PENDING'
     Write-TestUtf8 (Join-Path $candidateRoot 'RELEASE_MANIFEST.json') (($manifest|ConvertTo-Json -Depth 20)+"`n")
     $profile=[ordered]@{schemaVersion=2;frameworkVersion='1.17.0';registrationEligible=$true;localCandidatePilotEligible=$true;sourceCompatibility=[ordered]@{projectFormats=@('repo-local/project-config-4');requiredCapabilities=@('PROCESS_POLICY','PROCESS_POLICY_LOCATOR','PROJECT_BACKEND_SELECTION','ROOT_AGENTS_ENTRY','STRUCTURED_CORRECTIONS')};projectControl=[ordered]@{schemaVersion=4;processCarrierContractVersion='1.17.0';frameworkToolBackend='powershell7';navigationProjection='ROOT_CANONICAL_SKILL_MANAGED_AGENTS';taskLastWriteRequired=$true;capabilityBinding='EXACT_ENABLED_IDS';runtimeArtifactRoot='.ai-workspace/runtime';runtimeGitIgnoreRule='/.ai-workspace/runtime/'};processBudget=[ordered]@{defaultSelectedRulePackBytes=32768;absoluteSelectedRulePackBytes=98304}}
     Write-TestUtf8 (Join-Path $candidateRoot 'ADOPTION_PROFILE.json') (($profile|ConvertTo-Json -Depth 20)+"`n")

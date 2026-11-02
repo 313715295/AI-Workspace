@@ -1,16 +1,12 @@
-# Framework 2.0.0 静态合同摘要
+# 过程选择的静态比较
 
-| 关注点 | 2.0.0 合同 |
+本页只解释当前选择/显示合同，不证明模型理解、自然行为、性能或费用。
+
+| 项目 | 当前含义 |
 |---|---|
-| 项目采用事实 | `ADOPTION_PROFILE.json` 声明版本侧格式与能力要求；根级工具负责实际投影 |
-| 兼容判断 | 不维护旧发行号白名单；未来跨 pin 只按 Project Format/capability 明确声明 |
-| 规则包预算 | 项目 policy 选择预算，Framework absolute cap 为 `98304` |
-| 升级预检 | target projection 中先验证任务路线、policy、corrections 和预算，PASS 后才允许写入 |
-| 角色 | 任务 Owner、`taskActor` 和一次授权的 `grantee` 分离 |
-| 规则加载 | DISCOVER 一次返回完整命中区块；连续工作复用，动作与输出边界使用紧凑 receipt |
-| 临时输入 | 项目 `.ai-workspace/runtime/<task-or-request>/<actor>/` 优先；成功后按绑定清理 |
-| Router 来源 | 根级唯一 canonical Skill；版本只声明兼容合同，不维护第二份正文 |
-| Maintenance | sibling 拓扑、overlay 和旧布局迁移只属于根级工具 |
-| 流程机器 | 不新增 service、registry、ledger、poller、actor pool 或第二 authority |
-
-本摘要帮助静态审阅，不替代规范 Markdown、schema、Tool Contract、测试或发行 manifest。
+| 选择 | 完整有效三源先校验，再按真实结构事实和四维facets选择；UNKNOWN仅在已知边界内保守处理。 |
+| 大小 | 真实规则数及字节用于识别无关加载/重复，不是32/64/96KiB配额或拒绝门，不自动调额。 |
+| 单元 | 显式规范单元绑定完整正文、公共条件与有序依赖，物理raw观察另存；旧整文件模式继续严格。 |
+| 显示 | 唯一完整单元及每规则有序引用/义务；实际截断才分页，不以字数裁剪规范。 |
+| 复用 | 健康上下文FULL/REUSE/DELTA按RECOVERY；来源与当前动作分别复证，coverage不证明模型记忆。 |
+| 证据 | fixture、实际工具调用和自然使用分别报告；旧失败与历史budget行为留原证据及MIGRATION_MATRIX。 |

@@ -1,17 +1,32 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)][string]$InputPath,[switch]$AsJson,[switch]$DeleteInputOnExit,[string]$CompactReceiptPath,
+    [Parameter(Mandatory)][string]$InputPath,[switch]$AsJson,[switch]$DeleteInputOnExit,[string]$CompactReceiptPath,[string]$DisplayPath,
+    [string[]]$ConsumedRuntimePath=@(),[string]$ConsumedRuntimePathList,[string[]]$EmptyRuntimeDirectory=@(),[string[]]$RetainedRuntimePath=@(),
+    [string]$PublicationSourceInputPath,[string]$ExpectedPublicationSourceInputIdentity,
     [string]$AdmitInputPath,[string]$ExpectedAdmitInputIdentity,
     [string]$AdmitResultPath,[string]$ExpectedAdmitResultIdentity,
     [string]$AdoptionAuthorizationPackagePath,[string]$ExpectedAdoptionAuthorizationIdentity,
     [string]$ExpectedAdoptionTransactionIdentity,
+    [string]$AdoptionFinalizeResultPath,[string]$ExpectedAdoptionFinalizeResultIdentity,
+    [switch]$CompleteOriginalSourceAfterAgentsChange,
+    [string]$OriginalAgentsPreimagePath,[string]$ExpectedOriginalAgentsPreimageIdentity,
+    [string]$ExpectedCurrentAgentsIdentity,
+    [string]$CurrentCompletionDecisionPath,[string]$ExpectedCurrentCompletionDecisionIdentity,
+    [ValidateSet('CURRENT_AND_COVERED','WITHDRAWN','UNKNOWN')][string]$CurrentCompletionPermission='UNKNOWN',
+    [string]$OriginalSourceRepositoryPath,
+    [string[]]$OriginalSourceForbiddenPath=@(),[string[]]$OriginalSourceProtectedPath=@(),
     [switch]$AdoptionProcessBoundary,
     [string]$AdoptionPreparationPath,[string]$ExpectedAdoptionPreparationIdentity
 )
-
+# @project-source-entry-scope
+# Keep the actual body on the module-owned scope stack. Script-frame lease
+# variables alone do not reliably carry nested native public entry calls.
+$aiwPublicationEntryContext=[pscustomobject]@{ScriptRoot=$PSScriptRoot;Invocation=$MyInvocation;Cmdlet=$PSCmdlet;BoundParameters=$PSBoundParameters;ExitCode=0}
+$aiwMaintenanceProcessBody={
+param($aiwPublicationEntryContext)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
-if ($PSVersionTable.PSEdition -cne 'Core' -or $PSVersionTable.PSVersion.Major -lt 7) { Write-Output 'FAIL|tool-runtime|POWERSHELL7_REQUIRED'; exit 4 }
+if ($PSVersionTable.PSEdition -cne 'Core' -or $PSVersionTable.PSVersion.Major -lt 7) { Write-Output 'FAIL|tool-runtime|POWERSHELL7_REQUIRED'; $aiwPublicationEntryContext.ExitCode=4; return }
 $utf8 = [Text.UTF8Encoding]::new($false, $true)
 $customHandled = $false
 $inputFull = $null
@@ -23,10 +38,7 @@ function Get-Identity([string]$Path) {
 }
 
 function Read-StrictJson([string]$Path, [string]$Label) {
-    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw ($Label + '_MISSING') }
-    $bytes = [IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $Path))
-    if ($bytes.Length -ge 3 -and $bytes[0] -eq 239 -and $bytes[1] -eq 187 -and $bytes[2] -eq 191) { throw ($Label + '_BOM') }
-    try { return $utf8.GetString($bytes) | ConvertFrom-Json -Depth 100 } catch { throw ($Label + '_JSON') }
+    return (Read-AiwProjectJson -Path $Path -Label $Label).Value
 }
 
 function Assert-Fields($Value, [string[]]$Names, [string]$Label) {
@@ -49,36 +61,15 @@ function Get-ControlRootFromReceipt($Receipt) {
     $boundRoot = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Resolve-Path -LiteralPath $boundPath)))
     $frameworkRoot = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Resolve-Path -LiteralPath ([string]$Receipt.sourceLocators.frameworkRoot))))
     if ([StringComparer]::OrdinalIgnoreCase.Equals($boundRoot, $frameworkRoot)) {
-        throw 'MAINTENANCE_TARGET_RECEIPT_SCHEMA_UNSUPPORTED|USE_SCHEMA2_DISCOVER_SCHEMA1_COMPACT'
+        throw 'MAINTENANCE_TARGET_RECEIPT_SCHEMA_UNSUPPORTED|FIXED_RUNTIME_CURRENT_CONTRACT_REQUIRED'
     }
     return $boundRoot
 }
 
-function Get-TransitionReceipt([string[]]$ResultReceipts) {
-    $entries = @($ResultReceipts | Where-Object { $_ -clike 'MAINTENANCE_SELF_UPDATE_TRANSITION|*' })
-    if ($entries.Count -eq 0) { return $null }
-    if ($entries.Count -ne 1 -or [string]$entries[0] -cnotmatch '^MAINTENANCE_SELF_UPDATE_TRANSITION\|(?<path>[^|]+)\|(?<identity>\d+\|[A-F0-9]{64})$') { throw 'MAINTENANCE_SELF_UPDATE_TRANSITION_RECEIPT' }
-    return [pscustomobject]@{ path = [string]$Matches['path']; identity = [string]$Matches['identity']; receipt = [string]$entries[0] }
-}
-
-function Invoke-SelfUpdateFinalize($BoundaryInput, $Receipt, $Resolved, $Package, $Transition) {
-    $fields=@('schemaVersion','mode','discoverReceiptPath','expectedDiscoverReceiptIdentity','preparationReceipts','resultReceipts','deliveryReceipts','publicDecisionIdentity','protectionState')
-    if($null-ne$BoundaryInput.PSObject.Properties['deliveryContext']){$fields+='deliveryContext'}
-    Assert-Fields $BoundaryInput $fields 'INPUT'
-    foreach($name in @('preparationReceipts','resultReceipts','deliveryReceipts')){Assert-StringArray $BoundaryInput.$name $name}
-    if([string]$Package.repositoryId-cne[string]$Resolved.targetRepositoryId){throw 'MAINTENANCE_SELF_UPDATE_REPOSITORY'}
-    # The existing transaction validates the original admission, exact transition and
-    # the complete current composition. This adapter does not mint a replacement decision.
-    $tool=Join-Path $PSScriptRoot 'integrate-framework-source.ps1'
-    $output=@(& $tool -Operation COMPLETE -ControlRepositoryPath $Resolved.controlRoot -TransactionPath $Transition.path -ExpectedTransactionIdentity $Transition.identity -FinalizeInputPath $inputFull -AsJson 2>&1|ForEach-Object{[string]$_})
-    if($LASTEXITCODE-ne0-or$output.Count-ne1){throw ('MAINTENANCE_SELF_UPDATE_FINALIZE|'+($output-join';'))}
-    return $output[0]|ConvertFrom-Json -Depth 100
-}
-
-function Assert-SelfUpdateCleanupPath($Receipt) {
+function Assert-AdoptionCleanupPath($Receipt) {
     $context=if([int]$Receipt.schemaVersion-eq1){$Receipt}else{$Receipt.binding}
     if([string]$context.taskId-cnotmatch'^[0-9A-Za-z][0-9A-Za-z._-]*$'){throw 'MAINTENANCE_CLEANUP_CONTEXT'}
-    $adapter=@(Import-Module (Join-Path $PSScriptRoot 'ProjectAdoptionTransaction.psm1') -Force -PassThru -ErrorAction Stop)[0]
+    $adapter=@(Import-Module (Join-Path $aiwPublicationEntryContext.ScriptRoot 'ProjectAdoptionTransaction.psm1') -PassThru -ErrorAction Stop)[0]
     $actorStorage=& $adapter.ExportedFunctions['Get-AiwBoundRuntimeActorStorageKey'] -FrameworkRoot $Receipt.sourceLocators.frameworkRoot -Version $context.frameworkVersion -Actor $context.actor
     $expectedRoot=[IO.Path]::GetFullPath((Join-Path $controlRoot ('.ai-workspace/runtime/'+$context.taskId+'/'+$actorStorage)))
     if(-not$inputFull.StartsWith($expectedRoot+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)){throw 'MAINTENANCE_CLEANUP_SCOPE'}
@@ -93,8 +84,8 @@ function Assert-SelfUpdateCleanupPath($Receipt) {
 function Invoke-RuntimeRelocationFinalize($Boundary, $Receipt, $Resolved) {
     # Root adoption recovery only: the original admission is re-proved, never
     # replaced by a new DISCOVER/ADMIT. No live state or retained evidence is written.
-    Import-Module (Join-Path $PSScriptRoot 'ProjectAdoptionState.psm1') -ErrorAction Stop
-    Import-Module (Join-Path $PSScriptRoot 'ProjectAdoptionTransaction.psm1') -ErrorAction Stop
+    Import-Module (Join-Path $aiwPublicationEntryContext.ScriptRoot 'ProjectAdoptionState.psm1') -ErrorAction Stop
+    Import-Module (Join-Path $aiwPublicationEntryContext.ScriptRoot 'ProjectAdoptionTransaction.psm1') -ErrorAction Stop
     $boundaryDoc=Read-AiwProjectJson $inputFull 'RUNTIME_RELOCATION_INPUT';$Boundary=$boundaryDoc.Value
     $receiptDoc=Read-AiwProjectJson ([string]$Boundary.discoverReceiptPath) 'RUNTIME_RELOCATION_RECEIPT'
     if($receiptDoc.Identity-cne[string]$Boundary.expectedDiscoverReceiptIdentity){throw 'DISCOVER_RECEIPT_DRIFT'}
@@ -193,14 +184,23 @@ function Invoke-RuntimeRelocationFinalize($Boundary, $Receipt, $Resolved) {
     $old.distributionBinding.runtimeRoot=$live.distributionBinding.runtimeRoot
     if(($old|ConvertTo-Json -Depth 64 -Compress)-cne($live|ConvertTo-Json -Depth 64 -Compress)){throw 'RUNTIME_RELOCATION_NON_PATH_STATE_CHANGE'}
     $composer=Join-Path ([string]$Resolved.runtimeRoot) ('framework/versions/'+$version+'/scripts/ProcessRequirementComposition.psm1')
-    Import-Module $composer -Force -ErrorAction Stop
-    $bindings=Get-AiwProcessBindingSnapshot -ProjectRoot ([string]$Resolved.controlRoot) -FrameworkRoot ([string]$Resolved.runtimeRoot) -TargetVersion $version -TaskRelativePath ([string]$Receipt.sourceLocators.taskRelativePath) -ForbiddenPaths @($context.forbiddenScope)
+    Import-Module $composer -ErrorAction Stop
+    $receiptCeilings=if($null-ne$Receipt.PSObject.Properties['evidence']){@($Receipt.evidence.ceilings)}elseif($null-ne$Receipt.PSObject.Properties['evidenceCeilings']){@($Receipt.evidenceCeilings)}else{@()}
+    $scoped='SOURCE_VALIDATION_SELECTED_CLOSURE_V1'-cin$receiptCeilings
+    $bindingCommand=Get-Command Get-AiwProcessBindingSnapshot
+    $selectionArguments=@{}
+    if($bindingCommand.Parameters.ContainsKey('SelectionContext')){
+        $selectionArguments.SelectionContext=[pscustomobject]@{profile=$context.profile;role=$context.role;phase=$context.phase;actor=$context.actor;actionKind=$intent.requestedActionKind;resultKind=$intent.requestedResultKind;exactPaths=@($context.exactScope);capabilities=@($context.observedCapabilities);intentEnvelope=$intent}
+    }elseif($scoped){throw 'RUNTIME_RELOCATION_SCOPED_BINDING_UNSUPPORTED'}
+    $bindings=Get-AiwProcessBindingSnapshot -ProjectRoot ([string]$Resolved.controlRoot) -FrameworkRoot ([string]$Resolved.runtimeRoot) -TargetVersion $version -TaskRelativePath ([string]$Receipt.sourceLocators.taskRelativePath) -ForbiddenPaths @($context.forbiddenScope) @selectionArguments
     Assert-Fields $Receipt.sourceBindings @($bindings.PSObject.Properties.Name) 'RUNTIME_RELOCATION_SOURCE_BINDINGS'
     foreach($name in @($bindings.PSObject.Properties.Name)){
         $expected=if($name-ceq'candidatePilotStateIdentity'){[string]$entry.newIdentity}else{[string]$Receipt.sourceBindings.$name}
         if([string]$bindings.$name-cne$expected){throw ('RUNTIME_RELOCATION_SOURCE_DRIFT|'+$name)}
     }
-    $composition=Invoke-ProcessRequirementComposition -ProjectRoot ([string]$Resolved.controlRoot) -FrameworkRoot ([string]$Resolved.runtimeRoot) -TargetVersion $version -ExpectedProjectConfigIdentity ([string]$bindings.projectConfigIdentity) -ExpectedCorrectionsIdentity ([string]$bindings.correctionsIdentity) -Profile ([string]$context.profile) -Role ([string]$context.role) -Phase ([string]$context.phase) -Actor ([string]$context.actor) -TaskIdentity ([string]$bindings.taskIdentity) -Capabilities @($context.observedCapabilities) -Objective (Get-AiwProcessSemanticText -IntentEnvelope $intent) -ActionKind 'CONTROL_WRITE' -ResultKind ([string]$intent.requestedResultKind) -ExactPaths @($context.exactScope) -ForbiddenPaths @($context.forbiddenScope)
+    $intentArguments=@{}
+    if((Get-Command Invoke-ProcessRequirementComposition).Parameters.ContainsKey('IntentEnvelope')-and$intent.schemaVersion-eq2){$intentArguments.IntentEnvelope=$intent}elseif($scoped){throw 'RUNTIME_RELOCATION_SCOPED_INTENT_UNSUPPORTED'}
+    $composition=Invoke-ProcessRequirementComposition -ProjectRoot ([string]$Resolved.controlRoot) -FrameworkRoot ([string]$Resolved.runtimeRoot) -TargetVersion $version -ExpectedProjectConfigIdentity ([string]$bindings.projectConfigIdentity) -ExpectedCorrectionsIdentity ([string]$bindings.correctionsIdentity) -Profile ([string]$context.profile) -Role ([string]$context.role) -Phase ([string]$context.phase) -Actor ([string]$context.actor) -TaskIdentity ([string]$bindings.taskIdentity) -Capabilities @($context.observedCapabilities) -Objective (Get-AiwProcessSemanticText -IntentEnvelope $intent) -ActionKind 'CONTROL_WRITE' -ResultKind ([string]$intent.requestedResultKind) -ExactPaths @($context.exactScope) -ForbiddenPaths @($context.forbiddenScope) @intentArguments
     $obligations=@($composition.selectedRequirements|ForEach-Object{[ordered]@{requirementId=[string]$_.requirementId;preparationRequirements=@($_.preparationRequirements);resultRequirements=@($_.resultRequirements)}})
     if(($obligations|ConvertTo-Json -Depth 50 -Compress)-cne($Receipt.selectedObligations|ConvertTo-Json -Depth 50 -Compress)){throw 'RUNTIME_RELOCATION_OBLIGATION_DRIFT'}
     $packBytes=$utf8.GetByteCount((@($composition.selectedRequirements)|ConvertTo-Json -Depth 50 -Compress))
@@ -229,54 +229,127 @@ try {
         $projectRoot=[string]$input.projectRoot;$frameworkRoot=[string]$input.frameworkRoot;$projectConfigIdentity=[string]$input.expectedProjectConfigIdentity
     } elseif ([string]$input.mode -in @('ADMIT_ACTION','FINALIZE_OUTPUT')) {
         foreach ($field in @('discoverReceiptPath','expectedDiscoverReceiptIdentity')) { if ($null -eq $input.PSObject.Properties[$field] -or [string]::IsNullOrWhiteSpace([string]$input.$field)) { throw ('INPUT_FIELD_REQUIRED|' + $field) } }
+        if($OriginalSourceRepositoryPath){
+            & $aiwRootState {param($root,$path,$denied) Assert-AiwOriginalCompletionReadPaths $root @($path) $denied} $OriginalSourceRepositoryPath ([string]$input.discoverReceiptPath) @($OriginalSourceForbiddenPath+$OriginalSourceProtectedPath)
+        }
         $receiptFull = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath ([string]$input.discoverReceiptPath)))
         if ((Get-Identity $receiptFull) -cne [string]$input.expectedDiscoverReceiptIdentity) { throw 'DISCOVER_RECEIPT_DRIFT' }
         $receipt = Read-StrictJson $receiptFull 'DISCOVER_RECEIPT_SELECTION'
-        if (-not ($receipt.schemaVersion -is [ValueType]) -or [int64]$receipt.schemaVersion -notin @(1,2) -or $null -eq $receipt.sourceLocators -or $null -eq $receipt.sourceBindings) { throw 'DISCOVER_RECEIPT_SELECTION_UNAVAILABLE' }
+        if (-not ($receipt.schemaVersion -is [ValueType]) -or [int64]$receipt.schemaVersion -notin @(1,2,3,4) -or $null -eq $receipt.sourceLocators -or $null -eq $receipt.sourceBindings) { throw 'DISCOVER_RECEIPT_SELECTION_UNAVAILABLE' }
         $projectRoot = Get-ControlRootFromReceipt $receipt
         $frameworkRoot=[string]$receipt.sourceLocators.frameworkRoot;$projectConfigIdentity=[string]$receipt.sourceBindings.projectConfigIdentity
         if ([string]::IsNullOrWhiteSpace($projectRoot) -or [string]::IsNullOrWhiteSpace($frameworkRoot) -or [string]::IsNullOrWhiteSpace($projectConfigIdentity)) { throw 'DISCOVER_RECEIPT_SELECTION_UNAVAILABLE' }
     } else { throw 'INPUT_MODE_UNSUPPORTED' }
-    $resolver = Join-Path $PSScriptRoot 'resolve-framework-maintenance-target.ps1'
-    $resolvedOutput = @(& $resolver -ControlRepositoryPath $projectRoot -ExpectedProjectConfigIdentity $projectConfigIdentity -AsJson 2>&1 | ForEach-Object { [string]$_ });$resolvedCode=$LASTEXITCODE
-    if ($resolvedCode -ne 0 -or $resolvedOutput.Count -ne 1) { throw ('MAINTENANCE_TARGET_RESOLUTION_FAILED|' + ($resolvedOutput -join ';')) }
-    $resolved = $resolvedOutput[0] | ConvertFrom-Json -Depth 30
-    if($null-eq$resolved.PSObject.Properties['runtimeRoot']){
-        Import-Module (Join-Path $PSScriptRoot 'ProjectAdoptionState.psm1') -ErrorAction Stop
-        if($null-ne(Get-AiwAdoptedDistributionBinding ([string]$resolved.controlRoot) ([string]$resolved.frameworkVersion))){throw 'FIXED_RUNTIME_ADAPTER_REQUIRED'}
-        # Old health source has no fixed-runtime carrier; keep its verified target.
-        $resolved|Add-Member -NotePropertyName runtimeRoot -NotePropertyValue ([string]$resolved.targetRoot)
+    if($OriginalSourceRepositoryPath-or$AdoptionFinalizeResultPath-or$ExpectedAdoptionFinalizeResultIdentity-or$OriginalSourceForbiddenPath.Count-or$OriginalSourceProtectedPath.Count-or$CompleteOriginalSourceAfterAgentsChange-or$OriginalAgentsPreimagePath-or$ExpectedOriginalAgentsPreimageIdentity-or$ExpectedCurrentAgentsIdentity-or$CurrentCompletionDecisionPath-or$ExpectedCurrentCompletionDecisionIdentity-or($CurrentCompletionPermission-cne'UNKNOWN')){
+        if($input.mode-cne'FINALIZE_OUTPUT'-or$null-eq$receipt-or$DeleteInputOnExit-or$AdoptionProcessBoundary){throw 'ORIGINAL_SOURCE_FINALIZE_ONLY_INPUT_RETAINED'}
+        if(-not[IO.Path]::GetFullPath($projectRoot).Equals([IO.Path]::GetFullPath($OriginalSourceRepositoryPath),[StringComparison]::OrdinalIgnoreCase)){throw 'ORIGINAL_SOURCE_REPOSITORY_BINDING'}
+        Import-Module (Join-Path $aiwPublicationEntryContext.ScriptRoot 'ProjectAdoptionState.psm1') -ErrorAction Stop
+        Import-Module (Join-Path $aiwPublicationEntryContext.ScriptRoot 'MaintenanceOverlay.psm1') -ErrorAction Stop
+        $currentConfig=(Read-AiwProjectJson (Get-AiwContainedPath $projectRoot '.ai-workspace/project.json') 'ORIGINAL_SOURCE_CURRENT_CONFIG').Value
+        if($currentConfig.controlPlaneLayout-cne'framework-maintenance-sibling'-or$currentConfig.repositoryRoot-cne'..'){throw 'MAINTENANCE_PROCESS_ROOT_DRIFT'}
+        $null=Resolve-AiwMaintenanceTopology -ControlRepositoryPath $projectRoot -TargetRepositoryId $currentConfig.frameworkTarget.repositoryId -TargetSiblingDirectory $currentConfig.frameworkTarget.siblingDirectory -TargetRoutineExcludedPaths @($currentConfig.frameworkTarget.routineExcludedPaths)
+        Import-Module (Join-Path $aiwPublicationEntryContext.ScriptRoot 'ProjectAdoptionTransaction.psm1') -ErrorAction Stop
+        $actor=if($receipt.schemaVersion-eq1){$receipt.authorityContext.actor}else{$receipt.binding.actor}
+        $result=Invoke-AiwOriginalSourceFinalize -RepositoryRoot $projectRoot -InputPath $inputFull -ExpectedInputIdentity (Get-Identity $inputFull) -AdmitInputPath $AdmitInputPath -ExpectedAdmitInputIdentity $ExpectedAdmitInputIdentity -AdmitResultPath $AdmitResultPath -ExpectedAdmitResultIdentity $ExpectedAdmitResultIdentity -AdoptionAuthorizationPackagePath $AdoptionAuthorizationPackagePath -ExpectedAdoptionAuthorizationIdentity $ExpectedAdoptionAuthorizationIdentity -AdoptionFinalizeResultPath $AdoptionFinalizeResultPath -ExpectedAdoptionFinalizeResultIdentity $ExpectedAdoptionFinalizeResultIdentity -ExpectedAdoptionTransactionIdentity $ExpectedAdoptionTransactionIdentity -ObservedActor $actor -ForbiddenPaths $OriginalSourceForbiddenPath -ProtectedPaths $OriginalSourceProtectedPath -CompleteOriginalSourceAfterAgentsChange:$CompleteOriginalSourceAfterAgentsChange -OriginalAgentsPreimagePath $OriginalAgentsPreimagePath -ExpectedOriginalAgentsPreimageIdentity $ExpectedOriginalAgentsPreimageIdentity -ExpectedCurrentAgentsIdentity $ExpectedCurrentAgentsIdentity -CurrentCompletionDecisionPath $CurrentCompletionDecisionPath -ExpectedCurrentCompletionDecisionIdentity $ExpectedCurrentCompletionDecisionIdentity -CurrentCompletionPermission $CurrentCompletionPermission
+        if($AsJson){$result|ConvertTo-Json -Depth 100 -Compress -EscapeHandling EscapeNonAscii}else{Write-Output ('PASS|FINALIZE_OUTPUT|'+$result.reason)}
+        $aiwPublicationEntryContext.ExitCode=0;return
     }
+    $configAdoptionFinalize = $false
+    if($null-ne$receipt-and$input.mode-ceq'FINALIZE_OUTPUT'-and$receipt.schemaVersion-in@(3,4)-and@($input.preparationReceipts|Where-Object{$_-clike'PROJECT_SOURCE_CHANGE|*'}).Count){
+        if($AdoptionProcessBoundary){throw 'SOURCE_CHANGE_ADOPTION_BOUNDARY_CONFLICT'}
+        # Establish the original fixed runtime before loading its shared proof
+        # validator. The daily source operation never switches distributions.
+        $stateModule=@(Import-Module (Join-Path $aiwPublicationEntryContext.ScriptRoot 'ProjectAdoptionState.psm1') -PassThru -ErrorAction Stop)[0]
+        $adopted=& $stateModule.ExportedCommands['Get-AiwAdoptedDistributionBinding'] $projectRoot '2.0.0'
+        if($null-eq$adopted){throw 'SOURCE_CHANGE_FIXED_RUNTIME_REQUIRED'}
+        $null=& $stateModule.ExportedCommands['Assert-AiwDistributionBinding'] $adopted $frameworkRoot '2.0.0'
+        $composer=@(Import-Module (Join-Path $frameworkRoot 'framework/versions/2.0.0/scripts/ProcessRequirementComposition.psm1') -PassThru -ErrorAction Stop)[0]
+        $rollback='PROJECT_SOURCE_ROLLBACK'-cin@($input.preparationReceipts)
+        $sourceChange=& $composer.ExportedCommands['Get-AiwProjectSourceChange'] -Receipt $receipt -Boundary $input -Stage FINALIZE -Rollback:$rollback
+        $projectConfigIdentity=if($rollback){$receipt.sourceBindings.projectConfigIdentity}else{$sourceChange.candidate.target.projectConfigIdentity}
+    }
+    if ($null -ne $receipt -and [string]$input.mode -ceq 'FINALIZE_OUTPUT') {
+        $context = if ([int]$receipt.schemaVersion -eq 1) { $receipt.authorityContext } else { $receipt.binding }
+        $intent = $receipt.intentEnvelope
+        if (($AdoptionProcessBoundary -or [string]$context.frameworkVersion -ceq '2.0.0') -and
+            [string]$intent.requestedActionKind -ceq 'CONTROL_WRITE' -and '.ai-workspace/project.json' -cin @($context.exactScope) -and
+            -not [string]::IsNullOrWhiteSpace($AdmitResultPath) -and -not [string]::IsNullOrWhiteSpace($ExpectedAdmitResultIdentity) -and
+            -not [string]::IsNullOrWhiteSpace($AdoptionAuthorizationPackagePath) -and -not [string]::IsNullOrWhiteSpace($ExpectedAdoptionAuthorizationIdentity) -and
+            -not [string]::IsNullOrWhiteSpace($ExpectedAdoptionTransactionIdentity)) {
+            if ((Get-Identity $AdmitResultPath) -cne $ExpectedAdmitResultIdentity) { throw 'ADOPTION_PROCESS_ADMIT_RESULT_DRIFT' }
+            $originalAdmit = Read-StrictJson $AdmitResultPath 'ADOPTION_PROCESS_ADMIT_RESULT'
+            $configObject = @($originalAdmit.adoptionPreparation.projection.objects | Where-Object { $_.path -ceq '.ai-workspace/project.json' })
+            if ($configObject.Count -ne 1 -or [string]$configObject[0].newIdentity -cnotmatch '^\d+\|[A-F0-9]{64}$') { throw 'ADOPTION_PROCESS_CONFIG_POSTIMAGE_REQUIRED' }
+            # Topology checks the admitted configuration postimage. The existing
+            # adoption boundary below still proves the original config, admission,
+            # packages, complete transaction and every live postimage; no ordinary
+            # resolver call may consume this substituted config expectation.
+            $projectConfigIdentity = [string]$configObject[0].newIdentity
+            $configAdoptionFinalize = $true
+        }
+    }
+    if ($configAdoptionFinalize) {
+        # Current-format loading itself requires the original finalize proof.
+        # Before that proof exists, validate the same sibling topology directly;
+        # the canonical adoption boundary then validates the complete projection.
+        Import-Module (Join-Path $aiwPublicationEntryContext.ScriptRoot 'ProjectAdoptionState.psm1') -ErrorAction Stop
+        $configPath = Get-AiwContainedPath $projectRoot '.ai-workspace/project.json'
+        if ((Get-Identity $configPath) -cne $projectConfigIdentity) { throw 'PROJECT_CONFIG_DRIFT' }
+        $currentConfig = Read-StrictJson $configPath 'ADOPTION_PROCESS_CURRENT_CONFIG'
+        if ([string]$currentConfig.controlPlaneLayout -cne 'framework-maintenance-sibling' -or [string]$currentConfig.repositoryRoot -cne '..') { throw 'MAINTENANCE_PROCESS_ROOT_DRIFT' }
+        Import-Module (Join-Path $aiwPublicationEntryContext.ScriptRoot 'MaintenanceOverlay.psm1') -ErrorAction Stop
+        $topology = Resolve-AiwMaintenanceTopology -ControlRepositoryPath $projectRoot -TargetRepositoryId $currentConfig.frameworkTarget.repositoryId -TargetSiblingDirectory $currentConfig.frameworkTarget.siblingDirectory -TargetRoutineExcludedPaths @($currentConfig.frameworkTarget.routineExcludedPaths)
+        $resolved = [pscustomobject]@{controlRoot=$topology.ControlRoot;runtimeRoot=$originalAdmit.adoptionPreparation.targetDistribution.runtimeRoot;frameworkVersion=$currentConfig.frameworkVersion}
+    } else {
+        $resolver = Join-Path $aiwPublicationEntryContext.ScriptRoot 'resolve-framework-maintenance-target.ps1'
+        $resolvedOutput = @(& $resolver -ControlRepositoryPath $projectRoot -ExpectedProjectConfigIdentity $projectConfigIdentity -AsJson 2>&1 | ForEach-Object { [string]$_ });$resolvedCode=$LASTEXITCODE
+        if ($resolvedCode -ne 0 -or $resolvedOutput.Count -ne 1) { throw ('MAINTENANCE_TARGET_RESOLUTION_FAILED|' + ($resolvedOutput -join ';')) }
+        $resolved = $resolvedOutput[0] | ConvertFrom-Json -Depth 30
+    }
+    if($null-eq$resolved.PSObject.Properties['runtimeRoot']){throw 'FIXED_RUNTIME_ADAPTER_REQUIRED'}
     $controlRoot = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Resolve-Path -LiteralPath $projectRoot)))
     $inputFramework = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Resolve-Path -LiteralPath $frameworkRoot)))
     if ($controlRoot -cne [string]$resolved.controlRoot) { throw 'MAINTENANCE_PROCESS_ROOT_DRIFT' }
-    if($AdoptionProcessBoundary){
+    if ($configAdoptionFinalize -and -not $AdoptionProcessBoundary -and
+        ([string]$resolved.frameworkVersion -cne '2.0.0' -or $inputFramework -ceq [string]$resolved.runtimeRoot)) { throw 'MAINTENANCE_PROCESS_ROOT_DRIFT' }
+    if($AdoptionProcessBoundary -or $configAdoptionFinalize){
         if($null-eq$receipt-or[string]$input.mode-cnotin@('ADMIT_ACTION','FINALIZE_OUTPUT')){throw 'ADOPTION_PROCESS_BOUNDARY_MODE'}
-        Import-Module (Join-Path $PSScriptRoot 'ProjectAdoptionTransaction.psm1') -Force
+        Import-Module (Join-Path $aiwPublicationEntryContext.ScriptRoot 'ProjectAdoptionTransaction.psm1')
         $actor=if($receipt.schemaVersion-eq1){$receipt.actor}else{$receipt.binding.actor}
         $result=Invoke-AiwAdoptionProcessBoundary -RepositoryRoot $controlRoot -InputPath $inputFull -ExpectedInputIdentity (Get-Identity $inputFull) -PreparationPath $AdoptionPreparationPath -ExpectedPreparationIdentity $ExpectedAdoptionPreparationIdentity -AdmitInputPath $AdmitInputPath -ExpectedAdmitInputIdentity $ExpectedAdmitInputIdentity -AdmitResultPath $AdmitResultPath -ExpectedAdmitResultIdentity $ExpectedAdmitResultIdentity -AuthorizationPackagePath $AdoptionAuthorizationPackagePath -ExpectedAuthorizationPackageIdentity $ExpectedAdoptionAuthorizationIdentity -ExpectedTransactionIdentity $ExpectedAdoptionTransactionIdentity -ObservedActor $actor -ExpectedMode $input.mode -DeleteInputOnExit:$DeleteInputOnExit
-        $result|ConvertTo-Json -Depth 100 -Compress
-        exit 0
+        $result|ConvertTo-Json -Depth 100 -Compress -EscapeHandling EscapeNonAscii
+        $aiwPublicationEntryContext.ExitCode=0; return
     }
     if ($inputFramework -cne [string]$resolved.runtimeRoot) {
         if([string]$input.mode-cne'FINALIZE_OUTPUT'-or$null-eq$receipt){throw 'MAINTENANCE_PROCESS_ROOT_DRIFT'}
-        if($DeleteInputOnExit){Assert-SelfUpdateCleanupPath $receipt}
+        if($DeleteInputOnExit){Assert-AdoptionCleanupPath $receipt}
         $customHandled=$true
         $receiptVersion=if([int]$receipt.schemaVersion-eq1){[string]$receipt.authorityContext.frameworkVersion}else{[string]$receipt.binding.frameworkVersion}
         if($receiptVersion-ceq'2.0.0'-and[string]$resolved.frameworkVersion-ceq'2.0.0'){
-            Import-Module (Join-Path $PSScriptRoot 'ProjectAdoptionTransaction.psm1') -Force
+            Import-Module (Join-Path $aiwPublicationEntryContext.ScriptRoot 'ProjectAdoptionTransaction.psm1')
             $actor=if([int]$receipt.schemaVersion-eq1){[string]$receipt.authorityContext.actor}else{[string]$receipt.binding.actor}
             $result=Invoke-AiwAdoptionProcessBoundary -RepositoryRoot $controlRoot -InputPath $inputFull -ExpectedInputIdentity (Get-Identity $inputFull) -AdmitInputPath $AdmitInputPath -ExpectedAdmitInputIdentity $ExpectedAdmitInputIdentity -AdmitResultPath $AdmitResultPath -ExpectedAdmitResultIdentity $ExpectedAdmitResultIdentity -AuthorizationPackagePath $AdoptionAuthorizationPackagePath -ExpectedAuthorizationPackageIdentity $ExpectedAdoptionAuthorizationIdentity -ExpectedTransactionIdentity $ExpectedAdoptionTransactionIdentity -ObservedActor $actor -ExpectedMode FINALIZE_OUTPUT -DeleteInputOnExit:$DeleteInputOnExit
         }else{$result=Invoke-RuntimeRelocationFinalize $input $receipt $resolved}
-        if($AsJson){$result|ConvertTo-Json -Depth 50 -Compress}else{Write-Output ('PASS|FINALIZE_OUTPUT|'+[string]$result.reason)}
-        exit 0
+        if($AsJson){$result|ConvertTo-Json -Depth 50 -Compress -EscapeHandling EscapeNonAscii}else{Write-Output ('PASS|FINALIZE_OUTPUT|'+[string]$result.reason)}
+        $aiwPublicationEntryContext.ExitCode=0; return
+    }
+    if ($configAdoptionFinalize) { throw 'MAINTENANCE_PROCESS_ROOT_DRIFT' }
+    if($null-ne$input.PSObject.Properties['actionRebind']){
+        Import-Module (Join-Path $inputFramework 'framework/versions/2.0.0/scripts/ResultEvidence.psm1') -ErrorAction Stop
+        if($input.mode-cne'ADMIT_ACTION'-or$null-eq$receipt-or$receipt.schemaVersion-ne4){throw 'MAINTENANCE_ACTION_REBIND_CONTEXT'}
+        $reference=$input.actionRebind.authorizationRef
+        $guard=New-AiwEvidenceContext $controlRoot '' $inputFramework @($receipt.binding.forbiddenScope) @($receipt.binding.protectedScope)
+        $currentPackage=Read-AiwEvidenceReference $guard $reference -Json
+        if($currentPackage.schemaVersion-ne2-or$currentPackage.repositoryId-cne$receipt.binding.repositoryId-or$currentPackage.repositoryId-cnotin@('CONTROL',$resolved.targetRepositoryId)){throw 'MAINTENANCE_ACTION_REBIND_REPOSITORY'}
+        # The current root checker receives this exact package inside ADMIT.
+        # Root topology does not authorize it or select/assemble rule bodies.
     }
     if ($null -ne $receipt -and [int64]$receipt.schemaVersion -eq 2) {
         $boundRoot = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Resolve-Path -LiteralPath ([string]$receipt.binding.projectRoot))))
         if ($boundRoot -cnotin @([string]$resolved.controlRoot,[string]$resolved.targetRoot)) { throw 'MAINTENANCE_RECEIPT_PROJECT_ROOT_DRIFT' }
         # The version boundary consumer cannot recover CONTROL task sources from
         # a schema2 compact whose authority root is TARGET. Do not rewrite it.
-        if ($boundRoot -ceq [string]$resolved.targetRoot) { throw 'MAINTENANCE_TARGET_RECEIPT_SCHEMA_UNSUPPORTED|USE_SCHEMA2_DISCOVER_SCHEMA1_COMPACT' }
+        if ($boundRoot -ceq [string]$resolved.targetRoot) { throw 'MAINTENANCE_TARGET_RECEIPT_SCHEMA_UNSUPPORTED|FIXED_RUNTIME_CURRENT_CONTRACT_REQUIRED' }
     }
     if ([string]$input.mode -ceq 'DISCOVER' -and [int]$input.schemaVersion -eq 3 -and
         $null -ne $input.PSObject.Properties['authorizationPackagePath'] -and [string]$input.authorizationPackagePath -cne 'NOT_REQUIRED') {
@@ -284,26 +357,18 @@ try {
             (Get-Identity ([string]$input.authorizationPackagePath)) -cne [string]$input.expectedAuthorizationIdentity) { throw 'MAINTENANCE_AUTHORIZATION_DRIFT' }
         $routePackage = Read-StrictJson ([string]$input.authorizationPackagePath) 'MAINTENANCE_AUTHORIZATION'
         if ($null -ne $routePackage.PSObject.Properties['repositoryId'] -and [string]$routePackage.repositoryId -ceq [string]$resolved.targetRepositoryId) {
-            throw 'MAINTENANCE_TARGET_RECEIPT_SCHEMA_UNSUPPORTED|USE_SCHEMA2_DISCOVER_SCHEMA1_COMPACT'
+            throw 'MAINTENANCE_TARGET_RECEIPT_SCHEMA_UNSUPPORTED|FIXED_RUNTIME_CURRENT_CONTRACT_REQUIRED'
         }
-    }
-    $transition = if ([string]$input.mode -ceq 'FINALIZE_OUTPUT') { Get-TransitionReceipt @($input.resultReceipts) } else { $null }
-    if ($null -ne $transition -and [string]$receipt.intentEnvelope.requestedActionKind -ceq 'SOURCE_WRITE') {
-        if($DeleteInputOnExit){Assert-SelfUpdateCleanupPath $receipt}
-        $customHandled = $true
-        $package = Read-StrictJson ([string]$receipt.sourceLocators.authorizationPackagePath) 'MAINTENANCE_AUTHORIZATION'
-        $result = Invoke-SelfUpdateFinalize $input $receipt $resolved $package $transition
-        if ($AsJson) { $result | ConvertTo-Json -Depth 50 -Compress } else { Write-Output ($result.status + '|FINALIZE_OUTPUT|requirements=' + @($receipt.selectedObligations).Count) }
-        if ([string]$result.status -cne 'PASS') { exit 3 }
-        exit 0
     }
     $entry = Join-Path ([string]$resolved.runtimeRoot) ('framework\versions\' + [string]$resolved.frameworkVersion + '\scripts\resolve-process-requirements.ps1')
     if (-not (Test-Path -LiteralPath $entry -PathType Leaf)) { throw 'PROCESS_REQUIREMENTS_RESOLVER_MISSING' }
-    $authorizationAdapter = Join-Path $PSScriptRoot 'check-framework-maintenance-authorization.ps1'
+    $authorizationAdapter = Join-Path $aiwPublicationEntryContext.ScriptRoot 'check-framework-maintenance-authorization.ps1'
     if (-not (Test-Path -LiteralPath $authorizationAdapter -PathType Leaf)) { throw 'MAINTENANCE_AUTHORIZATION_ADAPTER_MISSING' }
-    $invoke = @('-NoProfile','-NonInteractive','-File',$entry,'-InputPath',$inputFull,'-AuthorizationCheckerPath',$authorizationAdapter)
-    if ($CompactReceiptPath) { $invoke += @('-CompactReceiptPath',$CompactReceiptPath) }
-    if ($AsJson) { $invoke += '-AsJson' }; if ($DeleteInputOnExit) { $invoke += '-DeleteInputOnExit' }
+    $invoke = @{InputPath=$inputFull;AuthorizationCheckerPath=$authorizationAdapter}
+    foreach($name in @('ConsumedRuntimePath','ConsumedRuntimePathList','EmptyRuntimeDirectory','RetainedRuntimePath','PublicationSourceInputPath','ExpectedPublicationSourceInputIdentity')){if($aiwPublicationEntryContext.BoundParameters.ContainsKey($name)){$invoke[$name]=$aiwPublicationEntryContext.BoundParameters[$name]}}
+    if ($CompactReceiptPath) { $invoke.CompactReceiptPath=$CompactReceiptPath }
+    if ($DisplayPath) { $invoke.DisplayPath=$DisplayPath }
+    if ($AsJson) { $invoke.AsJson=$true }; if ($DeleteInputOnExit) { $invoke.DeleteInputOnExit=$true }
     $retainAdmission=[string]$input.mode-ceq'ADMIT_ACTION'-and$input.schemaVersion-eq2-and$null-ne$receipt-and$receipt.schemaVersion-eq2-and
         [string]$receipt.intentEnvelope.requestedActionKind-ceq'CONTROL_WRITE'-and@($receipt.binding.exactScope).Count-eq1-and
         [string]$receipt.binding.exactScope[0]-ceq('.ai-workspace/upgrade-recovery/'+[string]$resolved.frameworkVersion+'/state.json')
@@ -311,10 +376,10 @@ try {
         # Capture at the initial boundary, before the real version consumer
         # performs its normal DeleteInputOnExit cleanup. The existing result is
         # the sole evidence carrier; no second file or admission is generated.
-        Import-Module (Join-Path $PSScriptRoot 'ProjectAdoptionState.psm1') -ErrorAction Stop
+        Import-Module (Join-Path $aiwPublicationEntryContext.ScriptRoot 'ProjectAdoptionState.psm1') -ErrorAction Stop
         $originalAdmissionInput=(Read-AiwProjectJson $inputFull 'RUNTIME_RELOCATION_ADMIT_INPUT').Value
-        if(-not$AsJson){$invoke+='-AsJson'}
-        $admissionOutput=@(& pwsh @invoke);$admissionCode=$LASTEXITCODE
+        if(-not$AsJson){$invoke.AsJson=$true}
+        $admissionOutput=@(& $entry @invoke);$admissionCode=$LASTEXITCODE
         if($admissionCode-eq0-and$admissionOutput.Count-eq1){
             $admissionResult=$admissionOutput[0]|ConvertFrom-Json -Depth 100
             if([string]$admissionResult.status-ceq'PASS'-and[string]$admissionResult.mode-ceq'ADMIT_ACTION'){
@@ -322,18 +387,55 @@ try {
             }
             # This state-only admission returns its bound result even without
             # AsJson so normal input cleanup cannot silently discard the proof.
-            $admissionResult|ConvertTo-Json -Depth 100 -Compress
+            $admissionResult|ConvertTo-Json -Depth 100 -Compress -EscapeHandling EscapeNonAscii
         }else{$admissionOutput|Write-Output}
-        exit $admissionCode
+        $aiwPublicationEntryContext.ExitCode=$admissionCode; return
     }
-    & pwsh @invoke
-    exit $LASTEXITCODE
+    & $entry @invoke
+    $aiwPublicationEntryContext.ExitCode=$LASTEXITCODE; return
 } catch {
-    if ($AsJson) { [ordered]@{status='FAIL';reason=[string]$_.Exception.Message} | ConvertTo-Json -Compress } else { Write-Output ('FAIL|framework-maintenance-process-requirements|' + [string]$_.Exception.Message) }
-    exit 2
+    if ($AsJson) { [ordered]@{status='FAIL';reason=[string]$_.Exception.Message} | ConvertTo-Json -Compress -EscapeHandling EscapeNonAscii } else { Write-Output ('FAIL|framework-maintenance-process-requirements|' + [string]$_.Exception.Message) }
+    $aiwPublicationEntryContext.ExitCode=2; return
 } finally {
     if ($customHandled -and $DeleteInputOnExit -and $null -ne $inputFull -and $null -ne $controlRoot) {
         $runtimeRoot = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Join-Path $controlRoot '.ai-workspace/runtime')))
         if ($inputFull.StartsWith($runtimeRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath $inputFull -PathType Leaf)) { Remove-Item -LiteralPath $inputFull }
     }
 }
+
+}
+function Get-MaintenanceEntryModule([string]$Path,[string]$Command){
+    $full=[IO.Path]::GetFullPath($Path)
+    $modules=@(Import-Module $full -PassThru -ErrorAction Stop)
+    if($modules.Count-ne1-or-not[IO.Path]::GetFullPath($modules[0].Path).Equals($full,[StringComparison]::OrdinalIgnoreCase)-or-not$modules[0].ExportedCommands.ContainsKey($Command)){throw 'MAINTENANCE_SOURCE_SCOPE_MODULE_REQUIRED'}
+    $commandInfo=$modules[0].ExportedCommands[$Command]
+    if($null-eq$commandInfo.Module-or-not[IO.Path]::GetFullPath($commandInfo.Module.Path).Equals($full,[StringComparison]::OrdinalIgnoreCase)){throw 'MAINTENANCE_SOURCE_SCOPE_COMMAND_DRIFT'}
+    return $modules[0]
+}
+try {
+    if($PSBoundParameters.ContainsKey('PublicationSourceInputPath')-or$PSBoundParameters.ContainsKey('ExpectedPublicationSourceInputIdentity')){
+        if([string]::IsNullOrWhiteSpace($PublicationSourceInputPath)-or[string]::IsNullOrWhiteSpace($ExpectedPublicationSourceInputIdentity)){throw 'SOURCE_PUBLICATION_PAIR_REFERENCE_REQUIRED'}
+        $allowed=@('InputPath','AsJson','PublicationSourceInputPath','ExpectedPublicationSourceInputIdentity')
+        if(-not$AsJson-or@($PSBoundParameters.Keys|Where-Object{$_-cnotin$allowed}).Count){throw 'SOURCE_PUBLICATION_PAIR_OPTIONS'}
+    }
+    $aiwRootState=Get-MaintenanceEntryModule (Join-Path $PSScriptRoot 'ProjectAdoptionState.psm1') 'Invoke-AiwRootProjectSourceScope'
+    $aiwPublicationEntryRoot=$null
+    $aiwPublicationPath=Join-Path $PSScriptRoot '../framework/versions/2.0.0/scripts/ProjectSourcePublication.psm1'
+    if($OriginalSourceRepositoryPath-or$AdoptionFinalizeResultPath-or$ExpectedAdoptionFinalizeResultIdentity-or$OriginalSourceForbiddenPath.Count-or$OriginalSourceProtectedPath.Count-or$CompleteOriginalSourceAfterAgentsChange-or$OriginalAgentsPreimagePath-or$ExpectedOriginalAgentsPreimageIdentity-or$ExpectedCurrentAgentsIdentity-or$CurrentCompletionDecisionPath-or$ExpectedCurrentCompletionDecisionIdentity-or($CurrentCompletionPermission-cne'UNKNOWN')){
+        & $aiwRootState {param($root,$paths,$denied) Assert-AiwOriginalCompletionReadPaths $root $paths $denied} $OriginalSourceRepositoryPath @($InputPath,$AdmitInputPath,$AdmitResultPath,$AdoptionAuthorizationPackagePath,$AdoptionFinalizeResultPath,$OriginalAgentsPreimagePath,$CurrentCompletionDecisionPath,$(if($OriginalSourceRepositoryPath){Join-Path $OriginalSourceRepositoryPath '.ai-workspace/project.json'})) @($OriginalSourceForbiddenPath+$OriginalSourceProtectedPath)
+        $aiwPublicationEntryRoot=$OriginalSourceRepositoryPath
+    }elseif([IO.File]::Exists($aiwPublicationPath)){
+        $aiwPublicationModule=Get-MaintenanceEntryModule $aiwPublicationPath 'Get-AiwPublicationInputProjectRoot'
+        $aiwPublicationEntryRoot=& $aiwPublicationModule.ExportedCommands['Get-AiwPublicationInputProjectRoot'] $InputPath
+    }
+    # Buffer only the result so scope-finally failures cannot publish a prior
+    # success. Body exit codes are returned after the real owner is released.
+    $aiwOutput=@(if($aiwPublicationEntryRoot){
+        & $aiwRootState.ExportedCommands['Invoke-AiwRootProjectSourceScope'] -ProjectRoot ([IO.Path]::GetFullPath($aiwPublicationEntryRoot,$PWD.ProviderPath)) -Mode OBSERVE -Body $aiwMaintenanceProcessBody -ArgumentList @($aiwPublicationEntryContext)
+    }else{& $aiwMaintenanceProcessBody $aiwPublicationEntryContext})
+    $aiwOutput|Write-Output
+} catch {
+    if($AsJson){[ordered]@{status='FAIL';reason=[string]$_.Exception.Message}|ConvertTo-Json -Compress -EscapeHandling EscapeNonAscii}else{Write-Output ('FAIL|framework-maintenance-process-requirements|'+[string]$_.Exception.Message)}
+    $aiwPublicationEntryContext.ExitCode=2
+}
+exit $aiwPublicationEntryContext.ExitCode

@@ -82,6 +82,12 @@ if ([string]$manifest.version -cne $FrameworkVersion -or
     throw 'FRAMEWORK_MANIFEST_VERSION'
 }
 $gateError = if ($Provisional) { 'PROVISIONAL_PACKAGE_REVIEW_REQUIRED' } else { 'STABLE_PACKAGE_REQUIRED' }
+if($FrameworkVersion-ceq'2.0.0'){
+    $reader=@(Import-Module (Join-Path $versionRoot 'scripts/ReleaseValidation.psm1') -PassThru)[0]
+    try{$qualified=& $reader.ExportedCommands['Get-AiwReleaseQualification'] -VersionRoot $versionRoot -SourceRoot $workspace -Maintenance:$InternalMaintenance}catch{throw ($gateError+'|'+$_.Exception.Message)}
+    if(($Provisional-and$qualified.Version.lifecycle-cne'CANDIDATE')-or(-not$Provisional-and$qualified.Version.lifecycle-cne'STABLE')){throw $gateError}
+    $releaseFacts=$qualified.Facts
+}else{
 try {
     $document = [Text.Json.JsonDocument]::Parse($manifestRaw)
     try {
@@ -131,6 +137,7 @@ else {
 if (-not $commonEvidenceValid -or -not $modeEvidenceValid) {
     throw $gateError
 }
+}
 
 $distributionId = $FrameworkVersion
 $distributionNotice = '此包未指定分发修订标识；文件名不证明版本资格。'
@@ -166,12 +173,12 @@ $fixedMappings = @(
     [pscustomobject]@{ source = 'scripts/ProjectCorrectionLifecycle.psm1'; target = 'scripts/ProjectCorrectionLifecycle.psm1'; template = $false },
     [pscustomobject]@{ source = 'scripts/ProjectAdoptionTransaction.psm1'; target = 'scripts/ProjectAdoptionTransaction.psm1'; template = $false },
     [pscustomobject]@{ source = 'scripts/register-project.ps1'; target = 'scripts/register-project.ps1'; template = $false },
-    [pscustomobject]@{ source = 'scripts/upgrade-project.ps1'; target = 'scripts/upgrade-project.ps1'; template = $false },
-    [pscustomobject]@{ source = $navigation.CanonicalSkillPath; target = $navigation.CanonicalSkillPath; template = $false }
+    [pscustomobject]@{ source = 'scripts/upgrade-project.ps1'; target = 'scripts/upgrade-project.ps1'; template = $false }
 )
+if($navigation.Kind-ceq'SKILL'){$fixedMappings += [pscustomobject]@{source=$navigation.CanonicalSkillPath;target=$navigation.CanonicalSkillPath;template=$false}}
 if($InternalMaintenance){
     if(-not$PSBoundParameters.ContainsKey('Distribution')){throw 'INTERNAL_DISTRIBUTION_REQUIRED'}
-    foreach($relative in @('scripts/resolve-framework-maintenance-target.ps1','scripts/check-framework-maintenance-authorization.ps1','scripts/resolve-framework-maintenance-process-requirements.ps1','scripts/invoke-framework-maintenance-safe-git.ps1','scripts/integrate-framework-source.ps1','framework/FRAMEWORK_RELEASE.md')){
+    foreach($relative in @('scripts/resolve-framework-maintenance-target.ps1','scripts/check-framework-maintenance-authorization.ps1','scripts/resolve-framework-maintenance-process-requirements.ps1','scripts/invoke-framework-maintenance-safe-git.ps1','framework/FRAMEWORK_RELEASE.md')){
         $fixedMappings += [pscustomobject]@{source=$relative;target=$relative;template=$false}
     }
     foreach($file in Get-ChildItem -LiteralPath (Join-Path $workspace 'framework/maintenance-overlay') -File){
@@ -200,19 +207,20 @@ foreach ($mapping in $orderedMappings) {
     if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
         throw ('PACKAGE_DEPENDENCY_MISSING|' + $sourceRelative)
     }
-    $bytes = if ([bool]$mapping.template) {
+    # Assign within each branch so empty and singleton CLR arrays stay arrays.
+    if ([bool]$mapping.template) {
         $text = [IO.File]::ReadAllText($sourcePath, [Text.UTF8Encoding]::new($false, $true)).
             Replace('{{FRAMEWORK_VERSION}}', $FrameworkVersion).
             Replace('{{DISTRIBUTION_ID}}', $distributionId).
             Replace('{{DISTRIBUTION_NOTICE}}', $distributionNotice)
         if ($text -cmatch '\{\{[A-Z_]+\}\}') { throw ('PACKAGE_TEMPLATE_UNRESOLVED|' + $sourceRelative) }
-        [Text.UTF8Encoding]::new($false).GetBytes($text)
+        $bytes = [Text.UTF8Encoding]::new($false).GetBytes($text)
     }
     elseif($sourceRelative-ceq'framework/PROJECT_ADOPTION.md') {
         $text=[IO.File]::ReadAllText($sourcePath,[Text.UTF8Encoding]::new($false,$true)).Replace('versions/1.16.0/','versions/'+$FrameworkVersion+'/')
-        [Text.UTF8Encoding]::new($false).GetBytes($text)
+        $bytes = [Text.UTF8Encoding]::new($false).GetBytes($text)
     }
-    else { [IO.File]::ReadAllBytes($sourcePath) }
+    else { $bytes = [IO.File]::ReadAllBytes($sourcePath) }
     $identity = $bytes.Length.ToString() + '|' + [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes))
     $records.Add([ordered]@{ path = $targetRelative; identity = $identity })
     $mapping | Add-Member -NotePropertyName bytes -NotePropertyValue $bytes
@@ -279,4 +287,5 @@ finally {
     }
 }
 $result.status = 'CREATED'
+if($manifest.schemaVersion-eq3){$result.status='BUILT_UNVERIFIED';$result|Add-Member sourceManifestIdentity $qualified.ManifestIdentity;$result|Add-Member sourcePayloadCanonical $qualified.Facts.Canonical}
 $result

@@ -64,6 +64,19 @@ function Get-StatusResult([object[]]$Output, [string]$ExpectedStatus) {
     })
 }
 
+function Test-NoRegisteredControl([string]$ProjectRoot) {
+    $control=Join-Path $ProjectRoot '.ai-workspace'
+    if(-not(Test-Path -LiteralPath $control)){return $true}
+    # First scope acquisition may create only the persistent empty native-lock
+    # carrier. It is not a registration, authorization or completion record.
+    $item=Get-Item -LiteralPath $control -Force
+    if(-not$item.PSIsContainer-or($item.Attributes-band[IO.FileAttributes]::ReparsePoint)){return $false}
+    $children=@(Get-ChildItem -LiteralPath $control -Force)
+    if($children.Count-ne1-or$children[0].Name-cne'runtime'-or-not$children[0].PSIsContainer-or($children[0].Attributes-band[IO.FileAttributes]::ReparsePoint)){return $false}
+    $files=@(Get-ChildItem -LiteralPath $children[0].FullName -Force)
+    return $files.Count-eq1-and$files[0].Name-ceq'source-publication.lock'-and-not$files[0].PSIsContainer-and$files[0].Length-eq0-and-not($files[0].Attributes-band[IO.FileAttributes]::ReparsePoint)
+}
+
 function Remove-TestFixture([string]$Path) {
     $temp = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath([IO.Path]::GetTempPath()))
     $full = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($Path))
@@ -85,7 +98,7 @@ try {
         if($target-and$target-cnotmatch'^[a-zA-Z]+://'){Assert-True (Test-Path -LiteralPath (Join-Path $workspace $target)) ('source-readme-link-resolves|'+$target)}
     }
     $overlayText=Get-Content -Raw -LiteralPath (Join-Path $workspace 'framework/maintenance-overlay/BOOTSTRAP.md')
-    Assert-True (-not$overlayText.Contains('<TARGET>/AGENTS.md')-and$overlayText.Contains('<TARGET>/README.md')-and$overlayText.Contains('<TARGET>/framework/FRAMEWORK_RELEASE.md')) 'maintenance-template-uses-source-contract-navigation'
+    Assert-True (-not$overlayText.Contains('<TARGET>/AGENTS.md')-and$overlayText.Contains('TARGET/README')-and$overlayText.Contains('framework/FRAMEWORK_RELEASE')) 'maintenance-template-uses-source-contract-navigation'
     $null = New-Item -ItemType Directory -Path $fixture
     $rootLinksValid = $true
     foreach ($relative in @('README.md','framework/PROJECT_ADOPTION.md','framework/FRAMEWORK_RELEASE.md')) {
@@ -98,13 +111,13 @@ try {
     }
     Assert-True $rootLinksValid 'root-entry-and-adoption-links-resolve'
     $packageWorkspace = Join-Path $fixture 'workspace'
-    foreach ($relative in @('LICENSE','framework/PROJECT_ADOPTION.md','framework/user-package/README.md','framework/user-package/AGENTS.md','scripts/MaintenanceOverlay.psm1','scripts/ProjectAdoptionProjection.psm1','scripts/ProjectAdoptionState.psm1','scripts/ProjectAdoptionTransaction.psm1','scripts/ProjectCorrectionLifecycle.psm1','scripts/register-project.ps1','scripts/upgrade-project.ps1',$routerPath)) {
+    foreach ($relative in @('LICENSE','framework/PROJECT_ADOPTION.md','framework/user-package/README.md','framework/user-package/AGENTS.md','scripts/MaintenanceOverlay.psm1','scripts/ProjectAdoptionProjection.psm1','scripts/ProjectAdoptionState.psm1','scripts/ProjectAdoptionTransaction.psm1','scripts/ProjectCorrectionLifecycle.psm1','scripts/register-project.ps1','scripts/upgrade-project.ps1',$routerPath)|Where-Object{$_}) {
         $destination = Join-Path $packageWorkspace $relative
         $parent = Split-Path -Parent $destination
         if (-not (Test-Path -LiteralPath $parent)) { $null = New-Item -ItemType Directory -Path $parent -Force }
         [IO.File]::Copy((Join-Path $workspace $relative), $destination, $false)
     }
-    $internalSupport = @('scripts/resolve-framework-maintenance-target.ps1','scripts/check-framework-maintenance-authorization.ps1','scripts/resolve-framework-maintenance-process-requirements.ps1','scripts/invoke-framework-maintenance-safe-git.ps1','scripts/integrate-framework-source.ps1','framework/FRAMEWORK_RELEASE.md')
+    $internalSupport = @('scripts/resolve-framework-maintenance-target.ps1','scripts/check-framework-maintenance-authorization.ps1','scripts/resolve-framework-maintenance-process-requirements.ps1','scripts/invoke-framework-maintenance-safe-git.ps1','framework/FRAMEWORK_RELEASE.md')
     $internalSupport += @(Get-ChildItem -LiteralPath (Join-Path $workspace 'framework/maintenance-overlay') -File | ForEach-Object { 'framework/maintenance-overlay/' + $_.Name })
     foreach ($relative in $internalSupport) {
         $destination = Join-Path $packageWorkspace $relative
@@ -112,7 +125,13 @@ try {
         [IO.File]::Copy((Join-Path $workspace $relative), $destination, $false)
     }
     $null = New-Item -ItemType Directory -Path (Join-Path $packageWorkspace 'framework/versions') -Force
-    Copy-Item -LiteralPath (Join-Path $workspace "framework/versions/$FrameworkVersion") -Destination (Join-Path $packageWorkspace "framework/versions/$FrameworkVersion") -Recurse
+    # This schema2 fixture carries payload only, without the working source's
+    # separate schema3 qualification attachments. No real qualification changes.
+    $fixtureVersionDestination=Join-Path $packageWorkspace "framework/versions/$FrameworkVersion"
+    $null=[IO.Directory]::CreateDirectory($fixtureVersionDestination)
+    foreach($child in Get-ChildItem -LiteralPath (Join-Path $workspace "framework/versions/$FrameworkVersion") -Force){
+        if($child.Name-cne'validation-evidence'){Copy-Item -LiteralPath $child.FullName -Destination $fixtureVersionDestination -Recurse}
+    }
     $fixtureManifestPath = Join-Path $packageWorkspace "framework/versions/$FrameworkVersion/RELEASE_MANIFEST.json"
     $fixtureVersionRoot = Split-Path -Parent $fixtureManifestPath
     $fixtureManifest = Get-Content -Raw -Encoding utf8 -LiteralPath $fixtureManifestPath | ConvertFrom-Json
@@ -120,18 +139,10 @@ try {
     $fixtureManifest.fileCount = $facts.FileCount
     $fixtureManifest.totalBytes = $facts.TotalBytes
     $fixtureManifest.canonical = $facts.Canonical
-    $fixtureManifest.sourceReview = 'APPROVED'
+    $fixtureManifest.PSObject.Properties.Remove('validationProof');$fixtureManifest.schemaVersion=2;$fixtureManifest.scope='all release payload files except RELEASE_MANIFEST.json';$fixtureManifest|Add-Member completeSuite ([pscustomobject]@{}) -Force;$fixtureManifest.sourceReview = 'APPROVED'
     $fixtureManifest.sourceCandidate = 'SYNTHETIC_TEST_FIXTURE_ONLY'
-    $fixtureManifest.completeSuite.status = 'PASS'
-    $fixtureManifest.completeSuite.passed = 1
-    $fixtureManifest.completeSuite.total = 1
-    $fixtureManifest.completeSuite.payloadCanonical = $facts.Canonical
-    $fixtureManifest.completeSuite.evidenceIdentity = '1|' + ('A' * 64)
-    $fixtureManifest.sourceReviewEvidence.status = 'APPROVED'
-    $fixtureManifest.sourceReviewEvidence.reviewer = 'fixture-reviewer'
-    $fixtureManifest.sourceReviewEvidence.packageIdentity = '1|' + ('B' * 64)
-    $fixtureManifest.sourceReviewEvidence.reviewedPayloadCanonical = $facts.Canonical
-    $fixtureManifest.sourceReviewEvidence.reviewedManifestIdentity = '1|' + ('C' * 64)
+    $fixtureManifest.completeSuite = [pscustomobject]@{status='PASS';passed=1;total=1;payloadCanonical=$facts.Canonical;evidenceIdentity=('1|'+('A'*64))}
+    $fixtureManifest.sourceReviewEvidence = [pscustomobject]@{status='APPROVED';reviewer='fixture-reviewer';packageIdentity=('1|'+('B'*64));reviewedPayloadCanonical=$facts.Canonical;reviewedManifestIdentity=('1|'+('C'*64))}
     $fixtureManifest.releaseIntegration = 'PENDING'
     Write-Utf8Json $fixtureManifestPath $fixtureManifest
     $validManifestRaw = [IO.File]::ReadAllText($fixtureManifestPath, [Text.UTF8Encoding]::new($false, $true))
@@ -215,6 +226,7 @@ try {
     Assert-Rejected { & $builder -WorkspaceRoot $packageWorkspace -FrameworkVersion "$FrameworkVersion" -OutputPath $internalZip -Provisional -Distribution snapshot.7 -InternalMaintenance -Apply -Confirm:$false } 'PACKAGE_OUTPUT_EXISTS' 'internal-snapshot-overwrite-rejected'
     [IO.Compression.ZipFile]::ExtractToDirectory($internalZip, $internalExtract)
     $internalBinding = Get-AiwDistributionBinding $internalExtract "$FrameworkVersion" -Required
+    Assert-True (-not(Test-Path -LiteralPath (Join-Path $internalExtract 'scripts/integrate-framework-source.ps1'))-and-not(Test-Path -LiteralPath (Join-Path $snapshotExtract 'scripts/integrate-framework-source.ps1'))) 'packages-exclude-retired-coupled-executor'
     Assert-True ($internalBinding.distributionId -ceq $binding.distributionId -and $internalBinding.contentIdentity -cne $binding.contentIdentity -and $internalBinding.runtimeRoot -ceq [IO.Path]::GetFullPath($internalExtract)) 'internal-name-preserves-distribution-and-valid-content-binding'
     Assert-True ((Test-Path -LiteralPath (Join-Path $internalExtract 'scripts/resolve-framework-maintenance-target.ps1')) -and -not (Test-Path -LiteralPath (Join-Path $snapshotExtract 'scripts/resolve-framework-maintenance-target.ps1'))) 'maintenance-adapter-remains-internal-only'
     Assert-Rejected {Assert-AiwDistributionBinding $binding $packageWorkspace "$FrameworkVersion"} 'DISTRIBUTION_RUNTIME_ROOT_DRIFT' 'development-root-cannot-replace-fixed-runtime'
@@ -233,6 +245,12 @@ try {
         if ((Get-FileHash -LiteralPath $file.FullName).Hash -cne (Get-FileHash -LiteralPath $packaged).Hash) { $payloadUnchanged = $false }
     }
     Assert-True ($payloadUnchanged -and [IO.File]::ReadAllText($fixtureManifestPath) -ceq $validManifestRaw -and [IO.File]::ReadAllText($fixtureVersionPath) -ceq $validVersionRaw) 'snapshot-naming-preserves-all-version-bytes-and-source-metadata'
+    if($FrameworkVersion-ceq'2.0.0'){
+        foreach($module in @('ProjectSourcePublication.psm1','AuthorizationCheck.psm1','ProcessRequirementBoundary.psm1')){
+            $relative="framework/versions/$FrameworkVersion/scripts/$module"
+            Assert-True ((Test-Path -LiteralPath (Join-Path $snapshotExtract $relative) -PathType Leaf)-and(Test-Path -LiteralPath (Join-Path $internalExtract $relative) -PathType Leaf)) ('both-packages-include-common-source-core|'+$module)
+        }
+    }
 
     $preview = & $builder -WorkspaceRoot $packageWorkspace -FrameworkVersion "$FrameworkVersion" -OutputPath $zip -Provisional
     Assert-True ($preview.status -ceq 'WHAT_IF' -and -not (Test-Path -LiteralPath $zip)) 'preview-zero-write'
@@ -262,10 +280,10 @@ try {
     Assert-True (
         (Test-Path -LiteralPath (Join-Path $extract 'scripts/register-project.ps1')) -and
         (Test-Path -LiteralPath (Join-Path $extract 'scripts/upgrade-project.ps1')) -and
-        (Test-Path -LiteralPath (Join-Path $extract $routerPath))
+        ($navigation.Kind-ceq'PROJECT_BOOTSTRAP'-or(Test-Path -LiteralPath (Join-Path $extract $routerPath)))
     ) 'package-includes-user-entrypoints'
-    $otherRouter=if($navigation.ContractVersion-ceq'2'){'ai-workspace-router'}else{'ai-workspace-router-v2'}
-    Assert-True (-not(Test-Path -LiteralPath (Join-Path $extract ('skills/'+$otherRouter)))) 'package-only-includes-selected-navigation-contract'
+    $otherRouter=if($navigation.NavigationContractVersion-ceq'2'){'ai-workspace-router'}else{'ai-workspace-router-v2'}
+    Assert-True (-not(Test-Path -LiteralPath (Join-Path $extract ('skills/'+$otherRouter)))-and($navigation.Kind-cne'PROJECT_BOOTSTRAP'-or-not(Test-Path -LiteralPath (Join-Path $extract 'skills')))) 'package-only-includes-selected-navigation-contract'
 
     $packageReadmePath = Join-Path $extract 'README.md'
     $packageAgentsPath = Join-Path $extract 'AGENTS.md'
@@ -294,7 +312,8 @@ try {
     }
     Assert-True $allLinksResolve 'package-root-relative-links-resolve'
     $payloadCount=@(Get-ChildItem -LiteralPath (Join-Path $packageWorkspace "framework/versions/$FrameworkVersion") -Recurse -File).Count
-    Assert-True (@($manifest.files).Count -eq ($payloadCount+12)) 'package-complete-version-plus-twelve-root-files'
+    $expectedRootFileCount=if($navigation.Kind-ceq'SKILL'){12}else{11}
+    Assert-True (@($manifest.files).Count -eq ($payloadCount+$expectedRootFileCount)) 'package-complete-version-plus-selected-navigation-root-files'
 
     $null = New-Item -ItemType Directory -Path $candidateConsumer
     & git -C $candidateConsumer init -q
@@ -302,7 +321,7 @@ try {
     Assert-Rejected {
         & (Join-Path $snapshotExtract 'scripts/register-project.ps1') -ProjectId 'candidate-package-consumer' -DisplayName 'Candidate Package Consumer' -FrameworkVersion "$FrameworkVersion" -RepositoryPath $candidateConsumer -ControllerId 'controller-fixture' -WorkspaceRoot $snapshotExtract -Apply -Confirm:$false
     } "FRAMEWORK_VERSION_NOT_CONSUMABLE|$FrameworkVersion" 'actual-candidate-package-remains-non-consumable'
-    Assert-True (-not (Test-Path -LiteralPath (Join-Path $candidateConsumer '.ai-workspace'))) 'candidate-rejection-writes-no-project-control'
+    Assert-True (Test-NoRegisteredControl $candidateConsumer) 'candidate-rejection-writes-no-project-control'
 
     $stableVersion = $validVersionRaw | ConvertFrom-Json
     $stableVersion.lifecycle = 'STABLE'
@@ -338,7 +357,7 @@ try {
     & git -C $stableConsumer init -q
     Assert-True ($LASTEXITCODE -eq 0) 'stable-consumer-git-initialized'
     $stablePreview = & (Join-Path $stableExtract 'scripts/register-project.ps1') -ProjectId 'stable-package-consumer' -DisplayName 'Stable Package Consumer' -FrameworkVersion "$FrameworkVersion" -RepositoryPath $stableConsumer -ControllerId 'controller-fixture' -WorkspaceRoot $stableExtract
-    Assert-True (@(Get-StatusResult $stablePreview 'WHAT_IF').Count -eq 1 -and -not (Test-Path -LiteralPath (Join-Path $stableConsumer '.ai-workspace'))) 'stable-distribution-registration-preview-zero-write'
+    Assert-True (@(Get-StatusResult $stablePreview 'WHAT_IF').Count -eq 1 -and (Test-NoRegisteredControl $stableConsumer)) 'stable-distribution-registration-preview-no-project-control'
     $stableApply = & (Join-Path $stableExtract 'scripts/register-project.ps1') -ProjectId 'stable-package-consumer' -DisplayName 'Stable Package Consumer' -FrameworkVersion "$FrameworkVersion" -RepositoryPath $stableConsumer -ControllerId 'controller-fixture' -WorkspaceRoot $stableExtract -SelectedRulePackBytes 1 -Apply -Confirm:$false
     Assert-True (@(Get-StatusResult $stableApply 'CREATED').Count -eq 1 -and (Test-Path -LiteralPath (Join-Path $stableConsumer '.ai-workspace/BOOTSTRAP.md'))) 'stable-distribution-registration-apply'
     $stableRepeat = & (Join-Path $stableExtract 'scripts/register-project.ps1') -ProjectId 'stable-package-consumer' -DisplayName 'Stable Package Consumer' -FrameworkVersion "$FrameworkVersion" -RepositoryPath $stableConsumer -ControllerId 'controller-fixture' -WorkspaceRoot $stableExtract
@@ -352,7 +371,12 @@ try {
     $stableRecovery = @(& (Join-Path $stableExtract 'scripts/upgrade-project.ps1') -ProjectId 'stable-package-consumer' -ToVersion "$FrameworkVersion" -RepositoryPath $stableConsumer -ControllerId 'controller-fixture' -WorkspaceRoot $stableExtract | ForEach-Object { [string]$_ })
     Assert-True (($stableRecovery -join "`n").Contains("WHAT_IF|from=$FrameworkVersion|to=$FrameworkVersion|objects=0|transaction=none")) 'stable-distribution-same-pin-recovery-preview'
     Assert-True ([IO.File]::ReadAllText($agentsPath)-ceq$withRestriction) 'real-same-pin-upgrade-preserves-outside-revocation'
-    Assert-True ((Get-Content (Join-Path $stableConsumer '.ai-workspace/process-policy.json') -Raw|ConvertFrom-Json).selectedRulePackBytes-eq1) 'registration-and-same-pin-upgrade-preserve-observational-legacy-value'
+    $registeredPolicy=Get-Content (Join-Path $stableConsumer '.ai-workspace/process-policy.json') -Raw|ConvertFrom-Json
+    if($FrameworkVersion-ceq'2.0.0'){
+        Assert-True ($registeredPolicy.schemaVersion-eq3-and$null-eq$registeredPolicy.PSObject.Properties['selectedRulePackBytes']) 'current-registration-and-same-pin-use-current-policy-contract'
+    }else{
+        Assert-True ($registeredPolicy.selectedRulePackBytes-eq1) 'registration-and-same-pin-upgrade-preserve-observational-legacy-value'
+    }
 
     Write-Output ('PASS|user-package-tests|' + $passed + '/' + $passed)
 }

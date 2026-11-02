@@ -1,16 +1,16 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "frameworkVersion": "2.0.0",
   "ownerModule": "REVIEW_AND_EVIDENCE.md",
   "requirements": [
     {
       "requirementId": "PR_CRITICAL_REVIEW_INDEPENDENCE",
       "legacyAliases": [],
-      "title": "Critical independent Review",
-      "description": "Bind a frozen candidate and relationally independent Reviewer for CRITICAL Review.",
+      "title": "Independent Review in every profile",
+      "description": "Every actual independent Review binds and excludes Owner, issuer, writer and all material contributors; quality selection does not weaken independence.",
       "selectors": {
         "profiles": [
-          "CRITICAL"
+          "*"
         ],
         "roles": [
           "*"
@@ -27,7 +27,8 @@
         ],
         "pathPrefixes": [],
         "capabilities": [],
-        "semanticTerms": []
+        "semanticTerms": [],
+        "facets": {}
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_CRITICAL_REVIEW_INDEPENDENCE",
       "preparationRequirements": [
@@ -71,7 +72,8 @@
         ],
         "pathPrefixes": [],
         "capabilities": [],
-        "semanticTerms": []
+        "semanticTerms": [],
+        "facets": {}
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_EVIDENCE_CEILING_DISCIPLINE",
       "preparationRequirements": [
@@ -105,7 +107,8 @@
         ],
         "pathPrefixes": [],
         "capabilities": [],
-        "semanticTerms": []
+        "semanticTerms": [],
+        "facets": {}
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_RESULT_ACCEPT_SEPARATE",
       "preparationRequirements": [
@@ -118,8 +121,8 @@
     {
       "requirementId": "PR_REVIEW_ROUTE_PREPARATION",
       "legacyAliases": [],
-      "title": "Review route with actual self-check",
-      "description": "Route a frozen candidate with typed self-check and a qualified receiver, without demanding a future verdict.",
+      "title": "Review route with actual selected preparation",
+      "description": "Route a frozen candidate using selected successful SELF or strict original successful production FINALIZE, without demanding a future verdict.",
       "selectors": {
         "profiles": [
           "*"
@@ -138,12 +141,13 @@
         ],
         "pathPrefixes": [],
         "capabilities": [],
-        "semanticTerms": []
+        "semanticTerms": [],
+        "facets": {}
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_REVIEW_ROUTE_PREPARATION",
       "preparationRequirements": [
         "CANDIDATE_FROZEN",
-        "SELF_CHECK_BOUND",
+        "REVIEW_PREPARATION_BOUND",
         "REVIEWER_INDEPENDENCE_PROVEN",
         "REVIEW_CARRIER_QUALIFIED",
         "REVIEW_MATERIALS_BOUND"
@@ -188,11 +192,19 @@
             "REVIEW_EXECUTE"
           ],
           "resultKinds": []
+        },
+        "facets": {
+          "workType": [
+            "aiw:review",
+            "aiw:task-organization",
+            "aiw:acceptance"
+          ]
         }
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_REVIEW_QUALIFICATION_AND_PLANNING",
       "preparationRequirements": [],
       "resultRequirements": []
     }
-  ]
+  ],
+  "facetVocabulary": []
 }
