@@ -412,6 +412,42 @@ try{
     $v2.externalBinding|Add-Member grantRefs @([pscustomobject]@{path=$grant;identity=(Get-Identity $grant)})
     $v2.externalBinding|Add-Member grantAssessment ([pscustomobject]@{status='CURRENT_AND_COVERED';withdrawalOrReplacementObserved=$false;provider='fixture-provider';operationIds=@('META-1','TRANSFORM-1');outputUse='exact fixture local candidate';paidResourceUse=$true;sharedResourceUse=$false})
     Assert-True ((Check-External $v2).Code-eq0) 'external-existing-paid-grant-without-invented-money-quantity-or-expiry'
+    # Execute the actual documented local constructor; do not copy its algorithm
+    # into a test-only helper. The explicit expected bytes catch Trim/char-count/CR errors.
+    $examples=Get-Content -LiteralPath (Join-Path $PSScriptRoot '../EXAMPLES.md') -Raw -Encoding utf8
+    $exampleMatches=[regex]::Matches($examples,'(?ms)^```powershell\r?\n(?<body>function New-LocalExternalCandidate.*?)(?=^```)')
+    Assert-True ($exampleMatches.Count-eq1) 'external-local-example-is-one-copyable-function'
+    . ([scriptblock]::Create($exampleMatches[0].Groups['body'].Value))
+    $exampleInput=[ordered]@{
+      projectRoot=$temp;taskPath=$taskPath;grantPaths=@($grant);provider='fixture-provider';outputUse='exact fixture local candidate'
+      orderedOperations=@(
+        [ordered]@{operationId='META-1';operationKind='PROVIDER_PUBLIC_METADATA_READ';declaredInputClass='ZERO_PROJECT_DATA';payloads=@()},
+        [ordered]@{operationId='TRANSFORM-1';operationKind='bounded-transform';declaredInputClass='EXACT_PAYLOADS';payloads=@(
+          [ordered]@{payloadKind='normalized-text';canonicalizationVersion='UTF8_LF_V1';sourceBytes=$utf8.GetBytes("中文`r`n第二行  `r尾部 e$([char]0x0301) ")})})
+      assessment=[ordered]@{status='CURRENT_AND_COVERED';withdrawalOrReplacementObserved=$false;paidResourceUse=$true;sharedResourceUse=$false;delegationPermitted=$true}
+      escalationFlags=$flags;perOperationRetryCeiling=1;totalRetryCeiling=2;stopConditions=@('stop on errors','stop on ambiguous consumption')
+    }
+    $prepared=New-LocalExternalCandidate $exampleInput
+    $expectedText="中文`n第二行  `n尾部 e$([char]0x0301) "
+    $expectedBytes=$utf8.GetBytes($expectedText)
+    $expectedIdentity=$expectedBytes.Length.ToString()+'|'+[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($expectedBytes))
+    Assert-True ($prepared.status-ceq'PREPARED_NOT_ADMITTED'-and-not$prepared.authorityGranted-and$prepared.taskRef.identity-ceq(Get-Identity $taskPath)-and$prepared.projectRef.identity-ceq(Get-Identity (Join-Path $control 'project.json'))-and$prepared.externalBinding.grantRefs[0].identity-ceq(Get-Identity $grant)) 'external-local-example-binds-current-files-without-authority'
+    Assert-True ($prepared.externalBinding.orderedOperations[1].payloads[0].normalizedIdentity-ceq$expectedIdentity-and[Convert]::ToHexString($prepared.localPayloads[0].bytes)-ceq[Convert]::ToHexString($expectedBytes)-and$expectedBytes.Length-gt$expectedText.Length) 'external-local-example-utf8-lf-preserves-chinese-spaces-no-final-newline-and-codepoints'
+    $fromExample=$v2|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100
+    $fromExample.externalBinding=$prepared.externalBinding
+    Assert-True ((Check-External $fromExample).Code-eq0) 'external-local-example-candidate-reaches-original-checker'
+    $exampleInput.orderedOperations[1].payloads[0].sourceBytes=$utf8.GetBytes($expectedText+"`r`n")
+    $withFinalLf=New-LocalExternalCandidate $exampleInput
+    Assert-True ($utf8.GetString($withFinalLf.localPayloads[0].bytes)-ceq($expectedText+"`n")-and$withFinalLf.localPayloads[0].identity-cne$expectedIdentity) 'external-local-example-preserves-existing-final-newline'
+    $exampleInput.orderedOperations[1].payloads[0].canonicalizationVersion='RAW_BYTES_V1'
+    $exampleInput.orderedOperations[1].payloads[0].sourceBytes=[byte[]]@(0,239,255,10)
+    $binary=New-LocalExternalCandidate $exampleInput
+    Assert-True ([Convert]::ToHexString($binary.localPayloads[0].bytes)-ceq'00EFFF0A') 'external-local-example-raw-bytes-unchanged'
+    $missingFlags=[ordered]@{};foreach($name in $flags.Keys){if($name-cne'publicPublication'){$missingFlags[$name]=$flags[$name]}}
+    $exampleInput.escalationFlags=$missingFlags;$rejected=$false
+    try{$null=New-LocalExternalCandidate $exampleInput}catch{$rejected=$true}
+    Assert-True $rejected 'external-local-example-does-not-default-unassessed-flags-to-false'
+
     $shared=$v2|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100
     $shared.externalBinding.grantAssessment.sharedResourceUse=$true;$shared.externalBinding.escalationFlags.sharedQuotaOrResource=$true
     Assert-True ((Check-External $shared).Code-eq0) 'external-existing-shared-resource-grant-without-mandatory-numeric-quota'
@@ -552,12 +588,23 @@ try{
       Assert-True ($r.Code-ne0-and$r.Text.Contains('DOMAIN_EXTERNAL_TASK_ROUTE')-and-not$r.Text.Contains('TASK_OBJECT_DRIFT')) ('external-owner-implement-rejects-wrong-primary-'+$case.ToLowerInvariant())
       [IO.File]::WriteAllBytes($taskPath,$phaseTaskBytes)
     }
-    foreach($self in @($external,$v2)){
-      $bad=$self|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100;$bad.taskIdentity=$phaseTaskIdentity
-      if($bad.externalBinding.schemaVersion-eq2){$bad.externalBinding.grantRefs[0].identity=$phaseGrantIdentity}
-      $r=Check-External $bad
-      Assert-True ($r.Code-ne0-and$r.Text.Contains('DOMAIN_EXTERNAL_TASK_ROUTE')-and-not$r.Text.Contains('TASK_OBJECT_DRIFT')) ('external-owner-self-binding'+$bad.externalBinding.schemaVersion+'-still-requires-external-main-phase')
-    }
+    $oldOwner=$external|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100;$oldOwner.taskIdentity=$phaseTaskIdentity
+    $r=Check-External $oldOwner
+    Assert-True ($r.Code-ne0-and$r.Text.Contains('DOMAIN_EXTERNAL_TASK_ROUTE')-and-not$r.Text.Contains('TASK_OBJECT_DRIFT')) 'external-owner-binding1-keeps-original-external-main-phase-contract'
+    $currentOwner=$v2|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100;$currentOwner.taskIdentity=$phaseTaskIdentity;$currentOwner.externalBinding.grantRefs[0].identity=$phaseGrantIdentity
+    Assert-True ((Check-External $currentOwner).Code-eq0) 'external-owner-binding2-current-grant-allows-real-implement-main-route'
+    $ownerPath=Join-Path $control 'owner-external-implement-package.json';Write-Json $ownerPath $currentOwner
+    $ownerDiscover=$phaseDiscover|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100
+    $ownerDiscover.observedActor='owner-fixture';$ownerDiscover.authorizationPackagePath=$ownerPath;$ownerDiscover.expectedAuthorizationIdentity=Get-Identity $ownerPath
+    $ownerDiscover.intentEnvelope.objective='Owner uses the simulated current bounded grant while the actual main route remains IMPLEMENT; no provider call'
+    $ownerInput=Join-Path $control 'owner-external-implement-discover.json';Write-Json $ownerInput $ownerDiscover
+    $output=@(Invoke-AuthNative -NoProfile -File $resolver -InputPath $ownerInput -AsJson);$ownerCode=$LASTEXITCODE;$ownerActual=($output-join"`n")|ConvertFrom-Json -Depth 100
+    Assert-True ($ownerCode-eq0-and$ownerActual.status-ceq'PASS'-and$ownerActual.compactReceipt.binding.role-ceq'TASK_OWNER'-and$ownerActual.compactReceipt.binding.phase-ceq'EXTERNAL'-and$ownerActual.compactReceipt.sourceObservation.schemaVersion-eq2-and$ownerActual.compactReceipt.sourceObservation.workRoute.phase-ceq'IMPLEMENT'-and'framework:PR_TASK_OWNER_DIRECT_DOMAIN_EXTERNAL'-cin@($ownerActual.compactReceipt.selectedObligations.requirementId)) 'external-owner-public-full-keeps-real-route-and-selects-effective-external-obligations'
+    $ownerCompact=Join-Path $control 'owner-external-implement-compact.json';Write-Json $ownerCompact $ownerActual.compactReceipt
+    $ownerAdmit=$phaseAdmit|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100;$ownerAdmit.discoverReceiptPath=$ownerCompact;$ownerAdmit.expectedDiscoverReceiptIdentity=Get-Identity $ownerCompact;$ownerAdmit.preparationReceipts=@($ownerActual.compactReceipt.selectedObligations.preparationRequirements|Select-Object -Unique)
+    $ownerAdmitPath=Join-Path $control 'owner-external-implement-admit.json';Write-Json $ownerAdmitPath $ownerAdmit
+    $output=@(Invoke-AuthNative -NoProfile -File $resolver -InputPath $ownerAdmitPath -AsJson);$ownerCode=$LASTEXITCODE;$ownerAdmission=($output-join"`n")|ConvertFrom-Json -Depth 100
+    Assert-True ($ownerCode-eq0-and$ownerAdmission.status-ceq'PASS'-and(Get-Identity $taskPath)-ceq$phaseTaskIdentity) 'external-owner-public-admit-preserves-original-task-and-main-route'
     [IO.File]::AppendAllText($grant,' Current original observer grant was replaced.',$utf8)
     $phaseDrift=Check-External $phaseDelegate original-reviewer-fixture
     Assert-True ($phaseDrift.Code-ne0-and$phaseDrift.Text.Contains('EVIDENCE_IDENTITY_DRIFT')) 'external-owner-implement-rejects-current-original-grant-byte-drift'

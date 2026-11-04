@@ -604,7 +604,8 @@
         "contextType": {
           "enum": [
             "TASK",
-            "PROJECT_READ_ONLY"
+            "PROJECT_READ_ONLY",
+            "PROJECT_EXTERNAL"
           ]
         },
         "contextLocator": {

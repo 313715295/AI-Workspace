@@ -66,7 +66,7 @@ pwsh -File scripts/build-user-package.ps1 -FrameworkVersion 1.16.0 -Distribution
 
 ### 2.0 开发候选的加载与专业发布收敛
 
-实际规则加载按当前意图取得完整适用条件与依赖，同次去重后返回完整正文。健康同动作仅普通文件/包改变时，原 checker/ADMIT 重绑当前范围而不装配或显示正文；额外要求、实际动作或恢复变化要求完整加载。旧 REUSE 兼容完整返回，coverage 差集和未来预载退出；完整文本与同结果截断恢复保留。
+实际规则加载按当前意图取得完整适用条件与依赖，同次去重后返回完整正文。健康同活动的普通文件/包及本地配套操作变化时，原checker/ADMIT核当前范围、权限、真实路线及同一选择器，当前要求无新增且仅操作规则退场时不装配或显示正文；当前完整义务冻结到新compact和原FINALIZE。额外要求、真实活动切换或恢复变化要求完整加载。旧 REUSE 兼容完整返回，coverage 差集和未来预载退出；完整文本与同结果截断恢复保留。
 
 专业发布保留普通批量读取、一次完整 targets 及两侧不同选择、真实双权限与结果、首侧成功后只补缺侧的恢复。同一目标对的完整本地规范只构造一次，第二侧直接消费；诊断区分 SOURCE_BODY_READ 与 SOURCE_BODY_SHARED，不把共享结果记为又一次物理读取。selected→closure 与 closure 复核仍跨独立投影、当前权限/成员及恢复入口，本轮未重写这些耦合，也不以旧样本宣称各层净提速。
 
@@ -117,16 +117,15 @@ Source Review 前冻结 README/ROADMAP 等 current-facing wording。deterministi
 
 这四组采用 MECHANISM 闭包，可在原 EXECUTED/native/raw/CLEAN、当前定义、实际工具/父环境、root/options 及完整输入均匹配时严格复证。具名真实 snapshot 反例验证相关改动失效、无关独立测试字节不进入闭包；反例不是四组的新执行证明。旧格式保持原严格读取。新定义只在原记录具有足够的行为事实、当前严格验证通过时复证；事实不足给出具体原因并鲜测，不重签旧记录。当前完整 suite/export、integration.full-source、未闭合动态依赖及 POSTBUILD 实际包检查仍承担各自鲜测义务；部分构造与映射通过不构成整版、Source Review、性能或发行通过。
 
-### 本轮常驻引导补做的验证边界
+### 当前共同候选的必要验证
 
-本轮 2.0 常驻引导与旧 nav3 刷新是在完整冻结技术基线完成后的有限后继。范围仅为普通及 Maintenance 两份 AGENTS 模板、根 ProjectAdoptionState.psm1、upgrade-project.ps1、project-adoption-tests.ps1，以及本文、test-groups.json、governance-contract-tests.ps1，共八文件。原 45 组结果保留其完整原件、失败和过程限制，只证明原 P/T/D，供一次共同独立 Source Review 判断本次影响；不得将旧 PASS 改贴到新输入，不将该技术基线当作 S5 接受基线，也不建立派生或证据继承链。
+先前常驻引导八文件后继的三组安排只适用于其原冻结输入，原45组及随后三组证据保持历史身份。本次历史证据、材料释放、同活动操作重绑定、外部许可、入口正文及runner解析复用共同候选，按实际变更与直接消费者重新选择当前D3的PREPACKAGE requiredFor FULL；不沿用旧三组，也不将旧PASS重标到当前字节。
 
-本轮 D 保留全部旧组定义及原 POSTBUILD 必需集，明确本轮 PREPACKAGE 的全部必需 Gpre 为 `adoption.entry-templates`、`governance-contract`、`integration.full-source`。新增组直接调用原 `scripts/tests/project-adoption-tests.ps1 -EntryTemplatesOnly`，在默认分支实际触达普通/维护旧 nav3 的 upgrader→投影器接点，保留当前用户编辑、收窄/撤回、旧 grant 迁移、CRLF、幂等、未知内容拒绝及原事务检错。其终标必须由真实原生输出验证，不能以手填可信事实或仅有文案断言代替接线。四个真实 authorization 消费者及其原行为继续保留，本轮未选不等于删除测试、永久退役或放松权限。
+当前必需集覆盖历史结果与关闭、授权及连续动作、普通/Maintenance前门与完整源码flow、规则选择/显示/来源变化、入口模板、复用证据与源码资格消费者。通用严格JSON核的Object、Array和时间字段消费者分别纳入现有结果、交付、授权和证据组。实际完整集合由test-groups.json持有，runner、suite3与proof3据此核对；本次未选择的组保留，不表示永久退役。POSTBUILD必需集保持原样，两种新ZIP分别fresh验证。
 
-八文件稳定后，只以原 public runner 执行一次显式三组的 `PREPACKAGE / proof3` 批次：`-Groups adoption.entry-templates,governance-contract,integration.full-source`，使用经当前授权的新 EvidenceDirectory 和 SourceViewPath，不传 ResumeEvidence，不先单独重复运行 EntryTemplatesOnly。新三组均须为当前 `EXECUTED`，真实 native 退出 0、原生记录完整、收尾 CLEAN，无未运行、失败或未知；suite 为 COMPLETE、Qpre3 为 PASS，并绑定完整新 P/T/D 和当前 D 的全部必需集。完整源码、载荷、运行工具及输入闭包校验保持，原 45 组不计作新三组的执行或复证。失败保留原结果，只在原许可及有限额度内按实际影响修正和重验，首充分成功即停。
+实现阶段局部原件及真实失败保留其准确范围。正式S1只消费public runner产生的当前EXECUTED或合格REVALIDATED；直接专项命令没有该记录时，不拼接成完整资格。未知依赖、alwaysFresh、相关字节/环境变化继续执行；缺组、失败、原生输出不完整或收尾不洁均不成为PASS。完整P/T/D和实际根工具、当前文案及拟发布删除一起交独立Source Review，后续S2只作确定的资格字段投影。
 
-本轮有限选择不作为未来未知变更、扩大范围或其他发行永久缩减 FULL 的通则；新增实质影响须重新确定必要覆盖。当前完整源码、三组新证据、原冻结基线和本次八文件共同进入原一次独立 Source Review，全部贡献者排除于独审。上述安排不替代 S0–S5 的其余门：源码接受/封存后，用户包与内部包仍分别对实际未改 ZIP 完成 fresh POSTBUILD、首次注册/同版升级检查、分发接受及项目显式采用。
-
+runner只在实际复用选择时懒建本次私有解析索引。每次使用仍观察全部显式成员的当前路径和字节，成员变化更新解析，非目标记录变成重复目标仍拒绝；目标record、raw、环境、cleanup及当前闭包仍由原validator验证。无resume、alwaysFresh与未知依赖的短路不为索引读取原件。返回值相互独立，失败或动作结束释放私有上下文，不缓存测试PASS、不新增公开证明格式。成本沿现有execution-cost和phase原件报告，没有可比基线不宣称总提速。
 
 ## schema3 的源码与分发阶段
 
@@ -191,7 +190,7 @@ Review approval、`OWNER_ACCEPT`、seal、Git publication 与 consumer adoption 
 
 入口交付按PROJECT_ADOPTION“宿主接入收尾”核对目标导航及实际加载；nav3使用项目Bootstrap，旧Skill只为实际旧依赖保留。源码、项目投影、宿主可见和当前正文读取分别取证，不以其中一项替代其余。
 
-普通和Maintenance过程入口可按实际宿主编码/输出边界显式使用DisplayPath，保存同次DISCOVER结果经官方renderer生成的UTF-8无BOM完整text，截断后补读同一输出，不再次解析或扫描项目标记。默认仍一次完整正文且不保存副本，AsJson机器载体由程序捕获；副本只在需要时新建于当前任务/actor合法runtime，遵守原保护和最后消费者生命周期，不作为权限或模型attention证明。该能力仅在新运行包取得资格并由项目显式采用后生效；旧固定包不热改。
+普通和Maintenance过程入口可按实际宿主编码/输出边界显式使用DisplayPath，保存同次DISCOVER结果经官方renderer生成的UTF-8无BOM完整text，截断后补读同一输出，不再次解析或扫描项目标记。调用前按完整正文分别为外层编排与内层命令留足输出预算，提升内层不改变外层；仅输出单一官方text，不混机器JSON或其他长输出。默认仍一次完整正文且不保存副本，AsJson机器载体由程序捕获；副本只在需要时新建于当前任务/actor合法runtime，遵守原保护和最后消费者生命周期，不作为权限或模型attention证明。该能力仅在新运行包取得资格并由项目显式采用后生效；旧固定包不热改。
 
 ## 项目纠正与平台证据
 

@@ -1557,7 +1557,7 @@
       "requirementId": "PR_PROCESS_REQUIREMENTS_PROGRESSIVE_BOUNDARIES",
       "legacyAliases": [],
       "title": "Complete current loading and action rebinding",
-      "description": "Load the complete current rule closure once; revalidate unchanged-action scope without assembling bodies. Neither grants authority.",
+      "description": "Load the complete current rule closure once; rebind current local operations within the same activity without assembling bodies. Neither grants authority.",
       "ownerModule": "RECOVERY_CORE.md",
       "selectors": {
         "profiles": [

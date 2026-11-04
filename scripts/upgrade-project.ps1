@@ -42,6 +42,9 @@ param(
     [string]$ExpectedAdmitResultIdentity,
     [string]$AdoptionFinalizeResultPath,
     [string]$ExpectedAdoptionFinalizeResultIdentity,
+    [switch]$CompleteOriginalExternalResult,
+    [string]$OriginalExternalCompletionInputPath,[string]$ExpectedOriginalExternalCompletionIdentity,
+    [string[]]$OriginalExternalForbiddenPath=@(),
     [switch]$CompleteOriginalSourceAfterAgentsChange,
     [string]$OriginalAgentsPreimagePath,[string]$ExpectedOriginalAgentsPreimageIdentity,
     [string]$ExpectedCurrentAgentsIdentity,
@@ -99,7 +102,7 @@ try{
 if($PSVersionTable.PSEdition-cne'Core'-or$PSVersionTable.PSVersion.Major-lt7){throw 'FRAMEWORK_TOOL_RUNTIME_UNAVAILABLE|backend=powershell7|requires=pwsh>=7'}
 $aiwPublicationEntryContext=[pscustomobject]@{Invocation=$MyInvocation;Cmdlet=$PSCmdlet;BoundParameters=$PSBoundParameters}
 $aiwUpgradeAction={
-Invoke-AiwRootAdoptionSourceScope -EntryContext $aiwPublicationEntryContext -ProjectRoot ([IO.Path]::GetFullPath($RepositoryPath,$PWD.ProviderPath)) -Mode $(if($Apply-and-not$AdoptionProcessMode-and-not$ProjectRuleRecoveryPlanPath-and-not$ProjectCorrectionLifecyclePath){"WRITE"}else{"OBSERVE"}) -Body {
+Invoke-AiwRootAdoptionSourceScope -EntryContext $aiwPublicationEntryContext -ProjectRoot ([IO.Path]::GetFullPath($RepositoryPath,$PWD.ProviderPath)) -Mode $(if($Apply-and-not$AdoptionProcessMode-and-not$ProjectRuleRecoveryPlanPath-and-not$ProjectCorrectionLifecyclePath-and-not$CompleteOriginalExternalResult-and-not$OriginalExternalCompletionInputPath-and-not$ExpectedOriginalExternalCompletionIdentity){"WRITE"}else{"OBSERVE"}) -Body {
 param($aiwPublicationEntryContext)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -126,6 +129,16 @@ foreach($modulePath in @($adoptionStateModulePath,$adoptionProjectionModulePath,
     if($modulePath-ceq$adoptionStateModulePath){Import-Module $modulePath}else{Import-Module $modulePath -Force}
 }
 
+if($CompleteOriginalExternalResult-or$OriginalExternalCompletionInputPath-or$ExpectedOriginalExternalCompletionIdentity-or$OriginalExternalForbiddenPath.Count){
+    try{
+        $allowed=@('ProjectId','ToVersion','RepositoryPath','ActorRouteActor','CompleteOriginalExternalResult','OriginalExternalCompletionInputPath','ExpectedOriginalExternalCompletionIdentity','OriginalExternalForbiddenPath')
+        if(@($aiwPublicationEntryContext.BoundParameters.Keys|Where-Object{$_-cnotin$allowed}).Count){throw 'ORIGINAL_EXTERNAL_OPERATION_EXCLUSIVE'}
+        if(-not$CompleteOriginalExternalResult-or-not$OriginalExternalCompletionInputPath-or-not$ExpectedOriginalExternalCompletionIdentity-or-not$ActorRouteActor-or$ToVersion-cne'2.0.0'){throw 'ORIGINAL_EXTERNAL_BINDING_REQUIRED'}
+        $result=Invoke-AiwOriginalExternalResultCompletion -RepositoryRoot $RepositoryPath -ProjectId $ProjectId -InputPath $OriginalExternalCompletionInputPath -ExpectedInputIdentity $ExpectedOriginalExternalCompletionIdentity -ObservedActor $ActorRouteActor -ForbiddenPaths $OriginalExternalForbiddenPath
+        $result|ConvertTo-Json -Depth 100 -Compress
+        if($result.status-ceq'PASS'){exit 0};exit 3
+    }catch{[ordered]@{status='FAIL';reason=$_.Exception.Message}|ConvertTo-Json -Compress;exit 2}
+}
 if($OriginalTaskArchiveFinalizePlanPath-or$ExpectedOriginalTaskArchiveFinalizePlanIdentity-or$CompleteOriginalTaskArchive-or$OriginalTaskArchiveForbiddenPath.Count){
     try{
         $allowed=@('ProjectId','ToVersion','RepositoryPath','ActorRouteActor','OriginalTaskArchiveFinalizePlanPath','ExpectedOriginalTaskArchiveFinalizePlanIdentity','CompleteOriginalTaskArchive','OriginalTaskArchiveForbiddenPath')

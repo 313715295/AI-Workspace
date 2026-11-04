@@ -89,6 +89,22 @@ function Get-AiwProcessDisplay {
  $lines.Add('AIW '+$mode+' '+$Result.status+' '+$decision.effectiveMode)
  if($decision.fallbackReason-cne'NONE'){$lines.Add('Fallback: '+$decision.fallbackReason)}
  $lines.Add('Limits: '+[string]::Join(', ',@($ceilings))+'; projection only; no action authority or proof of model memory/attention.')
+ if($null-ne$Result.PSObject.Properties['projectExternalAuthorization']){
+  $external=$Result.projectExternalAuthorization
+  $externalFields=@('configured','mode','policyIdentity','grantRuleIds','selectedGrantRuleIds','evidenceCeiling','perCallAuthorityGranted')
+  if($external-isnot[pscustomobject]-or@($external.PSObject.Properties).Count-ne$externalFields.Count-or@($externalFields|Where-Object{$_-cnotin$external.PSObject.Properties.Name}).Count){throw 'DISPLAY_EXTERNAL_POLICY_BINDING'}
+  if($external.configured-isnot[bool]-or-not$external.configured-or$external.mode-cnotin@('PER_ACTION','PROJECT_PREAUTHORIZED')-or$external.policyIdentity-cne$receipt.sourceBindings.policyIdentity-or$external.evidenceCeiling-cne'INSTRUCTION_BOUND'-or$external.perCallAuthorityGranted-isnot[bool]-or$external.perCallAuthorityGranted){throw 'DISPLAY_EXTERNAL_POLICY_BINDING'}
+  Assert-DisplayStrings $external.grantRuleIds;Assert-DisplayStrings $external.selectedGrantRuleIds
+  $grantIds=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+  foreach($id in $external.grantRuleIds){if($id-cnotmatch'^[A-Z][A-Z0-9_]*$'-or-not$grantIds.Add($id)){throw 'DISPLAY_EXTERNAL_GRANT_SELECTION'}}
+  if(($external.mode-ceq'PER_ACTION'-and$grantIds.Count)-or($external.mode-ceq'PROJECT_PREAUTHORIZED'-and-not$grantIds.Count)){throw 'DISPLAY_EXTERNAL_POLICY_BINDING'}
+  $selectedGrants=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+  foreach($id in $external.selectedGrantRuleIds){if(-not$grantIds.Contains($id)-or-not$selectedGrants.Add($id)-or-not$expected.ContainsKey('project:'+$receipt.binding.projectId+':'+$id)){throw 'DISPLAY_EXTERNAL_GRANT_SELECTION'}}
+  $lines.Add('Project external authorization: '+$external.mode+'; selected grant rules: '+[string]::Join(',',@($external.selectedGrantRuleIds))+'. Policy interpretation is INSTRUCTION_BOUND; this display is not a per-call admission or result receipt.')
+  if($external.mode-ceq'PROJECT_PREAUTHORIZED'){
+   $lines.Add('Within the current selected grant and actual host/user limits, use the original tool directly. Do not create a per-call task/package or repeat DISCOVER/ADMIT/FINALIZE for each call. Read the complete grant conditions below; coverage, withdrawal, delegation and retry safety still require the actual executor judgment. Preserve native SUCCESS/FAILURE/UNKNOWN. This loading compact cannot be used as a per-action authorization or completion receipt.')
+  }
+ }
  $sources=[Collections.Generic.Dictionary[string,int]]::new([StringComparer]::Ordinal)
  $unitRefs=[Collections.Generic.List[string]]::new()
  foreach($block in $blocks){

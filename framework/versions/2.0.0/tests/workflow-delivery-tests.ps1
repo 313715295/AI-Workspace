@@ -218,6 +218,66 @@ try{
   Check (($null-ne$parent.PSObject.Properties['repairReviewPlan'])-eq($organization-ceq'DIRECT_REVIEW')) ('same-source-organization-review-authority-'+$organization)
  }
  $organization='UNKNOWN';Reject {& $example} 'organization-unknown-does-not-invent-a-route' 'ORGANIZATION_ROUTE_REQUIRED'
+ # Retention observes JSON values, whereas action inputs remain Objects.
+ # Drive the real follower with an array behind a normalized project reference.
+ Import-Module (Join-Path $PSScriptRoot '../scripts/StrictJsonInput.psm1')
+ Import-Module (Join-Path $PSScriptRoot '../scripts/ResultEvidence.psm1')
+ $retentionRoot=Join-Path $temp '.ai-workspace/runtime/DELIVERY-001/owner'
+ $reportRoot=Join-Path $temp '.ai-workspace/reports'
+ [IO.Directory]::CreateDirectory($retentionRoot)|Out-Null;[IO.Directory]::CreateDirectory($reportRoot)|Out-Null
+ $leaf=Join-Path $retentionRoot 'retained.txt';[IO.File]::WriteAllText($leaf,'Retained evidence.',$utf8)
+ $linkedPath=Join-Path $reportRoot 'linked.json'
+ $retentionContext=New-AiwEvidenceContext $temp
+ $deliveryOwner=(Get-Command Complete-AiwRuntimeConsumption).Module
+ foreach($valueCase in @(@{json='[]';count=0},@{json='[1]';count=1},@{json='[1,2,3]';count=3})){
+  [IO.File]::WriteAllText($linkedPath,$valueCase.json,$utf8)
+  $parsed=Read-AiwStrictJsonValue $linkedPath
+  Check ($parsed.Value-is[Array]-and$parsed.Value.Count-eq$valueCase.count) ('retention-array-shape-'+$valueCase.count)
+  Reject {Read-AiwStrictInputJson $linkedPath} ('action-input-still-rejects-array-'+$valueCase.count) 'INPUT_OBJECT_TYPE'
+ }
+ foreach($scalar in @('null','true','"text"','42')){
+  [IO.File]::WriteAllText($linkedPath,$scalar,$utf8)
+  $parsed=Read-AiwStrictJsonValue $linkedPath
+  Check ($parsed.MemberNames.Count-eq0-and($scalar-cne'null'-or$null-eq$parsed.Value)) ('retention-scalar-'+$scalar)
+ }
+ $retentionLeaves=@(foreach($name in @('retained.txt','second.txt','third.txt')){
+  $file=Join-Path $retentionRoot $name;[IO.File]::WriteAllText($file,'Retained evidence.',$utf8)
+  [pscustomobject]@{path=$file;identity=(Id $file)}
+ })
+ [IO.File]::WriteAllText($linkedPath,(ConvertTo-Json -InputObject $retentionLeaves -Depth 5 -Compress),$utf8)
+ $observed=& $deliveryOwner {param($p,$s,$v,$c)Get-DeliveryRuntimeReferences $p $s $v $c} $temp $retentionRoot @('.ai-workspace/reports/unused/../linked.json') $retentionContext
+ Check ($observed.retained.Count-eq3-and@($retentionLeaves.path|Where-Object{$_-cnotin$observed.retained}).Count-eq0) 'retention-normalized-relative-reference-follows-all-three-array-leaves'
+ Reject {Resolve-AiwEvidenceObservationPath $retentionContext '.ai-workspace/reports/../../../outside.json'} 'observation-dot-segments-cannot-escape-bound-root' 'EVIDENCE_PATH_OUTSIDE_BOUND_ROOTS'
+ $evidenceOwner=(Get-Command New-AiwEvidenceContext).Module
+ Reject {& $evidenceOwner {param($c)Resolve-EvPath $c 'folder/../candidate.md' -Candidate} $retentionContext} 'candidate-path-syntax-is-not-relaxed' 'EVIDENCE_PATH_INVALID'
+ $deniedContext=New-AiwEvidenceContext $temp '' '' @($leaf)
+ Reject {& $deliveryOwner {param($p,$s,$v,$c)Get-DeliveryRuntimeReferences $p $s $v $c} $temp $retentionRoot @('.ai-workspace/reports/unused/../linked.json') $deniedContext} 'normalized-array-reference-still-honors-leaf-protection' 'EVIDENCE_PATH_FORBIDDEN'
+ [IO.File]::WriteAllText($linkedPath,'[{"nested":{"a":1,"\u0061":2}}]',$utf8)
+ Reject {& $deliveryOwner {param($p,$s,$v,$c)Get-DeliveryRuntimeReferences $p $s $v $c} $temp $retentionRoot @($linkedPath) $retentionContext} 'array-rejects-decoded-duplicate-member-with-original-cause' 'INPUT_FIELD_COUNT|a'
+ # A locked, malformed history node distinguishes zero work from a traversal
+ # that merely swallows an error. Explicit work must still report that error.
+ $cleanupEvidence=[pscustomobject]@{retentionContext=$retentionContext;retentionValues=@([pscustomobject]@{path=$linkedPath;identity=(Id $linkedPath)})}
+ $cleanupBoundary=[pscustomobject]@{mode='FINALIZE_OUTPUT'}
+ $cleanupResult=[pscustomobject]@{status='PASS';actionOutcome='OBSERVED'}
+ $list=Join-Path $retentionRoot 'expired-list.json';Save $list @($leaf)
+ $empty=Join-Path $retentionRoot 'empty';[IO.Directory]::CreateDirectory($empty)|Out-Null
+ $hold=[IO.File]::Open($linkedPath,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::None)
+ try{
+  $zero=Complete-AiwRuntimeConsumption $cleanupResult $cleanupBoundary $receipt $hostPath -Evidence $cleanupEvidence
+  Check ($null-eq$zero-and[IO.File]::Exists($leaf)) 'zero-candidate-does-not-read-locked-malformed-history'
+  $failed=Complete-AiwRuntimeConsumption $cleanupResult $cleanupBoundary $receipt $hostPath -ConsumedRuntimePath @($leaf) -ConsumedRuntimePathList $list -EmptyRuntimeDirectory @($empty) -Evidence $cleanupEvidence
+  Check ($failed.status-ceq'REJECTED'-and$failed.reason.Contains('RUNTIME_PROOF_JSON_UNREADABLE')-and$leaf-in$failed.remaining-and$list-in$failed.remaining-and$empty-in$failed.remaining-and-not$failed.pathListMembersKnown-and[IO.File]::Exists($leaf)) 'retention-failure-preserves-complete-known-set-and-unknown-list-members'
+ }finally{$hold.Dispose()}
+ $forgedInput=Join-Path $retentionRoot 'unverified-input.json';Save $forgedInput ([pscustomobject]@{fixture='unverified observation'})
+ $forged=[pscustomobject]@{mode='FINALIZE_OUTPUT';status='PASS';actionOutcome='PASS';inputCleanup=[pscustomobject]@{status='PARTIAL_FAILURE';removed=@();alreadyAbsent=@();remaining=@($forgedInput);consumedObject=[pscustomobject]@{path=$forgedInput;identity=(Id $forgedInput)};failures=@([pscustomobject]@{path=$forgedInput;kind='IO_ERROR'})}}
+ $cleanupEvidence.retentionValues=@($forged)
+ $zero=Complete-AiwRuntimeConsumption $cleanupResult $cleanupBoundary $receipt $hostPath -Evidence $cleanupEvidence
+ Check ($null-eq$zero-and[IO.File]::Exists($forgedInput)) 'traversable-self-reported-producer-does-not-create-cleanup-work'
+ $kept=Complete-AiwRuntimeConsumption $cleanupResult $cleanupBoundary $receipt $hostPath -ConsumedRuntimePath @($forgedInput) -Evidence $cleanupEvidence
+ Check ($kept.status-ceq'RETAINED'-and$forgedInput-in$kept.retained-and$kept.removed.Count-eq0) 'unverified-producer-remains-a-retention-reference-with-explicit-work'
+ [IO.File]::WriteAllText($list,'["unterminated',$utf8)
+ $unknown=Remove-AiwConsumedRuntimeFiles -ScopeRoot $retentionRoot -LiteralPath @($leaf) -ConsumedPathListPath $list -EmptyDirectoryPath @($empty)
+ Check ($unknown.status-ceq'REJECTED'-and-not$unknown.pathListMembersKnown-and$leaf-in$unknown.remaining-and$list-in$unknown.remaining-and$empty-in$unknown.remaining-and[IO.File]::Exists($leaf)) 'malformed-path-list-reports-unknown-members-with-zero-deletion'
  Write-Output ('WORKFLOW_DELIVERY_TESTS_PASS|checks='+$passed+'|evidence=ISOLATED_PROTOCOL_NOT_HOST_INVOCATION')
 }finally{
  $full=[IO.Path]::GetFullPath($temp);$root=[IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\','/')

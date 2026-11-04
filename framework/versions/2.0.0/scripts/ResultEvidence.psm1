@@ -67,7 +67,7 @@ function Resolve-EvRecordTarget($Context,$Record,[switch]$FrozenCandidateEvidenc
         $target=Resolve-AiwExecutionTargetContext $Context.ProjectRoot $cfg.id $Context.TaskPath $Record.executionTargetRef $Context.ForbiddenPaths $Context.CandidateProtectedPaths
         if($target.targetKind-cne'GIT_WORKTREE'){throw 'EVIDENCE_TARGET_BINDING_REQUIRED'}
         $nested=New-AiwEvidenceContext $Context.ProjectRoot $target.executionRoot '' $Context.ForbiddenPaths $Context.CandidateProtectedPaths
-        $nested.Roots=@($Context.Roots+$nested.Roots|Select-Object -Unique);$nested.Reading=$Context.Reading
+        $nested.Roots=@($Context.Roots+$nested.Roots|Select-Object -Unique);Share-EvReadState $nested $Context
         $nested|Add-Member ExecutionContext $target;$nested|Add-Member TaskPath $Context.TaskPath
         $Context=$nested
     }
@@ -96,7 +96,8 @@ function Assert-AiwTaskClosure($Context,[string]$Text,[string]$TaskId,$Boundary,
             $repo=$closedPlan.qualityBinding.subject.repositoryId
             if($repo-cne'REPO_LOCAL'){
                 $candidatePackage=[pscustomobject]@{schemaVersion=2;repositoryId=$repo}
-                $Context=New-AiwPackageEvidenceContext $Context.ProjectRoot $candidatePackage '' $Context.ForbiddenPaths -ProtectedPaths $Context.CandidateProtectedPaths
+                $candidateContext=New-AiwPackageEvidenceContext $Context.ProjectRoot $candidatePackage '' $Context.ForbiddenPaths -ProtectedPaths $Context.CandidateProtectedPaths
+                Share-EvReadState $candidateContext $Context;$Context=$candidateContext
             }
         }
         if($null-eq$closedPlan){if($RequireExplicitClosure){throw 'ACCEPTANCE_CLOSE_PLAN_REQUIRED'};return}
@@ -267,26 +268,93 @@ function Get-AiwFinalizedObjectPostimages($FinalizeInput,[string[]]$ExactPaths) 
     if($rows.Count-ne$ExactPaths.Count-or(@($rows.path|Sort-Object)-join'|')-cne(@($ExactPaths|Sort-Object)-join'|')){throw 'REVIEW_SCOPE_PRODUCTION_SET'}
     return $rows
 }
+function Get-EvConfiguredRepositoryRoot([string]$ProjectRoot,[string]$RepositoryId,$Config) {
+    if($RepositoryId-ceq'REPO_LOCAL'){
+        if($Config.controlPlaneLayout-cne'repo-local'){throw 'EVIDENCE_REPOSITORY_BINDING'}
+        return $ProjectRoot
+    }
+    # CONTROL identifies the bound project control root in both supported layouts.
+    # The existing schema2 ordinary/non-Git route does not denote a sibling target.
+    if($RepositoryId-ceq'CONTROL'){
+        if($Config.controlPlaneLayout-cnotin@('repo-local','framework-maintenance-sibling')){throw 'EVIDENCE_REPOSITORY_BINDING'}
+        return $ProjectRoot
+    }
+    if($Config.controlPlaneLayout-cne'framework-maintenance-sibling'){throw 'EVIDENCE_REPOSITORY_BINDING'}
+    if($null-eq$Config.PSObject.Properties['frameworkTarget']-or$Config.frameworkTarget.repositoryId-cne$RepositoryId){throw 'EVIDENCE_REPOSITORY_BINDING'}
+    $sibling=[string]$Config.frameworkTarget.siblingDirectory
+    if($sibling-cnotmatch '^[A-Za-z0-9][A-Za-z0-9._ -]*$'-or$sibling.EndsWith('.')){throw 'EVIDENCE_REPOSITORY_BINDING'}
+    return [IO.Path]::GetFullPath((Join-Path (Split-Path -Parent $ProjectRoot) $sibling)).TrimEnd('\','/')
+}
+function Get-EvAbsoluteRestrictions($Paths,$Roots) {
+    foreach($path in $Paths){
+        Assert-EvString $path
+        if([IO.Path]::IsPathFullyQualified($path)){[IO.Path]::GetFullPath($path).TrimEnd('\','/')}
+        else{foreach($root in $Roots){[IO.Path]::GetFullPath((Join-Path $root $path)).TrimEnd('\','/')}}
+    }
+}
+# One business read owns this private, in-memory handoff. It is neither a
+# caller-supplied success flag nor a persisted producer/cleanup registry.
+function Get-EvReadState($Context) {
+    if($null-eq$Context.PSObject.Properties['RetentionReadState']){
+        $Context|Add-Member RetentionReadState ([pscustomobject]@{producers=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::OrdinalIgnoreCase);guards=[Collections.Generic.List[object]]::new()})
+    }
+    return $Context.RetentionReadState
+}
+function Share-EvReadState($Nested,$Context) {
+    $Nested.Reading=$Context.Reading
+    $Nested|Add-Member RetentionReadState (Get-EvReadState $Context) -Force
+}
+function Add-EvValidatedProducer($Context,$Pair,$Source,$Input,$Result) {
+    $state=Get-EvReadState $Context
+    $key=[IO.Path]::GetFullPath($Pair.resultRef.path,$Context.ProjectRoot)+'|'+$Pair.resultRef.identity
+    if($state.producers.ContainsKey($key)){return}
+    $state.producers.Add($key,[pscustomobject]@{pair=$Pair;source=$Source;input=$Input;result=$Result})
+    # Keep only the original path guard, without a back-reference to the read
+    # state. Isolated-target protection must still run before metadata reads.
+    $state.guards.Add(($Context|Select-Object ProjectRoot,RepositoryRoot,Roots,ForbiddenPaths,CandidateProtectedPaths,ExecutionContext))
+}
+function Get-EvRetentionHandoff($Context) {
+    $state=Get-EvReadState $Context
+    $guard=$Context|Select-Object * -ExcludeProperty RetentionReadState,HistoricalProducer
+    $roots=@($Context.Roots);$denied=@(Get-EvAbsoluteRestrictions (@($Context.ForbiddenPaths)+@($Context.CandidateProtectedPaths)) $Context.Roots)
+    foreach($original in $state.guards){$roots+=@($original.Roots);$denied+=@(Get-EvAbsoluteRestrictions (@($original.ForbiddenPaths)+@($original.CandidateProtectedPaths)) $original.Roots)}
+    $guard.Roots=@($roots|Select-Object -Unique);$guard.ForbiddenPaths=@($denied|Select-Object -Unique)
+    $historicalGuards=@(foreach($original in $state.guards){if($null-ne$original.ExecutionContext){$copy=$original|Select-Object *;$copy.ForbiddenPaths=$guard.ForbiddenPaths;$copy}})
+    $guard|Add-Member HistoricalPathGuards $historicalGuards -Force
+    return [pscustomobject]@{context=$guard;producers=@($state.producers.Values)}
+}
 function New-AiwEvidenceContext([string]$ProjectRoot,[string]$RepositoryRoot='', [string]$FrameworkRoot='', [string[]]$ForbiddenPaths=@(),[string[]]$ProtectedPaths=@()) {
+    # An optional empty list may arrive as null through a PowerShell pipeline.
+    # It must not become a null member projected onto the entire bound root.
+    if($null-eq$ForbiddenPaths){$ForbiddenPaths=@()}
+    if($null-eq$ProtectedPaths){$ProtectedPaths=@()}
     $project=[IO.Path]::GetFullPath($ProjectRoot).TrimEnd('\','/')
     if(-not$RepositoryRoot){$RepositoryRoot=$project}
     $repo=[IO.Path]::GetFullPath($RepositoryRoot).TrimEnd('\','/')
     $roots=@($project,$repo);if($FrameworkRoot){$roots+=[IO.Path]::GetFullPath($FrameworkRoot).TrimEnd('\','/')}
-    $excluded=@($ForbiddenPaths)
-    $configPath=Join-Path $project '.ai-workspace/project.json'
+    $ctx=[pscustomobject]@{ProjectRoot=$project;RepositoryRoot=$repo;Roots=@($roots|Select-Object -Unique);ForbiddenPaths=@($ForbiddenPaths);CandidateProtectedPaths=@($ProtectedPaths);Reading=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)}
+    $excluded=@(Get-EvAbsoluteRestrictions $ForbiddenPaths $ctx.Roots)
+    $configPath=Resolve-EvPath $ctx '.ai-workspace/project.json' -AllowMissing
     if(Test-Path -LiteralPath $configPath -PathType Leaf){
         $cfg=ConvertFrom-EvJson ([IO.File]::ReadAllText($configPath))
-        if($null-ne$cfg.PSObject.Properties['routineExcludedPaths']){$excluded+=@($cfg.routineExcludedPaths)}
-        if($null-ne$cfg.PSObject.Properties['frameworkTarget']-and$null-ne$cfg.frameworkTarget.PSObject.Properties['routineExcludedPaths']){$excluded+=@($cfg.frameworkTarget.routineExcludedPaths)}
+        if($null-ne$cfg.PSObject.Properties['routineExcludedPaths']){$excluded+=@(Get-EvAbsoluteRestrictions $cfg.routineExcludedPaths @($project))}
+        if($null-ne$cfg.PSObject.Properties['frameworkTarget']-and$null-ne$cfg.frameworkTarget.PSObject.Properties['routineExcludedPaths']){
+            $targetRoot=Get-EvConfiguredRepositoryRoot $project $cfg.frameworkTarget.repositoryId $cfg
+            $excluded+=@(Get-EvAbsoluteRestrictions $cfg.frameworkTarget.routineExcludedPaths @($targetRoot))
+        }
     }
-    return [pscustomobject]@{ProjectRoot=$project;RepositoryRoot=$repo;Roots=@($roots|Select-Object -Unique);ForbiddenPaths=@($excluded|Select-Object -Unique);CandidateProtectedPaths=@($ProtectedPaths);Reading=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)}
+    $ctx.ForbiddenPaths=@($excluded|Select-Object -Unique)
+    return $ctx
 }
-function Resolve-EvPath($Context,[string]$Path,[switch]$Candidate,[switch]$AllowMissing,[switch]$AllowDirectory) {
+function Resolve-EvPath($Context,[string]$Path,[switch]$Candidate,[switch]$AllowMissing,[switch]$AllowDirectory,[switch]$Observation) {
     Assert-EvString $Path
     if([IO.Path]::IsPathRooted($Path)-and-not[IO.Path]::IsPathFullyQualified($Path)){throw 'EVIDENCE_PATH_INVALID'}
     $value=$Path.Replace('\','/')
     if($value.Contains('//')-or$value-cne$value.Normalize([Text.NormalizationForm]::FormC)-or$value-match '[\x00-\x1f*?]'){throw 'EVIDENCE_PATH_INVALID'}
-    foreach($part in $value.Split('/')){if($part-in@('.','..')-or$part.EndsWith('.')-or$part.EndsWith(' ')-or$part-match '^(?i:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)'){throw 'EVIDENCE_PATH_INVALID'}}
+    foreach($part in $value.Split('/')){
+        if($Observation-and-not$Candidate-and$part-in@('.','..')){continue}
+        if($part-in@('.','..')-or$part.EndsWith('.')-or$part.EndsWith(' ')-or$part-match '^(?i:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)'){throw 'EVIDENCE_PATH_INVALID'}
+    }
     if($Candidate-and$null-ne$Context.PSObject.Properties['ExecutionContext']-and$null-ne$Context.ExecutionContext){
         Import-Module (Join-Path $PSScriptRoot 'ExecutionTargetContext.psm1')
         if([IO.Path]::IsPathRooted($Path)){
@@ -506,7 +574,7 @@ function Get-EvHistoricalFinalize($Context,$Reference,$Record,$OriginalFinalize)
         if(@($input.evidenceRefs|Where-Object{$_.kind-ceq$Reference.kind-and(Test-EvSameRef $_ $Reference $Context)}).Count){$matches+=@([pscustomobject]@{input=$input;pair=$pair})}
     }
     if($matches.Count-ne1){throw 'EVIDENCE_HISTORICAL_FINALIZE_UNBOUND'}
-    $input=$matches[0].input;$result=Read-EvRef $Context $matches[0].pair.resultRef -Json
+    $input=$matches[0].input;$originalPair=$matches[0].pair;$result=Read-EvRef $Context $originalPair.resultRef -Json
     if($input.schemaVersion-ne3-or$input.mode-cne'FINALIZE_OUTPUT'-or$result.mode-cne'FINALIZE_OUTPUT'-or$result.status-cne'PASS'-or@($result.missingPreparation).Count-or@($result.missingResult).Count){throw 'EVIDENCE_HISTORICAL_FINALIZE_INCOMPLETE'}
     $source=Read-EvRef $Context ([pscustomobject]@{path=$input.discoverReceiptPath;identity=$input.expectedDiscoverReceiptIdentity}) -Json
     if($source.schemaVersion-notin@(3,4)-or$source.status-cne'PASS'-or$source.mode-cne'DISCOVER'-or$source.receiptType-cne'PROCESS_REQUIREMENTS_DISCOVER'){throw 'EVIDENCE_HISTORICAL_SOURCE_UNSUPPORTED'}
@@ -527,11 +595,24 @@ function Get-EvHistoricalFinalize($Context,$Reference,$Record,$OriginalFinalize)
     if($package.issuerRole-cnotin@('TASK_OWNER','PROJECT_CONTROLLER')){throw 'EVIDENCE_HISTORICAL_AUTHORITY_DRIFT'}
     if($null-ne$Record.PSObject.Properties['authorizationRef']-and-not(Test-EvSameRef $Record.authorizationRef $packageRef $Context)){throw 'EVIDENCE_AUTHORIZATION_DRIFT'}
     if(-not([IO.Path]::GetFullPath($a.projectRoot)).Equals($Context.ProjectRoot,[StringComparison]::OrdinalIgnoreCase)){throw 'EVIDENCE_HISTORICAL_ROOT_DRIFT'}
-    # Merge original restrictions before any candidate metadata access. Later
-    # live task/config/AGENTS bytes do not replace the original admitted facts.
-    $historical=[pscustomobject]@{ProjectRoot=$Context.ProjectRoot;RepositoryRoot=$Context.RepositoryRoot;Roots=$Context.Roots;ForbiddenPaths=@($Context.ForbiddenPaths)+@($a.forbiddenScope)+@($Context.CandidateProtectedPaths)+@($a.protectedScope);CandidateProtectedPaths=@($Context.CandidateProtectedPaths)+@($a.protectedScope);Reading=$Context.Reading}
+    # Current topology, not an evidence-supplied absolute root, selects the
+    # historical candidate repository. The current consumer context stays intact.
+    $currentRestrictions=@(Get-EvAbsoluteRestrictions (@($Context.ForbiddenPaths)+@($Context.CandidateProtectedPaths)) $Context.Roots)
+    if($package.schemaVersion-eq4){
+        $historical=[pscustomobject]@{ProjectRoot=$Context.ProjectRoot;RepositoryRoot=$Context.RepositoryRoot;Roots=$Context.Roots;ForbiddenPaths=$currentRestrictions;CandidateProtectedPaths=@();Reading=$Context.Reading}
+    }else{
+        $historical=New-AiwPackageEvidenceContext $Context.ProjectRoot $package '' $currentRestrictions
+        $historical.Roots=@(@($historical.Roots)+@($Context.Roots)|Select-Object -Unique)
+    }
+    Share-EvReadState $historical $Context
+    # Original relative restrictions belong to the original control/object
+    # roots. Preserve today's already projected restrictions as well.
+    $originalRestrictions=@(Get-EvAbsoluteRestrictions (@($a.forbiddenScope)+@($a.protectedScope)) @($historical.ProjectRoot,$historical.RepositoryRoot))
+    $historical.ForbiddenPaths=@(@($historical.ForbiddenPaths)+$originalRestrictions|Select-Object -Unique)
+    $historical.CandidateProtectedPaths=@($historical.ForbiddenPaths)
     if($source.schemaVersion-eq4){
-        if(-not([IO.Path]::GetFullPath($a.objectRoot)).Equals($Context.RepositoryRoot,[StringComparison]::OrdinalIgnoreCase)){throw 'EVIDENCE_HISTORICAL_ROOT_DRIFT'}
+        $repositoryId=if($package.schemaVersion-in@(2,4)){$package.repositoryId}else{'PROJECT'}
+        if(-not[IO.Path]::IsPathFullyQualified($a.controlRoot)-or-not([IO.Path]::GetFullPath($a.controlRoot)).Equals($Context.ProjectRoot,[StringComparison]::OrdinalIgnoreCase)-or$a.repositoryId-cne$repositoryId-or-not[IO.Path]::IsPathFullyQualified($a.objectRoot)-or-not([IO.Path]::GetFullPath($a.objectRoot)).Equals($historical.RepositoryRoot,[StringComparison]::OrdinalIgnoreCase)){throw 'EVIDENCE_HISTORICAL_ROOT_DRIFT'}
         if($a.executionContext.targetKind-ceq'GIT_WORKTREE'){
             if($Record.schemaVersion-ne2){throw 'EVIDENCE_ISOLATED_TARGET_REQUIRES_SCHEMA2'}
             $descriptor=Read-EvRef $historical $a.executionContext.executionTargetRef -Json
@@ -545,11 +626,11 @@ function Get-EvHistoricalFinalize($Context,$Reference,$Record,$OriginalFinalize)
             # That helper observes control Git-top for protection projection;
             # it does not compare the current target HEAD with the old state.
             $historical|Add-Member ExecutionContext $a.executionContext
-        }elseif($Record.schemaVersion-ne1){throw 'EVIDENCE_HISTORICAL_TARGET_UNBOUND'}
+        }elseif($a.executionContext.targetKind-cne'SAME_ROOT'-or$package.schemaVersion-eq4-or$Record.schemaVersion-ne1){throw 'EVIDENCE_HISTORICAL_TARGET_UNBOUND'}
     }else{
         if($Record.schemaVersion-ne1-or$package.schemaVersion-eq4){throw 'EVIDENCE_HISTORICAL_TARGET_UNBOUND'}
         $originalRoot=if($package.schemaVersion-eq2){$a.repositoryGitTop}else{$a.projectRoot}
-        if(-not[IO.Path]::IsPathFullyQualified($originalRoot)-or-not([IO.Path]::GetFullPath($originalRoot)).Equals($Context.RepositoryRoot,[StringComparison]::OrdinalIgnoreCase)){throw 'EVIDENCE_HISTORICAL_ROOT_DRIFT'}
+        if(-not[IO.Path]::IsPathFullyQualified($originalRoot)-or-not([IO.Path]::GetFullPath($originalRoot)).Equals($historical.RepositoryRoot,[StringComparison]::OrdinalIgnoreCase)){throw 'EVIDENCE_HISTORICAL_ROOT_DRIFT'}
     }
     $scope=@(Get-AiwActionScopeObjects $package $action $historical)
     if((@($scope.path|Sort-Object)-join'|')-cne(@($a.exactScope|Sort-Object)-join'|')){throw 'EVIDENCE_HISTORICAL_SCOPE_DRIFT'}
@@ -631,6 +712,7 @@ function Get-EvHistoricalFinalize($Context,$Reference,$Record,$OriginalFinalize)
         if($null-ne$a.PSObject.Properties[$name]-and$a.$name-cne$identity){throw 'EVIDENCE_HISTORICAL_INPUT_BINDING_DRIFT'}
         [pscustomobject]@{path=(Join-Path $historical.ProjectRoot $inputPaths[$name]);identity=$identity}
     })
+    $historical|Add-Member HistoricalProducer ([pscustomobject]@{pair=$originalPair;source=$source;input=$input;result=$result})
     return $historical
 }
 function Read-AiwResultEvidence($Context,$Reference,[string]$TaskId,$CandidateObjects,$RequirementsRef,[switch]$RequireSuccess,[string]$ExpectedActor='',[string]$AuthorizationIdentity='',[switch]$RequireIndependentReview,[string[]]$ExcludedReviewActors=@(),[switch]$FrozenCandidateEvidence,[ValidateSet('CURRENT_CANDIDATE','HISTORICAL_SUCCESS')][string]$EvidencePurpose='CURRENT_CANDIDATE',[object[]]$OriginalFinalize=@(),[ValidateSet('CURRENT_CANDIDATE','HISTORICAL_SUCCESS')][string]$PrerequisiteEvidencePurpose='CURRENT_CANDIDATE') {
@@ -713,6 +795,7 @@ function Read-AiwResultEvidence($Context,$Reference,[string]$TaskId,$CandidateOb
                 if($null-ne$record.PSObject.Properties['acceptedCommit']-and$record.acceptedCommit-cnotmatch '^(?:[A-F0-9]{40}|[A-F0-9]{64})$'){throw 'EVIDENCE_ACCEPTED_COMMIT'}
             }
         }
+        if($historical){$producer=$Context.HistoricalProducer;Add-EvValidatedProducer $Context $producer.pair $producer.source $producer.input $producer.result}
         return $record
     }finally{$null=$Context.Reading.Remove($key)}
 }
@@ -861,17 +944,13 @@ function Assert-EvAcceptanceBinding($Context,$Package,$Plan,[switch]$Historical,
     }
 }
 function New-AiwPackageEvidenceContext([string]$ProjectRoot,$Package,[string]$FrameworkRoot='', [string[]]$ForbiddenPaths=@(),[string]$TaskPath='',[object]$TargetState=$null,[string[]]$ProtectedPaths=@()) {
+    $ProjectRoot=[IO.Path]::GetFullPath($ProjectRoot).TrimEnd('\','/')
     $repo=$ProjectRoot
-    if($null-ne$Package-and$Package.schemaVersion-eq2-and$Package.repositoryId-ceq'REPO_LOCAL'){
-        $cfg=ConvertFrom-EvJson ([IO.File]::ReadAllText((Join-Path $ProjectRoot '.ai-workspace/project.json')))
-        if($cfg.controlPlaneLayout-cne'repo-local'){throw 'EVIDENCE_REPOSITORY_BINDING'}
-    }
-    if($null-ne$Package-and$Package.schemaVersion-eq2-and$Package.repositoryId-cnotin@('CONTROL','REPO_LOCAL')){
-        $cfg=ConvertFrom-EvJson ([IO.File]::ReadAllText((Join-Path $ProjectRoot '.ai-workspace/project.json')))
-        if($null-eq$cfg.PSObject.Properties['frameworkTarget']-or$cfg.frameworkTarget.repositoryId-cne$Package.repositoryId){throw 'EVIDENCE_REPOSITORY_BINDING'}
-        $sibling=[string]$cfg.frameworkTarget.siblingDirectory
-        if($sibling-cnotmatch '^[A-Za-z0-9][A-Za-z0-9._ -]*$'-or$sibling.EndsWith('.')){throw 'EVIDENCE_REPOSITORY_BINDING'}
-        $repo=Join-Path (Split-Path -Parent $ProjectRoot) $sibling
+    if($null-ne$Package-and$Package.schemaVersion-eq2){
+        $guard=New-AiwEvidenceContext $ProjectRoot '' $FrameworkRoot $ForbiddenPaths $ProtectedPaths
+        $configPath=Resolve-EvPath $guard '.ai-workspace/project.json'
+        $cfg=ConvertFrom-EvJson ([IO.File]::ReadAllText($configPath))
+        $repo=Get-EvConfiguredRepositoryRoot $ProjectRoot $Package.repositoryId $cfg
     }
     $target=$null
     if($null-ne$Package-and$Package.schemaVersion-eq4){
@@ -1048,9 +1127,7 @@ function Get-AiwBoundaryEvidence($Receipt,$Boundary,$EvidenceContext=$null) {
     # Ordinary callers retain their current receipt-derived context.
     $ctx=if($null-ne$EvidenceContext){$EvidenceContext}else{New-AiwPackageEvidenceContext $Receipt.sourceLocators.projectRoot $package $Receipt.sourceLocators.frameworkRoot $Receipt.authorityContext.forbiddenScope -TaskPath $actualTaskPath -ProtectedPaths $protectedScope}
     # Empty typed evidence still hands the last consumer the original full path guard.
-    $retentionContext=$ctx|Select-Object *
-    $retentionContext.ForbiddenPaths=@(@($ctx.ForbiddenPaths)+@($ctx.CandidateProtectedPaths)|Select-Object -Unique)
-    if($skipTypedEvidence){return [pscustomobject]@{references=@();records=@();evidenceCeiling='INSTRUCTION_BOUND';retentionValues=@();retentionContext=$retentionContext}}
+    if($skipTypedEvidence){$handoff=Get-EvRetentionHandoff $ctx;return [pscustomobject]@{references=@();records=@();evidenceCeiling='INSTRUCTION_BOUND';retentionValues=@();retentionContext=$handoff.context;retentionProducers=$handoff.producers}}
     $taskText='';$plan=$null
     if($Receipt.sourceLocators.taskRelativePath-cne'NOT_APPLICABLE'){
         Import-Module (Join-Path $PSScriptRoot 'ControlTransition.psm1')
@@ -1149,7 +1226,8 @@ function Get-AiwBoundaryEvidence($Receipt,$Boundary,$EvidenceContext=$null) {
         $closedPlan=Get-AiwAcceptancePlan $closedText
         if($null-ne$closedPlan){$retentionValues.Add($closedPlan)}
     }
-    return [pscustomobject]@{references=@($refs);records=@($records);evidenceCeiling='INSTRUCTION_BOUND';retentionValues=@($retentionValues.ToArray());retentionContext=$retentionContext}
+    $handoff=Get-EvRetentionHandoff $ctx
+    return [pscustomobject]@{references=@($refs);records=@($records);evidenceCeiling='INSTRUCTION_BOUND';retentionValues=@($retentionValues.ToArray());retentionContext=$handoff.context;retentionProducers=$handoff.producers}
 }
 function Assert-AiwPushAcceptance($Context,$Reference,[string]$TaskId,$Candidates,[string]$Commit,[switch]$RequireReview,[string[]]$ExcludedReviewActors=@()) {
     $raw=Read-EvRef $Context ([pscustomobject]@{path=$Reference.path;identity=$Reference.identity}) -Json
@@ -1175,7 +1253,13 @@ function Assert-AiwPushAcceptance($Context,$Reference,[string]$TaskId,$Candidate
     }
 }
 function Resolve-AiwEvidenceObservationPath($Context,[string]$Path) {
-    Resolve-EvPath $Context $Path -AllowMissing -AllowDirectory
+    if($null-ne$Context.PSObject.Properties['HistoricalPathGuards']){
+        $full=[IO.Path]::GetFullPath($Path,$Context.ProjectRoot)
+        foreach($guard in $Context.HistoricalPathGuards){
+            if($full.Equals($guard.RepositoryRoot,[StringComparison]::OrdinalIgnoreCase)-or$full.StartsWith($guard.RepositoryRoot+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)){$null=Resolve-EvPath $guard $Path -AllowMissing -AllowDirectory -Observation}
+        }
+    }
+    Resolve-EvPath $Context $Path -AllowMissing -AllowDirectory -Observation
 }
 function Read-AiwEvidenceReference($Context,$Reference,[switch]$Json,[switch]$Candidate) {
     Read-EvRef $Context $Reference -Json:$Json -Candidate:$Candidate
@@ -1269,6 +1353,7 @@ function Assert-AiwProductionFinalize($Context,$Pair,$Package,$Candidates,[strin
     if($result.decisionIdentity-cne(Get-AiwProcessDecisionIdentity $source $input)-or$result.selectionIdentity-cne$source.selectionIdentity){throw 'QUALITY_PRODUCTION_FINALIZE_DRIFT'}
     if(-not([IO.Path]::GetFullPath($a.projectRoot)).Equals($Context.ProjectRoot,[StringComparison]::OrdinalIgnoreCase)){throw 'QUALITY_PRODUCTION_ROOT_DRIFT'}
     $guard=New-AiwPackageEvidenceContext $Context.ProjectRoot $producer $source.sourceLocators.frameworkRoot (@($Context.ForbiddenPaths)+@($a.forbiddenScope)) -TaskPath $source.sourceLocators.taskRelativePath -ProtectedPaths (@($Context.CandidateProtectedPaths)+@($a.protectedScope))
+    Share-EvReadState $guard $Context
     if(-not$guard.RepositoryRoot.Equals($Context.RepositoryRoot,[StringComparison]::OrdinalIgnoreCase)){throw 'QUALITY_PRODUCTION_REPOSITORY_DRIFT'}
     $scope=@(Get-AiwActionScopeObjects $producer $action $guard)
     if((@($scope.path|Sort-Object)-join'|')-cne(@($a.exactScope|Sort-Object)-join'|')){throw 'QUALITY_PRODUCTION_SCOPE_DRIFT'}
@@ -1286,7 +1371,7 @@ function Assert-AiwProductionFinalize($Context,$Pair,$Package,$Candidates,[strin
         # Existing explicit M/A plans retain their stronger unchanged-member
         # bindings. No write authority is inferred for those other members.
         $parent=Get-EvReviewParent $guard $producer
-        $complete=if($null-ne$parent.PSObject.Properties['repairReviewPlan']){@(Get-AiwComposedReviewCandidate $guard $producer $post)}else{@($Candidates)}
+        $complete=@(if($null-ne$parent.PSObject.Properties['repairReviewPlan']){Get-AiwComposedReviewCandidate $guard $producer $post}else{$Candidates})
     }else{$complete=@(Get-AiwComposedReviewCandidate $guard $producer $post)}
     Assert-EvSameCandidates $complete $Candidates $guard
     foreach($ref in $Candidates){$null=Read-EvRef $guard $ref -Candidate}
@@ -1312,6 +1397,7 @@ function Assert-AiwProductionFinalize($Context,$Pair,$Package,$Candidates,[strin
             if($record.actor-cne$Writer-or$record.outcome-cne'PASS'-or@($record.checks|Where-Object{$_.method-ceq'COMMAND'}).Count-eq0){throw 'QUALITY_PRODUCTION_TEST_NOT_SUCCESSFUL'}
         }
     }
+    Add-EvValidatedProducer $guard $Pair $source $input $result
     [pscustomobject]@{writer=$Writer;source=$source;package=$producer;postimages=$complete;input=$input;result=$result}
 }
 Export-ModuleMember -Function Get-AiwPackageQuality,Test-AiwQualityManagementPackage,Test-AiwPackageReviewRequired,Assert-AiwProductionFinalize

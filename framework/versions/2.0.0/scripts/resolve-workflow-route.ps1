@@ -55,6 +55,13 @@ $operation = [string]$inputObject.operation
 $result = $null
 
 switch ($operation) {
+    'RUNTIME_MAINTENANCE' {
+        Assert-ExactFields $inputObject $inputMemberNames @('operation','projectRoot','admitInputRef','retainedRefs','retainedPaths')
+        Assert-String $inputObject.projectRoot 'projectRoot'
+        Import-Module (Join-Path $PSScriptRoot 'WorkflowDelivery.psm1')
+        $requestPath=if($PSCmdlet.ParameterSetName-ceq'Path'){[IO.Path]::GetFullPath($InputPath)}else{''}
+        $result=Invoke-AiwRuntimeMaintenance $inputObject $requestPath
+    }
     'QUALITY_PLAN_PREPARE' {
         Assert-ExactFields $inputObject $inputMemberNames @('operation','schemaVersion','projectRoot','taskPath','expectedTaskIdentity','projectConfigRef','policyRef','subject','requirementsRef')
         if(-not(Test-JsonInteger $inputObject.schemaVersion)-or$inputObject.schemaVersion-ne1){throw 'QUALITY_PREPARE_SCHEMA'}

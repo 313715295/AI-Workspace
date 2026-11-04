@@ -634,10 +634,9 @@ if ($domainExternalPackage) {
         if ($actions.Count -ne 1 -or [string]$actions[0] -cne 'EXTERNAL') { throw 'DOMAIN_EXTERNAL_ACTION_MUST_BE_PURE' }
         if ([string]$package.issuer -cne [string]$package.owner -or
             ([string]$package.grantee -cne [string]$package.owner -and $package.externalBinding.schemaVersion-ne2)) { throw 'DOMAIN_EXTERNAL_OWNER_ACTOR_MISMATCH' }
-        $namedExternalDelegate=$package.externalBinding.schemaVersion-eq2-and[string]$package.grantee-cne[string]$package.owner
         if ($taskRouteMatches.Count -ne 1 -or [string]$taskRouteMatches[0].Groups['role'].Value -cne 'TASK_OWNER' -or
-            ($namedExternalDelegate-and[string]$taskRouteMatches[0].Groups['actor'].Value-cne[string]$package.owner) -or
-            (-not$namedExternalDelegate-and[string]$taskRouteMatches[0].Groups['phase'].Value-cne'EXTERNAL')) { throw 'DOMAIN_EXTERNAL_TASK_ROUTE' }
+            ([string]$taskRouteMatches[0].Groups['actor'].Value-cne[string]$package.owner) -or
+            ($package.externalBinding.schemaVersion-ne2-and[string]$taskRouteMatches[0].Groups['phase'].Value-cne'EXTERNAL')) { throw 'DOMAIN_EXTERNAL_TASK_ROUTE' }
         $binding = $package.externalBinding
         $bindingFields = @('schemaVersion','route','provider','orderedOperations','outputUse','totalQuantity','perOperationRetryCeiling','totalRetryCeiling','costClass','costCeiling','stopConditions','batchExecutionMode','reissuable','ambiguousConsumptionPolicy','escalationFlags')
         $grantV2=$binding.schemaVersion-eq2

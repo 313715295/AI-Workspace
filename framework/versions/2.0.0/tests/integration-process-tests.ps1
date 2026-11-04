@@ -1,13 +1,165 @@
 [CmdletBinding()]
-param([ValidateSet('All','NativeIO')][string]$Case='All')
+param([ValidateSet('All','NativeIO','RuntimeMaintenance','ExternalCompletion')][string]$Case='All',[string]$OriginalExternalRuntimeRoot='')
+if($OriginalExternalRuntimeRoot-and$Case-cne'ExternalCompletion'){throw 'ORIGINAL_EXTERNAL_RUNTIME_REQUIRES_FOCUSED_CASE'}
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 if($PSVersionTable.PSEdition-cne'Core'-or$PSVersionTable.PSVersion.Major-lt7){throw 'POWERSHELL7_REQUIRED'}
+function Invoke-ProcessRuntimeMaintenanceConsumer {
+ Import-Module (Join-Path $PSScriptRoot 'TestHarness.psm1')
+ $run=Invoke-AiwTestProcess ([Environment]::ProcessPath) @('-NoProfile','-NonInteractive','-File',(Join-Path $PSScriptRoot 'result-acceptance-tests.ps1'),'-Group','RuntimeMaintenance') -WorkingDirectory (Get-Location).Path -GroupId 'runtime-maintenance-process'
+ $run.Output|Write-Output
+ if($run.Code-ne0){throw ('RUNTIME_MAINTENANCE_NATIVE|exit='+$run.Code)}
+}
+if($Case-ceq'RuntimeMaintenance'){
+ Invoke-ProcessRuntimeMaintenanceConsumer
+ Write-Output 'EVIDENCE_CEILING|PARTIAL|runtime-maintenance-original-admission-delete-finalize|synthetic-qualification-only'
+ return
+}
 Import-Module (Join-Path $PSScriptRoot 'IntegrationFixture.psm1') -Force
 $integrationContext=$null
 try {
  $integrationContext=New-IntegrationContext (Join-Path $PSScriptRoot '..') 'process'
  foreach($key in $integrationContext.Keys){if($key-ceq'script:testJunctions'){$script:testJunctions=$integrationContext[$key]}else{Set-Variable -Name $key -Value $integrationContext[$key]}}
+function Test-IntegrationOriginalExternalCompletion([string]$OriginalRuntimeRoot='') {
+ # The portable case uses isolated synthetic qualification. The optional old
+ # runtime is an actual immutable package, registered into a new private project.
+ $toolRoot=Join-Path $temp 'external-completion-tool'
+ $toolVersion=New-IntegrationRuntimeFixture $toolRoot -Maintenance
+ $null=Seal-ReleaseFixture $toolVersion 'ORIGINAL_EXTERNAL_TEST_FIXTURE'
+ Seal-MaintenanceRuntimeFixture $toolRoot
+ $originalRoot=if($OriginalRuntimeRoot){[IO.Path]::GetFullPath($OriginalRuntimeRoot)}else{$toolRoot}
+ $originalVersion=Join-Path $originalRoot 'framework/versions/2.0.0'
+ $originalResolver=Join-Path $originalVersion 'scripts/resolve-process-requirements.ps1'
+ $root=Join-Path $temp 'external-completion-project';$null=[IO.Directory]::CreateDirectory($root)
+ $cp=Join-Path $root '.ai-workspace';$projectId='external-completion-fixture';$taskId='EXTERNAL-COMPLETION-001';$actor='owner-fixture'
+ $taskRelative='.ai-workspace/tasks/active/'+$taskId+'.md';$taskPath=Join-Path $root $taskRelative
+ function External-SaveJson([string]$Path,$Value){Write-Utf8 $Path ($Value|ConvertTo-Json -Depth 100)}
+ function External-Ref([string]$Path){[ordered]@{path=$Path;identity=Get-Identity $Path}}
+ function External-RunJson([string]$Script,[string[]]$Arguments,[string]$OutputPath){
+  $run=Invoke-Ps $Script $Arguments $root
+  Write-Utf8 $OutputPath $run.Stdout
+  $value=try{$run.Stdout|ConvertFrom-Json -Depth 100}catch{throw ('EXTERNAL_NATIVE_JSON|'+$run.Code+'|'+$run.Text)}
+  return [pscustomobject]@{Run=$run;Value=$value;Ref=(External-Ref $OutputPath)}
+ }
+ $savedHostActor=$env:CODEX_THREAD_ID;$env:CODEX_THREAD_ID=$actor
+ try{
+  if($OriginalRuntimeRoot){
+   $initial=Join-Path $temp 'EXTERNAL-REGISTER-001.md'
+   Write-Utf8 $initial @'
+# EXTERNAL-REGISTER-001 — Isolated original external compatibility project
+- Task schema: 2.0.0
+- Status: ACTIVE
+- Profile: CRITICAL; reason=Register the immutable original source for a bounded compatibility test.
+- Owner: owner-fixture
+- Work route: actor=owner-fixture; role=CONTROLLER; phase=IMPLEMENT
+- Phase gate: FALSE
+- Range summary: profile=CRITICAL; lifecycle=ACTIVE; current_exact=REGISTER; expected_paths=[.ai-workspace/PROJECT.md]; actual_paths=[.ai-workspace/PROJECT.md]
+- Writer / reviewer / authorization: isolated fixture only
+- Git / push / external: no real provider
+## Current
+- Goal: Register this isolated project and inspect one actual local tool result under the unchanged original runtime.
+- Acceptance: Real original admission, source-drift failure, new read-only historical completion; no provider replay.
+'@
+   $registerArgs=@('-ProjectId',$projectId,'-DisplayName','Original external compatibility fixture','-RepositoryPath',$root,'-FrameworkVersion','2.0.0','-ControllerId',$actor,'-WorkspaceRoot',$originalRoot,'-LocalCandidatePilot','-InitialTaskPath',$initial,'-ExpectedInitialTaskIdentity',(Get-Identity $initial),'-InitialTaskRelativePath','.ai-workspace/tasks/active/EXTERNAL-REGISTER-001.md','-Apply')
+   $registered=Invoke-Ps (Join-Path $originalRoot 'scripts/register-project.ps1') $registerArgs $root
+   Assert-True ($registered.Code-eq0-and(Test-Path -LiteralPath (Join-Path $cp 'upgrade-recovery/2.0.0/state.json'))) ('actual-original-runtime-registration|'+$registered.Text)
+  }else{
+   External-SaveJson (Join-Path $cp 'project.json') ([ordered]@{schemaVersion=7;id=$projectId;displayName='External completion fixture';controlPlaneLayout='repo-local';repositoryRoot='..';frameworkVersion='2.0.0';frameworkToolBackend='powershell7';routineExcludedPaths=@();frameworkCapabilities=[ordered]@{};sourceBindings=@();processPolicy=[ordered]@{schemaVersion=3;locator='.ai-workspace/process-policy.json'}})
+   External-SaveJson (Join-Path $cp 'controller.json') ([ordered]@{schemaVersion=1;projectId=$projectId;controllerId=$actor;controllerEpoch=1;state='CURRENT'})
+   External-SaveJson (Join-Path $cp 'corrections.json') ([ordered]@{schemaVersion=3;contractVersion='2.0.0';projectId=$projectId;corrections=@()})
+   Write-Utf8 (Join-Path $cp 'BOOTSTRAP.md') "<!-- PROJECT-CUSTOM:BEGIN -->`n<!-- PROJECT-CUSTOM:END -->"
+  }
+  $configPath=Join-Path $cp 'project.json';$policyPath=Join-Path $cp 'process-policy.json'
+  $config=Get-Content -LiteralPath $configPath -Raw|ConvertFrom-Json -Depth 100
+  $config.sourceBindings=@([pscustomobject]@{id='fixture-docs';provider='LOCAL_DIRECTORY';locator=[pscustomobject]@{root='.'};allowedPaths=@([pscustomobject]@{kind='FILE';locator='docs/original.md'});decisionLocator='fixture:original-source-scope'})
+  External-SaveJson $configPath $config;Write-Utf8 (Join-Path $root 'docs/original.md') 'Original source; unrelated to the external request.'
+  $policy=[ordered]@{schemaVersion=3;contractVersion='2.0.0';projectId=$projectId;rules=@()};External-SaveJson $policyPath $policy
+  Write-Utf8 $taskPath ("# $taskId - original external fixture`n- Task schema: 2.0.0`n- Owner: $actor`n- Work route: actor=$actor; role=TASK_OWNER; phase=EXTERNAL`n- Status: ACTIVE`n- Range summary: profile=STANDARD; lifecycle=ACTIVE; expected_paths=[request.txt]; actual_paths=[]`n")
+  $rd=Join-Path $cp ('runtime/'+$taskId+'/'+$actor);$null=[IO.Directory]::CreateDirectory($rd)
+  $preimage=Join-Path $rd 'original-project.json';[IO.File]::Copy($configPath,$preimage,$false)
+  $request=Join-Path $root 'request.txt';Write-Utf8 $request 'Only this local fixture request is authorized.'
+  $grant=Join-Path $rd 'original-grant.txt';Write-Utf8 $grant 'SIMULATED original user permits owner-fixture to perform LOCAL-1 once with this request, isolated-local-tool, zero retries, no account, network, money or publication; only its local result is used.'
+  $flags=[ordered]@{};foreach($name in @('paymentOrSubscription','commercialLicensing','accountOrCredentialChange','publicPublication','installation','protectedOrSecretUpload','crossDomain','formalAssetActivation','projectPhaseChange','gitOrPush','sharedQuotaOrResource','unknownScope')){$flags[$name]=$false}
+  $package=[ordered]@{schemaVersion=1;frameworkVersion='2.0.0';taskId=$taskId;profile='STANDARD';lifecycle='ACTIVE';owner=$actor;issuer=$actor;issuerRole='TASK_OWNER';grantee=$actor;bundle='EXTERNAL_LOCAL_FIXTURE';decisionClass='EXTERNAL_ACTION';userConfirmation='SIMULATED_ORIGINAL_RESOURCE_GRANT';reviewIndependence='NOT_APPLICABLE';delegatedGitCloser=$false;taskIdentity=Get-Identity $taskPath;actions=@('EXTERNAL');exactPaths=@('request.txt');objectIdentities=@([ordered]@{path='request.txt';identity=Get-Identity $request});invalidatesOn=@('TASK_CHANGE','OWNER_CHANGE','GRANTEE_CHANGE','ACTION_CHANGE','PATHSET_CHANGE','OBJECT_DRIFT','USER_DECISION_CHANGE','PROJECT_CONFIG_DRIFT');projectConfigIdentity=Get-Identity $configPath;externalBinding=[ordered]@{schemaVersion=2;route='TASK_OWNER_DIRECT_DOMAIN_EXTERNAL';provider='isolated-local-tool';orderedOperations=@([ordered]@{operationId='LOCAL-1';operationKind='LOCAL_COUNTER';declaredInputClass='EXACT_PAYLOADS';payloads=@([ordered]@{payloadKind='normalized-text';normalizedIdentity=Get-Identity $request;canonicalizationVersion='UTF8_LF_V1'})});outputUse='isolated local result';perOperationRetryCeiling=0;totalRetryCeiling=0;stopConditions=@('stop after this call','stop on unknown consumption');batchExecutionMode='ONE_LOGICAL_ATOMIC_EXECUTION';reissuable=$false;ambiguousConsumptionPolicy='BLOCK';escalationFlags=$flags;grantRefs=@((External-Ref $grant));grantAssessment=[ordered]@{status='CURRENT_AND_COVERED';withdrawalOrReplacementObserved=$false;provider='isolated-local-tool';operationIds=@('LOCAL-1');outputUse='isolated local result';paidResourceUse=$false;sharedResourceUse=$false}}}
+  $packagePath=Join-Path $rd 'original-package.json';External-SaveJson $packagePath $package
+  $inputValue=[ordered]@{schemaVersion=5;mode='DISCOVER';contextType='TASK';readOnlyContext='NOT_APPLICABLE';ruleLoad=[ordered]@{mode='FULL'};projectRoot=$root;frameworkRoot=$originalRoot;taskPath=$taskPath;expectedProjectConfigIdentity=Get-Identity $configPath;expectedCorrectionsIdentity=Get-Identity (Join-Path $cp 'corrections.json');expectedTaskIdentity=Get-Identity $taskPath;observedActor=$actor;capabilities=@();exactPaths=@('request.txt');forbiddenPaths=@();protectedPaths=@();authorizationPackagePath=$packagePath;expectedAuthorizationIdentity=Get-Identity $packagePath;userDecision=$package.userConfirmation;recoveryState='CURRENT';hostEnforcementGrade='INSTRUCTION_BOUND';invocationState='PROVEN_EXPLICIT';evaluationOnly=$false;intentEnvelope=[ordered]@{schemaVersion=2;objective='Observe one original local fixture call and preserve its actual result';requestedActionKind='EXTERNAL';requestedResultKind='EXTERNAL_RESULT';semanticHints=@();pathHints=@('request.txt');capabilityHints=@();mutationHints=@();externalHints=@();ambiguityState='CLEAR';facets=[ordered]@{domain=[ordered]@{state='KNOWN';values=@('aiw:software')};workType=[ordered]@{state='KNOWN';values=@('aiw:implementation')};deliverableType=[ordered]@{state='KNOWN';values=@('aiw:code')};stage=[ordered]@{state='KNOWN';values=@('aiw:implementation')}}}}
+  $discoverPath=Join-Path $rd 'original-discover.json';External-SaveJson $discoverPath $inputValue
+  $discovered=External-RunJson $originalResolver @('-InputPath',$discoverPath,'-AsJson') (Join-Path $rd 'original-discover-result.json')
+  Assert-True ($discovered.Run.Code-eq0-and$discovered.Value.status-ceq'PASS') ('original-external-discover|'+$discovered.Run.Text)
+  $compact=$discovered.Value.compactReceipt;$compactPath=Join-Path $rd 'original-compact.json';External-SaveJson $compactPath $compact
+  # Preserve the actual older boundary3 shape: no evidenceRefs property.
+  $boundary=[ordered]@{schemaVersion=3;mode='ADMIT_ACTION';discoverReceiptPath=$compactPath;expectedDiscoverReceiptIdentity=Get-Identity $compactPath;preparationReceipts=@($compact.selectedObligations|ForEach-Object preparationRequirements|Sort-Object -Unique);resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity=$package.userConfirmation;protectionState='BOUND'}
+  # The original protocol binds a public decision identity, not its free-text label.
+  $boundary.publicDecisionIdentity=Get-Identity $grant
+  $admitPath=Join-Path $rd 'original-admit.json';External-SaveJson $admitPath $boundary
+  $admitted=External-RunJson $originalResolver @('-InputPath',$admitPath,'-AsJson') (Join-Path $rd 'original-admit-result.json')
+  Assert-True ($admitted.Run.Code-eq0-and$admitted.Value.status-ceq'PASS') ('original-external-real-admit|'+$admitted.Run.Text)
+  $tool=Join-Path $root 'local-once.ps1';$observation=Join-Path $rd 'native-observation.json'
+  Write-Utf8 $tool @'
+param([string]$OutputPath,[string]$RequestPath,[string]$ExpectedRequestIdentity)
+$ErrorActionPreference='Stop'
+if([IO.File]::Exists($OutputPath)){throw 'LOCAL_CALL_ALREADY_OBSERVED'}
+$requestBytes=[IO.File]::ReadAllBytes($RequestPath)
+$requestIdentity=$requestBytes.Length.ToString()+'|'+[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($requestBytes))
+if($requestIdentity-cne$ExpectedRequestIdentity){throw 'LOCAL_REQUEST_OUTSIDE_ORIGINAL_GRANT'}
+$value=[ordered]@{outcome='SUCCESS';calls=1;retries=0;provider='isolated-local-tool';operation='LOCAL_COUNTER';requestIdentity=$requestIdentity;processId=$PID;observedUtc=[DateTimeOffset]::UtcNow.ToString('o')}
+[IO.File]::WriteAllText($OutputPath,($value|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
+$value|ConvertTo-Json -Compress
+'@
+  $called=Invoke-Ps $tool @('-OutputPath',$observation,'-RequestPath',$request,'-ExpectedRequestIdentity',$package.externalBinding.orderedOperations[0].payloads[0].normalizedIdentity) $root
+  $actual=Get-Content -LiteralPath $observation -Raw|ConvertFrom-Json
+  Assert-True ($called.Code-eq0-and$actual.calls-eq1-and$actual.retries-eq0-and$actual.processId-ne$PID-and$actual.requestIdentity-ceq$package.externalBinding.orderedOperations[0].payloads[0].normalizedIdentity) 'original-external-tool-is-one-real-isolated-native-call-with-original-exact-request'
+  $originalObservationIdentity=Get-Identity $observation
+  $config.sourceBindings[0].allowedPaths+=@([pscustomobject]@{kind='FILE';locator='docs/unrelated.md'});External-SaveJson $configPath $config
+  $boundary.mode='FINALIZE_OUTPUT';$boundary.resultReceipts=@($compact.selectedObligations|ForEach-Object resultRequirements|Sort-Object -Unique)+@('OBJECT_POSTIMAGE|request.txt|'+(Get-Identity $request))
+  $finalPath=Join-Path $rd 'original-finalize.json';External-SaveJson $finalPath $boundary
+  $failed=External-RunJson $originalResolver @('-InputPath',$finalPath,'-AsJson') (Join-Path $rd 'original-finalize-result.json')
+  Assert-True ($failed.Run.Code-ne0-and$failed.Value.status-ceq'FAIL'-and$failed.Value.reason-ceq'DISCOVER_SOURCE_DRIFT|projectConfigIdentity') ('original-source-drift-failure-is-real|'+$failed.Run.Text)
+  # The old task is now closed and released; today's policy is not the old one.
+  Write-Utf8 $taskPath ("# $taskId - original external fixture`n- Task schema: 2.0.0`n- Owner: $actor`n- Work route: actor=$actor; role=TASK_OWNER; phase=EXTERNAL`n- Status: CLOSED`n- Closure outcome: SUCCESS`n- Range summary: profile=STANDARD; lifecycle=CLOSED; expected_paths=[request.txt]; actual_paths=[request.txt]`n- Writer / reviewer / authorization: RELEASED`nOriginal failure and native result retained; this is fixture history, no new execution permission.`n")
+  $policy.rules=@([ordered]@{ruleId='LATER_POLICY';requirementReason='Later project policy';effectiveRule='No new local tool request is permitted by this historical completion.';selectors=[ordered]@{profiles=@('*');roles=@('*');phases=@('*');actionKinds=@('*');resultKinds=@('*');pathPrefixes=@();capabilities=@();semanticTerms=@()};preparationRequirements=@();resultRequirements=@();decisionLocator='fixture:later-policy'})
+  External-SaveJson $policyPath $policy
+  $decision=Join-Path $rd 'completion-decision.txt';Write-Utf8 $decision 'SIMULATED current project decision permits read-only recording of the already observed original result; it does not reopen the closed task or permit another tool call.'
+  $change=Join-Path $rd 'later-change.txt';Write-Utf8 $change ('Later policy change observed after native result '+$actual.observedUtc+'; current time '+[DateTimeOffset]::UtcNow.ToString('o'))
+  $completion=[ordered]@{schemaVersion=1;kind='ORIGINAL_EXTERNAL_RESULT_COMPLETION';projectId=$projectId;originalAdmission=[ordered]@{inputRef=(External-Ref $admitPath);resultRef=$admitted.Ref};originalFinalize=[ordered]@{inputRef=(External-Ref $finalPath);resultRef=$failed.Ref};originalProjectConfigRef=(External-Ref $preimage);toolObservationRef=(External-Ref $observation);completionDecisionRef=(External-Ref $decision);completionPermission='CURRENT_AND_COVERED';invocationAssessment=[ordered]@{permissionAtInvocation='CURRENT_AND_COVERED';changeTiming='AFTER_EXECUTION';operationIds=@('LOCAL-1');rationale='Original real admission and one local observation precede this later policy change; the original task has closed.';changeEvidenceRef=(External-Ref $change)}}
+  $completionPath=Join-Path $rd 'completion.json';External-SaveJson $completionPath $completion
+  $upgrader=Join-Path $toolRoot 'scripts/upgrade-project.ps1'
+  function External-Complete([string]$Path,[string]$Name){External-RunJson $upgrader @('-ProjectId',$projectId,'-ToVersion','2.0.0','-RepositoryPath',$root,'-ActorRouteActor',$actor,'-CompleteOriginalExternalResult','-OriginalExternalCompletionInputPath',$Path,'-ExpectedOriginalExternalCompletionIdentity',(Get-Identity $Path)) (Join-Path $rd ($Name+'-result.json'))}
+  $completed=External-Complete $completionPath 'completion'
+  Assert-True ($completed.Run.Code-eq0-and$completed.Value.status-ceq'PASS'-and$completed.Value.actionOutcome-ceq'SUCCESS'-and$completed.Value.configChange-ceq'SOURCE_ALLOWED_PATHS_ADDED_ONLY'-and$completed.Value.originalPolicyIdentity-cne$completed.Value.currentPolicyIdentity) ('historical-completion-after-unrelated-config-addition-closed-task-and-later-policy|'+$completed.Run.Text)
+  Assert-True ($completed.Value.successorState-ceq'NONE'-and-not$completed.Value.authorityGranted-and$completed.Value.futureExecution-ceq'NOT_GRANTED'-and-not$completed.Value.taskExecutionReopened-and$null-eq$completed.Value.PSObject.Properties['decisionIdentity']-and(Get-Identity $observation)-ceq$originalObservationIdentity-and(Get-Identity $failed.Ref.path)-ceq$failed.Ref.identity) 'historical-result-preserves-failure-and-native-fact-with-no-replay-or-successor-receipt'
+  # Negative consumer inputs are new counterexamples, never rewritten history.
+  foreach($case in @('MISSING_ADMISSION','MISSING_ORIGINAL_OBLIGATION','WITHDRAWN_BEFORE','UNKNOWN_TIMING','UNKNOWN_OBSERVATION','FAILURE_OBSERVATION')){
+   $bad=$completion|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100
+   switch($case){
+    MISSING_ADMISSION{$bad.originalAdmission.resultRef.path=Join-Path $rd 'never-admitted.json'}
+    MISSING_ORIGINAL_OBLIGATION{
+     $badFinal=$boundary|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100;$badFinal.resultReceipts=@($badFinal.resultReceipts|Where-Object{$_-cne'EXTERNAL_RESULT_OBSERVED'})
+     $badFinalPath=Join-Path $rd 'missing-obligation-final.json';External-SaveJson $badFinalPath $badFinal;$bad.originalFinalize.inputRef=External-Ref $badFinalPath
+    }
+    WITHDRAWN_BEFORE{$bad.invocationAssessment.permissionAtInvocation='WITHDRAWN';$bad.invocationAssessment.changeTiming='BEFORE_EXECUTION';$bad.invocationAssessment.rationale='Counterexample input: alleged withdrawal before execution must not be accepted as a completed authorized action.'}
+    UNKNOWN_TIMING{$bad.invocationAssessment.changeTiming='UNKNOWN';$bad.invocationAssessment.PSObject.Properties.Remove('changeEvidenceRef')}
+    {$_-cin@('UNKNOWN_OBSERVATION','FAILURE_OBSERVATION')}{
+     $counterexampleObservation=$actual|ConvertTo-Json -Depth 20|ConvertFrom-Json
+     $counterexampleObservation.outcome=if($case-ceq'UNKNOWN_OBSERVATION'){'UNKNOWN'}else{'FAILURE'}
+     $counterexampleObservation|Add-Member fixtureCounterexample $true
+     $counterexampleObservationPath=Join-Path $rd ($case+'.json');External-SaveJson $counterexampleObservationPath $counterexampleObservation
+     $bad.toolObservationRef=External-Ref $counterexampleObservationPath
+    }
+   }
+   $badPath=Join-Path $rd ('counterexample-'+$case+'.json');External-SaveJson $badPath $bad;$rejected=External-Complete $badPath ('counterexample-'+$case)
+   if($case-cin@('WITHDRAWN_BEFORE','UNKNOWN_TIMING')){Assert-True ($rejected.Run.Code-eq3-and$rejected.Value.status-ceq'INCOMPLETE'-and$rejected.Value.actionOutcome-ceq'SUCCESS'-and$rejected.Value.futureExecution-ceq'NOT_GRANTED') ('historical-'+$case+'-preserves-fact-without-claiming-authorized-completion')}
+   elseif($case-ceq'UNKNOWN_OBSERVATION'){Assert-True ($rejected.Run.Code-eq3-and$rejected.Value.status-ceq'INCOMPLETE'-and$rejected.Value.actionOutcome-ceq'UNKNOWN'-and$rejected.Value.futureExecution-ceq'NOT_GRANTED') 'historical-unknown-consumption-is-incomplete-without-new-call-right'}
+   elseif($case-ceq'FAILURE_OBSERVATION'){Assert-True ($rejected.Run.Code-eq0-and$rejected.Value.status-ceq'PASS'-and$rejected.Value.actionOutcome-ceq'FAILURE'-and$rejected.Value.futureExecution-ceq'NOT_GRANTED') 'historical-completion-status-does-not-relabel-tool-failure-as-success'}
+   else{Assert-True ($rejected.Run.Code-ne0-and$rejected.Value.status-ceq'FAIL') ('historical-'+$case+'-refused')}
+  }
+  Assert-True ((Get-Identity $observation)-ceq$originalObservationIdentity-and(Get-Identity $failed.Ref.path)-ceq$failed.Ref.identity) 'all-historical-counterexamples-leave-original-tool-result-and-failure-unchanged'
+  Write-Output ('EVIDENCE_CEILING|historical-external-read-only|original='+$(if($OriginalRuntimeRoot){'ACTUAL_UNCHANGED_FIXED_RUNTIME'}else{'ISOLATED_COMPATIBLE_RUNTIME'})+'|new-tool=SYNTHETIC_QUALIFICATION|host-actor=SIMULATED|paid-provider=NOT_CALLED')
+ }finally{$env:CODEX_THREAD_ID=$savedHostActor}
+}
+
+ if($Case-cin@('All','ExternalCompletion')){Test-IntegrationOriginalExternalCompletion $OriginalExternalRuntimeRoot}
+ if($Case-ceq'ExternalCompletion'){Write-Output 'EVIDENCE_CEILING|PARTIAL|original-external-result-completion';return}
     Import-Module (Join-Path $candidateRoot 'scripts\ProcessRequirementComposition.psm1') -Force
  $correctionChecker=Join-Path $candidateRoot 'scripts/check-project-corrections.ps1'
  $correctionFrameworkRoot=Join-Path $temp 'correction-framework-fixture'
@@ -624,4 +776,5 @@ try {
     Assert-True ($invalidV2Run.Code-eq2-and$invalidV2Value.status-ceq'FAIL'-and$invalidV2Value.reason-ceq'FORMAT_CURRENT_VALIDATION_FAILED|PROJECT_CORRECTIONS') 'corrections-v2-unregistered-mechanical-check-fails-closed'
     Write-Utf8 $correctionPath $correctionOriginal;$discoverInput.expectedCorrectionsIdentity=Get-Identity $correctionPath;Write-Utf8 $discoverInputPath ($discoverInput|ConvertTo-Json -Depth 20)
 } finally { if($integrationContext){Close-IntegrationContext $integrationContext} }
+if($Case-ceq'All'){Invoke-ProcessRuntimeMaintenanceConsumer}
 Write-Output ('RESULT|'+(Get-IntegrationCheckCount)+'/'+(Get-IntegrationCheckCount)+' passed|scope=Framework-2.0.0-process|')

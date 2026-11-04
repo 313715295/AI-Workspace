@@ -16,6 +16,12 @@ Tool Contract 为 **4**，导航为 **PROJECT_BOOTSTRAP / navigationContractVers
 
 项目可显式启用质量阶段策略：在 policy3 的 qualityAssurance 中选择默认的自查、独立审核、成果接受阶段，并由稳定适用规则的 qualityStages 补充所需阶段；未启用的项目继续原 LEGACY 行为。一次准备绑定完整成果和当前选择，当前任务、历史证据及接受、关闭等消费者沿同一选择核对。项目选择不豁免实际权限、保护、真实测试失败、独立性及专门的发行、采用和外部门禁。配置、准备和启用顺序见 [Tool Contract](TOOL_CONTRACT.md#项目显式质量阶段与一次准备)；本候选的实现、自查和整版资格仍分别取证。
 
+历史结果由原对象根解释，今天的消费者继续应用当前保护；合法相对引用及JSON数组不再被当作错误对象拒绝。材料释放在零候选时退出，只处理已经验证且精确匹配的可释放集合；需要由当前有限维护任务接手旧集合时，显式RUNTIME_MAINTENANCE复用原准入、逐对象重核和remaining结果。它不扫描历史材料或根据年龄推定可删。
+
+项目可在policy3中选择外部调用方式：缺省PER_ACTION保持原按次动作包和准入/收口；显式PROJECT_PREAUTHORIZED引用项目既有完整许可，在覆盖范围内直接使用原工具，省去逐次新卡、手工包和模型D/A/F。模式及适用许可由正常完整规则加载显示，无适用任务时保真实PROJECT_EXTERNAL上下文。宿主限制、用户保留事项、撤回、越界和UNKNOWN仍约束实际调用；配置通过不证明模型自然遵从。配置及行为见 [Tool Contract](TOOL_CONTRACT.md#项目外部授权模式与直接调用)，构造及配置例子见 [EXAMPLES](EXAMPLES.md)。原binding2和Owner合法主路线仍供按次路径使用。
+
+已完成外部调用的历史事实与新执行权限分别处理。根升级工具的显式CompleteOriginalExternalResult只读入口可由新合格固定包核对旧原准入、冻结义务、真实工具结果及原来源漂移失败；原任务关闭和后续政策变化不自动抹去事实。它保留原FAIL，补充历史结果，不重放工具、不重开任务、不授未来调用。支持的单操作binding2及原件要求见[项目接入说明](../../PROJECT_ADOPTION.md#已完成外部调用的历史结果补充)。源码能力、实际验证和新分发资格仍分别成立。
+
 ## 来源、采用与知识
 
 项目 schema7 的 `sourceBindings` 维护明确来源和读取许可，policy3 维护精确规范采用。已实现 LOCAL_DIRECTORY、GIT_REVISION、HTTPS_RESOURCE；按完整 revision、原始字节、采用项、依赖和实际实现绑定同一快照。规范采用绑定实际完整单元（FULL_FILE或唯一标记章节）及其完整有序依赖；同文件不同完整章节可组成依赖图，同一完整单元的别名重复拒绝，各章节共同绑定原始整文件身份。显示复用保留每条规则的依赖顺序、完整正文与义务，摘要不替代采用单元。PINNED 的合法精确本地事实可离线复用；FOLLOW 在本次读取固定实际 revision，不静默退回旧快照。读取来源不等于采用规则，采用规则也不等于本次命中；供给方不登记消费者，项目自行管理采用。
@@ -34,12 +40,14 @@ Git 支持明确的本地仓库或 HTTPS 仓库，解析到完整 commit 后读�
 
 首次新项目试点由根 PROJECT_ADOPTION 导航：支持本合同的合格固定命名候选可显式 LocalCandidatePilot 注册，生成当前 project7 / policy3、首张真实有限任务及 schema7 REGISTER origin。项目配置格式与采用state起源格式分别验证；默认STABLE注册和既有schema6采用起源、格式/跨版本路径保留各自严格分支。正常规则、support、首轮治理及 7→7 刷新共同复核真实完成事务，不用手填升级历史替代注册。此源码能力、隔离验证、Source Review、新分发、宿主接入和项目实际采用分别报告。
 
-主控承担项目持续责任，Owner承担有限成果生命周期；双方按委派后本人职责选择资源并可安排专家。健康聊天可复用，成果闭合与范围不随聊天延长。资源指引取 HOST_CODEX.md 的六种宿主配置映射（包含Astra/high）；先能力、后推理工作量，并计入协调、审核和返工成本。角色或 profile 不固定模型与 effort，明确用户覆盖及健康在途配置继续有效。
+主控承担项目持续责任，Owner承担有限成果生命周期；双方按委派后本人职责选择资源并可安排专家。同一未完成成果和同审有界修复复审可续健康且合格的原聊天；新有限成果、新独审默认新会话，已关闭/归档有限会话不默认恢复改名接新成果。长期保留须有真实持续职责，原事必要补正可回原会话。有限成果已交付、原结果已消费且无后续职责时实际归档并核对，任务卡与会话归档分别确认；待验收/返修保留。资源指引取 HOST_CODEX.md 的六种宿主配置映射（包含Astra/high）；先能力、后推理工作量，并计入协调、审核和返工成本。角色或 profile 不固定模型与 effort，明确用户覆盖及健康在途配置继续有效。
 
-问题驱动学习由实际任务承担责任，基本义务不依赖启用方法库。可选方法与正文通过原索引显式消费，内容可用不代表专业效果已证。当前规则加载按真实意图选择、同次去重并返回完整正文；旧Input5 REUSE兼容FULL，coverage差集及未来preload退役。健康同动作新增普通文件或更新包沿原ADMIT_ACTION重绑定，完整核当前权限、范围与来源，适用集合未变时不装配或显示正文；来源/要求变化、实际自测/返修与恢复重新完整加载。C05仍为UNSUPPORTED_FULLTEXT_FALLBACK，机械来源核对不证明模型记忆、attention、自然触发或宿主费用改善。
+问题驱动学习由实际任务承担责任，基本义务不依赖启用方法库。可选方法与正文通过原索引显式消费，内容可用不代表专业效果已证。当前规则加载按真实意图选择、同次去重并返回完整正文；旧Input5 REUSE兼容FULL，coverage差集及未来preload退役。健康同活动新增普通文件、更新包或本地配套操作沿原ADMIT_ACTION重绑定，完整核当前权限、范围、真实路线与来源；当前要求无新增且仅操作专属规则退场时，当前完整义务冻结到新compact及原F，正文装配/显示均为零。sourceObservation2保留原FULL加载ID及真实任务路线，旧格式保持严格分支。来源/要求变化、实际自测/自查/返修与恢复重新完整加载。C05仍为UNSUPPORTED_FULLTEXT_FALLBACK，机械来源核对不证明模型记忆、attention、自然触发或宿主费用改善。
 
 发行验证按根 FRAMEWORK_RELEASE 的 S0–S5 单向推进。PREPACKAGE 读取冻结完整 P/T/D 的 SOURCE_PAYLOAD_V1 和明确合成的资格夹具；全部必需组完成后才生成有限 Qpre。独立 Source Review 消费审核仍 PENDING 的 Mreview，Msealed 只投影两项审核字段，并内置原 Mreview 字节供 reader 复验；Qpre、P、生命周期和其他字段不变。schema2 旧入口与资格语义保持，新 proof 不使用 completeSuite。
 
 当前 reader 由 runner、builder、composer 及根注册/升级/采用状态共用，生产 reader 不依赖测试 helper。SOURCE_QUALIFIED 只证明已有源码资格；builder 输出 BUILT_UNVERIFIED，新 ZIP 原样冻结。POSTBUILD 使用已存在 ZIP、实际解压成员与原构建命令 fresh 验证完整性及隔离注册/同版本升级 smoke，Qpost 和接受记录均留包外，不改 ZIP 或内置 manifest。全部包后验证、适用独立审核与 Owner 接受齐备后才可声明 DISTRIBUTION_READY。
 
 源码资格须覆盖全部必需 Gpre。proof v1 的 VERIFIED_GROUP_COVERAGE 仍使用实际已接受 FULL_RUN 基线；proof v2/v3 的 CURRENT_GROUP_COVERAGE 可按各自严格格式直接复证平面的原 EXECUTED 记录，不要求先有 S5 基线。声明必须鲜测、依赖未知或实际输入、环境、位置等条件失效时仍执行受影响组，原 command/raw/执行时间和失败记录保持。便携读取已审证明不等于跨 root 复用旧执行。源码审核、正式分发、宿主安装与各项目真实采用分别后置；发布候选不会自动修改任何消费者 pin，测试调用数不证明降本。
+
+runner的原件解析复用仅在实际resume选择中建立单次私有索引，每次仍核全部显式成员的真实身份，并由原validator验证目标结果、raw、环境与cleanup；无resume及必需fresh路径不读取原件建索引。当前必要验证范围取D3，源码与实际包资格仍按既有出口判断；解析次数减少不自动证明整体提速。

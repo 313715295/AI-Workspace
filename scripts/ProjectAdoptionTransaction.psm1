@@ -2989,3 +2989,175 @@ function Get-AiwAdoptionSelectionArguments($Command,$Receipt,$SelectionContext=$
     }
     return @{SelectionContext=$SelectionContext}
 }
+
+# This read-only historical consumer never invokes an external tool or re-admits it.
+function Invoke-AiwOriginalExternalResultCompletion {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$RepositoryRoot,[Parameter(Mandatory)][string]$ProjectId,
+        [Parameter(Mandatory)][string]$InputPath,[Parameter(Mandatory)][string]$ExpectedInputIdentity,
+        [Parameter(Mandatory)][string]$ObservedActor,[string[]]$ForbiddenPaths=@())
+    $toolRoot=Split-Path -Parent $PSScriptRoot
+    $state=Get-AiwAdoptionRuntimeModule $toolRoot 'scripts/ProjectAdoptionState.psm1' @('Read-AiwProjectJson','Enter-AiwRootProjectSourceScope','Exit-AiwRootProjectSourceScope')
+    function External-CompletionFields($Object,[string[]]$Fields,[string]$Label) {
+        & $state {param($Object,$Fields,$Label) Assert-AiwAdoptionFields $Object $Fields $Label} $Object $Fields $Label
+    }
+    $root=Resolve-AiwRepositoryRoot $RepositoryRoot
+    $lease=& $state.ExportedCommands['Enter-AiwRootProjectSourceScope'] -ProjectRoot $root -Mode OBSERVE
+    try {
+        if($ObservedActor-cne[Environment]::GetEnvironmentVariable('CODEX_THREAD_ID','Process')){throw 'ORIGINAL_EXTERNAL_HOST_ACTOR'}
+        $documents=[Collections.Generic.List[object]]::new()
+        $denied=@($ForbiddenPaths)
+        $checkPath={param([string]$path)
+            & $state {param($root,$paths,$denied) Assert-AiwOriginalCompletionReadPaths $root $paths $denied} $root @($path) $denied
+        }
+        $readRef={param($ref,[string]$label,[bool]$json=$true)
+            External-CompletionFields $ref @('path','identity') $label
+            if($ref.path-isnot[string]-or$ref.identity-cnotmatch'^\d+\|[A-F0-9]{64}$'){throw ('ORIGINAL_EXTERNAL_REFERENCE|'+$label)}
+            $path=[IO.Path]::GetFullPath([string]$ref.path,$root);& $checkPath $path
+            $bytes=[IO.File]::ReadAllBytes($path)
+            if((Get-AiwByteIdentity $bytes)-cne$ref.identity){throw ('ORIGINAL_EXTERNAL_EVIDENCE_DRIFT|'+$label)}
+            if($json){$doc=& $state.ExportedCommands['Read-AiwProjectJson'] $path $label}
+            else{$text=[Text.UTF8Encoding]::new($false,$true).GetString($bytes);if([string]::IsNullOrWhiteSpace($text)-or$text.Contains([char]0)){throw ('ORIGINAL_EXTERNAL_TEXT|'+$label)};$doc=[pscustomobject]@{Path=$path;Identity=$ref.identity;Bytes=$bytes;Text=$text}}
+            if($doc.Identity-cne$ref.identity){throw ('ORIGINAL_EXTERNAL_EVIDENCE_DRIFT|'+$label)}
+            $documents.Add($doc);return $doc
+        }
+        $projectPath=Join-Path $root '.ai-workspace/project.json';& $checkPath $projectPath
+        $currentProject=& $state.ExportedCommands['Read-AiwProjectJson'] $projectPath 'ORIGINAL_EXTERNAL_CURRENT_PROJECT'
+        if($currentProject.Value.id-cne$ProjectId-or$currentProject.Value.frameworkVersion-cne'2.0.0'-or$currentProject.Value.controlPlaneLayout-cne'repo-local'){throw 'ORIGINAL_EXTERNAL_PROJECT_BINDING'}
+        $documents.Add($currentProject);$denied+=@($currentProject.Value.routineExcludedPaths)
+        if($currentProject.Value.schemaVersion-ne7-or$currentProject.Value.processPolicy.schemaVersion-ne3-or$currentProject.Value.processPolicy.locator-cne'.ai-workspace/process-policy.json'){throw 'ORIGINAL_EXTERNAL_CURRENT_PROJECT_FORMAT'}
+        $policyPath=Join-Path $root '.ai-workspace/process-policy.json';& $checkPath $policyPath
+        $currentPolicy=& $readRef ([pscustomobject]@{path=$policyPath;identity=(Get-AiwCurrentIdentity $policyPath)}) 'ORIGINAL_EXTERNAL_CURRENT_POLICY'
+        if($currentPolicy.Value.schemaVersion-ne3-or$currentPolicy.Value.projectId-cne$ProjectId){throw 'ORIGINAL_EXTERNAL_CURRENT_POLICY_BINDING'}
+
+        $inputDoc=& $readRef ([pscustomobject]@{path=$InputPath;identity=$ExpectedInputIdentity}) 'ORIGINAL_EXTERNAL_COMPLETION'
+        $completion=$inputDoc.Value
+        External-CompletionFields $completion @('schemaVersion','kind','projectId','originalAdmission','originalFinalize','originalProjectConfigRef','toolObservationRef','completionDecisionRef','completionPermission','invocationAssessment') 'ORIGINAL_EXTERNAL_COMPLETION'
+        if(($completion.schemaVersion-isnot[int]-and$completion.schemaVersion-isnot[long])-or$completion.schemaVersion-ne1-or$completion.kind-cne'ORIGINAL_EXTERNAL_RESULT_COMPLETION'-or$completion.projectId-cne$ProjectId-or$completion.completionPermission-cne'CURRENT_AND_COVERED'){throw 'ORIGINAL_EXTERNAL_COMPLETION_PERMISSION'}
+        foreach($pair in @($completion.originalAdmission,$completion.originalFinalize)){External-CompletionFields $pair @('inputRef','resultRef') 'ORIGINAL_EXTERNAL_PAIR'}
+        # Bind the old protection declaration before reading any old action refs.
+        $before=& $readRef $completion.originalProjectConfigRef 'ORIGINAL_EXTERNAL_PROJECT_PREIMAGE'
+        if($before.Value.id-cne$ProjectId-or$before.Value.schemaVersion-ne7-or$before.Value.routineExcludedPaths-isnot[Array]){throw 'ORIGINAL_EXTERNAL_PROJECT_PREIMAGE_FORMAT'}
+        $denied+=@($before.Value.routineExcludedPaths)
+        foreach($doc in $documents){& $checkPath $doc.Path}
+        $decision=& $readRef $completion.completionDecisionRef 'ORIGINAL_EXTERNAL_CURRENT_DECISION' $false
+        $admitInput=& $readRef $completion.originalAdmission.inputRef 'ORIGINAL_EXTERNAL_ADMIT_INPUT';$a=$admitInput.Value
+        $admitResult=& $readRef $completion.originalAdmission.resultRef 'ORIGINAL_EXTERNAL_ADMIT_RESULT';$ad=$admitResult.Value
+        $finalInput=& $readRef $completion.originalFinalize.inputRef 'ORIGINAL_EXTERNAL_FINALIZE_INPUT';$b=$finalInput.Value
+        $originalFailure=& $readRef $completion.originalFinalize.resultRef 'ORIGINAL_EXTERNAL_FINALIZE_RESULT';$failed=$originalFailure.Value
+        if($failed.status-cne'FAIL'-or$failed.reason-cnotmatch'^DISCOVER_SOURCE_DRIFT\|'){throw 'ORIGINAL_EXTERNAL_SOURCE_DRIFT_RESULT_REQUIRED'}
+        foreach($boundary in @($a,$b)){
+            $fields=@('schemaVersion','mode','discoverReceiptPath','expectedDiscoverReceiptIdentity','preparationReceipts','resultReceipts','deliveryReceipts','publicDecisionIdentity','protectionState')
+            if($null-ne$boundary.PSObject.Properties['evidenceRefs']){$fields+='evidenceRefs';if($boundary.evidenceRefs-isnot[Array]-or$boundary.evidenceRefs.Count){throw 'ORIGINAL_EXTERNAL_TYPED_RESULT_UNSUPPORTED'}}
+            External-CompletionFields $boundary $fields 'ORIGINAL_EXTERNAL_BOUNDARY'
+            if($boundary.schemaVersion-ne3-or$boundary.protectionState-cne'BOUND'){throw 'ORIGINAL_EXTERNAL_BOUNDARY_VALUES'}
+            foreach($name in @('preparationReceipts','resultReceipts','deliveryReceipts')){if($boundary.$name-isnot[Array]-or@($boundary.$name|Where-Object{$_-isnot[string]-or[string]::IsNullOrWhiteSpace($_)}).Count){throw 'ORIGINAL_EXTERNAL_BOUNDARY_ARRAY'}}
+        }
+        if($a.mode-cne'ADMIT_ACTION'-or$b.mode-cne'FINALIZE_OUTPUT'-or$a.discoverReceiptPath-cne$b.discoverReceiptPath-or$a.expectedDiscoverReceiptIdentity-cne$b.expectedDiscoverReceiptIdentity-or$a.publicDecisionIdentity-cne$b.publicDecisionIdentity){throw 'ORIGINAL_EXTERNAL_BOUNDARY_PAIR'}
+        $receiptDoc=& $readRef ([pscustomobject]@{path=$b.discoverReceiptPath;identity=$b.expectedDiscoverReceiptIdentity}) 'ORIGINAL_EXTERNAL_DISCOVER';$raw=$receiptDoc.Value
+        if($raw.schemaVersion-ne4-or$raw.inputContractVersion-ne5-or$raw.status-cne'PASS'-or$raw.receiptType-cne'PROCESS_REQUIREMENTS_DISCOVER'-or$raw.mode-cne'DISCOVER'-or$raw.intentEnvelope.requestedActionKind-cne'EXTERNAL'-or$raw.intentEnvelope.requestedResultKind-cne'EXTERNAL_RESULT'-or$raw.intentEnvelope.ambiguityState-cne'CLEAR'){throw 'ORIGINAL_EXTERNAL_RECEIPT_CONTRACT'}
+        $c=$raw.binding
+        if($c.frameworkVersion-cne'2.0.0'-or$c.projectId-cne$ProjectId-or$root-cne(Resolve-AiwRepositoryRoot $c.projectRoot)-or$c.repositoryId-cne'PROJECT'-or$c.executionContext.targetKind-cne'SAME_ROOT'-or$c.contextType-cne'TASK'-or$c.authorizationIdentity-ceq'NOT_REQUIRED'){throw 'ORIGINAL_EXTERNAL_CONTEXT'}
+        if($c.controlRoot-cne$c.projectRoot-or$c.objectRoot-cne$c.projectRoot-or$c.executionContext.controlRoot-cne$c.projectRoot-or$c.executionContext.executionRoot-cne$c.projectRoot-or$c.taskIdentity-cne$raw.sourceBindings.taskIdentity-or$c.projectConfigIdentity-cne$raw.sourceBindings.projectConfigIdentity-or$c.controllerIdentity-cne$raw.sourceBindings.controllerIdentity){throw 'ORIGINAL_EXTERNAL_AUTHORITY_CONTEXT'}
+        $contextBytes=$script:Utf8NoBom.GetBytes(($raw.binding|ConvertTo-Json -Depth 30 -Compress)+"`n"+($raw.intentEnvelope|ConvertTo-Json -Depth 30 -Compress))
+        if((Get-AiwByteIdentity $contextBytes).Split('|')[1]-cne$raw.contextIdentity){throw 'ORIGINAL_EXTERNAL_CONTEXT_IDENTITY'}
+        $denied+=@($c.forbiddenScope)+@($c.protectedScope)
+        foreach($doc in $documents){& $checkPath $doc.Path}
+        $oldRuntime=[string]$raw.sourceLocators.frameworkRoot
+        $toolBinding=Get-AiwDistributionBinding $toolRoot '2.0.0' -Required
+        $null=Assert-AiwDistributionBinding $toolBinding $toolRoot '2.0.0'
+        $toolReader=Get-AiwAdoptionRuntimeModule $toolRoot 'framework/versions/2.0.0/scripts/ReleaseValidation.psm1' @('Get-AiwReleaseQualification')
+        $toolQualification=& $toolReader.ExportedCommands['Get-AiwReleaseQualification'] -VersionRoot (Get-AiwContainedPath $toolRoot 'framework/versions/2.0.0') -RuntimeRoot $toolRoot
+        if($toolQualification.State-cne'SOURCE_QUALIFIED'){throw 'ORIGINAL_EXTERNAL_QUALIFIED_COMPLETION_TOOL_REQUIRED'}
+        foreach($deniedPath in $denied){
+            $absolute=[IO.Path]::GetFullPath([string]$deniedPath,$root).TrimEnd('/','\')
+            $runtimeFull=[IO.Path]::GetFullPath($oldRuntime).TrimEnd('/','\')
+            if($runtimeFull.Equals($absolute,[StringComparison]::OrdinalIgnoreCase)-or$runtimeFull.StartsWith($absolute+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)-or$absolute.StartsWith($runtimeFull+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)){throw 'ORIGINAL_EXTERNAL_PROTECTED_RUNTIME'}
+        }
+        foreach($pair in @(@('VERSION.json','frameworkVersionIdentity'),@('RELEASE_MANIFEST.json','releaseManifestIdentity'),@('PROCESS_REQUIREMENTS.json','nativeCatalogIdentity'))){
+            $path=Get-AiwContainedPath $oldRuntime ('framework/versions/2.0.0/'+$pair[0])
+            if((Get-AiwCurrentIdentity $path)-cne$raw.sourceBindings.($pair[1])){throw ('ORIGINAL_EXTERNAL_FIXED_SOURCE_DRIFT|'+$pair[1])}
+        }
+        $oldBinding=Get-AiwDistributionBinding $oldRuntime '2.0.0' -Required
+        $null=Assert-AiwDistributionBinding $oldBinding $oldRuntime '2.0.0'
+        $oldState=Get-AiwAdoptionRuntimeModule $oldRuntime 'scripts/ProjectAdoptionState.psm1' @('Read-AiwProjectJson')
+        & $oldState {param($value) Assert-AiwFixedReceiptShape $value} $raw
+        $oldReader=Get-AiwAdoptionRuntimeModule $oldRuntime 'framework/versions/2.0.0/scripts/ReleaseValidation.psm1' @('Get-AiwReleasePackageFacts')
+        $null=& $oldReader {param($root,$binding,$ownerPath)
+            $command=Get-Command Get-AiwFixedReleaseProjection -ErrorAction Stop
+            if($null-eq$command.Module-or$command.Module.Path-cne$ownerPath){throw 'ORIGINAL_EXTERNAL_RELEASE_READER_OWNER'}
+            Get-AiwFixedReleaseProjection (Join-Path $root 'framework/versions/2.0.0') $root $binding
+        } $oldRuntime $oldBinding $oldReader.Path
+        $oldComposer=Get-AiwAdoptionRuntimeModule $oldRuntime 'framework/versions/2.0.0/scripts/ProcessRequirementComposition.psm1' @('Get-AiwProcessDecisionIdentity')
+        if((& $oldComposer {param($runtime) Get-AiwProcessImplementationIdentity $runtime '2.0.0'} $oldRuntime)-cne$raw.sourceBindings.implementationIdentity){throw 'ORIGINAL_EXTERNAL_IMPLEMENTATION_DRIFT'}
+        if($ad.status-cne'PASS'-or$ad.mode-cne'ADMIT_ACTION'-or$ad.selectionIdentity-cne$raw.selectionIdentity-or$ad.authorityGranted-ne$false-or$ad.semanticCorrectnessProven-ne$false-or@($ad.missingPreparation).Count-or@($ad.missingResult).Count-or(& $oldComposer.ExportedCommands['Get-AiwProcessDecisionIdentity'] $raw $a)-cne$ad.decisionIdentity){throw 'ORIGINAL_EXTERNAL_ADMISSION'}
+        $packageDoc=& $readRef ([pscustomobject]@{path=$raw.sourceLocators.authorizationPackagePath;identity=$c.authorizationIdentity}) 'ORIGINAL_EXTERNAL_PACKAGE';$package=$packageDoc.Value
+        if($package.schemaVersion-ne1-or$package.taskId-cne$c.taskId-or$package.taskIdentity-cne$c.taskIdentity-or$package.owner-cne$c.taskOwner-or$package.grantee-cne$c.actor-or$package.projectConfigIdentity-cne$raw.sourceBindings.projectConfigIdentity-or$package.userConfirmation-cne$c.userDecision-or$package.issuerRole-cne'TASK_OWNER'-or$package.issuer-cne$package.owner){throw 'ORIGINAL_EXTERNAL_AUTHORITY'}
+        Assert-AiwAdoptionSame @($package.actions) @('EXTERNAL') 'ORIGINAL_EXTERNAL_ACTION'
+        Assert-AiwAdoptionSame @($c.authorizedActions) @('EXTERNAL') 'ORIGINAL_EXTERNAL_ADMITTED_ACTION'
+        Assert-AiwAdoptionSame @($package.exactPaths) @($c.exactScope) 'ORIGINAL_EXTERNAL_SCOPE'
+        foreach($name in @('continuationPlan','transitionPlan','sourcePublicationBinding','repairReviewPlan')){if($null-ne$package.PSObject.Properties[$name]){throw 'ORIGINAL_EXTERNAL_SINGLE_ACTION_REQUIRED'}}
+        $external=$package.externalBinding
+        if($external.schemaVersion-ne2-or$external.batchExecutionMode-cne'ONE_LOGICAL_ATOMIC_EXECUTION'-or$external.reissuable-ne$false-or$external.ambiguousConsumptionPolicy-cne'BLOCK'-or$external.grantAssessment.status-cne'CURRENT_AND_COVERED'-or$external.grantAssessment.withdrawalOrReplacementObserved-ne$false){throw 'ORIGINAL_EXTERNAL_GRANT_BINDING'}
+        if($external.orderedOperations-isnot[Array]-or$external.orderedOperations.Count-ne1){throw 'ORIGINAL_EXTERNAL_ONE_OPERATION_REQUIRED'}
+        if($external.grantRefs-isnot[Array]-or$external.grantRefs.Count-eq0){throw 'ORIGINAL_EXTERNAL_GRANT_REQUIRED'}
+        foreach($grant in $external.grantRefs){$null=& $readRef $grant 'ORIGINAL_EXTERNAL_GRANT' $false}
+        foreach($id in @($raw.selectedObligations.preparationRequirements)){
+            if($id-cnotin@($a.preparationReceipts)-or$id-cnotin@($b.preparationReceipts)){throw ('ORIGINAL_EXTERNAL_PREPARATION_INCOMPLETE|'+$id)}
+        }
+        foreach($id in @($raw.selectedObligations.resultRequirements)){if($id-cnotin@($b.resultReceipts)){throw ('ORIGINAL_EXTERNAL_RESULT_INCOMPLETE|'+$id)}}
+        if('EXTERNAL_RESULT_OBSERVED'-cnotin@($b.resultReceipts)){throw 'ORIGINAL_EXTERNAL_RESULT_OBSERVATION_REQUIRED'}
+        # EXTERNAL reads input objects; historic tool/config bytes need not still
+        # be current. Match the original exact postimages, never read a live key.
+        foreach($object in $package.objectIdentities){
+            if($object.path-cnotin@($package.exactPaths)-or@($b.resultReceipts|Where-Object{$_-ceq('OBJECT_POSTIMAGE|'+$object.path+'|'+$object.identity)}).Count-ne1){throw 'ORIGINAL_EXTERNAL_INPUT_POSTIMAGE'}
+        }
+        if($package.objectIdentities.Count-ne$package.exactPaths.Count){throw 'ORIGINAL_EXTERNAL_INPUT_SET'}
+        if($before.Identity-cne$raw.sourceBindings.projectConfigIdentity-or$before.Value.id-cne$ProjectId){throw 'ORIGINAL_EXTERNAL_PROJECT_PREIMAGE_BINDING'}
+        $canonical={param($value)& $oldComposer {param($v) ConvertTo-AiwContentCanonicalJson $v} $value}
+        $old=$before.Value|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100
+        $current=$currentProject.Value|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100
+        $configChange='RELATED_OR_UNKNOWN'
+        if((& $canonical $old)-ceq(& $canonical $current)){$configChange='UNCHANGED'}
+        elseif($null-ne$old.PSObject.Properties['sourceBindings']-and$null-ne$current.PSObject.Properties['sourceBindings']){
+            $addOnly=$true
+            foreach($binding in $old.sourceBindings){
+                $matchingBindings=@($current.sourceBindings|Where-Object{$_.id-ceq$binding.id})
+                if($matchingBindings.Count-ne1){$addOnly=$false;break}
+                $x=$binding|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100;$y=$matchingBindings[0]|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100
+                foreach($allowed in $x.allowedPaths){if(@($y.allowedPaths|Where-Object{(& $canonical $_)-ceq(& $canonical $allowed)}).Count-ne1){$addOnly=$false}}
+                $x.allowedPaths=@();$y.allowedPaths=@()
+                if((& $canonical $x)-cne(& $canonical $y)){$addOnly=$false}
+            }
+            if($old.sourceBindings.Count-ne$current.sourceBindings.Count){$addOnly=$false}
+            $old.sourceBindings=@();$current.sourceBindings=@()
+            if($addOnly-and(& $canonical $old)-ceq(& $canonical $current)){$configChange='SOURCE_ALLOWED_PATHS_ADDED_ONLY'}
+        }
+        $assessment=$completion.invocationAssessment
+        $assessmentFields=@('permissionAtInvocation','changeTiming','operationIds','rationale')
+        if($assessment.changeTiming-cin@('BEFORE_EXECUTION','AFTER_EXECUTION')){$assessmentFields+='changeEvidenceRef'}
+        External-CompletionFields $assessment $assessmentFields 'ORIGINAL_EXTERNAL_ASSESSMENT'
+        if($assessment.operationIds-isnot[Array]){throw 'ORIGINAL_EXTERNAL_ASSESSMENT_OPERATIONS'}
+        if($assessment.changeTiming-cin@('BEFORE_EXECUTION','AFTER_EXECUTION')){$null=& $readRef $assessment.changeEvidenceRef 'ORIGINAL_EXTERNAL_CHANGE_TIMING' $false}
+        if($assessment.permissionAtInvocation-cnotin@('CURRENT_AND_COVERED','WITHDRAWN','UNKNOWN')-or$assessment.changeTiming-cnotin@('NO_RELEVANT_CHANGE','BEFORE_EXECUTION','AFTER_EXECUTION','UNKNOWN')-or$assessment.rationale-isnot[string]-or[string]::IsNullOrWhiteSpace($assessment.rationale)){throw 'ORIGINAL_EXTERNAL_ASSESSMENT_VALUES'}
+        Assert-AiwAdoptionSame @($assessment.operationIds) @($external.orderedOperations.operationId) 'ORIGINAL_EXTERNAL_OBSERVATION_OPERATIONS'
+        $observation=& $readRef $completion.toolObservationRef 'ORIGINAL_EXTERNAL_TOOL_RESULT';$observed=$observation.Value
+        if($observed-isnot[pscustomobject]-or$null-eq$observed.PSObject.Properties['outcome']-or$observed.outcome-isnot[string]){throw 'ORIGINAL_EXTERNAL_TOOL_RESULT_OUTCOME'}
+        foreach($n in @('calls','retries')){if($null-eq$observed.PSObject.Properties[$n]-or($observed.$n-isnot[int]-and$observed.$n-isnot[long])-or$observed.$n-lt0){throw 'ORIGINAL_EXTERNAL_TOOL_RESULT_COUNTS'}}
+        $outcome=switch -CaseSensitive ($observed.outcome){'SUCCESS'{'SUCCESS'};'FAILURE'{'FAILURE'};'UNKNOWN'{'UNKNOWN'};default{'UNKNOWN'}}
+        if($outcome-ceq'SUCCESS'-and$observed.calls-eq0){throw 'ORIGINAL_EXTERNAL_SUCCESS_WITHOUT_CALL'}
+        $countsCovered=$observed.retries-le$external.totalRetryCeiling-and$observed.retries-le$external.perOperationRetryCeiling-and$observed.calls-le(1+$observed.retries)
+        if($outcome-ceq'SUCCESS'-and$observed.calls-ne(1+$observed.retries)){$countsCovered=$false}
+        $complete=$countsCovered-and$assessment.permissionAtInvocation-ceq'CURRENT_AND_COVERED'-and$assessment.changeTiming-cne'UNKNOWN'-and$outcome-cne'UNKNOWN'
+        foreach($doc in $documents){& $checkPath $doc.Path;if((Get-AiwCurrentIdentity $doc.Path)-cne$doc.Identity){throw 'ORIGINAL_EXTERNAL_EVIDENCE_CHANGED_DURING_READ'}}
+        return [ordered]@{status=$(if($complete){'PASS'}else{'INCOMPLETE'});mode='FINALIZE_OUTPUT';reason='ORIGINAL_EXTERNAL_RESULT_RECORDED';actionOutcome=$outcome;
+            originalFinalizeStatus=[string]$failed.status;originalFinalizeRef=$completion.originalFinalize;originalAdmissionRef=$completion.originalAdmission;
+            originalDiscoverReceiptIdentity=$receiptDoc.Identity;originalAdmitDecisionIdentity=$ad.decisionIdentity;originalRuntimeRoot=$oldRuntime;executionRuntimeRoot=$toolRoot;
+            originalTaskId=$c.taskId;originalActor=$c.actor;observedBy=$ObservedActor;taskExecutionReopened=$false;
+            toolObservationRef=$completion.toolObservationRef;calls=$observed.calls;retries=$observed.retries;countsWithinOriginalRetryBoundary=$countsCovered;rawToolOutcome=[string]$observed.outcome;
+            originalProjectConfigIdentity=$before.Identity;currentProjectConfigIdentity=$currentProject.Identity;configChange=$configChange;originalPolicyIdentity=$raw.sourceBindings.policyIdentity;currentPolicyIdentity=$currentPolicy.Identity;
+            invocationAssessment=$assessment;completionDecisionRef=$completion.completionDecisionRef;completionPermission=$completion.completionPermission;
+            successorState='NONE';authorityGranted=$false;futureExecution='NOT_GRANTED';semanticCorrectnessProven=$false;hostInvocationProven=$false;evidenceGrade='INSTRUCTION_BOUND'}
+    } finally {& $state.ExportedCommands['Exit-AiwRootProjectSourceScope'] $lease}
+}
+Export-ModuleMember -Function Invoke-AiwOriginalExternalResultCompletion

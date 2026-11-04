@@ -16,7 +16,7 @@ Framework operation 是 language-independent contract。backend 是 adopting pro
 
 一个 source composer 提供三个 logical mode：
 
-- `DISCOVER` 严格绑定 project、当前 task 或显式 `PROJECT_READ_ONLY` request context、host-authenticated actor、effective role/phase、profile、project-declared capabilities、objective/action/result kind 与 normalized exact scope。task context 继续绑定 whole task、Owner 与 Work route actor；只读 context 必须绑定 session/request 且只能使用 `NONE + PLAN/USER_RESPONSE`，不能伪造任务或绕过已知冲突。`pathHints` 必须位于 scope 内，`capabilityHints` 必须已观察，mutation/external hints 必须匹配 requested action。CLEAR contradiction 失败；UNKNOWN 保留 conservative-load ceiling，不能 admit governed action。resolver 对完整 generated metadata catalog 选择，校验 selected locator 与 owning Markdown module，一次返回每个 exact complete block，并另给 compact receipt。still-effective corrections 与 permanent project rules 保持独立 source。
+- `DISCOVER` 严格绑定 project、当前 task 或显式 `PROJECT_READ_ONLY` / `PROJECT_EXTERNAL` request context、host-authenticated actor、effective role/phase、profile、project-declared capabilities、objective/action/result kind 与 normalized exact scope。task context 继续绑定 whole task、Owner 与 Work route actor；只读 context 必须绑定 session/request 且只能使用 `NONE + PLAN/USER_RESPONSE`，不能伪造任务或绕过已知冲突。PROJECT_EXTERNAL只按下文项目预授权合同取得真实EXTERNAL意图的完整规则，不产生按次动作边界。`pathHints` 必须位于 scope 内，`capabilityHints` 必须已观察，mutation/external hints 必须匹配 requested action。CLEAR contradiction 失败；UNKNOWN 保留 conservative-load ceiling，不能 admit governed action。resolver 对完整 generated metadata catalog 选择，校验 selected locator 与 owning Markdown module，一次返回每个 exact complete block，并另给 compact receipt。still-effective corrections 与 permanent project rules 保持独立 source。
 - package grantee 可执行当前 action 或 `continuationPlan` 中预授予的写/测与最后一步组织 `REVIEW_ROUTE`，不改变 Owner/Work route/task identity。该路由只在真实成功生产FINALIZE及当前候选的适用准备（LEGACY/选SELF为成功typed SELF_CHECK；C无SELF为下述原productionFinalizeRef）后续接，计划绑定顺序；写测复用原整组 exact scope，最后交审可取原包预批的 reviewScope。独立 `REVIEW_EXECUTE`、`RESULT_ACCEPT`、Git、browser/device 与 external 不进入计划。
 - `ADMIT_ACTION` 只消费 exact compact DISCOVER receipt，复检 task/Framework/catalog/project/correction/policy/custom identities，按 current exact object bytes 重跑 authorization observation，并校验 selected preparation；它不授予 action。
 - `FINALIZE_OUTPUT` 重验 sources 与 observable result/delivery；每个 exact path 必须有唯一且匹配 current object 的 `OBJECT_POSTIMAGE`。有未完成计划时才返回 `INSTRUCTION_BOUND`、`authorityGranted=false` 的 `AUTHORIZED_ACTION_CONTINUATION`，绑定原 package、source Discover identity/action/step、task/actor/repository/config/Controller/decision/protection、下一步骤与整组 postimage；不保存无法由 checker 复验的 finalize hash。
@@ -59,7 +59,7 @@ source composition、progressive selection 与 boundary decision identity 分离
 
 原版本过程入口、Maintenance前门和WorkflowDelivery的Invoke-AiwDeliveryBoundary可接原调用方已知的`ConsumedRuntimePath[]`、`ConsumedRuntimePathList`（已消费的JSON绝对路径数组）、`EmptyRuntimeDirectory[]`、`RetainedRuntimePath[]`。这些调用参数不进入动作输入schema、不产生删除授权或逐任务清单；普通成功不保存完整D/正文/显示副本，集合从本批真实生成返回与原引用在内存中形成。共享释放函数留在原WorkflowDelivery模块，exact-input也复用它。普通接受和关闭/归档的原FINALIZE在实际成功后，沿当前原证据及ResultEvidence已校验的实际任务/归档验收计划，消费已链接成功producer的inputCleanup观察：removed/alreadyAbsent只描述历史结果，不授权删除重新出现的同名对象；仅业务真正成功的producer可凭同次读取字节绑定的consumedObject及明确IO_ERROR剩余，由同一释放函数在当前字节仍匹配时恢复未能删除的原输入。FINALIZE的结构PASS不代替actionOutcome成功；失败、不完整、未知、缺身份、宿主策略拒绝或未知失败均保留，不自动重试，不需要调用者重新手写输入路径数组。失败producer的原输入继续按证据保留；同一路径另有实际证明引用时保留优先。这里只读取当前显式引用的成功生成返回/必要失败原件，不生成每任务清单、扫描或推断未知材料。其他调用方已知到期集合仍可用原参数补充。TASK_MESSAGE须取得真实OBSERVE成功，失败/不完整或尚待投递时保留集合。不会从CLOSED或successorState推断整个目录到期。
 
-释放限当前task/request的runtime子树内精确对象，整组先核范围、类型、reparse与保护；当前FINALIZE输入、仍被原compact/continuation递归验证的引用、原证据引用和调用者明确保留的后继材料不会进入释放。每条读取及删除选择复用本次已验证证据上下文的完整根相关保护（包括routineExcludedPaths和protected scopes），先拒绝禁区再访问元数据/正文；可沿reports等根内显式引用继续核在用闭包，删除范围仍仅当前task/request runtime；实际归档验收计划沿原ResultEvidence返回复用，不另写关闭校验器。不扫描项目历史；尚未给出的后继消费者由原调用方保留，未知就不列为到期。正式结果、采用/恢复及未完事务原件继续按原路径持有。已消费清单即使同时出现在普通路径数组，也只在最后清单阶段处理；只有成员全部成功释放后才释放，部分失败保原清单并返回实际remaining；空目录逐项非递归删除。结果的runtimeCleanup/inputCleanup分别给释放件数/字节/剩余/elapsedMs与FRAMEWORK_REJECTED、IO_ERROR或可观察的HOST_POLICY_REJECTED，清理失败不改已成立的业务status/exitCode。默认文本/模型输出另给紧凑AIW-CLEANUP观察，包含实际状态、剩余及失败分类；不只在AsJson中可见，不重复完整响应或正文。宿主在入口调用前拒绝时没有程序结果，应保原拒绝及UNKNOWN，不绕行或自动重试。旧固定版本仍按各自原合同，不热改运行包。
+上述自然收尾释放限当前task/request的runtime子树内精确对象；当前有限任务显式承接旧任务runtime/tmp文件时，使用下文RUNTIME_MAINTENANCE的独立CONTROL_WRITE合同，不从自然清理参数取得跨任务删除权。自然收尾整组先核范围、类型、reparse与保护；当前FINALIZE输入、仍被原compact/continuation递归验证的引用、原证据引用和调用者明确保留的后继材料不会进入释放。每条读取及删除选择复用本次已验证证据上下文的完整根相关保护（包括routineExcludedPaths和protected scopes），先拒绝禁区再访问元数据/正文；可沿reports等根内显式引用继续核在用闭包，删除范围仍仅当前task/request runtime；实际归档验收计划沿原ResultEvidence返回复用，不另写关闭校验器。不扫描项目历史；尚未给出的后继消费者由原调用方保留，未知就不列为到期。正式结果、采用/恢复及未完事务原件继续按原路径持有。已消费清单即使同时出现在普通路径数组，也只在最后清单阶段处理；只有成员全部成功释放后才释放，部分失败保原清单并返回实际remaining；空目录逐项非递归删除。结果的runtimeCleanup/inputCleanup分别给释放件数/字节/剩余/elapsedMs与FRAMEWORK_REJECTED、IO_ERROR或可观察的HOST_POLICY_REJECTED，清理失败不改已成立的业务status/exitCode。默认文本/模型输出另给紧凑AIW-CLEANUP观察，包含实际状态、剩余及失败分类；不只在AsJson中可见，不重复完整响应或正文。宿主在入口调用前拒绝时没有程序结果，应保原拒绝及UNKNOWN，不绕行或自动重试。旧固定版本仍按各自原合同，不热改运行包。
 
 compact/continuation 留到最后消费者完成。上一步 compact 与 continuation 可能在下一 DISCOVER、ADMIT、FINALIZE 全部复验；先保存新的 successor continuation 再释放前序。失效/中止后在自然收尾释放已无消费者的 artifact；不用持久收据注册表。
 
@@ -71,11 +71,15 @@ actor-storage 仅用于保存和清理的目录定位，不改变认证 actor：
 
 Input5保留Input4所有字段并必需ruleLoad={mode:FULL|REUSE}。真实加载统一返回FULL：同一意图选择器确定当前完整规则、条件与依赖，单次去重并组装完整正文。旧REUSE可携previousCoverageRef，仅兼容为FULL并记LEGACY_REUSE_RETURNS_FULL；不打开该引用、不求coverage差集、不返回REUSED或DELTA。FULL不得携previousCoverageRef。真实当前权威、声明、来源许可、保护、采用完成链和checker失败独立拒绝。
 
-compact4保留bodyCoverage与loadDecision作为本次来源/显示索引兼容字段。units与rules保留完整身份、有序引用和metadataIdentity；anticipatedSteps、reusedUnitKeys、anticipatedUnitKeys均为空，requiredUnitKeys与returnedUnitKeys为当前完整单元集合，effectiveMode恒为FULL。索引不证明模型记忆。新增可选sourceObservation只绑定该次真实选择、声明与已读来源原始身份，不保存正文、未来状态或前次索引；原compact无此观察仍走原边界完整核对，不取得无正文重绑定资格。
+compact4保留bodyCoverage与loadDecision作为本次来源/显示索引兼容字段。units与rules保留完整身份、有序引用和metadataIdentity；anticipatedSteps、reusedUnitKeys、anticipatedUnitKeys均为空，requiredUnitKeys与returnedUnitKeys为原FULL完整单元集合，effectiveMode恒为FULL。索引不证明模型记忆。sourceObservation2精确为schemaVersion、selectionIdentity、bindings、nativeFiles、projectDocuments、loadedRuleIds、workRoute七字段：loadedRuleIds是原FULL实际完整读取的规则ID，workRoute={actor,role,phase}取真实任务主路线，区别于操作有效角色/阶段；selectionIdentity绑定该有序加载ID集合。原声明和全部已读来源仍复验，不保存正文或未来状态。sourceObservation1保留原严格分支；无观察的旧compact仍完整核对，不取得零正文重绑定资格。公开DISCOVER5和boundary3输入不变。
 
 非空ruleLoad.preloadSteps拒绝RULE_LOAD_PRELOAD_RETIRED；空数组仅为旧输入兼容。未来动作到达时以真实意图完整加载并独立准入。
 
-健康同动作普通范围/包变化可在boundary3 ADMIT_ACTION提供actionRebind={authorizationRef:{path,identity},intentEnvelope:<当前完整IntentEnvelope2>,recoveryState:CURRENT|WARM}及新的-CompactReceiptPath。原receipt须为当前actor的TASK compact4并携真实sourceObservation；仅SOURCE_WRITE、TEST_WRITE、TEST_RUN、CONTROL_WRITE普通本地动作。除pathHints外意图不变，Owner/任务/路线/角色/阶段/profile/repository/执行目标不变；不支持特殊发布/转换/审核/接受/Git/外部链。现有checker核新包全部动作、精确对象、前像、当前决定和continuation，旧包不能借新路径扩权。先核路径保护再读候选，重新观察完整声明、当前同一选择器结果及所选来源原始身份；来源/选择实变或恢复不确定返回RULE_LOAD_REQUIRED，调用者完整DISCOVER。已知撤权/越界仍真实拒绝，不以FULL吞错。成功时正文装配与renderer均不调用，保存的新compact绑定当前范围和包，ruleBodyLoaded=false；后续原FINALIZE消费新compact。旧receipt不改写，失败不产生新receipt。sourceObservation是INSTRUCTION_BOUND来源索引，不是跨请求可信缓存、签名、模型记忆证明或授权依据。
+健康同活动的普通本地操作可在boundary3 ADMIT_ACTION提供actionRebind={authorizationRef:{path,identity},intentEnvelope:<当前完整IntentEnvelope2>,recoveryState:CURRENT|WARM}及新的-CompactReceiptPath。原receipt须为当前actor的TASK compact4并携真实sourceObservation2；当前动作限SOURCE_WRITE、TEST_WRITE、CONTROL_WRITE，或原已为TEST_RUN的同活动TEST_RUN。首次进入TEST_RUN仍FULL。前后ambiguityState均CLEAR，domain/workType/stage相同；objective、当前action/result、deliverableType及hints可随真实配套操作变化，但必须符合实际事实。不能只因写任务文件就填task-organization；真实责任、分派、路线或生命周期变化才属于组织活动。Owner、actor、真实workRoute、profile、repository和执行目标不变；新包不得混入专门发布、责任转换、修审、接受、Git或外部绑定。此前EXTERNAL停止后的同活动本地记录可在原事实完整时重绑，不给新外部执行权。
+
+现有checker核新包全部动作、精确对象、前像、当前决定和continuation；先核路径保护再访问对象。用同一选择器重新投影当前完整义务：规则须同时在原FULL的loadedRuleIds和上一步selectedObligations中，退出仅能由操作的role/effective phase/action/result变化解释，不能靠改范围或facets删要求。新进入或已退出再进入的规则、来源/许可/真实路线变化、活动变化及恢复不确定均返回RULE_LOAD_REQUIRED并FULL；已知撤权/越界保持真实拒绝。
+
+成功重绑时先将当前完整selectedObligations冻结到raw，再同步view、selectionIdentity及保存的新compact；保留仍选规则的空义务行及完整准备/结果义务。selectionIdentity同时绑定当前来源、完整意图、能力/范围、actor/role/phase/profile和当前义务。正文装配与renderer均不调用，ruleBodyLoaded=false；后续原FINALIZE必须消费该新compact，原生产证明及历史成功两处消费者按这份原冻结义务核验，不带入已退场操作义务，也不以今日policy替换原成功。旧receipt不改写，失败不产生新receipt。sourceObservation1仍要求除pathHints外意图及原role/phase和精确选择不变，不降格为新分支；观察是INSTRUCTION_BOUND来源索引，不是缓存信任、签名、模型记忆证明或授权。
 
 policy3/project7支持内联effectiveRule或BOUND_SOURCE_ITEM完整图；content catalog2支持同一声明预览。FULL_FILE/MARKED_SECTION保留原严格整文件identity、marker与有序dependencies，旧descriptor转换为policy3仍是旧精确模式。新document.mode=NORMATIVE_UNIT严格字段为sourceId/bindingId/revision/locator/mode/unitId/sectionStart/sectionEnd/normativeIdentity/commonConditionSourceIds/dependencies，不携物理整文件identity；catalog文档只将bindingId替换为sourceRef。首期新模式限LOCAL_DIRECTORY；Git/HTTPS继续既有固定revision/完整字节读取。project6→7、policy2→3沿原ObjectFormats唯一适配链只准备投影，实际持久化必须原采用事务，不从旧marker猜新规范单元。
 
@@ -93,7 +97,7 @@ projectStandardsIdentity、effectiveRuleSetIdentity和sourceCompositionIdentity�
 
 普通repo-local schema1及Maintenance CONTROL/TARGET schema2的原完整checker已在ADMIT按同一固定来源/适配器、完整动作/对象/续链参数和当前观察执行时，由该实际调用满足授权检查；调用者省略额外相同checker命令。checker公共入口保留；DISCOVER、ADMIT与收口各自真实观察不合并成全局一次或缓存。schema4及未证明等价的专门路径仍分别调用；错主体、越界、前像漂移、撤回和坏续链照原拒绝。
 
-仅本次实际NONE、无包无副作用，向当前USER作普通PLAN/USER_RESPONSE，且无正式Review/接受、TASK_MESSAGE、关闭/责任转换或continuation消费者时，可省独立机械FINALIZE。当前必要完整规则仍实际读取，事实/来源/限制/未知仍如实说明；不产生假PASS或可被后继借用的成功收据。任一条件不符仍走原收口；显式FINALIZE公共入口保持严格。
+普通USER答复的机械收口窄例外唯一取RECOVERY_CORE / PR_PROCESS_REQUIREMENTS_PROGRESSIVE_BOUNDARIES完整正文；当前目录在所有合法profile/role/phase/action/result下均选择该单元，包括仅命中HOST交付条件的调用。显式FINALIZE入口仍严格。
 
 ### 授权包与可选执行目标
 
@@ -169,9 +173,9 @@ selector 的 profile/role/phase/action/result/path/capability 已知边界先全
 
 ### 调用字段来源与路径
 
-显示使用版本内ProcessRequirementDisplay.Get-AiwProcessDisplay的单一 `text`，保模式、真实fallback/限制、短来源、每规则有序短引用、当前及anticipated义务与一次完整必要正文。先[A]后[B,A]只显示正文[A,B]，引用分别[1]与[2,1]；独立反向链不构成全局环，不要求blockIds递增。相同文字的不同来源、条件或规范身份不混同。Input5 MODEL只输出FULL/DELTA本次必需正文，REUSED只复用coverage指明且当前模型确有的完整正文。机器原件、compact、coverage及严格身份仍由程序消费，不打印重复目录、长身份和覆盖数组，也不把整个display对象送入模型。显式-AsJson保完整MACHINE载体，处理后只显示模型text。主动分页参数、分片器和页票据已退役；真实宿主截断时从同一结果补读实际缺失的完整单元及义务，不重跑选择。末尾标记只帮助观察截断，不证明模型持有或attention；失败、未知和缺项保持可见。
+显示使用版本内ProcessRequirementDisplay.Get-AiwProcessDisplay的单一 `text`，保模式、真实fallback/限制、短来源、每规则有序短引用、当前义务与一次完整必要正文。先[A]后[B,A]只显示正文[A,B]，引用分别[1]与[2,1]；独立反向链不构成全局环，不要求blockIds递增。相同文字的不同来源、条件或规范身份不混同。当前Input5 MODEL只输出FULL的当前全部必要正文；旧REUSE请求兼容为FULL。DELTA/REUSED是退役历史语义，不能用coverage差集执行或证明模型持有正文。机器原件、compact、coverage及严格身份仍由程序消费，不打印重复目录、长身份和覆盖数组，也不把整个display对象送入模型。调用前按预期完整正文分别设置外层编排和内层命令预算，只增加内层不改变外层；单次只显示官方text，不混入机器载体或其他长输出。显式-AsJson保完整MACHINE载体，处理后只显示模型text。主动分页参数、分片器和页票据已退役；真实宿主截断时从同一结果补读实际缺失的完整单元及义务，不重跑选择。AIW-END末尾标记只帮助观察末尾截断，不证明中部未裁剪、模型持有或attention；失败、未知和缺项保持可见。
 
-当前TASK DISCOVER input5（兼容明确Input4分支） 使用绝对 projectRoot/frameworkRoot/taskPath 与 readOnlyContext=NOT_APPLICABLE；无任务只读使用 PROJECT_READ_ONLY。Maintenance CONTROL 与 TARGET 都沿根前门提交当前 pin 声明的输入；compact4/authority3 的binding.projectRoot 保持 CONTROL 项目根，TARGET 仓库由独立 topology/package 校验，不从包存储位置推断 CONTROL。旧固定 TC2 包继续其原 schema2 SOURCE / schema1 compact 限制，不重写旧包。checker 的 TaskPath 是相对已绑定项目/CONTROL 根的规范路径；同时对齐 shell cwd 与进程 cwd。ObservedIdentity 为 path=length|SHA256，新对象为 path=NEW。
+当前TASK DISCOVER input5（兼容明确Input4分支） 使用绝对 projectRoot/frameworkRoot/taskPath 与 readOnlyContext=NOT_APPLICABLE；无任务只读使用 PROJECT_READ_ONLY，项目显式预授权的无任务外部工具规则读取使用下文 PROJECT_EXTERNAL。Maintenance CONTROL 与 TARGET 都沿根前门提交当前 pin 声明的输入；compact4/authority3 的binding.projectRoot 保持 CONTROL 项目根，TARGET 仓库由独立 topology/package 校验，不从包存储位置推断 CONTROL。旧固定 TC2 包继续其原 schema2 SOURCE / schema1 compact 限制，不重写旧包。checker 的 TaskPath 是相对已绑定项目/CONTROL 根的规范路径；同时对齐 shell cwd 与进程 cwd。ObservedIdentity 为 path=length|SHA256，新对象为 path=NEW。
 
 有包时userDecision精确绑定仍有效的package.userConfirmation；无包只读为NOT_REQUIRED，不能由样例制造授权。boundary schema3只引用原compact并提交实际完成的preparation/result/delivery证据；publicDecisionIdentity为NOT_REQUIRED或length|SHA256，不是任意decision哈希；protectionState仅BOUND/NOT_APPLICABLE，须符合实际保护事实。不得把selected obligations自动当完成证据。输入使用严格UTF-8无BOM，接受CRLF和缺末尾LF等价格式；未知字段、重复键、错误类型、损坏文本与漂移仍拒绝。原始字节用于identity和事务前后像，不重写文件伪造原像。
 
@@ -266,6 +270,28 @@ sourceClosure的旧/目标两项各保存identity及完整documents列表，由�
 
 只有当前调用栈、同一runspace中真实注册的live写句柄可借用，恢复还须复证原双ADMIT及精确计划/候选。公共JSON/CLI/环境/全局对象不能跳过检查；普通OBSERVE没有可借用句柄。旧包按自己的原固定合同执行，不增加外层读桥或向HEAD补载。写保护只协调参与协议的事务，不提供跨文件瞬时读取保证；外部编辑器、裸写、掉电和磁盘损坏不获得物理事务保证，未知字节仍保留原件并拒绝。
 
+## WORKFLOW_ROUTE_RESOLVE：RUNTIME_MAINTENANCE
+
+`RUNTIME_MAINTENANCE` 是当前有限维护任务显式删除本项目已知到期普通文件的执行分支，复用原 `CONTROL_WRITE` 权限与 WorkflowDelivery 释放/保留逻辑；不是新授权 action、自然收尾参数或第二批准记录。旧任务 ID、旧 actor 和 CLOSED 状态不授当前权限。Owner 在当前 ACTIVE 任务及原决定中说明有限目标、最后消费者、必要持久归属和到期依据；用途未知的对象不进入删除集，不要求新增逐文件理由台账。
+
+通过所采用固定版本 TOOLCHAIN 的 `WORKFLOW_ROUTE_RESOLVE`，使用互斥的 `-InputPath` 或 `-InputJson` 提交严格 JSON；顶层恰为以下五字段，无额外 schemaVersion 或删除路径列表：
+
+| 字段 | 类型与含义 |
+|---|---|
+| `operation` | 字符串，固定为 `RUNTIME_MAINTENANCE`。 |
+| `projectRoot` | 当前项目/CONTROL 的明确绝对根字符串；须与原 DISCOVER 相同，所执行固定 Framework 根也须相同。 |
+| `admitInputRef` | 普通 `{path,identity}` 引用，绑定已准备的原 boundary3 `ADMIT_ACTION` 输入原字节；不得含 `actionRebind`，不接受自报 PASS。 |
+| `retainedRefs` | 普通 `{path,identity}` 引用数组，列当前仍在用的明确证据、采用或恢复根；引用须存在且身份匹配。无额外项时为 `[]`。 |
+| `retainedPaths` | 非空路径字符串组成的数组，列调用者明确保留的对象；按已有 evidence 路径合同解析绝对或项目内相对路径，无额外项时为 `[]`。 |
+
+原 ADMIT 经 compact 绑定当前 TASK、ACTIVE 卡、真实 actor 与精确普通包。actor 必须等于宿主进程 `CODEX_THREAD_ID`，不得由调用者改环境冒充。只接受 repo-local 的 schema1 或 Maintenance `repositoryId=CONTROL` 的 schema2，actions 恰为 `[CONTROL_WRITE]`；不承接 continuation、责任转换、修审、专业发布、接受、外部、receiver 或归档混合动作。删除集唯一取包的 `exactPaths/objectIdentities`：非空、逐项规范相对路径，均为本项目 `.ai-workspace/runtime/` 或 `.ai-workspace/tmp/` 下已存在普通文件及其 `length|UPPER_SHA256`。可跨旧任务子目录，但当前 task/actor 不变；NEW、MISSING、目录、通配符、递归、Force、按年龄选择或调用者指定 ScopeRoot 均不适用。
+
+入口在删除前核完整集合的范围、类型、reparse、当前保护、前像及保留冲突，再进入原完整 ADMIT/checker **一次**；调用者不在外层重复执行同一 ADMIT。repo-local 走固定版本过程边界，Maintenance 走同一固定包的根维护适配器，保拓扑与 schema2 完整校验。原请求文件（使用 InputPath 时）、ADMIT input、compact、动作包和当前任务保留；当前配置、Controller、policy、corrections、采用 state 及其已知依赖、验收证据和显式 retained 一并参与保留判断。调用者还须保留未被当前引用表达的活跃 continuation、独有失败/审核材料及后继依赖。这里只沿明确已知引用核对，不扫描全项目、不证明所有消费者均已结束。
+
+整组预检不通过即零删除：形状/引用/权限错误返回原 FAIL；保留或释放预检拒绝可返回 `status=REJECTED`、`reason=RUNTIME_MAINTENANCE_PREFLIGHT`、`admission=null` 和空 `postimages`。准入成功后复核原链，按项目推导的 runtime/tmp 根复用共享释放核，每个实际删除前仍核身份。真实结果含 actor/taskId、`removed/removedBytes/alreadyAbsent/retained/remaining/failures/observations`、原 `admission`、`admitInputRef`、逐项 `postimages`、`finalizeRequired=true` 和 INSTRUCTION_BOUND 上限。`status=PASS` 表示本次删除集无剩余/失败；`RETAINED` 或 `PARTIAL_FAILURE` 保留真实剩余和原因。进程 exit0 不等于删除全部成功，更不表示原动作已 FINALIZE。
+
+调用者保存实际返回后，使用**原 CONTROL_WRITE** 的 DISCOVER/准入链完成 `FINALIZE_OUTPUT`：完整写入每个对象的真实 `OBJECT_POSTIMAGE`，已删为 MISSING，未删为当前身份；其余准备/结果义务继续按原动作满足。部分删除须如实收口观察、保当前任务 ACTIVE，不称维护成果完成。随后只有实际仍需处理的剩余集合可由 Owner 以当前前像重绑必要权限；不重放已删路径，不改旧包/旧卡身份或补造成功。中断先保原件并核实际对象、可用原准入与结果，未知/第三方状态不猜测；宿主政策拒绝不自动重试或绕行。原链材料留到原F及真实最后消费者结束，自然清理的清单/空目录能力仍走原同任务合同。最小构造见 [EXAMPLES](EXAMPLES.md#当前有限任务释放旧-runtime-文件)。
+
 ## Project selection
 
 project authority field 是 `.ai-workspace/project.json.frameworkToolBackend`。`2.0.0` 只接受 `powershell7`；registration/upgrade deterministic 写入该值。所有 task/operation 继承它。authorization package 不重复该字段；既有 `projectConfigIdentity` 会在 selection 或其他 config byte 改变时使 package 失效。
@@ -322,17 +348,35 @@ CONTROL_TRANSITION仅保留schema1真实责任转换。当前卡关闭可继续�
 
 这些字节与关联校验保持INSTRUCTION_BOUND，不证明材料不可恶意伪造、模型实际注意力或跨项目原子性。普通单卡现有后像路径能闭合时继续使用原路径；临时grantee/Reviewer变化不使用控制转换。
 
+## 项目外部授权模式与直接调用
+
+当前policy3可选`externalAuthorization`。缺省等价`{"schemaVersion":1,"mode":"PER_ACTION"}`，该形状只有这两字段，保原按次动作包、ExternalGrant与准入/收口。直接模式形状恰为`{schemaVersion:1,mode:"PROJECT_PREAUTHORIZED",grantRuleIds:[<既有ruleId>]}`；引用非空、唯一且逐项匹配同一policy.rules的唯一规则。未知字段/模式、坏或缺引用拒绝。旧policy2保持原格式，原采用链转为当前格式后才可启用；项目starter不默认启用。设置的改变由项目依其原配置权限实施，不写其他项目。
+
+许可仍由被引用规则的完整effectiveRule或BOUND_SOURCE_ITEM及条件拥有，沿同一selector选择和原来源读取，不新建provider/费用表达式。正常FULL结果的`projectExternalAuthorization`投影仅显示配置模式、当前policy身份、声明及实际选中的grantRuleIds、INSTRUCTION_BOUND和perCallAuthorityGranted=false；原完整许可正文同次呈现。模式/引用可机械核对，许可覆盖、撤回、委派与安全重试不能从hash或配置枚举推断。配置或相关条件变化重绑当前读取，已知撤权/越界/未知时不调用。
+
+已存在当前任务时，真实EXTERNAL规则读取可继续使用TASK；直接模式的无包加载只由input5支持，须有ACTIVE任务、当前PROJECT_PREAUTHORIZED设置及实际选中的许可规则，临时执行者保持EXECUTOR。它只取得规则，compact不携动作包授权，不能代替按次ADMIT/FINALIZE。明确提供按次包仍沿原路，不因项目模式忽略坏包或越权。
+
+没有适用任务的普通工具请求，DISCOVER input5支持`contextType="PROJECT_EXTERNAL"`：以`requestContext={sessionId,requestId,role:"EXECUTOR",phase:"EXTERNAL",profile}`替代readOnlyContext，sessionId必须等于observedActor，requestId沿既有有界请求定位。taskPath/expectedTaskIdentity为NOT_APPLICABLE，authorizationPackagePath/expectedAuthorizationIdentity为NOT_REQUIRED；实际actionKind必须EXTERNAL，resultKind为EXTERNAL_RESULT或USER_RESPONSE，禁止executionTargetRef和continuation。其余project/fixed source/保护/IntentEnvelope2/ruleLoad字段保原严格要求。缺省PER_ACTION、未选中许可、未知设置或坏来源不能获得此加载结果。PROJECT_READ_ONLY仍只接受NONE，不以此扩展伪装外部操作。
+
+PROJECT_EXTERNAL不创建任务、逐次执行包、许可凭证或工具执行器；其compact不能用于ADMIT_ACTION/FINALIZE_OUTPUT，显式尝试报PROJECT_EXTERNAL_LOAD_HAS_NO_ACTION_BOUNDARY。当前模式与许可由项目原决定生效，DISCOVER的PASS只说明加载成功。首次、真实活动/要求变化或恢复需要完整读取；健康连续调用直接使用原工具，不为每次调用再跑DISCOVER、写新卡/手工包、请求模型D/A/F或重复读取未变正文。
+
+直接执行者按真实许可和宿主边界调用原工具，保原请求/返回、SUCCESS/FAILURE/UNKNOWN、实际次数/资源与输出；原返回可已有持久记录，无需再复制一份框架调用台账。用户直接结果随当前成果交付；正式审核、接受、跨任务消息、发布与其他动作仍按各自合同。未知消费或网络结果不能盲重试，新调用只取当前许可，不从历史完成结果续权。没有设定金额或次数不补FREE/0或逐次人工批准。公开发布、秘密上传、账号/凭据变更、Git、browser/device等独立边界不能从一般grant推断放行。
+
 ## 既有领域外部资源的有限使用
 
-Owner direct domain 仍为纯 EXTERNAL，issuer=当前Owner；externalBinding2可在原许可确实允许委派时，将grantee绑定同成果的具名原专业执行者，不提升其为Owner。Owner自用仍要求主路线TASK_OWNER/EXTERNAL；仅externalBinding2中原许可覆盖的异Owner具名委派，允许Owner保有当前有效的其他主phase，其唯一TASK_OWNER主路线actor仍须为该Owner。临时grantee沿原任务EXECUTOR/EXTERNAL路线消费，不修改Owner或Work route；外部观察本身不证明独立审核或接受资格。externalBinding1保持Owner自用的严格FREE/0。ZERO_PROJECT_DATA仅PROVIDER_PUBLIC_METADATA_READ/PROVIDER_PUBLIC_STATUS_READ/PROVIDER_CAPABILITY_DISCOVERY，EXACT_PAYLOADS逐项绑定payloadKind/normalizedIdentity/canonicalizationVersion，不混用。
+Owner direct domain仍为纯EXTERNAL，issuer=当前Owner。externalBinding2的Owner自用与原许可覆盖的具名委派均要求真实主路线role=TASK_OWNER且actor=Owner，允许保有任一当前合法主phase；完整授权核验后按当前EXTERNAL操作选择有效阶段，Owner角色仍TASK_OWNER，具名执行者为临时EXECUTOR/EXTERNAL，均不改任务Owner/Work route字节。委派不提升执行者为Owner，外部观察不证明独审或接受资格。externalBinding1继续仅Owner自用、主路线EXTERNAL及严格FREE/0。
 
-externalBinding2 共同必需字段为 schemaVersion、route=TASK_OWNER_DIRECT_DOMAIN_EXTERNAL、provider、orderedOperations、outputUse、perOperationRetryCeiling、totalRetryCeiling、stopConditions、batchExecutionMode=ONE_LOGICAL_ATOMIC_EXECUTION、reissuable=false、ambiguousConsumptionPolicy=BLOCK、escalationFlags，加 grantRefs、grantAssessment。operation 仍为 operationId/operationKind/declaredInputClass/payloads，ID 唯一。有限 orderedOperations 自身限定数量；totalQuantity 可省，提供时恰等于初始操作数。总重试不超操作数乘单操作重试上限。
+externalBinding2 共同必需字段为 schemaVersion、route=TASK_OWNER_DIRECT_DOMAIN_EXTERNAL、provider、orderedOperations、outputUse、perOperationRetryCeiling、totalRetryCeiling、stopConditions、batchExecutionMode=ONE_LOGICAL_ATOMIC_EXECUTION、reissuable=false、ambiguousConsumptionPolicy=BLOCK、escalationFlags，加 grantRefs、grantAssessment。operation精确为operationId/operationKind/declaredInputClass/payloads；非空operationId须匹配`^[A-Z0-9][A-Z0-9._-]*$`且唯一，列表次序就是批次顺序。有限 orderedOperations 自身限定数量；totalQuantity 可省，提供时恰等于初始操作数。总重试不超操作数乘单操作重试上限。
 
-grantRefs为非空{path,identity}数组，指向本控制项目内真实用户决定/已批资源政策完整原件，逐次核当前原文、撤回/替代事实和语义适用。grantAssessment严格必需字段为{status:CURRENT_AND_COVERED,withdrawalOrReplacementObserved:false,provider,operationIds,outputUse,paidResourceUse,sharedResourceUse}，仅可额外带delegationPermitted:boolean；grantee不等于Owner时必须明确true，缺失、false或未知拒绝。原许可禁止转授时不能填true，也不能通过Owner纯转签改变其含义。provider/operationIds/outputUse恰等于本批，use为boolean，sharedResourceUse与escalationFlags.sharedQuotaOrResource一致。判断仍为INSTRUCTION_BOUND，执行者须核原许可是否覆盖具名接收者、原账号、费用/共享条件、已审payload及最坏重试；字段不是新许可、用户认证、实时账户余额或机械语义证明。
+ZERO_PROJECT_DATA的payloads必须为空，只允许PROVIDER_PUBLIC_METADATA_READ、PROVIDER_PUBLIC_STATUS_READ、PROVIDER_CAPABILITY_DISCOVERY三个operationKind。EXACT_PAYLOADS的payloads非空，operationKind为项目/provider定义的非空字符串；每项payload精确为payloadKind、normalizedIdentity、canonicalizationVersion。payloadKind是项目定义的非空载荷说明；normalizedIdentity为`十进制字节长度|64位大写SHA256`，对指定算法产生的实际拟发送bytes计算，不能用字符数。canonicalizationVersion为项目定义的非空版本算法标识，同名须有唯一计算说明；UTF8_LF_V1例子严格UTF-8、无BOM、CRLF/CR转LF，保其他空白、尾换行存在性和Unicode码点，不Trim/NFC。二进制可声明RAW_BYTES_V1；这两个例子不是唯一允许值。读取许可不推出上传许可，checker只核格式及绑定，不凭hash证明真实发送。
+
+producer拥有规范化及本地bytes，实际执行adapter在调用前重算身份并负责映射到provider参数；Framework核当前包/权限/范围/条件结构，供应商原返回提供真实消费结果。本地构造仅PREPARED_NOT_ADMITTED、authorityGranted=false，不是调用、生成、免费或专业接受。默认复用EXAMPLES中的.NET本地构造，机械重复字段从同一当前输入派生，语义许可与flags由实际责任者明确判断，随后沿原checker、DISCOVER、ADMIT、调用和FINALIZE，不新增准备operation或重复准入。
+
+grantRefs为非空{path,identity}数组，指向本控制项目内真实用户决定/已批资源政策完整原件，逐次核当前原文、撤回/替代事实和语义适用；一份仍有效原许可可供多个有限批次引用。grantAssessment严格必需字段为{status:CURRENT_AND_COVERED,withdrawalOrReplacementObserved:false,provider,operationIds,outputUse,paidResourceUse,sharedResourceUse}，仅可额外带delegationPermitted:boolean；grantee不等于Owner时必须明确true，缺失、false或未知拒绝。原许可禁止转授时不能填true，也不能通过Owner纯转签改变其含义。provider/operationIds/outputUse恰等于本批，use为boolean，sharedResourceUse与escalationFlags.sharedQuotaOrResource一致。判断仍为INSTRUCTION_BOUND，执行者须核原许可是否覆盖具名接收者、原账号、费用/共享条件、已审payload及最坏重试；字段不是新许可、用户认证、实时账户余额或机械语义证明。
 
 原许可实际规定且本次依赖时才带 grantConditions：operationCeiling 比较含最坏重试的调用数；costCeiling={value,requestedValue,currency,unit} 用可表示的十进制字符串和明确三位币种/计量单位，requestedValue 不超原 value；deadlineUtc 为实际 UTC 期限；sharedQuota={resource,quantity,requestedQuantity,unit} 是原共享条件及此次非负整数需求，需求不超限定值。原文无金额、币种、期限则省略，不填 UNKNOWN/无限/伪造 0。Framework 不算余额、并发占用或项目账本，执行者仍核实际条件与供应商结果。
 
-escalationFlags 保留 paymentOrSubscription/commercialLicensing/accountOrCredentialChange/publicPublication/installation/protectedOrSecretUpload/crossDomain/formalAssetActivation/projectPhaseChange/gitOrPush/sharedQuotaOrResource/unknownScope。schema2 仅 sharedQuotaOrResource 可由既有 grant 覆盖；paidResourceUse 指已批付费资源使用，paymentOrSubscription 仍指本次新购买/订阅，不可置 true 进入此路。其他类别仍走原独立门，付费不推出上传许可。未知消费阻止不可安全重发的后续，保留失败和供应商恢复依据，本地准备继续。不调用服务的夹具不报真实费用、账户动作或服务成功。
+escalationFlags须按本次真实行为逐项明确填写boolean，不从provider、payloadKind、hash或grantAssessment猜false；未知不得默填false。完整字段为paymentOrSubscription/commercialLicensing/accountOrCredentialChange/publicPublication/installation/protectedOrSecretUpload/crossDomain/formalAssetActivation/projectPhaseChange/gitOrPush/sharedQuotaOrResource/unknownScope。schema2 仅 sharedQuotaOrResource 可由既有 grant 覆盖；paidResourceUse 指已批付费资源使用，paymentOrSubscription 仍指本次新购买/订阅，不可置 true 进入此路。其他类别仍走原独立门，付费不推出上传许可。ONE_LOGICAL_ATOMIC_EXECUTION表示一个有限有序批次的治理边界，不承诺provider物理事务；reissuable=false禁止盲重发整个未知批次，原许可明确的每操作有限重试仍保留。UNKNOWN只允许已有许可且供应商可证安全的恢复/查询，不另开批清零次数；保留失败和供应商恢复依据，本地准备继续。不调用服务的夹具不报真实费用、账户动作或服务成功。
 
 
 宿主输出可能受限时，普通与Maintenance入口可在同次DISCOVER显式指定 `-DisplayPath <absolute-new-txt>`，由现有官方renderer将该次完整结构化结果的同一 `text` 写为严格UTF-8无BOM；默认不存正文，默认stdout仍一次完整text。文件限定当前 `.ai-workspace/runtime/<task-or-request>/<actor-storage>/` 的新安全 `.txt`，目录必须已存在，保护/排除和reparse检查先于目标访问，CreateNew拒绝覆盖。仅成功DISCOVER可保存；写失败整个调用失败，部分文件不能消费。它不是新规则来源、收据、缓存或永久结果台账，不扩授权或改变JSON/schema。

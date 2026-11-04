@@ -1,0 +1,14 @@
+PASS|control-native-preview-complete-unicode-path-result-zero-write
+PASS|control-native-rejects-actual-plan-drift-single-json-zero-write
+PASS|real-plan-reader-valid-baseline
+PASS|invalid-plan-TASK_ID|TRANSITION_UNAUTHORIZED_TASK_DELTA
+PASS|invalid-plan-zero-overwrite-TASK_ID
+PASS|invalid-plan-CONTROLLER_EPOCH|TRANSITION_CONTROLLER_DELTA
+PASS|invalid-plan-zero-overwrite-CONTROLLER_EPOCH
+PASS|invalid-plan-STEP_ORDER|TRANSITION_STEP_ORDER
+PASS|invalid-plan-zero-overwrite-STEP_ORDER
+PASS|invalid-plan-PROJECT_PIN|TRANSITION_OBJECT_SCOPE
+PASS|invalid-plan-zero-overwrite-PROJECT_PIN
+PASS|invalid-plan-EXTRA_FIELD|TRANSITION_PLAN_FIELDS
+PASS|invalid-plan-zero-overwrite-EXTRA_FIELD
+CONTROL_TRANSITION_TESTS_PASS|checks=13|group=PlanShape

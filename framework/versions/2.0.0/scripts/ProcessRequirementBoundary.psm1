@@ -162,16 +162,43 @@ function Assert-PathPrefixes($paths,[string]$name,[switch]$AllowAbsolute){
     foreach($part in $normalized.Split('/')){if([string]::IsNullOrWhiteSpace($part)-or$part-in@('.','..')-or$part.Contains(':')-or$part.EndsWith('.')-or$part.EndsWith(' ')-or$part-match'(?i)^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)'){throw 'PATH_PREFIX'}}
   }
 }
+function Get-ActionEffectiveRoute($WorkRoute,[string]$Actor,[string]$ActionKind,$Package){
+ if($Actor-ceq$WorkRoute.actor){
+  $phase=$WorkRoute.phase
+  if($ActionKind-ceq'EXTERNAL'-and$WorkRoute.role-ceq'TASK_OWNER'-and$null-ne$Package-and$Package.owner-ceq$Actor-and$Package.grantee-ceq$Actor-and$Package.issuerRole-ceq'TASK_OWNER'-and$null-ne$Package.PSObject.Properties['externalBinding']-and$Package.externalBinding.schemaVersion-eq2){$phase='EXTERNAL'}
+  return [pscustomobject]@{role=$WorkRoute.role;phase=$phase}
+ }
+ if($ActionKind-ceq'NONE'-and$null-eq$Package){return [pscustomobject]@{role='EXECUTOR';phase='PLAN'}}
+ $routes=@{NONE=@('EXECUTOR','PLAN');CONTROL_WRITE=@('EXECUTOR','IMPLEMENT');SOURCE_WRITE=@('EXECUTOR','IMPLEMENT');TEST_WRITE=@('EXECUTOR','VERIFY');TEST_RUN=@('EXECUTOR','VERIFY');REVIEW_ROUTE=@('EXECUTOR','REVIEW');REVIEW_EXECUTE=@('REVIEWER','REVIEW');RESULT_ACCEPT=@('EXECUTOR','REVIEW');GIT_STAGE=@('EXECUTOR','GIT');GIT_COMMIT=@('EXECUTOR','GIT');PUSH=@('EXECUTOR','GIT');BROWSER_RUN=@('EXECUTOR','EXTERNAL');DEVICE_RUN=@('EXECUTOR','EXTERNAL');EXTERNAL=@('EXECUTOR','EXTERNAL')}
+ if($null-eq$Package-or-not$routes.ContainsKey($ActionKind)-or$Package.grantee-cne$Actor-or@($Package.actions|Where-Object{-not$routes.ContainsKey([string]$_)}).Count){throw 'TEMPORARY_ACTION_GRANTEE_DRIFT'}
+ if($ActionKind-cnotin$Package.actions){throw 'ACTION_NOT_GRANTED'}
+ return [pscustomobject]@{role=$routes[$ActionKind][0];phase=$routes[$ActionKind][1]}
+}
+function Get-OperationSelectionIdentity($Source,$Intent,$Authority,$Obligations){
+ return (Get-AiwContentDescriptorIdentity ([ordered]@{source=$Source;intent=$Intent;capabilities=@($Authority.observedCapabilities);scope=@($Authority.exactScope);actor=$Authority.actor;role=$Authority.role;phase=$Authority.phase;profile=$Authority.profile;obligations=@($Obligations)})).Split('|')[1]
+}
+
 function New-ActionRebindCompact($Receipt,$Rebind,[string]$OriginalReceiptPath){
  Assert-Fields $Rebind @('authorizationRef','intentEnvelope','recoveryState')
  Assert-Fields $Rebind.authorizationRef @('path','identity')
  Assert-IntentEnvelope $Rebind.intentEnvelope
  if($Receipt.schemaVersion-ne4-or$Receipt.contextType-cne'TASK'-or$null-eq$Receipt.PSObject.Properties['sourceObservation']-or$Rebind.recoveryState-cnotin@('CURRENT','WARM')){throw 'RULE_LOAD_REQUIRED|ACTION_CONTEXT'}
- if($Receipt.actionKind-cnotin@('SOURCE_WRITE','TEST_WRITE','TEST_RUN','CONTROL_WRITE')){throw 'RULE_LOAD_REQUIRED|ACTION_KIND'}
- $oldIntent=$Receipt.intentEnvelope|ConvertTo-Json -Depth 30|ConvertFrom-Json -Depth 30
- $newIntent=$Rebind.intentEnvelope|ConvertTo-Json -Depth 30|ConvertFrom-Json -Depth 30
- $oldIntent.PSObject.Properties.Remove('pathHints');$newIntent.PSObject.Properties.Remove('pathHints')
- if((Get-AiwContentDescriptorIdentity $oldIntent)-cne(Get-AiwContentDescriptorIdentity $newIntent)){throw 'RULE_LOAD_REQUIRED|INTENT_CHANGED'}
+ $operationV2=$Receipt.sourceObservation.schemaVersion-eq2
+ $action=[string]$Rebind.intentEnvelope.requestedActionKind
+ if($operationV2){
+  if($action-cnotin@('SOURCE_WRITE','TEST_WRITE','CONTROL_WRITE','TEST_RUN')){throw 'RULE_LOAD_REQUIRED|ACTION_KIND'}
+  if($action-ceq'TEST_RUN'-and$Receipt.actionKind-cne'TEST_RUN'){throw 'RULE_LOAD_REQUIRED|ACTIVITY_CHANGED'}
+  if($Receipt.intentEnvelope.ambiguityState-cne'CLEAR'-or$Rebind.intentEnvelope.ambiguityState-cne'CLEAR'){throw 'RULE_LOAD_REQUIRED|INTENT_UNCERTAIN'}
+  foreach($dimension in @('domain','workType','stage')){
+   if((Get-AiwContentDescriptorIdentity $Receipt.intentEnvelope.facets.$dimension)-cne(Get-AiwContentDescriptorIdentity $Rebind.intentEnvelope.facets.$dimension)){throw 'RULE_LOAD_REQUIRED|ACTIVITY_CHANGED'}
+  }
+ }else{
+  if($Receipt.actionKind-cnotin@('SOURCE_WRITE','TEST_WRITE','TEST_RUN','CONTROL_WRITE')){throw 'RULE_LOAD_REQUIRED|ACTION_KIND'}
+  $oldIntent=$Receipt.intentEnvelope|ConvertTo-Json -Depth 30|ConvertFrom-Json -Depth 30
+  $newIntent=$Rebind.intentEnvelope|ConvertTo-Json -Depth 30|ConvertFrom-Json -Depth 30
+  $oldIntent.PSObject.Properties.Remove('pathHints');$newIntent.PSObject.Properties.Remove('pathHints')
+  if((Get-AiwContentDescriptorIdentity $oldIntent)-cne(Get-AiwContentDescriptorIdentity $newIntent)){throw 'RULE_LOAD_REQUIRED|INTENT_CHANGED'}
+ }
  if([Environment]::GetEnvironmentVariable('CODEX_THREAD_ID','Process')-cne$Receipt.actor){throw 'ACTION_REBIND_HOST_ACTOR'}
  $a=$Receipt.authorityContext
  $ctx=New-AiwEvidenceContext $a.projectRoot '' $Receipt.sourceLocators.frameworkRoot @($a.forbiddenScope) @($a.protectedScope)
@@ -183,11 +210,14 @@ function New-ActionRebindCompact($Receipt,$Rebind,[string]$OriginalReceiptPath){
  if($package.schemaVersion-eq4-and(Get-AiwContentDescriptorIdentity $package.executionTargetRef)-cne(Get-AiwContentDescriptorIdentity $a.executionContext.executionTargetRef)){throw 'ACTION_REBIND_EXECUTION_TARGET'}
  $task=Get-TaskBindingObservation $a.projectRoot $Receipt.sourceLocators.taskRelativePath
  if($task.TaskId-cne$Receipt.taskId-or$task.Owner-cne$Receipt.taskOwner-or$task.TaskActor-cne$Receipt.taskActor-or$task.Profile-cne$Receipt.profile){throw 'ACTION_REBIND_TASK_CONTEXT'}
- $role=$task.Role;$phase=$task.Phase
- if($Receipt.actor-cne$task.TaskActor){$role='EXECUTOR';$phase=if($Receipt.actionKind-cin@('SOURCE_WRITE','CONTROL_WRITE')){'IMPLEMENT'}else{'VERIFY'}}
- if($role-cne$Receipt.role-or$phase-cne$Receipt.phase){throw 'RULE_LOAD_REQUIRED|ROLE_PHASE_CHANGED'}
+ $workRoute=[pscustomobject]@{actor=$task.TaskActor;role=$task.Role;phase=$task.Phase}
+ $effective=Get-ActionEffectiveRoute $workRoute $Receipt.actor $action $package
+ $role=$effective.role;$phase=$effective.phase
+ if($operationV2){
+  if((Get-AiwContentDescriptorIdentity $workRoute)-cne(Get-AiwContentDescriptorIdentity $Receipt.sourceObservation.workRoute)){throw 'RULE_LOAD_REQUIRED|WORK_ROUTE_CHANGED'}
+ }elseif($role-cne$Receipt.role-or$phase-cne$Receipt.phase){throw 'RULE_LOAD_REQUIRED|ROLE_PHASE_CHANGED'}
  Assert-ExactPaths $package.exactPaths
- if(@(Get-IntentFactMismatches $Rebind.intentEnvelope @($a.observedCapabilities) @($package.exactPaths) $Receipt.actionKind).Count){throw 'ACTION_REBIND_INTENT_SCOPE'}
+ if(@(Get-IntentFactMismatches $Rebind.intentEnvelope @($a.observedCapabilities) @($package.exactPaths) $action).Count){throw 'ACTION_REBIND_INTENT_SCOPE'}
  # Reject protected/new scope before any candidate metadata or hash. The same
  # complete checker below still decides permission, current objects and plan.
  $candidateContext=New-AiwPackageEvidenceContext $a.projectRoot $package $Receipt.sourceLocators.frameworkRoot @($a.forbiddenScope) -TaskPath $Receipt.sourceLocators.taskRelativePath -ProtectedPaths @($a.protectedScope)
@@ -197,24 +227,35 @@ function New-ActionRebindCompact($Receipt,$Rebind,[string]$OriginalReceiptPath){
  $raw.binding.exactScope=@($package.exactPaths);$raw.binding.taskIdentity=$package.taskIdentity
  $raw.binding.authorizationIdentity=$Rebind.authorizationRef.identity;$raw.binding.authorizedActions=@($package.actions)
  $raw.binding.userDecision=$package.userConfirmation;$raw.binding.recoveryState=$Rebind.recoveryState
+ $raw.binding.role=$role;$raw.binding.phase=$phase
  foreach($field in @('continuationReceiptPath','continuationReceiptIdentity','continuationStepIndex')){$raw.binding.PSObject.Properties.Remove($field)}
  if($null-ne$package.PSObject.Properties['continuationPlan']){
-  if($package.continuationPlan[0]-cne$Receipt.actionKind){throw 'RULE_LOAD_REQUIRED|CONTINUATION_ACTION'}
+  if($package.continuationPlan[0]-cne$action){throw 'RULE_LOAD_REQUIRED|CONTINUATION_ACTION'}
   $raw.binding|Add-Member continuationReceiptPath 'NOT_REQUIRED';$raw.binding|Add-Member continuationReceiptIdentity 'NOT_REQUIRED';$raw.binding|Add-Member continuationStepIndex 0
  }
  $raw.sourceBindings.taskIdentity=$package.taskIdentity;$raw.sourceObservation.bindings.taskIdentity=$package.taskIdentity
  $raw.sourceLocators.authorizationPackagePath=$Rebind.authorizationRef.path;$raw.intentEnvelope=$Rebind.intentEnvelope
+ $bindings=$null
+ if($operationV2){
+  $selection=[pscustomobject]@{profile=$Receipt.profile;role=$role;phase=$phase;actor=$Receipt.actor;actionKind=$action;resultKind=$Rebind.intentEnvelope.requestedResultKind;exactPaths=@($package.exactPaths);capabilities=@($a.observedCapabilities);intentEnvelope=$Rebind.intentEnvelope}
+  $composer=(Get-Command Get-AiwProcessBindingSnapshot).Module
+  $facts=& $composer {param($p,$f,$t,$denied,$s,$o,$previous)Get-AiwProcessBindingSnapshotCore -ProjectRoot $p -FrameworkRoot $f -TargetVersion '2.0.0' -TaskRelativePath $t -ForbiddenPaths $denied -SelectionContext $s -RuleObservation $o -RequireNoBody -PreviousOperation $previous -IncludeOperationFacts} $a.projectRoot $Receipt.sourceLocators.frameworkRoot $Receipt.sourceLocators.taskRelativePath @($a.forbiddenScope) $selection $raw.sourceObservation $Receipt
+  $bindings=$facts.bindings;$raw.selectedObligations=@($facts.selectedObligations)
+ }
  $raw.sourceCompositionIdentity=Get-RuleSourceIdentity $raw.sourceBindings $raw.sourceObservation
  $raw.contextIdentity=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($utf8.GetBytes((($raw.binding|ConvertTo-Json -Depth 30 -Compress)+"`n"+($raw.intentEnvelope|ConvertTo-Json -Depth 30 -Compress)))))
  $raw.selectionIdentity=(Get-AiwContentDescriptorIdentity ([ordered]@{source=$raw.sourceCompositionIdentity;intent=$raw.intentEnvelope;scope=@($raw.binding.exactScope);actor=$Receipt.actor;role=$role;phase=$phase;profile=$Receipt.profile;obligations=@($raw.selectedObligations)})).Split('|')[1]
+ if($operationV2){$raw.selectionIdentity=Get-OperationSelectionIdentity $raw.sourceCompositionIdentity $raw.intentEnvelope $raw.binding $raw.selectedObligations}
  $raw.counts.sourceBuildCount=0
- return $raw
+ return [pscustomobject]@{compact=$raw;bindings=$bindings}
 }
 function Convert-ActionRebindView($Receipt,$Raw){
  $Receipt.sourceCompositionIdentity=$Raw.sourceCompositionIdentity;$Receipt.contextIdentity=$Raw.contextIdentity;$Receipt.selectionIdentity=$Raw.selectionIdentity
  $Receipt.authorityContext=$Raw.binding;$Receipt.taskIdentity=$Raw.binding.taskIdentity;$Receipt.exactPaths=@($Raw.binding.exactScope)
  $Receipt.sourceLocators.authorizationPackagePath=$Raw.sourceLocators.authorizationPackagePath;$Receipt.intentEnvelope=$Raw.intentEnvelope
  $Receipt.sourceBindings=$Raw.sourceBindings;$Receipt.sourceObservation=$Raw.sourceObservation;$Receipt.sourceBuildCount=0
+ $Receipt.objective=$Raw.intentEnvelope.objective;$Receipt.actionKind=$Raw.intentEnvelope.requestedActionKind;$Receipt.resultKind=$Raw.intentEnvelope.requestedResultKind
+ $Receipt.role=$Raw.binding.role;$Receipt.phase=$Raw.binding.phase;$Receipt.selectedObligations=@($Raw.selectedObligations)
  return $Receipt
 }
 function Get-RuleSourceIdentity($Bindings,$Observation){
@@ -250,7 +291,19 @@ function Get-Receipt([string]$Path){
   }
   if($null-ne$r.PSObject.Properties['sourceObservation']){
     if($r.schemaVersion-ne4-or(Get-RuleSourceIdentity $r.sourceBindings $r.sourceObservation)-cne$r.sourceCompositionIdentity-or(Get-AiwContentDescriptorIdentity $r.sourceObservation.bindings)-cne(Get-AiwContentDescriptorIdentity $r.sourceBindings)){throw 'DISCOVER_SOURCE_OBSERVATION_DRIFT'}
-    $view|Add-Member -NotePropertyName sourceObservation -NotePropertyValue $r.sourceObservation
+    $observation=$r.sourceObservation
+    $fields=@('schemaVersion','selectionIdentity','bindings','nativeFiles','projectDocuments')
+    if($observation.schemaVersion-eq2){
+      $fields+=@('loadedRuleIds','workRoute')
+      Assert-StringArray $observation.loadedRuleIds 'loadedRuleIds' $null ([int]::MaxValue)
+      Assert-Fields $observation.workRoute @('actor','role','phase')
+      if($r.binding.contextType-cne'TASK'-or$observation.workRoute.actor-cne$r.binding.taskActor-or$observation.workRoute.role-cnotin@('CONTROLLER','TASK_OWNER','EXECUTOR','REVIEWER','FRAMEWORK_MAINTAINER')-or$observation.workRoute.phase-cnotin@('DISCOVER','PLAN','IMPLEMENT','VERIFY','REVIEW','GIT','EXTERNAL','RECOVER')){throw 'DISCOVER_SOURCE_WORK_ROUTE'}
+      if($observation.selectionIdentity-cne(Get-AiwContentDescriptorIdentity @($observation.loadedRuleIds))-or@($r.selectedObligations.requirementId|Where-Object{$_-cnotin$observation.loadedRuleIds}).Count){throw 'DISCOVER_SOURCE_LOADED_SELECTION'}
+      Assert-StringArray @($r.selectedObligations.requirementId) 'currentRuleIds' $null ([int]::MaxValue)
+      if($r.selectionIdentity-cne(Get-OperationSelectionIdentity $r.sourceCompositionIdentity $r.intentEnvelope $r.binding $r.selectedObligations)){throw 'DISCOVER_CURRENT_SELECTION_IDENTITY'}
+    }elseif($observation.schemaVersion-ne1){throw 'DISCOVER_SOURCE_OBSERVATION_VERSION'}
+    Assert-Fields $observation $fields
+    $view|Add-Member -NotePropertyName sourceObservation -NotePropertyValue $observation
   }
   if(-not($view.authorityGranted-is[bool])-or-not($view.semanticCorrectnessProven-is[bool])-or[string]$view.receiptType-cne'PROCESS_REQUIREMENTS_DISCOVER'-or[string]$view.mode-cne'DISCOVER'-or[string]$view.status-cnotin@('PASS','EVALUATION_ONLY')-or[string]$view.frameworkVersion-cne'2.0.0'-or[bool]$view.authorityGranted-or[bool]$view.semanticCorrectnessProven){throw 'DISCOVER_RECEIPT_TYPE'}
   foreach($countName in @('inputContractVersion','sourceBuildCount','legacyCorrectionsFullReadCount','legacyProjectCustomFullReadCount','selectedPackBytes','selectedPackCeilingBytes','selectedPackEstimatedTokens')){if(-not(Test-JsonInteger $view.$countName)-or[int]$view.$countName-lt0){throw ('DISCOVER_RECEIPT_COUNT|'+$countName)}}
@@ -571,7 +624,7 @@ try{
     if(-not(Test-JsonInteger $input.schemaVersion)-or[int]$input.schemaVersion-notin@(4,5)){throw 'INPUT_SCHEMA_VERSION'}
     $inputContract=[int]$input.schemaVersion
       $discoverFields=@('schemaVersion','mode','projectRoot','frameworkRoot','taskPath','expectedProjectConfigIdentity','expectedCorrectionsIdentity','expectedTaskIdentity','observedActor','capabilities','exactPaths','forbiddenPaths','protectedPaths','authorizationPackagePath','expectedAuthorizationIdentity','userDecision','recoveryState','hostEnforcementGrade','invocationState','intentEnvelope','evaluationOnly')
-      if($inputContract-in@(4,5)){$discoverFields+=@('contextType','readOnlyContext')}
+      if($inputContract-in@(4,5)){$discoverFields+=@('contextType',$(if($inputContract-eq5-and$input.contextType-ceq'PROJECT_EXTERNAL'){'requestContext'}else{'readOnlyContext'}))}
       if($inputContract-eq5){
         $discoverFields+='ruleLoad'
         if($null-ne$input.PSObject.Properties['executionTargetRef']){$discoverFields+='executionTargetRef'}
@@ -588,11 +641,11 @@ try{
       if($recoveryState-cnotin@('FULL_COLD','WARM','CURRENT','UNKNOWN')-or$invocationState-cnotin@('PROVEN_EXPLICIT','PROVEN_MANAGED','UNPROVEN')){throw 'CONTEXT_STATE'}
       if($continuationReceiptPath-cne'NOT_REQUIRED'-and$continuationReceiptIdentity-cnotmatch'^\d+\|[A-F0-9]{64}$'){throw 'CONTINUATION_RECEIPT_IDENTITY_FORMAT'}
     $contextType=if($inputContract-in@(4,5)){[string]$input.contextType}else{'TASK'}
-    if($contextType-cnotin@('TASK','PROJECT_READ_ONLY')){throw 'CONTEXT_TYPE'}
+    if($contextType-cnotin@('TASK','PROJECT_READ_ONLY','PROJECT_EXTERNAL')-or($contextType-ceq'PROJECT_EXTERNAL'-and$inputContract-ne5)){throw 'CONTEXT_TYPE'}
     foreach($n in @('projectRoot','frameworkRoot','taskPath','expectedProjectConfigIdentity','expectedTaskIdentity','observedActor','objective','actionKind','resultKind','hostEnforcementGrade')){if(-not($input.$n-is[string])-or[string]::IsNullOrWhiteSpace([string]$input.$n)){throw "INPUT_STRING|$n"}}
     Assert-InputString $input.expectedCorrectionsIdentity 'expectedCorrectionsIdentity'
     if([string]$input.expectedProjectConfigIdentity-cnotmatch'^\d+\|[A-F0-9]{64}$'){throw 'INPUT_IDENTITY|expectedProjectConfigIdentity'}
-    if(($contextType-ceq'TASK'-and[string]$input.expectedTaskIdentity-cnotmatch'^\d+\|[A-F0-9]{64}$')-or($contextType-ceq'PROJECT_READ_ONLY'-and[string]$input.expectedTaskIdentity-cne'NOT_APPLICABLE')){throw 'INPUT_IDENTITY|expectedTaskIdentity'}
+    if(($contextType-ceq'TASK'-and[string]$input.expectedTaskIdentity-cnotmatch'^\d+\|[A-F0-9]{64}$')-or($contextType-cin@('PROJECT_READ_ONLY','PROJECT_EXTERNAL')-and[string]$input.expectedTaskIdentity-cne'NOT_APPLICABLE')){throw 'INPUT_IDENTITY|expectedTaskIdentity'}
     if([string]$input.expectedCorrectionsIdentity-cne'MISSING'-and[string]$input.expectedCorrectionsIdentity-cnotmatch'^\d+\|[A-F0-9]{64}$'){throw 'INPUT_IDENTITY|expectedCorrectionsIdentity'}
     Assert-StringArray $input.capabilities 'capabilities' 32 128;Assert-ExactPaths $input.exactPaths;Assert-ActionAndResult ([string]$input.actionKind) ([string]$input.resultKind)
     if(-not($input.evaluationOnly-is[bool])){throw 'INPUT_BOOL|evaluationOnly'}
@@ -600,6 +653,8 @@ try{
     $projectResolved=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Resolve-Path -LiteralPath ([string]$input.projectRoot))))
     Assert-AiwNoControlTransition $projectResolved $(if($contextType-ceq'TASK'){[string]$input.taskPath}else{''})
     $actor=[string]$input.observedActor
+    $projectExternalLoading=$input.actionKind-ceq'EXTERNAL'-and$authorizationPath-ceq'NOT_REQUIRED'
+    if($projectExternalLoading-and$inputContract-ne5){throw 'PROJECT_EXTERNAL_LOAD_REQUIRES_INPUT5'}
     if($contextType-ceq'TASK'){
       if($inputContract-in@(4,5)-and[string]$input.readOnlyContext-cne'NOT_APPLICABLE'){throw 'READ_ONLY_CONTEXT_NOT_APPLICABLE'}
       $taskAbsolute=[IO.Path]::GetFullPath([string]$input.taskPath,$projectResolved)
@@ -612,6 +667,7 @@ try{
       $route=[regex]::Matches($taskText,'(?m)^- Work route:\s*actor=(?<actor>[^;\s]+);\s*role=(?<role>CONTROLLER|TASK_OWNER|EXECUTOR|REVIEWER|FRAMEWORK_MAINTAINER);\s*phase=(?<phase>DISCOVER|PLAN|IMPLEMENT|VERIFY|REVIEW|GIT|EXTERNAL|RECOVER)\s*$')
       if($route.Count-ne1){$legacy=[regex]::Matches($taskText,'(?m)^- Work route:\s*role=(?<role>CONTROLLER|TASK_OWNER|EXECUTOR|REVIEWER|FRAMEWORK_MAINTAINER);\s*phase=(?<phase>DISCOVER|PLAN|IMPLEMENT|VERIFY|REVIEW|GIT|EXTERNAL|RECOVER)\s*$');if($legacy.Count-eq1){$result=[ordered]@{status='LEGACY_ACTOR_CONTEXT_UNBOUND';mode=$mode;evidenceCeiling='TASK_ACTOR_CONTEXT_REBIND_REQUIRED';taskIdentity=$taskIdentity};if($AsJson){$result|ConvertTo-Json -Compress -EscapeHandling EscapeNonAscii}else{Write-Output 'LEGACY_ACTOR_CONTEXT_UNBOUND|TASK_ACTOR_CONTEXT_REBIND_REQUIRED'};throw (New-AiwPrivateToolExit (3))};throw 'TASK_WORK_ROUTE'}
       $taskActor=[string]$route[0].Groups['actor'].Value;$effectiveRole=[string]$route[0].Groups['role'].Value;$effectivePhase=[string]$route[0].Groups['phase'].Value
+      $workRoute=[pscustomobject]@{actor=$taskActor;role=$effectiveRole;phase=$effectivePhase}
       if($actor-cne$taskActor){
         if($input.actionKind-ceq'NONE'-and$authorizationPath-ceq'NOT_REQUIRED'-and$input.resultKind-cin@('PLAN','USER_RESPONSE')){
           # Ordinary temporary task reading needs no implementation grant.
@@ -620,18 +676,29 @@ try{
           $readOwner=(Get-Command New-AiwEvidenceContext).Module
           & $readOwner {param($context,$paths)foreach($path in $paths){$null=Resolve-EvPath $context $path -Candidate -AllowMissing}} $readContext @($input.exactPaths)
           $effectiveRole='EXECUTOR';$effectivePhase='PLAN'
+        }elseif($projectExternalLoading){
+          # Loading a declared project grant is not an action admission. The
+          # complete selected policy below must explicitly opt into this mode.
+          $effectiveRole='EXECUTOR';$effectivePhase='EXTERNAL'
         }else{
-          $temporaryRoutes=@{NONE=@('EXECUTOR','PLAN');CONTROL_WRITE=@('EXECUTOR','IMPLEMENT');SOURCE_WRITE=@('EXECUTOR','IMPLEMENT');TEST_WRITE=@('EXECUTOR','VERIFY');TEST_RUN=@('EXECUTOR','VERIFY');REVIEW_ROUTE=@('EXECUTOR','REVIEW');REVIEW_EXECUTE=@('REVIEWER','REVIEW');RESULT_ACCEPT=@('EXECUTOR','REVIEW');GIT_STAGE=@('EXECUTOR','GIT');GIT_COMMIT=@('EXECUTOR','GIT');PUSH=@('EXECUTOR','GIT');BROWSER_RUN=@('EXECUTOR','EXTERNAL');DEVICE_RUN=@('EXECUTOR','EXTERNAL');EXTERNAL=@('EXECUTOR','EXTERNAL')}
-          if($inputContract-lt2-or-not$temporaryRoutes.ContainsKey([string]$input.actionKind)-or$authorizationPath-ceq'NOT_REQUIRED'){throw 'CONFLICT_ACTOR_ROLE_PHASE'}
+          if($inputContract-lt2-or$authorizationPath-ceq'NOT_REQUIRED'){throw 'CONFLICT_ACTOR_ROLE_PHASE'}
           $temporaryPackage=Read-Input $authorizationPath
-          if([string]$temporaryPackage.grantee-cne$actor-or@($temporaryPackage.actions|Where-Object{-not$temporaryRoutes.ContainsKey([string]$_)}).Count-gt0){throw 'TEMPORARY_ACTION_GRANTEE_DRIFT'}
-          if([string]$input.actionKind-cnotin@($temporaryPackage.actions)){throw 'ACTION_NOT_GRANTED'}
-          $effectiveRole=[string]$temporaryRoutes[[string]$input.actionKind][0];$effectivePhase=[string]$temporaryRoutes[[string]$input.actionKind][1]
+          $effective=Get-ActionEffectiveRoute $workRoute $actor ([string]$input.actionKind) $temporaryPackage
+          $effectiveRole=$effective.role;$effectivePhase=$effective.phase
         }
       }
       $profileMatch=[regex]::Matches($taskText,'(?m)^- Range summary:\s*profile=(?<profile>MICRO|STANDARD|CRITICAL);');$taskIdMatch=[regex]::Matches($taskText,'(?m)^#\s+(?<id>[A-Za-z0-9][A-Za-z0-9._-]*)\s+(?:\u2014|-)');$taskOwnerMatch=[regex]::Matches($taskText,'(?m)^- Owner:\s*(?<owner>[^\s]+)\s*$')
       if($profileMatch.Count-ne1-or$taskIdMatch.Count-ne1-or$taskOwnerMatch.Count-ne1){throw 'TASK_BINDING_FIELDS'}
       $profile=[string]$profileMatch[0].Groups['profile'].Value;$taskId=[string]$taskIdMatch[0].Groups['id'].Value;$taskOwner=[string]$taskOwnerMatch[0].Groups['owner'].Value;$runtimeSegment=$taskId
+    }elseif($contextType-ceq'PROJECT_EXTERNAL'){
+      # This is an honest external-intent rule load with no task or per-call
+      # action package. It cannot create an ADMIT/FINALIZE execution chain.
+      if($input.taskPath-cne'NOT_APPLICABLE'-or$authorizationPath-cne'NOT_REQUIRED'-or$authorizationIdentity-cne'NOT_REQUIRED'-or$input.actionKind-cne'EXTERNAL'-or$input.resultKind-cnotin@('EXTERNAL_RESULT','USER_RESPONSE')-or$null-ne$input.PSObject.Properties['executionTargetRef']){throw 'PROJECT_EXTERNAL_CONTEXT_BOUNDARY'}
+      Assert-Fields $input.requestContext @('sessionId','requestId','role','phase','profile')
+      foreach($name in @('sessionId','requestId','role','phase','profile')){Assert-InputString $input.requestContext.$name ('requestContext.'+$name)}
+      if($input.requestContext.sessionId-cne$actor-or$input.requestContext.role-cne'EXECUTOR'-or$input.requestContext.phase-cne'EXTERNAL'-or$input.requestContext.profile-cnotin@('MICRO','STANDARD','CRITICAL')){throw 'PROJECT_EXTERNAL_REQUEST_CONTEXT'}
+      $taskIdentity='NOT_APPLICABLE';$taskRelative='NOT_APPLICABLE';$taskId='NOT_APPLICABLE';$taskOwner='NOT_APPLICABLE';$taskActor='NOT_APPLICABLE'
+      $effectiveRole='EXECUTOR';$effectivePhase='EXTERNAL';$profile=[string]$input.requestContext.profile;$runtimeSegment=[string]$input.requestContext.requestId
     }else{
       if($inputContract-notin@(4,5)-or[string]$input.taskPath-cne'NOT_APPLICABLE'-or[string]$input.authorizationPackagePath-cne'NOT_REQUIRED'-or[string]$input.expectedAuthorizationIdentity-cne'NOT_REQUIRED'-or[string]$input.actionKind-cne'NONE'-or[string]$input.resultKind-cnotin@('PLAN','USER_RESPONSE')){throw 'PROJECT_READ_ONLY_BOUNDARY'}
       Assert-Fields $input.readOnlyContext @('sessionId','requestId','role','phase','profile')
@@ -664,11 +731,24 @@ try{
         }
       }
     }
+    $auth=$null
+    if($projectExternalLoading){
+      if($contextType-ceq'TASK'-and$taskText-cnotmatch'(?m)^- Range summary:\s*profile=(MICRO|STANDARD|CRITICAL);\s*lifecycle=ACTIVE;'){throw 'PROJECT_EXTERNAL_ACTIVE_CONTEXT_REQUIRED'}
+      if($continuationReceiptPath-cne'NOT_REQUIRED'-or$continuationReceiptIdentity-cne'NOT_REQUIRED'){throw 'CONTINUATION_WITHOUT_AUTHORIZATION'}
+      $effectivePhase='EXTERNAL'
+    }elseif($contextType-ceq'TASK'-and$input.actionKind-ceq'EXTERNAL'-and$actor-ceq$taskActor-and$effectiveRole-ceq'TASK_OWNER'){
+      $auth=Get-AuthorizationObservation $authorizationPath $authorizationIdentity $actor @($input.exactPaths) $userDecision ([string]$input.actionKind) $projectResolved $taskRelative $taskIdentity $taskId $taskOwner ([string]$input.expectedProjectConfigIdentity) $continuationReceiptPath $continuationReceiptIdentity $forbiddenPaths $protectedPaths
+      $externalPackage=Read-Input $authorizationPath
+      $effective=Get-ActionEffectiveRoute $workRoute $actor 'EXTERNAL' $externalPackage
+      $effectiveRole=$effective.role;$effectivePhase=$effective.phase
+    }
     $compositionArguments=@{ProjectRoot=[string]$input.projectRoot;FrameworkRoot=[string]$input.frameworkRoot;TargetVersion='2.0.0';ExpectedProjectConfigIdentity=[string]$input.expectedProjectConfigIdentity;ExpectedCorrectionsIdentity=[string]$input.expectedCorrectionsIdentity;Profile=$profile;Role=$effectiveRole;Phase=$effectivePhase;Actor=$actor;TaskIdentity=$taskIdentity;Capabilities=@($input.capabilities);IntentEnvelope=$intent;Objective=$semanticObjective;ActionKind=[string]$input.actionKind;ResultKind=[string]$input.resultKind;ExactPaths=@($input.exactPaths);ForbiddenPaths=@($forbiddenPaths);SemanticApplicabilityUnknown=([string]$intent.ambiguityState-cne'CLEAR');EvaluationOnly=[bool]$input.evaluationOnly}
+    if($inputContract-eq5-and$contextType-ceq'TASK'){$compositionArguments.ObservedWorkRoute=$workRoute}
     if($input.actionKind-cin@('SOURCE_WRITE','CONTROL_WRITE')){
       $publicationOwner=(Get-Command Get-AiwProjectSourcePublicationEligibility).Module
       $composition=& $publicationOwner {param($parameters) Invoke-PubSelectedComposition $parameters} $compositionArguments
-    }else{$composition=Invoke-ProcessRequirementComposition @compositionArguments}
+    }else{$composition=& $composerModule {param($parameters)Invoke-AiwProcessCompositionCore @parameters} $compositionArguments}
+    if($projectExternalLoading-and($composition.projectExternalAuthorization.mode-cne'PROJECT_PREAUTHORIZED'-or$composition.projectExternalAuthorization.selectedGrantRuleIds.Count-eq0)){throw 'EXTERNAL_ACTION_PACKAGE_OR_SELECTED_PROJECT_GRANT_REQUIRED'}
     if($null-ne$cleanupObservation-and[string]$cleanupObservation.Storage-ceq'PROJECT_RUNTIME'){Assert-ProjectRuntimeCleanupBinding $cleanupObservation $projectResolved $runtimeSegment $actor}
 
     $executionContext=$null
@@ -687,7 +767,7 @@ try{
       $composition.sourceCompositionIdentity=Get-RuleSourceIdentity $composition $composition.sourceObservation
     }
     if($inputContract-ne5-and$authorizationPath-cne'NOT_REQUIRED'-and(Read-Input $authorizationPath).schemaVersion-eq4){throw 'EXECUTION_TARGET_PACKAGE_REQUIRES_INPUT5'}
-    $auth=Get-AuthorizationObservation $authorizationPath $authorizationIdentity $actor @($input.exactPaths) $userDecision ([string]$input.actionKind) $projectResolved $taskRelative $taskIdentity $taskId $taskOwner ([string]$input.expectedProjectConfigIdentity) $continuationReceiptPath $continuationReceiptIdentity $forbiddenPaths $protectedPaths
+    if($null-eq$auth){$auth=Get-AuthorizationObservation $authorizationPath $authorizationIdentity $actor @($input.exactPaths) $userDecision ([string]$input.actionKind) $projectResolved $taskRelative $taskIdentity $taskId $taskOwner ([string]$input.expectedProjectConfigIdentity) $continuationReceiptPath $continuationReceiptIdentity $forbiddenPaths $protectedPaths}
     $projectResolved=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Resolve-Path -LiteralPath ([string]$input.projectRoot))))
     $controllerPath=Join-Path $projectResolved '.ai-workspace/controller.json';$controllerIdentity=if(Test-Path -LiteralPath $controllerPath -PathType Leaf){Get-Identity $controllerPath}else{'MISSING'}
     $authority=[ordered]@{schemaVersion=1;projectId=$composition.projectId;projectRoot=$auth.RepositoryRoot;repositoryGitTop=$auth.RepositoryGitTop;frameworkVersion='2.0.0';frameworkSealIdentity=$composition.releaseManifestIdentity;controllerIdentity=$controllerIdentity;taskIdentity=$taskIdentity;taskActor=$taskActor;actor=$actor;role=$effectiveRole;phase=$effectivePhase;profile=$profile;exactScope=@($input.exactPaths);forbiddenScope=@($forbiddenPaths);protectedScope=@($protectedPaths);authorizationIdentity=$auth.Identity;authorizedActions=@($auth.Actions);observedCapabilities=@($input.capabilities);projectConfigIdentity=$composition.projectConfigIdentity;correctionsIdentity=$composition.correctionsIdentity;policyIdentity=$composition.policyIdentity;userDecision=$userDecision;recoveryState=$recoveryState;hostEnforcementGrade=[string]$input.hostEnforcementGrade}
@@ -718,6 +798,7 @@ try{
       $ruleLoadProjection=Get-AiwRuleLoadProjection $composition $anticipated $input.ruleLoad $actor $projectResolved $forbiddenPaths
     }
     $selectedObligations=@($composition.selectedRequirements|ForEach-Object{[ordered]@{requirementId=[string]$_.requirementId;preparationRequirements=@($_.preparationRequirements);resultRequirements=@($_.resultRequirements)}})
+    if($inputContract-eq5-and$composition.sourceObservation.schemaVersion-eq2){$selectionIdentity=Get-OperationSelectionIdentity $composition.sourceCompositionIdentity $intent $authority $selectedObligations}
     $frameworkResolved=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Resolve-Path -LiteralPath ([string]$input.frameworkRoot))))
     if($inputContract-in@(4,5)){
       $sourceBindings=[ordered]@{projectConfigIdentity=$composition.projectConfigIdentity;controllerIdentity=$composition.controllerIdentity;correctionsIdentity=$composition.correctionsIdentity;policyIdentity=$composition.policyIdentity;bootstrapManagedIdentity=$composition.bootstrapManagedIdentity;projectCustomIdentity=$composition.projectCustomIdentity;projectAgentsIdentity=$composition.projectAgentsIdentity;projectStandardsIdentity=$composition.projectStandardsIdentity;taskIdentity=$taskIdentity;frameworkVersionIdentity=$composition.frameworkVersionIdentity;releaseManifestIdentity=$composition.releaseManifestIdentity;candidatePilotStateIdentity=$composition.candidatePilotStateIdentity;nativeCatalogIdentity=$composition.nativeCatalogIdentity;contentSnapshotIdentity=$composition.contentSnapshotIdentity;effectiveSetIdentity=$composition.effectiveSetIdentity;implementationIdentity=$composition.implementationIdentity}
@@ -732,6 +813,7 @@ try{
       $compactReceipt['loadDecision']=$ruleLoadProjection.loadDecision
       $compactReceipt.counts.sourceBuildCount=1+$anticipated.Count
       $result.schemaVersion=4;$result['modelView']=$ruleLoadProjection.modelView
+      if($composition.projectExternalAuthorization.configured){$result['projectExternalAuthorization']=$composition.projectExternalAuthorization}
     }
     if($null-ne$cleanupObservation-and[string]$cleanupObservation.Storage-ceq'PROJECT_RUNTIME'){$cleanupInput=[string]$cleanupObservation.Path}
   }elseif($mode-in @('ADMIT_ACTION','FINALIZE_OUTPUT')){
@@ -768,8 +850,10 @@ try{
     if([string]$input.protectionState-cnotin@('BOUND','NOT_APPLICABLE')){throw 'PROTECTION_STATE'}
     $receiptIdentity=Get-Identity ([string]$input.discoverReceiptPath);if($receiptIdentity-cne[string]$input.expectedDiscoverReceiptIdentity){throw 'DISCOVER_RECEIPT_DRIFT'}
     $receipt=Get-Receipt ([string]$input.discoverReceiptPath)
+    if($receipt.contextType-ceq'PROJECT_EXTERNAL'){throw 'PROJECT_EXTERNAL_LOAD_HAS_NO_ACTION_BOUNDARY'}
     if($null-ne$input.PSObject.Properties['actionRebind']){
-      $reboundCompact=New-ActionRebindCompact $receipt $input.actionRebind $input.discoverReceiptPath
+      $rebound=New-ActionRebindCompact $receipt $input.actionRebind $input.discoverReceiptPath
+      $reboundCompact=$rebound.compact
       $receipt=Convert-ActionRebindView $receipt $reboundCompact
     }
     if('SOURCE_VALIDATION_SELECTED_CLOSURE_V1'-cnotin@($receipt.evidenceCeilings)){throw 'SOURCE_VALIDATION_SCOPE_UNBOUND|FRESH_DISCOVER_REQUIRED'}
@@ -836,7 +920,15 @@ try{
       $currentBindings=$controlTransitionFinalization.Chain.Snapshot
     }else{
       $observation=if($null-ne$receipt.PSObject.Properties['sourceObservation']-and$null-eq$sourceChange){$receipt.sourceObservation}else{$null}
+      if($null-ne$observation-and$observation.schemaVersion-eq2){
+        if($null-ne$reboundCompact){$currentBindings=$rebound.bindings}
+        else{
+          $operationFacts=& $composerModule {param($p,$f,$t,$denied,$s,$o)Get-AiwProcessBindingSnapshotCore -ProjectRoot $p -FrameworkRoot $f -TargetVersion '2.0.0' -TaskRelativePath $t -ForbiddenPaths $denied -SelectionContext $s -RuleObservation $o -IncludeOperationFacts} $receipt.sourceLocators.projectRoot $receipt.sourceLocators.frameworkRoot $taskObservationPath @($receipt.authorityContext.forbiddenScope) $selectionContext $observation
+          $currentBindings=$operationFacts.bindings
+        }
+      }else{
       $currentBindings=Get-AiwProcessBindingSnapshot -ProjectRoot ([string]$receipt.sourceLocators.projectRoot) -FrameworkRoot ([string]$receipt.sourceLocators.frameworkRoot) -TargetVersion '2.0.0' -TaskRelativePath $taskObservationPath -ForbiddenPaths @($receipt.authorityContext.forbiddenScope) -SelectionContext $selectionContext -RuleObservation $observation -RequireNoBody:($null-ne$reboundCompact)
+      }
     }
     if($mode-ceq'FINALIZE_OUTPUT'-and$null-ne$sourceChange-and-not$sourceChangeRollback){
       foreach($name in @('projectConfigIdentity','policyIdentity','projectStandardsIdentity','contentSnapshotIdentity','effectiveSetIdentity')){
@@ -946,6 +1038,9 @@ try{
       $transitionPackBytes=$utf8.GetByteCount($transitionPackJson)
       # Source identity, complete composition and obligations still gate the transition.
       $sourcePostimageTransition=[ordered]@{status='PASS';previousSourceCompositionIdentity=[string]$receipt.sourceCompositionIdentity;currentSourceCompositionIdentity=[string]$transitionComposition.sourceCompositionIdentity;changedBindings=@($sourceBindings|Sort-Object);selectedPackBytes=$transitionPackBytes;selectedRequirementCount=@($transitionComposition.selectedRequirements).Count}
+    }
+    if($null-eq$reboundCompact-and$null-eq$sourcePostimageTransition-and$null-eq$sourceChange-and$null-eq$controlTransitionFinalization-and$null-ne$receipt.PSObject.Properties['sourceObservation']-and$receipt.sourceObservation.schemaVersion-eq2){
+      if((Get-AiwContentDescriptorIdentity @($operationFacts.selectedObligations))-cne(Get-AiwContentDescriptorIdentity @($receipt.selectedObligations))){throw 'DISCOVER_CURRENT_OBLIGATIONS_DRIFT'}
     }
     if([string]$input.objective-cne[string]$receipt.objective-or[string]$input.actionKind-cne[string]$receipt.actionKind-or[string]$input.resultKind-cne[string]$receipt.resultKind-or[string]::Join("`n",@($input.exactPaths))-cne[string]::Join("`n",@($receipt.exactPaths))){throw 'DISCOVER_CONTEXT_DRIFT'}
     $requiredPrep=@($receipt.selectedObligations|ForEach-Object{@($_.preparationRequirements)}|Sort-Object -Unique)

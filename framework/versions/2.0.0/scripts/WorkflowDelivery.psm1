@@ -9,12 +9,12 @@ Import-Module (Join-Path $PSScriptRoot 'ProcessRequirementComposition.psm1')
 function Remove-AiwConsumedRuntimeFiles {
     [CmdletBinding()]param([Parameter(Mandatory)][string]$ScopeRoot,
         [AllowEmptyCollection()][string[]]$LiteralPath=@(),[string]$ConsumedPathListPath,
-        [string[]]$EmptyDirectoryPath=@(),[string[]]$RetainedPath=@(),[string[]]$ForbiddenPath=@(),[object[]]$ExpectedObject=@())
+        [string[]]$EmptyDirectoryPath=@(),[string[]]$RetainedPath=@(),[string[]]$ForbiddenPath=@(),[object[]]$ExpectedObject=@(),[switch]$PreflightOnly)
     $watch=[Diagnostics.Stopwatch]::StartNew()
     $removed=[Collections.Generic.List[string]]::new();$absent=[Collections.Generic.List[string]]::new()
     $retained=[Collections.Generic.List[string]]::new();$failures=[Collections.Generic.List[object]]::new()
     $remaining=[Collections.Generic.List[string]]::new();$directoriesRemoved=[Collections.Generic.List[string]]::new()
-    [long]$removedBytes=0;$listReleased=$false;$status='PASS'
+    [long]$removedBytes=0;$listReleased=$false;$status='PASS';$listMembersKnown=-not[bool]$ConsumedPathListPath
     $paths=@($LiteralPath)
     $observations=[Collections.Generic.List[object]]::new()
     function Entry([string]$Path){try{Get-Item -LiteralPath $Path -Force -ErrorAction Stop}catch [System.Management.Automation.ItemNotFoundException]{$null}}
@@ -62,8 +62,9 @@ function Remove-AiwConsumedRuntimeFiles {
                     $token.GetString()
                 })
             }finally{$document.Dispose()}
-            foreach($member in $members){if($member-isnot[string]-or[string]::IsNullOrWhiteSpace($member)){throw 'STRING_FILE_PATH_REQUIRED'};if((Exact $member).Equals($listFull,[StringComparison]::OrdinalIgnoreCase)){throw 'PATH_LIST_CANNOT_LIST_ITSELF'}}
             $paths+=@($members)
+            $listMembersKnown=$true
+            foreach($member in $members){if($member-isnot[string]-or[string]::IsNullOrWhiteSpace($member)){throw 'STRING_FILE_PATH_REQUIRED'};if((Exact $member).Equals($listFull,[StringComparison]::OrdinalIgnoreCase)){throw 'PATH_LIST_CANNOT_LIST_ITSELF'}}
         }
         $files=[Collections.Generic.List[string]]::new();$directories=[Collections.Generic.List[string]]::new()
         $seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
@@ -78,15 +79,16 @@ function Remove-AiwConsumedRuntimeFiles {
             $expected.Add($full,$object.identity)
         }
         foreach($path in $files){
-            try{Ordinary $path;$item=Entry $path;if($null-eq$item){$absent.Add($path);continue};if($item.PSIsContainer-or($item.Attributes-band[IO.FileAttributes]::ReparsePoint)){throw 'FILE_TYPE_CHANGED'};if($expected.ContainsKey($path)){$bytes=[IO.File]::ReadAllBytes($path);$identity=$bytes.Length.ToString()+'|'+[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes));if($identity-cne$expected[$path]){$retained.Add($path);$observations.Add([pscustomobject]@{path=$path;reason='CONSUMED_OBJECT_CHANGED'});continue}};$size=$item.Length;Remove-Item -LiteralPath $path -ErrorAction Stop;$removed.Add($path);$removedBytes+=$size}
+            try{$checked.Clear();Ordinary $path;$item=Entry $path;if($null-eq$item){$absent.Add($path);continue};if($item.PSIsContainer-or($item.Attributes-band[IO.FileAttributes]::ReparsePoint)){throw 'FILE_TYPE_CHANGED'};if($expected.ContainsKey($path)){$bytes=[IO.File]::ReadAllBytes($path);$identity=$bytes.Length.ToString()+'|'+[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes));if($identity-cne$expected[$path]){$retained.Add($path);$observations.Add([pscustomobject]@{path=$path;reason='CONSUMED_OBJECT_CHANGED'});continue}};if($PreflightOnly){continue};$size=$item.Length;Remove-Item -LiteralPath $path -ErrorAction Stop;$removed.Add($path);$removedBytes+=$size}
             catch{Failure $path $_;$remaining.Add($path)}
         }
         foreach($path in $retained){$remaining.Add($path)}
-        if($listFull){
+        if($listFull-and-not$PreflightOnly){
             if($remaining.Count-or(Keep $listFull)){$remaining.Add($listFull)}
             else{try{Ordinary $listFull;$item=Entry $listFull;if($null-ne$item){if($item.PSIsContainer){throw 'FILE_TYPE_CHANGED'};$size=$item.Length;Remove-Item -LiteralPath $listFull -ErrorAction Stop;$removed.Add($listFull);$removedBytes+=$size};$listReleased=$true}catch{Failure $listFull $_;$remaining.Add($listFull)}}
         }
         foreach($path in @($directories|Sort-Object Length -Descending)){
+            if($PreflightOnly){continue}
             if($remaining.Count){$remaining.Add($path);continue}
             try{Ordinary $path;$item=Entry $path;if($null-eq$item){continue};if(-not$item.PSIsContainer){throw 'DIRECTORY_TYPE_CHANGED'};$entries=[IO.Directory]::EnumerateFileSystemEntries($path).GetEnumerator();try{if($entries.MoveNext()){throw 'DIRECTORY_NOT_EMPTY'}}finally{$entries.Dispose()};Remove-Item -LiteralPath $path -ErrorAction Stop;$directoriesRemoved.Add($path)}
             catch{Failure $path $_;$remaining.Add($path)}
@@ -98,14 +100,45 @@ function Remove-AiwConsumedRuntimeFiles {
         $remaining.Clear();foreach($path in @($paths)+@($ConsumedPathListPath|Where-Object{$_})+@($EmptyDirectoryPath)){$remaining.Add($path)}
     }
     $watch.Stop()
-    [pscustomobject]@{status=$status;removed=@($removed.ToArray());removedBytes=$removedBytes;alreadyAbsent=@($absent.ToArray());retained=@($retained.ToArray());remaining=@($remaining.ToArray());directoriesRemoved=@($directoriesRemoved.ToArray());pathListReleased=$listReleased;failures=@($failures.ToArray());observations=@($observations.ToArray());elapsedMs=$watch.Elapsed.TotalMilliseconds}
+    [pscustomobject]@{status=$status;removed=@($removed.ToArray());removedBytes=$removedBytes;alreadyAbsent=@($absent.ToArray());retained=@($retained.ToArray());remaining=@($remaining.ToArray());directoriesRemoved=@($directoriesRemoved.ToArray());pathListReleased=$listReleased;pathListMembersKnown=$listMembersKnown;preflightOnly=[bool]$PreflightOnly;failures=@($failures.ToArray());observations=@($observations.ToArray());elapsedMs=$watch.Elapsed.TotalMilliseconds}
 }
 
-function Get-DeliveryRuntimeReferences([string]$ProjectRoot,[string]$ScopeRoot,$Values,$EvidenceContext){
-    $paths=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-    $expired=[Collections.Generic.Dictionary[string,string]]::new([StringComparer]::OrdinalIgnoreCase)
-    $ambiguous=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+function Get-DeliveryProducerRemnants($Producers,[string]$ScopeRoot){
+    $candidates=[Collections.Generic.Dictionary[string,string]]::new([StringComparer]::OrdinalIgnoreCase)
+    $blocked=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     $deferred=[Collections.Generic.List[object]]::new()
+    foreach($producer in $Producers){
+        if($null-eq$producer.result.PSObject.Properties['inputCleanup']-or$null-eq$producer.result.inputCleanup){continue}
+        $observation=$producer.result.inputCleanup
+        foreach($field in @('removed','alreadyAbsent')){if($null-ne$observation.PSObject.Properties[$field]){foreach($path in $observation.$field){if($path-is[string]-and[IO.Path]::IsPathFullyQualified($path)){$full=[IO.Path]::GetFullPath($path);$null=$blocked.Add($full);$null=$candidates.Remove($full)}}}}
+        if($null-eq$observation.PSObject.Properties['remaining']){continue}
+        foreach($path in $observation.remaining){
+            if($path-isnot[string]-or-not[IO.Path]::IsPathFullyQualified($path)){throw 'RUNTIME_INPUT_OBSERVATION_PATH'}
+            $full=[IO.Path]::GetFullPath($path);$reason='RECOVERY_FAILURE_UNKNOWN'
+            $rows=if($null-ne$observation.PSObject.Properties['failures']){@($observation.failures|Where-Object{$null-ne$_.PSObject.Properties['path']-and$_.path-is[string]-and$_.path.Equals($full,[StringComparison]::OrdinalIgnoreCase)})}else{@()}
+            $original=if($null-ne$observation.PSObject.Properties['consumedObject']){$observation.consumedObject}else{$null}
+            $eligible=$null-ne$observation.PSObject.Properties['status']-and$observation.status-cin@('PARTIAL_FAILURE','REJECTED')-and$rows.Count-eq1-and$null-ne$rows[0].PSObject.Properties['kind']-and$rows[0].kind-ceq'IO_ERROR'
+            if($eligible){
+                $eligible=$null-ne$original-and$null-ne$original.PSObject.Properties['path']-and$null-ne$original.PSObject.Properties['identity']-and$original.path-is[string]-and$original.path.Equals($full,[StringComparison]::OrdinalIgnoreCase)-and$original.identity-is[string]-and$original.identity-cmatch'^\d+\|[A-F0-9]{64}$'
+                $reason='CONSUMED_OBJECT_IDENTITY_UNKNOWN'
+            }elseif(@($rows|Where-Object{$null-ne$_.PSObject.Properties['kind']-and$_.kind-ceq'HOST_POLICY_REJECTED'}).Count){$reason='HOST_POLICY_REJECTED'}
+            if($eligible-and-not$full.StartsWith($ScopeRoot+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)){$eligible=$false;$reason='OUTSIDE_CURRENT_RUNTIME'}
+            if($eligible-and$candidates.ContainsKey($full)-and$candidates[$full]-cne$original.identity){$eligible=$false;$reason='CONSUMED_OBJECT_IDENTITY_AMBIGUOUS'}
+            if(-not$eligible){$null=$candidates.Remove($full);$null=$blocked.Add($full);$deferred.Add([pscustomobject]@{path=$full;reason=$reason})}
+            elseif(-not$blocked.Contains($full)-and-not$candidates.ContainsKey($full)){$candidates.Add($full,$original.identity)}
+        }
+    }
+    [pscustomobject]@{paths=@($candidates.Keys);expectedObjects=@(foreach($entry in $candidates.GetEnumerator()){[pscustomobject]@{path=$entry.Key;identity=$entry.Value}});deferred=@($deferred.ToArray())}
+}
+
+function Get-DeliveryRuntimeReferences([string]$ProjectRoot,[string]$ScopeRoot,$Values,$EvidenceContext,$VerifiedProducers=@(),[string[]]$TraversalLeaves=@()){
+    $paths=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    $verified=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::OrdinalIgnoreCase)
+    $skipCleanup=[Collections.Generic.HashSet[object]]::new([Collections.Generic.ReferenceEqualityComparer]::Instance)
+    foreach($producer in $VerifiedProducers){
+        $full=[IO.Path]::GetFullPath($producer.pair.resultRef.path,$ProjectRoot)
+        $verified[$full]=$producer.pair.resultRef;$null=$skipCleanup.Add($producer.result)
+    }
     $queue=[Collections.Generic.Queue[object]]::new();foreach($value in $Values){if($null-ne$value){$queue.Enqueue($value)}}
     $prefix=$ScopeRoot+[IO.Path]::DirectorySeparatorChar
     function Follow([string]$Candidate){
@@ -115,14 +148,17 @@ function Get-DeliveryRuntimeReferences([string]$ProjectRoot,[string]$ScopeRoot,$
         if(-not@($EvidenceContext.Roots|Where-Object{$full.StartsWith(($_+[IO.Path]::DirectorySeparatorChar),[StringComparison]::OrdinalIgnoreCase)}).Count){return}
         # The original evidence guard owns root-relative exclusions, protection
         # and reparse checks before metadata. Retention does not revalidate old bytes.
-        $full=Resolve-AiwEvidenceObservationPath $EvidenceContext $Candidate
+        $full=Resolve-AiwEvidenceObservationPath $EvidenceContext $full
         if(-not$paths.Add($full)){return}
+        if($full-in$TraversalLeaves){return}
         if([IO.File]::Exists($full)-and[IO.Path]::GetExtension($full)-cin@('.json','.txt')){
-            try{$linked=(Read-AiwStrictInputJson $full).Value}catch{if([IO.Path]::GetExtension($full)-ceq'.json'){throw 'RUNTIME_PROOF_JSON_UNREADABLE'};return}
+            try{
+                if($verified.ContainsKey($full)){$linked=Read-AiwEvidenceReference $EvidenceContext $verified[$full] -Json;$null=$skipCleanup.Add($linked)}
+                else{$linked=(Read-AiwStrictJsonValue $full).Value}
+            }catch{if([IO.Path]::GetExtension($full)-ceq'.json'){throw ('RUNTIME_PROOF_JSON_UNREADABLE|'+$full+'|'+$_.Exception.Message)};return}
             if($null-ne$linked){$queue.Enqueue($linked)}
         }
     }
-    function Deferred([string]$Path,[string]$Reason){$deferred.Add([pscustomobject]@{path=$Path;reason=$Reason})}
     while($queue.Count){
         $value=$queue.Dequeue()
         if($value-is[string]){
@@ -134,45 +170,11 @@ function Get-DeliveryRuntimeReferences([string]$ProjectRoot,[string]$ScopeRoot,$
             if($null-ne$value.PSObject.Properties['path']-and$null-ne$value.PSObject.Properties['identity']-and$value.path-is[string]-and$value.identity-is[string]){
                 Follow $(if([IO.Path]::IsPathFullyQualified($value.path)){$value.path}else{Join-Path $ProjectRoot $value.path})
             }
-            $consumedInput=$false
-            if($null-ne$value.PSObject.Properties['inputCleanup']-and$null-ne$value.PSObject.Properties['mode']-and$null-ne$value.PSObject.Properties['status']-and$value.mode-cin@('DISCOVER','ADMIT_ACTION','FINALIZE_OUTPUT')){
-                $observation=$value.inputCleanup
-                if($null-ne$observation-and$null-ne$observation.PSObject.Properties['removed']-and$null-ne$observation.PSObject.Properties['alreadyAbsent']-and$null-ne$observation.PSObject.Properties['remaining']-and$observation.status-cin@('PASS','PARTIAL_FAILURE')){
-                    $success=$value.status-ceq'PASS'-or($value.mode-ceq'DISCOVER'-and$value.status-ceq'EVALUATION_ONLY')
-                    if($value.mode-ceq'FINALIZE_OUTPUT'){$success=$success-and$null-ne$value.PSObject.Properties['actionOutcome']-and$value.actionOutcome-cin@('PASS','OBSERVED')}
-                    $failureRows=if($null-ne$observation.PSObject.Properties['failures']){@($observation.failures)}else{@()}
-                    $reason=if($success){'RECOVERY_FAILURE_UNKNOWN'}else{'PRODUCER_NOT_SUCCESSFUL'}
-                    $recoverable=$success
-                    foreach($failure in $failureRows){
-                        if($null-eq$failure.PSObject.Properties['kind']-or$failure.kind-cne'IO_ERROR'){$recoverable=$false;if($null-ne$failure.PSObject.Properties['kind']-and$failure.kind-ceq'HOST_POLICY_REJECTED'){$reason='HOST_POLICY_REJECTED'}}
-                    }
-                    if($recoverable){
-                        $consumedInput=$true
-                        # Removed/absent observations never authorize deleting a
-                        # newly appearing object. Only matching IO remnants retry.
-                        foreach($path in $observation.remaining){
-                            if($path-isnot[string]-or-not[IO.Path]::IsPathFullyQualified($path)){throw 'RUNTIME_INPUT_OBSERVATION_PATH'}
-                            $full=Resolve-AiwEvidenceObservationPath $EvidenceContext $path
-                            $rows=@($failureRows|Where-Object{$null-ne$_.PSObject.Properties['path']-and$_.path-is[string]-and$_.path.Equals($full,[StringComparison]::OrdinalIgnoreCase)-and$_.kind-ceq'IO_ERROR'})
-                            $original=if($null-ne$observation.PSObject.Properties['consumedObject']){$observation.consumedObject}else{$null}
-                            if($rows.Count-ne1-or$null-eq$original-or$null-eq$original.PSObject.Properties['path']-or$null-eq$original.PSObject.Properties['identity']-or$original.path-isnot[string]-or-not$original.path.Equals($full,[StringComparison]::OrdinalIgnoreCase)-or$original.identity-isnot[string]-or$original.identity-cnotmatch'^\d+\|[A-F0-9]{64}$'){
-                                Follow $full;Deferred $full 'CONSUMED_OBJECT_IDENTITY_UNKNOWN';continue
-                            }
-                            if($ambiguous.Contains($full)){continue}
-                            if($expired.ContainsKey($full)-and$expired[$full]-cne$original.identity){$expired.Remove($full)|Out-Null;$null=$ambiguous.Add($full);Follow $full;Deferred $full 'CONSUMED_OBJECT_IDENTITY_AMBIGUOUS'}
-                            elseif(-not$expired.ContainsKey($full)){$expired.Add($full,$original.identity)}
-                        }
-                    }else{
-                        foreach($path in $observation.remaining){if($path-is[string]){Deferred $path $reason}}
-                        # Failed/unknown/policy-denied producer inputs remain real
-                        # proof links; ordinary guarded traversal retains them.
-                    }
-                }
-            }
-            foreach($property in $value.PSObject.Properties){if($property.Name-cin@('forbiddenScope','forbiddenPaths','protectedScope','protectedPaths','routineExcludedPaths')-or($property.Name-ceq'inputCleanup'-and$consumedInput)){continue};if($null-ne$property.Value){$queue.Enqueue($property.Value)}}
+            # Traversed JSON may retain a path, but can never mint a producer.
+            foreach($property in $value.PSObject.Properties){if($property.Name-cin@('forbiddenScope','forbiddenPaths','protectedScope','protectedPaths','routineExcludedPaths')-or($property.Name-ceq'inputCleanup'-and$skipCleanup.Contains($value))){continue};if($null-ne$property.Value){$queue.Enqueue($property.Value)}}
         }
     }
-    [pscustomobject]@{retained=@($paths|Where-Object{$_.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase)});expiredInputs=@($expired.Keys);expectedObjects=@(foreach($entry in $expired.GetEnumerator()){[pscustomobject]@{path=$entry.Key;identity=$entry.Value}});deferred=@($deferred.ToArray())}
+    [pscustomobject]@{retained=@($paths|Where-Object{$_.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase)})}
 }
 
 function Complete-AiwRuntimeConsumption($Result,$Boundary,$Receipt,[string]$InputPath,
@@ -182,32 +184,134 @@ function Complete-AiwRuntimeConsumption($Result,$Boundary,$Receipt,[string]$Inpu
     if($Boundary.mode-cne'FINALIZE_OUTPUT'-and-not$explicit){return $null}
     if($Boundary.mode-cne'FINALIZE_OUTPUT'-or$Result.status-cne'PASS'-or$Result.actionOutcome-cnotin@('OBSERVED','PASS')){return [pscustomobject]@{status='DEFERRED';reason='LAST_CONSUMER_NOT_COMPLETE'}}
     if($null-ne$Boundary.PSObject.Properties['deliveryContext']-and$Boundary.deliveryContext.channel-ceq'TASK_MESSAGE'-and($Boundary.deliveryContext.stage-cne'OBSERVE'-or-not$Result.delivery.delivered)){return [pscustomobject]@{status='DEFERRED';reason='DELIVERY_NOT_OBSERVED'}}
-    $r=Get-DeliveryReceiptView $Receipt;$project=[IO.Path]::GetFullPath($r.sourceLocators.projectRoot)
-    $segment=if($r.taskId-ceq'NOT_APPLICABLE'){$r.authorityContext.contextLocator}else{$r.taskId}
-    if($segment-cnotmatch'^[0-9A-Za-z][0-9A-Za-z._-]*$'){return [pscustomobject]@{status='REJECTED';reason='RUNTIME_CONTEXT_UNBOUND'}}
-    $scope=[IO.Path]::GetFullPath((Join-Path $project ('.ai-workspace/runtime/'+$segment)))
-    if($null-eq$Evidence-or$null-eq$Evidence.PSObject.Properties['retentionContext']){return [pscustomobject]@{status='REJECTED';failureKind='FRAMEWORK_REJECTED';reason='RUNTIME_RETENTION_CONTEXT_REQUIRED';remaining=@($ConsumedRuntimePath)}}
-    $context=$Evidence.retentionContext
-    $forbidden=@(foreach($ban in $context.ForbiddenPaths){
-        if([IO.Path]::IsPathFullyQualified($ban)){[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($ban))}
-        else{foreach($root in $context.Roots){[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Join-Path $root $ban)))}}
-    })
+    $producers=@(if($null-ne$Evidence-and$null-ne$Evidence.PSObject.Properties['retentionProducers']){$Evidence.retentionProducers})
+    # No historical search is needed to discover that there is no work.
+    if(-not$explicit-and-not$producers.Count){return $null}
     $consumptionWatch=[Diagnostics.Stopwatch]::StartNew()
-    $values=@($Receipt,$Boundary)+@($Evidence.retentionValues)
-    try{$current=Get-DeliveryRuntimeReferences $project $scope $values $context;$keep=@($InputPath)+@($RetainedRuntimePath)+@($current.retained);$ConsumedRuntimePath=@($ConsumedRuntimePath)+@($current.expiredInputs)}catch{return [pscustomobject]@{status='REJECTED';reason=$_.Exception.Message;failureKind='FRAMEWORK_REJECTED';remaining=@($ConsumedRuntimePath)}}
-    if(-not$ConsumedRuntimePath.Count-and-not$ConsumedRuntimePathList-and-not$EmptyRuntimeDirectory.Count){
-        if(-not$current.deferred.Count){return $null}
-        return [pscustomobject]@{status='RETAINED';retained=@($current.deferred.path|Select-Object -Unique);remaining=@($current.deferred.path|Select-Object -Unique);observations=@($current.deferred)}
+    $remnants=$null
+    try{
+        $r=Get-DeliveryReceiptView $Receipt;$project=[IO.Path]::GetFullPath($r.sourceLocators.projectRoot)
+        $segment=if($r.taskId-ceq'NOT_APPLICABLE'){$r.authorityContext.contextLocator}else{$r.taskId}
+        if($segment-cnotmatch'^[0-9A-Za-z][0-9A-Za-z._-]*$'){throw 'RUNTIME_CONTEXT_UNBOUND'}
+        $scope=[IO.Path]::GetFullPath((Join-Path $project ('.ai-workspace/runtime/'+$segment)))
+        $remnants=Get-DeliveryProducerRemnants $producers $scope
+        $ConsumedRuntimePath=@($ConsumedRuntimePath)+@($remnants.paths)
+        if(-not$explicit-and-not$remnants.paths.Count){
+            if(-not$remnants.deferred.Count){return $null}
+            $deferredPaths=@($remnants.deferred.path|Select-Object -Unique)
+            return [pscustomobject]@{status='RETAINED';retained=$deferredPaths;remaining=$deferredPaths;observations=@($remnants.deferred)}
+        }
+        if($null-eq$Evidence-or$null-eq$Evidence.PSObject.Properties['retentionContext']){throw 'RUNTIME_RETENTION_CONTEXT_REQUIRED'}
+        $context=$Evidence.retentionContext
+        $forbidden=@(foreach($ban in $context.ForbiddenPaths){
+            if([IO.Path]::IsPathFullyQualified($ban)){[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($ban))}
+            else{foreach($root in $context.Roots){[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Join-Path $root $ban)))}}
+        })
+        $values=@($Receipt,$Boundary)+@($Evidence.retentionValues)
+        foreach($producer in $producers){$values+=@($producer.source,$producer.input,$producer.result)}
+        $current=Get-DeliveryRuntimeReferences $project $scope $values $context $producers
+        $keep=@($InputPath)+@($RetainedRuntimePath)+@($current.retained)+@($remnants.deferred|ForEach-Object path)
+    }catch{
+        $remaining=@($ConsumedRuntimePath)+@($ConsumedRuntimePathList|Where-Object{$_})+@($EmptyRuntimeDirectory)
+        if($null-ne$remnants){$remaining+=@($remnants.deferred|ForEach-Object path)}
+        return [pscustomobject]@{status='REJECTED';reason=$_.Exception.Message;failureKind='FRAMEWORK_REJECTED';remaining=@($remaining|Select-Object -Unique);pathListMembersKnown=(-not[bool]$ConsumedRuntimePathList)}
     }
-    $release=Remove-AiwConsumedRuntimeFiles -ScopeRoot $scope -LiteralPath $ConsumedRuntimePath -ConsumedPathListPath $ConsumedRuntimePathList -EmptyDirectoryPath $EmptyRuntimeDirectory -RetainedPath $keep -ForbiddenPath $forbidden -ExpectedObject $current.expectedObjects
-    if($current.deferred.Count){
-        $release.retained=@(@($release.retained)+@($current.deferred.path)|Select-Object -Unique)
-        $release.remaining=@(@($release.remaining)+@($current.deferred.path)|Select-Object -Unique)
-        $release.observations=@($release.observations)+@($current.deferred)
+    $release=Remove-AiwConsumedRuntimeFiles -ScopeRoot $scope -LiteralPath $ConsumedRuntimePath -ConsumedPathListPath $ConsumedRuntimePathList -EmptyDirectoryPath $EmptyRuntimeDirectory -RetainedPath $keep -ForbiddenPath $forbidden -ExpectedObject $remnants.expectedObjects
+    if($remnants.deferred.Count){
+        $release.retained=@(@($release.retained)+@($remnants.deferred.path)|Select-Object -Unique)
+        $release.remaining=@(@($release.remaining)+@($remnants.deferred.path)|Select-Object -Unique)
+        $release.observations=@($release.observations)+@($remnants.deferred)
         if($release.status-ceq'PASS'){$release.status='RETAINED'}
     }
     $consumptionWatch.Stop();$release|Add-Member releaseMs $release.elapsedMs;$release.elapsedMs=$consumptionWatch.Elapsed.TotalMilliseconds
     $release
+}
+
+function Invoke-AiwRuntimeMaintenance($Request,[string]$RequestPath=''){
+    $project=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($Request.projectRoot))
+    $framework=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../../..'))
+    $ctx=New-AiwEvidenceContext $project '' $framework
+    $admit=Read-AiwEvidenceReference $ctx $Request.admitInputRef -Json
+    if($admit.schemaVersion-ne3-or$admit.mode-cne'ADMIT_ACTION'-or$null-ne$admit.PSObject.Properties['actionRebind']){throw 'RUNTIME_MAINTENANCE_ORIGINAL_ADMIT_REQUIRED'}
+    $compactRef=[pscustomobject]@{path=$admit.discoverReceiptPath;identity=$admit.expectedDiscoverReceiptIdentity}
+    $compact=Read-AiwEvidenceReference $ctx $compactRef -Json
+    $r=Get-DeliveryReceiptView $compact
+    if($r.actionKind-cne'CONTROL_WRITE'-or$r.authorityContext.contextType-cne'TASK'-or-not([IO.Path]::GetFullPath($r.sourceLocators.projectRoot)).Equals($project,[StringComparison]::OrdinalIgnoreCase)-or-not([IO.Path]::GetFullPath($r.sourceLocators.frameworkRoot)).Equals($framework,[StringComparison]::OrdinalIgnoreCase)){throw 'RUNTIME_MAINTENANCE_SOURCE_OR_ACTION_DRIFT'}
+    if([string]::IsNullOrWhiteSpace($env:CODEX_THREAD_ID)-or$r.actor-cne$env:CODEX_THREAD_ID){throw 'RUNTIME_MAINTENANCE_CURRENT_ACTOR_REQUIRED'}
+    # Install the original current protection before following any further refs.
+    $ctx=New-AiwEvidenceContext $project '' $framework (@($r.authorityContext.forbiddenScope)+@($r.authorityContext.protectedScope))
+    $packageRef=[pscustomobject]@{path=$r.sourceLocators.authorizationPackagePath;identity=$r.authorityContext.authorizationIdentity}
+    $package=Read-AiwEvidenceReference $ctx $packageRef -Json
+    if(($package.schemaVersion-ne1-and-not($package.schemaVersion-eq2-and$package.repositoryId-ceq'CONTROL'))-or@($package.actions).Count-ne1-or$package.actions[0]-cne'CONTROL_WRITE'-or$package.lifecycle-cne'ACTIVE'){throw 'RUNTIME_MAINTENANCE_PURE_CONTROL_REQUIRED'}
+    foreach($field in @('continuationPlan','transitionPlan','repairReviewPlan','sourcePublicationBinding','acceptanceBinding','externalBinding','receiverBinding','reviewRouteBinding')){if($null-ne$package.PSObject.Properties[$field]){throw 'RUNTIME_MAINTENANCE_SPECIAL_ACTION_DENIED'}}
+    if($r.sourceLocators.taskRelativePath-cnotmatch'^\.ai-workspace/tasks/active/[^/]+\.md$'){throw 'RUNTIME_MAINTENANCE_ACTIVE_TASK_REQUIRED'}
+    $taskRef=[pscustomobject]@{path=$r.sourceLocators.taskRelativePath;identity=$r.taskIdentity}
+    $taskPath=Read-AiwEvidenceReference $ctx $taskRef
+    $taskText=[IO.File]::ReadAllText($taskPath)
+    if($taskText-cnotmatch'(?m)^- Status: ACTIVE\r?$'-or$taskText-cnotmatch'(?m)^- Range summary:[^\r\n]*lifecycle=ACTIVE;'){throw 'RUNTIME_MAINTENANCE_ACTIVE_TASK_REQUIRED'}
+    if($Request.retainedRefs-isnot[Array]-or$Request.retainedPaths-isnot[Array]){throw 'RUNTIME_MAINTENANCE_RETAINED_ARRAY_REQUIRED'}
+    $files=[Collections.Generic.List[string]]::new();$expected=[Collections.Generic.List[object]]::new()
+    foreach($path in $package.exactPaths){
+        if($path-isnot[string]-or$path-cnotmatch'^\.ai-workspace/(runtime|tmp)/[^/].+') {throw 'RUNTIME_MAINTENANCE_FILE_SCOPE'}
+        $rows=@($package.objectIdentities|Where-Object path -CEQ $path)
+        if($rows.Count-ne1-or$rows[0].identity-cnotmatch'^\d+\|[A-F0-9]{64}$'){throw 'RUNTIME_MAINTENANCE_EXISTING_FILE_REQUIRED'}
+        $full=Read-AiwEvidenceReference $ctx $rows[0] -Candidate
+        $files.Add($full);$expected.Add([pscustomobject]@{path=$full;identity=$rows[0].identity})
+    }
+    if(-not$files.Count){throw 'RUNTIME_MAINTENANCE_EMPTY_SCOPE'}
+    $admitPath=Read-AiwEvidenceReference $ctx $Request.admitInputRef
+    $keep=@($admitPath,(Read-AiwEvidenceReference $ctx $compactRef),(Read-AiwEvidenceReference $ctx $packageRef),$taskPath)
+    if($RequestPath){$keep+=Resolve-AiwEvidenceObservationPath $ctx $RequestPath}
+    foreach($path in $Request.retainedPaths){if($path-isnot[string]-or[string]::IsNullOrWhiteSpace($path)){throw 'RUNTIME_MAINTENANCE_RETAINED_PATH'};$keep+=Resolve-AiwEvidenceObservationPath $ctx $path}
+    foreach($ref in $Request.retainedRefs){$keep+=Read-AiwEvidenceReference $ctx $ref}
+    $configPath=Resolve-AiwEvidenceObservationPath $ctx '.ai-workspace/project.json'
+    $config=(Read-AiwStrictInputJson $configPath).Value
+    # The current authorization's deletion subjects are not dependency refs.
+    # These three exact, already read chain files remain retained leaves.
+    $chainLeaves=@($keep[0..2])
+    $values=@($r.sourceLocators,$admit,$package.userConfirmation,$config,(Get-AiwAcceptancePlan $taskText))+@($Request.retainedRefs)
+    # Only known current roots, never a scan for every project reference.
+    foreach($relative in @('.ai-workspace/controller.json','.ai-workspace/process-policy.json','.ai-workspace/corrections.json',('.ai-workspace/upgrade-recovery/'+$config.frameworkVersion+'/state.json'))){
+        $full=Resolve-AiwEvidenceObservationPath $ctx $relative
+        if([IO.File]::Exists($full)){$keep+=$full;$values+=[pscustomobject]@{path=$full;identity=(Get-AiwFileIdentity $full)}}
+    }
+    $runtime=Join-Path $project '.ai-workspace/runtime';$tmp=Join-Path $project '.ai-workspace/tmp'
+    $references=Get-DeliveryRuntimeReferences $project (Join-Path $project '.ai-workspace') $values $ctx @() $chainLeaves
+    $keep+=@($references.retained)
+    $forbidden=@($ctx.ForbiddenPaths)
+    $releases=[Collections.Generic.List[object]]::new()
+    $preflight=@(foreach($root in @($runtime,$tmp)){
+        $members=@($files|Where-Object{$_.StartsWith($root+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)})
+        if($members.Count){Remove-AiwConsumedRuntimeFiles -ScopeRoot $root -LiteralPath $members -RetainedPath $keep -ForbiddenPath $forbidden -ExpectedObject @($expected|Where-Object{$_.path-in$members}) -PreflightOnly}
+    })
+    if(@($preflight|Where-Object status -CNE 'PASS').Count){
+        return [pscustomobject]@{status='REJECTED';reason='RUNTIME_MAINTENANCE_PREFLIGHT';actor=$r.actor;taskId=$r.taskId;removed=@();removedBytes=0;alreadyAbsent=@();retained=@($preflight|ForEach-Object retained);remaining=@($files);failures=@($preflight|ForEach-Object failures);observations=@($preflight|ForEach-Object observations);admission=$null;postimages=@()}
+    }
+    # The maintenance layout must enter its fixed root adapter, including the
+    # complete schema2 checker and topology check. No version-level bypass.
+    if($config.controlPlaneLayout-ceq'framework-maintenance-sibling'){
+        if($package.schemaVersion-ne2){throw 'RUNTIME_MAINTENANCE_CONTROL_PACKAGE_REQUIRED'}
+        $entry=Resolve-AiwEvidenceObservationPath $ctx (Join-Path $framework 'scripts/resolve-framework-maintenance-process-requirements.ps1')
+        $output=@(& (Join-Path $PSHOME 'pwsh.exe') -NoLogo -NoProfile -File $entry -InputPath $admitPath -AsJson 2>&1|ForEach-Object{[string]$_});$exitCode=$LASTEXITCODE
+    }elseif($config.controlPlaneLayout-ceq'repo-local'){
+        if($package.schemaVersion-ne1){throw 'RUNTIME_MAINTENANCE_LOCAL_PACKAGE_REQUIRED'}
+        Import-Module (Join-Path $PSScriptRoot 'ProcessRequirementBoundary.psm1')
+        $response=Invoke-AiwProcessRequirementBoundary -InputPath $admitPath -AsJson;$output=@($response.output);$exitCode=$response.exitCode
+    }else{throw 'RUNTIME_MAINTENANCE_LAYOUT'}
+    $admission=ConvertFrom-AiwStrictInputJson ($output-join"`n")
+    if($exitCode-ne0-or$admission.Value.status-cne'PASS'){throw ('RUNTIME_MAINTENANCE_ADMIT_FAILED|'+($output-join"`n"))}
+    foreach($ref in @($Request.admitInputRef,$compactRef,$packageRef)){$null=Read-AiwEvidenceReference $ctx $ref}
+    foreach($root in @($runtime,$tmp)){
+        $members=@($files|Where-Object{$_.StartsWith($root+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)})
+        if($members.Count){$releases.Add((Remove-AiwConsumedRuntimeFiles -ScopeRoot $root -LiteralPath $members -RetainedPath $keep -ForbiddenPath $forbidden -ExpectedObject @($expected|Where-Object{$_.path-in$members})))}
+    }
+    $removed=@($releases|ForEach-Object removed);$remaining=@($releases|ForEach-Object remaining)
+    $failures=@($releases|ForEach-Object failures);$posts=@(foreach($path in $package.exactPaths){
+        try{$full=Resolve-AiwEvidenceObservationPath $ctx $path;$identity=if([IO.File]::Exists($full)){Get-AiwFileIdentity $full}else{'MISSING'}}catch{$identity='UNKNOWN';$remaining+=Join-Path $project $path;$failures+=[pscustomobject]@{path=$path;kind='POSTIMAGE_UNKNOWN';message=$_.Exception.Message}}
+        [pscustomobject]@{path=$path;identity=$identity}
+    })
+    $status=if($failures.Count){'PARTIAL_FAILURE'}elseif($remaining.Count){'RETAINED'}else{'PASS'}
+    [pscustomobject]@{status=$status;actor=$r.actor;taskId=$r.taskId;removed=$removed;removedBytes=($releases.removedBytes|Measure-Object -Sum).Sum;alreadyAbsent=@($releases|ForEach-Object alreadyAbsent);retained=@($releases|ForEach-Object retained);remaining=@($remaining|Select-Object -Unique);failures=$failures;observations=@($releases|ForEach-Object observations);admission=$admission.Value;admitInputRef=$Request.admitInputRef;postimages=$posts;finalizeRequired=$true;evidenceCeiling='INSTRUCTION_BOUND';limits=@('Expiry is supplied by the current task; only known references were followed.','The caller must finalize the original CONTROL_WRITE with actual postimages.')}
 }
 
 function Write-AiwRuntimeCleanupObservation($Result){
@@ -413,4 +517,4 @@ function Invoke-AiwDeliveryBoundary($Reference,[string[]]$ConsumedRuntimePath=@(
     $value|Add-Member ackRequired $false;$value|Add-Member polling $false
     return $value
 }
-Export-ModuleMember -Function Get-AiwCodexSendOutcome,Get-AiwBoundDelivery,Invoke-AiwDeliveryBoundary,Assert-AiwReviewRoutePreparation,Remove-AiwConsumedRuntimeFiles,Complete-AiwRuntimeConsumption,Write-AiwRuntimeCleanupObservation
+Export-ModuleMember -Function Get-AiwCodexSendOutcome,Get-AiwBoundDelivery,Invoke-AiwDeliveryBoundary,Assert-AiwReviewRoutePreparation,Remove-AiwConsumedRuntimeFiles,Complete-AiwRuntimeConsumption,Write-AiwRuntimeCleanupObservation,Invoke-AiwRuntimeMaintenance

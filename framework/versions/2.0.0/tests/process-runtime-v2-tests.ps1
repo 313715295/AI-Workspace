@@ -222,6 +222,8 @@ try{
     $ri.intentEnvelope.requestedActionKind='SOURCE_WRITE';$ri.intentEnvelope.requestedResultKind='IMPLEMENTATION_RESULT';$ri.intentEnvelope.objective='Implement the current ordinary source change';$ri.intentEnvelope.semanticHints=@();$ri.intentEnvelope.mutationHints=@('source')
     foreach($axis in @('domain','workType','deliverableType','stage')){$ri.intentEnvelope.facets.$axis=[pscustomobject]@{state='UNKNOWN';values=@()}}
     Write-Json $loadPath $ri;$initial=Invoke-Resolver $resolver $loadPath;Assert-ResolverSuccess $initial 'ordinary-scope-initial-full'
+    $observed=$initial.Value.compactReceipt.sourceObservation
+    Assert-True ($observed.schemaVersion-eq2-and$observed.workRoute.actor-ceq'owner-fixture'-and$observed.workRoute.role-ceq'TASK_OWNER'-and$observed.workRoute.phase-ceq'IMPLEMENT'-and($observed.loadedRuleIds-join'|')-ceq(@($initial.Value.compactReceipt.selectedObligations.requirementId)-join'|')) 'current-full-observes-real-work-route-and-all-loaded-rule-ids'
     $rr=Join-Path $rd 'scope-receipt.json';Write-Json $rr $initial.Value.compactReceipt
     $rb=[ordered]@{schemaVersion=3;mode='ADMIT_ACTION';discoverReceiptPath=$rr;expectedDiscoverReceiptIdentity=Get-Identity $rr;preparationReceipts=@($initial.Value.compactReceipt.selectedObligations|ForEach-Object preparationRequirements|Sort-Object -Unique);resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='BOUND';evidenceRefs=@()}
     $bp=Join-Path $rd 'scope-boundary.json';Write-Json $bp $rb;Assert-ResolverSuccess (Invoke-Resolver $resolver $bp) 'ordinary-scope-initial-admit'
@@ -239,6 +241,27 @@ try{
     $final=$rb|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100;$final.PSObject.Properties.Remove('actionRebind');$final.mode='FINALIZE_OUTPUT';$final.discoverReceiptPath=$next;$final.expectedDiscoverReceiptIdentity=Get-Identity $next
     $final.resultReceipts=@($newReceipt.selectedObligations|ForEach-Object resultRequirements|Sort-Object -Unique)+@($pkg.exactPaths|ForEach-Object{'OBJECT_POSTIMAGE|'+$_+'|'+(Get-Identity (Join-Path $temp $_))})
     Write-Json $bp $final;Assert-ResolverSuccess (Invoke-Resolver $resolver $bp) 'ordinary-new-file-original-finalize'
+    # Writing companion test code is still this implementation activity. The
+    # saved current compact, actual checker and original F must all bind TEST_WRITE.
+    $testPackage=$pkg|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100
+    $testPackage.actions=@('TEST_WRITE');$testPackage.exactPaths=@('tests/companion.ps1');$testPackage.objectIdentities=@([pscustomobject]@{path='tests/companion.ps1';identity='NEW'})
+    $testPackagePath=Join-Path $rd 'companion-package.json';Write-Json $testPackagePath $testPackage
+    $testIntent=$ri.intentEnvelope|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100
+    $testIntent.objective='Add companion test code for this implementation; no test execution yet';$testIntent.requestedActionKind='TEST_WRITE';$testIntent.pathHints=@('tests/companion.ps1');$testIntent.mutationHints=@()
+    $testBoundary=$rb|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100
+    $testBoundary.discoverReceiptPath=$next;$testBoundary.expectedDiscoverReceiptIdentity=Get-Identity $next
+    $testBoundary.actionRebind=[pscustomobject]@{authorizationRef=[pscustomobject]@{path=$testPackagePath;identity=(Get-Identity $testPackagePath)};intentEnvelope=$testIntent;recoveryState='CURRENT'}
+    $testCompact=Join-Path $rd 'companion-rebound.json';$testBoundaryPath=Join-Path $rd 'companion-boundary.json';Write-Json $testBoundaryPath $testBoundary
+    $global:RuleBodyCalls=0;$global:RuleDisplayCalls=0
+    $probes=@(Set-PSBreakpoint -Command Get-AiwScopedProjectContent -Action {$global:RuleBodyCalls++};Set-PSBreakpoint -Command Get-AiwProcessDisplay -Action {$global:RuleDisplayCalls++})
+    try{$global:LASTEXITCODE=0;$output=@(& $resolver -InputPath $testBoundaryPath -CompactReceiptPath $testCompact -AsJson);$code=$global:LASTEXITCODE;$testAdmission=($output-join"`n")|ConvertFrom-Json -Depth 100}finally{$probes|Remove-PSBreakpoint}
+    Assert-True ($code-eq0-and$testAdmission.status-ceq'PASS'-and$global:RuleBodyCalls-eq0-and$global:RuleDisplayCalls-eq0) ('companion-test-code-current-admit-with-zero-assembly|'+($output-join''))
+    $testReceipt=Get-Content -LiteralPath $testCompact -Raw|ConvertFrom-Json -Depth 100
+    Assert-True ($testReceipt.intentEnvelope.requestedActionKind-ceq'TEST_WRITE'-and$testReceipt.binding.authorizedActions[0]-ceq'TEST_WRITE'-and$testReceipt.binding.authorizationIdentity-ceq(Get-Identity $testPackagePath)-and$testReceipt.selectionIdentity-cne$newReceipt.selectionIdentity-and($testReceipt.sourceObservation.loadedRuleIds-join'|')-ceq($observed.loadedRuleIds-join'|')) 'companion-code-saved-compact-current-action-and-original-loaded-sources'
+    Write-Utf8 (Join-Path $temp 'tests/companion.ps1') "# Companion implementation test code; not executed by this fixture."
+    $testFinal=$testBoundary|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100;$testFinal.PSObject.Properties.Remove('actionRebind');$testFinal.mode='FINALIZE_OUTPUT';$testFinal.discoverReceiptPath=$testCompact;$testFinal.expectedDiscoverReceiptIdentity=Get-Identity $testCompact
+    $testFinal.resultReceipts=@($testReceipt.selectedObligations|ForEach-Object resultRequirements|Sort-Object -Unique)+@('OBJECT_POSTIMAGE|tests/companion.ps1|'+(Get-Identity (Join-Path $temp 'tests/companion.ps1')))
+    Write-Json $testBoundaryPath $testFinal;Assert-ResolverSuccess (Invoke-Resolver $resolver $testBoundaryPath) 'companion-code-original-F-uses-saved-current-compact'
     # Old permission never expands just because the caller supplies a new path.
     $rb.actionRebind.authorizationRef=@{path=$pa;identity=Get-Identity $pa};$rb.actionRebind.intentEnvelope=$ri.intentEnvelope|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100;$rb.actionRebind.intentEnvelope.pathHints=@('src/extra.txt')
     function Invoke-RebindFailure([string]$Name,[string]$Reason){Write-Json $bp $rb;$global:LASTEXITCODE=0;$lines=@(& $resolver -InputPath $bp -CompactReceiptPath (Join-Path $rd ($Name+'.json')) -AsJson);Assert-True ($global:LASTEXITCODE-ne0-and($lines-join'').Contains($Reason)) $Name}
@@ -254,6 +277,37 @@ try{
     $bytes=[IO.File]::ReadAllBytes((Join-Path $temp 'docs/base.md'))
     try{Write-Utf8 (Join-Path $temp 'docs/base.md') 'unadopted bytes';$ri.exactPaths=@('src/base.txt');$rb.actionRebind.authorizationRef=@{path=$pa;identity=Get-Identity $pa};Invoke-RebindFailure 'current-source-byte-drift-refused' 'CONTENT_IDENTITY_DRIFT'}finally{[IO.File]::WriteAllBytes((Join-Path $temp 'docs/base.md'),$bytes)}
   }finally{[IO.File]::WriteAllBytes($taskPath,$savedTask);[IO.File]::WriteAllBytes($policyPath,$savedPolicy);$env:CODEX_THREAD_ID=$savedActor}
+  # Exercise both real loading contexts through the public boundary. This
+  # is not a provider call or a machine proof of semantic grant coverage.
+  $externalSavedPolicy=[IO.File]::ReadAllBytes($policyPath)
+  try{
+    $externalPolicy=[pscustomobject]@{schemaVersion=3;contractVersion='2.0.0';projectId='process-v2-fixture';rules=@([pscustomobject]@{ruleId='LOCAL_TOOL_GRANT';requirementReason='A bounded local integration tool is permitted';effectiveRule='The named fixture executor may call the local fixture tool once, with no network, account changes, publication or retry. Unknown consumption stops.';selectors=[pscustomobject]@{profiles=@('*');roles=@('*');phases=@('EXTERNAL');actionKinds=@('EXTERNAL');resultKinds=@('*');pathPrefixes=@();capabilities=@();semanticTerms=@()};preparationRequirements=@();resultRequirements=@();decisionLocator='fixture:explicit-project-grant'});externalAuthorization=[pscustomobject]@{schemaVersion=1;mode='PROJECT_PREAUTHORIZED';grantRuleIds=@('LOCAL_TOOL_GRANT')}}
+    Write-Json $policyPath $externalPolicy
+    $externalInput=$discover|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100
+    $externalInput.schemaVersion=5;$externalInput.evaluationOnly=$false;$externalInput.protectedPaths=@();$externalInput.expectedTaskIdentity=Get-Identity $taskPath;$externalInput.expectedProjectConfigIdentity=Get-Identity (Join-Path $control 'project.json')
+    $externalInput|Add-Member ruleLoad ([pscustomobject]@{mode='FULL'})
+    $externalInput.intentEnvelope.objective='Load the current complete project grant for a direct local tool request';$externalInput.intentEnvelope.requestedActionKind='EXTERNAL';$externalInput.intentEnvelope.requestedResultKind='EXTERNAL_RESULT';$externalInput.intentEnvelope.semanticHints=@()
+    $externalPath=Join-Path $temp 'external-load.json';Write-Json $externalPath $externalInput
+    $externalTask=Invoke-Resolver $resolver $externalPath;Assert-ResolverSuccess $externalTask 'existing-task-project-external-load'
+    Assert-True ($externalTask.Value.compactReceipt.binding.phase-ceq'EXTERNAL'-and$externalTask.Value.compactReceipt.binding.authorizedActions.Count-eq0-and$externalTask.Value.compactReceipt.sourceObservation.workRoute.phase-ceq'PLAN'-and$externalTask.Value.projectExternalAuthorization.selectedGrantRuleIds[0]-ceq'LOCAL_TOOL_GRANT') 'project-external-load-keeps-real-task-route-and-no-per-call-package'
+    $externalInput.contextType='PROJECT_EXTERNAL';$externalInput.PSObject.Properties.Remove('readOnlyContext');$externalInput.taskPath='NOT_APPLICABLE';$externalInput.expectedTaskIdentity='NOT_APPLICABLE'
+    $externalInput|Add-Member requestContext ([pscustomobject]@{sessionId='owner-fixture';requestId='external-load-fixture';role='EXECUTOR';phase='EXTERNAL';profile='STANDARD'})
+    Write-Json $externalPath $externalInput;$externalNoTask=Invoke-Resolver $resolver $externalPath;Assert-ResolverSuccess $externalNoTask 'taskless-project-external-load'
+    Assert-True ($externalNoTask.Value.compactReceipt.binding.contextType-ceq'PROJECT_EXTERNAL'-and$externalNoTask.Value.compactReceipt.binding.taskId-ceq'NOT_APPLICABLE'-and$externalNoTask.Value.compactReceipt.sourceObservation.schemaVersion-eq1-and-not$externalNoTask.Value.compactReceipt.authorityGranted) 'taskless-external-load-keeps-honest-intent-and-no-task-authority'
+    Assert-True (Test-Json -Json ($externalNoTask.Value.compactReceipt.binding|ConvertTo-Json -Depth 100) -SchemaFile (Join-Path $fixtureVersion 'AUTHORITY_CONTEXT_SCHEMA.json') -ErrorAction Stop) 'taskless-external-authority3-matches-public-schema'
+    $externalCompact=Join-Path $temp 'external-load-compact.json';Write-Json $externalCompact $externalNoTask.Value.compactReceipt
+    foreach($mode in @('ADMIT_ACTION','FINALIZE_OUTPUT')){
+      $boundary=[ordered]@{schemaVersion=3;mode=$mode;discoverReceiptPath=$externalCompact;expectedDiscoverReceiptIdentity=Get-Identity $externalCompact;preparationReceipts=@();resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='BOUND';evidenceRefs=@()}
+      $boundaryPath=Join-Path $temp 'external-invalid-boundary.json';Write-Json $boundaryPath $boundary;$denied=Invoke-Resolver $resolver $boundaryPath
+      Assert-True ($denied.Code-ne0-and$denied.Text.Contains('PROJECT_EXTERNAL_LOAD_HAS_NO_ACTION_BOUNDARY')) ('external-load-is-not-'+$mode)
+    }
+    $externalPolicy.externalAuthorization.grantRuleIds=@('MISSING_GRANT');Write-Json $policyPath $externalPolicy
+    $badGrant=Invoke-Resolver $resolver $externalPath
+    Assert-True ($badGrant.Code-ne0-and$badGrant.Text.Contains('EXTERNAL_AUTHORIZATION_GRANT_RULE_UNBOUND')) 'unbound-grant-cannot-become-successful-full-load'
+    $externalPolicy.externalAuthorization=[pscustomobject]@{schemaVersion=1;mode='PER_ACTION'};Write-Json $policyPath $externalPolicy
+    $defaultMode=Invoke-Resolver $resolver $externalPath
+    Assert-True ($defaultMode.Code-ne0-and$defaultMode.Text.Contains('EXTERNAL_ACTION_PACKAGE_OR_SELECTED_PROJECT_GRANT_REQUIRED')) 'per-action-mode-cannot-use-taskless-direct-load'
+  }finally{[IO.File]::WriteAllBytes($policyPath,$externalSavedPolicy)}
   if($RuleLoadingOnly){Write-Output ('PROCESS_RULE_LOADING_PASS|checks='+$passed+'|scope=current-full-and-real-action-rebind');return}
 
   # A non-Git SAME_ROOT observer must not touch Git, even with bad overrides.

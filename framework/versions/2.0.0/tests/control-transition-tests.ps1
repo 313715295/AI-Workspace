@@ -141,7 +141,8 @@ function New-OrdinaryArchiveFixture([string]$Outcome='SUCCESS',[switch]$MissingU
  $stages=@($stage)
  if($Outcome-ceq'SUCCESS'){
   # Actual producer input consumption fails on a real open handle. The original
-  # final consumer later discovers this known expiry through its validated plan.
+  # final consumer retains this report: a plan does not validate its arbitrary
+  # embedded producer observations as original successful FINALIZE evidence.
   $retryInput=Join-Path $runtime 'producer-consumed-input.json';[IO.File]::Copy($f.Locators.discoverInput,$retryInput)
   $env:CODEX_THREAD_ID='old-actor';$hold=[IO.File]::Open($retryInput,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
   try{$producer=Run-Process $retryInput -DeleteInputOnExit}finally{$hold.Dispose()}
@@ -283,9 +284,8 @@ function Test-OrdinaryArchive {
  Assert-True ([IO.File]::Exists($f.RetryInput)-and(Id $f.ProofLeaf)-ceq$f.ProofIdentity) 'archive-failed-finalize-keeps-real-producer-input-and-report-proof-for-recovery'
  [IO.File]::WriteAllBytes($archive,$f.ClosedBytes)
  $done=Run-Process $f.Locators.finalizeInput;Must-Pass $done 'ORDINARY_ARCHIVE_ORIGINAL_FINALIZE'
- Assert-True ($done.Value.runtimeCleanup.status-ceq'RETAINED'-and$done.Value.runtimeCleanup.removed.Count-eq1-and-not[IO.File]::Exists($f.RetryInput)-and[IO.File]::Exists($f.Locators.discoverReceipt)-and[IO.File]::Exists($f.Locators.finalizeInput)-and[IO.File]::Exists($f.Decision)) 'archive-default-production-consumer-collects-real-producer-expiry-with-no-path-array'
+ Assert-True ($null-eq$done.Value.PSObject.Properties['runtimeCleanup']-and[IO.File]::Exists($f.RetryInput)-and[IO.File]::Exists($f.Locators.discoverReceipt)-and[IO.File]::Exists($f.Locators.finalizeInput)-and[IO.File]::Exists($f.Decision)) 'archive-zero-candidate-does-not-promote-report-observations-to-validated-producers'
  foreach($kept in $f.KeptInputs){Assert-True ([IO.File]::Exists($kept.path)-and(Id $kept.path)-ceq$kept.identity) ('archive-keeps-recreated-changed-failed-unknown-policy-input-'+[IO.Path]::GetFileName($kept.path))}
- Assert-True (@($done.Value.runtimeCleanup.observations|Where-Object {$_.reason-ceq'CONSUMED_OBJECT_CHANGED'}).Count-eq1-and@($done.Value.runtimeCleanup.observations|Where-Object {$_.reason-ceq'HOST_POLICY_REJECTED'}).Count-eq1) 'archive-default-cleanup-reports-changed-bytes-and-original-policy-reason'
  $retained=Run-Process $f.Locators.finalizeInput -ConsumedRuntimePath @($f.ProofLeaf);Must-Pass $retained 'ORDINARY_ARCHIVE_REPORT_RETENTION'
  Assert-True ($retained.Value.runtimeCleanup.status-ceq'RETAINED'-and$f.ProofLeaf-cin$retained.Value.runtimeCleanup.retained-and(Id $f.ProofLeaf)-ceq$f.ProofIdentity) 'archive-plan-report-outside-runtime-retains-listed-runtime-proof'
  Assert-True ($done.Value.actionOutcome-ceq'OBSERVED'-and-not(Test-Path -LiteralPath $f.PlanPath)-and-not(Test-Path -LiteralPath (Join-Path $f.Project '.ai-workspace/runtime/control-transition.active.json'))-and-not(Test-Path -LiteralPath $f.Locators.completionProof)) 'ordinary-archive-original-finalize-completes-without-plan-marker-journal-or-proof'
@@ -295,7 +295,9 @@ function Test-OrdinaryArchive {
    $fin=Get-Content -LiteralPath $guarded.Locators.finalizeInput -Raw|ConvertFrom-Json -Depth 100
    $fin|Add-Member deliveryContext ([pscustomobject]@{channel='NATIVE_RESPONSE';stage='PREPARE';expectedRecipient='USER';observedRecipient='NOT_APPLICABLE';outcome='NOT_SENT';evidence='NOT_APPLICABLE'})
    Write-Json $guarded.Locators.finalizeInput $fin;Save-OrdinaryArchive $guarded
-   $guard=Run-Process $guarded.Locators.finalizeInput;Must-Pass $guard ('ORDINARY_ARCHIVE_GUARD_'+$blocked)
+   $zero=Run-Process $guarded.Locators.finalizeInput;Must-Pass $zero ('ORDINARY_ARCHIVE_ZERO_'+$blocked)
+   Assert-True ($null-eq$zero.Value.PSObject.Properties['runtimeCleanup']-and[IO.File]::Exists($guarded.RetryInput)) ('archive-zero-candidate-does-not-open-locked-protected-history-'+$blocked)
+   $guard=Run-Process $guarded.Locators.finalizeInput -ConsumedRuntimePath @($guarded.ProofLeaf);Must-Pass $guard ('ORDINARY_ARCHIVE_GUARD_'+$blocked)
    Assert-True ($guard.Value.runtimeCleanup.status-ceq'REJECTED'-and$guard.Value.runtimeCleanup.reason-ceq'EVIDENCE_PATH_FORBIDDEN'-and[IO.File]::Exists($guarded.RetryInput)) ('archive-full-root-aware-guard-before-linked-read-or-delete-'+$blocked)
   }finally{$guarded.SentinelHold.Dispose()}
  }

@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([ValidateSet('All','HistoricalInputs','QualityAssurance','QualityMaintenance')][string]$Group='All',[switch]$KeepFixture)
+param([ValidateSet('All','HistoricalInputs','QualityAssurance','QualityMaintenance','RuntimeMaintenance','OperationRebind')][string]$Group='All',[switch]$KeepFixture)
 Import-Module (Join-Path $PSScriptRoot 'TestNativeOutput.psm1')
 Initialize-AiwTestNativeOutput
 $ErrorActionPreference='Stop'
@@ -39,7 +39,7 @@ function Check-Card([string]$Text){
     return [pscustomobject]@{Code=$LASTEXITCODE;Text=($lines-join"`n")}
 }
 function With-Plan([string]$Text,$Plan){return $Text+'```aiw-acceptance-plan'+"`n"+($Plan|ConvertTo-Json -Depth 70 -Compress)+"`n"+'```'+"`n"}
-function Test-QualityAssuranceConsumers([string]$Root,[switch]$Maintenance){
+function Test-QualityAssuranceConsumers([string]$Root,[switch]$Maintenance,[switch]$RuntimeMaintenanceOnly,[switch]$OperationRebindOnly){
     # Original public project operations, using synthetic package qualification
     # and host delivery only. The fixture never qualifies the real Source.
     Import-Module (Join-Path $PSScriptRoot 'TestHarness.psm1')
@@ -63,6 +63,8 @@ function Test-QualityAssuranceConsumers([string]$Root,[switch]$Maintenance){
     & $integration {param($r)$script:utf8=[Text.UTF8Encoding]::new($false);Seal-MaintenanceRuntimeFixture $r;$p=Join-Path $r 'PACKAGE_MANIFEST.json';$m=Get-Content -LiteralPath $p -Raw|ConvertFrom-Json -Depth 100;$m.provisional=$true;$m.distributionId='2.0.0-snapshot.999';Write-Utf8 $p ($m|ConvertTo-Json -Depth 100)} $framework
     $taskRelative='.ai-workspace/tasks/active/EVIDENCE-001.md';$taskPath=Join-Path $temp $taskRelative
     $baseCard="# EVIDENCE-001 — anonymous quality result`n- Task schema: 2.0.0`n- Profile: CRITICAL; reason=quality policy fixture`n- Owner: owner`n- Work route: actor=owner; role=TASK_OWNER; phase=IMPLEMENT`n- Status: ACTIVE`n- Phase gate: FALSE`n- Range summary: profile=CRITICAL; lifecycle=ACTIVE; current_exact=result.md; expected_paths=[result.md]; actual_paths=[result.md]`n"
+    if($RuntimeMaintenanceOnly){$baseCard="# EVIDENCE-001 — release known expired fixture inputs`n- Task schema: 2.0.0`n- Profile: STANDARD; reason=bounded local runtime maintenance`n- Owner: owner`n- Work route: actor=owner; role=TASK_OWNER; phase=IMPLEMENT`n- Status: ACTIVE`n- Phase gate: FALSE`n- Range summary: profile=STANDARD; lifecycle=ACTIVE; current_exact=EXPIRED_RUNTIME_INPUTS; expected_paths=[.ai-workspace/runtime/OLD-ONE/previous-actor/expired.txt|.ai-workspace/runtime/OLD-TWO/previous-actor/expired.txt|.ai-workspace/tmp/old-expired.txt]; actual_paths=[.ai-workspace/runtime/OLD-ONE/previous-actor/expired.txt|.ai-workspace/runtime/OLD-TWO/previous-actor/expired.txt|.ai-workspace/tmp/old-expired.txt]`n- Expiry: Last consumers of the explicitly named anonymous inputs have ended; formal originals remain in retained references. No old task or actor grants current authority.`n"}
+    if($OperationRebindOnly){$baseCard=$baseCard.Replace('result.md','.ai-workspace/reports/operation-result.txt')}
     $initial=Join-Path $Root 'initial-task.md';[IO.File]::WriteAllText($initial,$baseCard,$utf8)
     function QNative([string]$Entry,[string[]]$Arguments,[string]$Name){
         $run=Invoke-AiwTestProcess ([Environment]::ProcessPath) (@('-NoProfile','-NonInteractive','-File',$Entry)+$Arguments) -WorkingDirectory $temp -GroupId 'result-quality'
@@ -75,6 +77,9 @@ function Test-QualityAssuranceConsumers([string]$Root,[switch]$Maintenance){
     $registered=QNative (Join-Path $framework 'scripts/register-project.ps1') $registerArgs 'register'
     if($registered.Code-ne0){throw ('QUALITY_REGISTER|'+($registered.Output-join"`n"))}
     True ([IO.File]::Exists($taskPath)) 'quality-anonymous-candidate-actually-registered-with-original-task'
+    # Synthetic starting state for the tested external operation, not a claim
+    # that ordinary task writes can perform a Work route transition.
+    if($OperationRebindOnly){$baseCard=$baseCard.Replace('phase=IMPLEMENT','phase=EXTERNAL');[IO.File]::WriteAllText($taskPath,$baseCard,$utf8)}
     $configPath=Join-Path $temp '.ai-workspace/project.json';$policyPath=Join-Path $temp '.ai-workspace/process-policy.json'
     function QProduct([string]$Text){[IO.File]::WriteAllText((Join-Path $objectRoot 'result.md'),$Text,$utf8);[pscustomobject]@{path='result.md';identity=(Id (Join-Path $objectRoot 'result.md'))}}
     $candidate=QProduct 'Before anonymous production.'
@@ -89,10 +94,12 @@ function Test-QualityAssuranceConsumers([string]$Root,[switch]$Maintenance){
         if($null-ne$Quality){$p|Add-Member qualityBinding (Clone $Quality)}
         return $p
     }
-    function QProcess($Value,[string]$Name,[string]$Signal=''){
+    function QProcess($Value,[string]$Name,[string]$Signal='',[switch]$InputSharingFailure){
         $path=Json ($runtime+$Name+'.json') $Value
         $entry=if($Maintenance){Join-Path $framework 'scripts/resolve-framework-maintenance-process-requirements.ps1'}else{Join-Path $fixtureVersion 'scripts/resolve-process-requirements.ps1'}
-        $run=QNative $entry @('-InputPath',$path,'-AsJson') $Name
+        $arguments=@('-InputPath',$path,'-AsJson');$hold=$null
+        if($InputSharingFailure){$arguments+=@('-DeleteInputOnExit');$hold=[IO.File]::Open($path,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)}
+        try{$run=QNative $entry $arguments $Name}finally{if($null-ne$hold){$hold.Dispose()}}
         $raw=$run.Output-join"`n";$valueOut=$null;try{$valueOut=$raw|ConvertFrom-Json -Depth 100}catch{}
         if($Signal){True ($run.Code-ne0-and$raw.Contains($Signal)) ($Name+'|'+$Signal)}elseif($run.Code-ne0-or$null-eq$valueOut-or$valueOut.status-cne'PASS'){throw ('QUALITY_PROCESS|'+$Name+'|'+$raw)}
         $result=Json ($runtime+$Name+'-result.json') $valueOut
@@ -100,20 +107,20 @@ function Test-QualityAssuranceConsumers([string]$Root,[switch]$Maintenance){
     }
     function QStart($Package,[string]$Name,[string]$ObservedAction='',[string]$Continuation=''){
         $packagePath=if($Continuation){$c=Get-Content -LiteralPath $Continuation -Raw|ConvertFrom-Json -Depth 100;$s=Get-Content -LiteralPath $c.sourceDiscoverReceiptPath -Raw|ConvertFrom-Json -Depth 100;$s.sourceLocators.authorizationPackagePath}else{Json ($runtime+$Name+'-package.json') $Package}
-        $act=if($ObservedAction){$ObservedAction}else{$Package.actions[0]};$result=switch($act){REVIEW_ROUTE{'HANDOFF'};REVIEW_EXECUTE{'REVIEW_VERDICT'};RESULT_ACCEPT{'RESULT_ACCEPTANCE'};TEST_RUN{'TEST_RESULT'};default{'IMPLEMENTATION_RESULT'}}
+        $act=if($ObservedAction){$ObservedAction}else{$Package.actions[0]};$result=switch($act){REVIEW_ROUTE{'HANDOFF'};REVIEW_EXECUTE{'REVIEW_VERDICT'};RESULT_ACCEPT{'RESULT_ACCEPTANCE'};TEST_RUN{'TEST_RESULT'};EXTERNAL{'EXTERNAL_RESULT'};default{'IMPLEMENTATION_RESULT'}}
         $work=switch($act){REVIEW_ROUTE{'aiw:review'};REVIEW_EXECUTE{'aiw:review'};RESULT_ACCEPT{'aiw:acceptance'};TEST_RUN{'aiw:verification'};default{'aiw:implementation'}}
-        $i=[pscustomobject]@{schemaVersion=5;mode='DISCOVER';contextType='TASK';readOnlyContext='NOT_APPLICABLE';ruleLoad=@{mode='FULL'};projectRoot=$temp;frameworkRoot=$framework;taskPath=$taskPath;expectedProjectConfigIdentity=(Id $configPath);expectedCorrectionsIdentity=(Id (Join-Path $temp '.ai-workspace/corrections.json'));expectedTaskIdentity=(Id $taskPath);observedActor=$Package.grantee;capabilities=@();exactPaths=$Package.exactPaths;forbiddenPaths=@();protectedPaths=@();authorizationPackagePath=$packagePath;expectedAuthorizationIdentity=(Id $packagePath);userDecision='NOT_REQUIRED';recoveryState='WARM';hostEnforcementGrade='INSTRUCTION_BOUND';invocationState='PROVEN_EXPLICIT';evaluationOnly=$false;intentEnvelope=@{schemaVersion=2;objective='Validate original anonymous quality policy and result consumers';requestedActionKind=$act;requestedResultKind=$result;semanticHints=@();pathHints=$Package.exactPaths;capabilityHints=@();mutationHints=@();externalHints=@();ambiguityState='CLEAR';facets=@{domain=@{state='KNOWN';values=@('aiw:software')};workType=@{state='KNOWN';values=@($work)};deliverableType=@{state='KNOWN';values=@('aiw:code')};stage=@{state='KNOWN';values=@('aiw:implementation')}}}}
+        $i=[pscustomobject]@{schemaVersion=5;mode='DISCOVER';contextType='TASK';readOnlyContext='NOT_APPLICABLE';ruleLoad=@{mode='FULL'};projectRoot=$temp;frameworkRoot=$framework;taskPath=$taskPath;expectedProjectConfigIdentity=(Id $configPath);expectedCorrectionsIdentity=(Id (Join-Path $temp '.ai-workspace/corrections.json'));expectedTaskIdentity=(Id $taskPath);observedActor=$Package.grantee;capabilities=@();exactPaths=$Package.exactPaths;forbiddenPaths=@();protectedPaths=@();authorizationPackagePath=$packagePath;expectedAuthorizationIdentity=(Id $packagePath);userDecision=$Package.userConfirmation;recoveryState='WARM';hostEnforcementGrade='INSTRUCTION_BOUND';invocationState='PROVEN_EXPLICIT';evaluationOnly=$false;intentEnvelope=@{schemaVersion=2;objective='Validate original anonymous quality policy and result consumers';requestedActionKind=$act;requestedResultKind=$result;semanticHints=@();pathHints=$Package.exactPaths;capabilityHints=@();mutationHints=@();externalHints=@();ambiguityState='CLEAR';facets=@{domain=@{state='KNOWN';values=@('aiw:software')};workType=@{state='KNOWN';values=@($work)};deliverableType=@{state='KNOWN';values=@('aiw:code')};stage=@{state='KNOWN';values=@('aiw:implementation')}}}}
         if($Continuation){$i|Add-Member continuationReceiptPath $Continuation;$i|Add-Member expectedContinuationReceiptIdentity (Id $Continuation)}
         $d=QProcess $i ($Name+'-discover');$compact=Json ($runtime+$Name+'-compact.json') $d.value.compactReceipt
         $b=[pscustomobject]@{schemaVersion=3;mode='ADMIT_ACTION';discoverReceiptPath=$compact;expectedDiscoverReceiptIdentity=(Id $compact);preparationReceipts=@($d.value.compactReceipt.selectedObligations|ForEach-Object{$_.preparationRequirements}|Sort-Object -Unique);resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='BOUND';evidenceRefs=@()}
         [pscustomobject]@{package=$Package;packagePath=$packagePath;receipt=$d.value.compactReceipt;compact=$compact;boundary=$b;name=$Name}
     }
-    function QFinish($Action,$Evidence=@(),$ExtraPreparation=@(),$ExtraResult=@(),$Delivery=$null){
+    function QFinish($Action,$Evidence=@(),$ExtraPreparation=@(),$ExtraResult=@(),$Delivery=$null,[switch]$InputSharingFailure){
         $f=Clone $Action.boundary;$f.mode='FINALIZE_OUTPUT';$f.evidenceRefs=@($Evidence);$f.preparationReceipts+=@($ExtraPreparation)
         $repositoryRoot=if($Maintenance-and$Action.package.repositoryId-cne'CONTROL'){$objectRoot}else{$temp}
         $f.resultReceipts=@(@($Action.receipt.selectedObligations|ForEach-Object{$_.resultRequirements})+@($ExtraResult)+@(foreach($p in $Action.package.exactPaths){$full=Join-Path $repositoryRoot $p;'OBJECT_POSTIMAGE|'+$p+'|'+$(if([IO.File]::Exists($full)){Id $full}else{'MISSING'})})|Sort-Object -Unique)
         if($null-ne$Delivery){$f|Add-Member deliveryContext $Delivery -Force}
-        QProcess $f ($Action.name+'-finalize')
+        QProcess $f ($Action.name+'-finalize') -InputSharingFailure:$InputSharingFailure
     }
     function QCard($Plan,[string]$Name,[string]$Text=$baseCard,[switch]$Archive){
         $archiveRelative='.ai-workspace/tasks/archive/EVIDENCE-001.md'
@@ -150,6 +157,196 @@ function Test-QualityAssuranceConsumers([string]$Root,[switch]$Maintenance){
         $request=[pscustomobject]@{operation='QUALITY_PLAN_PREPARE';schemaVersion=1;projectRoot=$temp;taskPath=$taskPath;expectedTaskIdentity=(Id $taskPath);projectConfigRef=[pscustomobject]@{path='.ai-workspace/project.json';identity=(Id $configPath)};policyRef=[pscustomobject]@{path='.ai-workspace/process-policy.json';identity=(Id $policyPath)};subject=$Subject;requirementsRef=$requirements}
         $path=Json ($runtime+$Name+'.json') $request;$run=QNative (Join-Path $fixtureVersion 'scripts/resolve-workflow-route.ps1') @('-InputPath',$path,'-AsJson') $Name
         if($run.Code-ne0){throw ('QUALITY_PREPARE|'+($run.Output-join"`n"))};$answer=($run.Output-join"`n")|ConvertFrom-Json -Depth 100;$null=Json ($runtime+$Name+'-result.json') $answer;return $answer
+    }
+    if($OperationRebindOnly){
+        # One narrow public successor chain, including identity-consistent
+        # INVALID_FIXTURE copies. Original successful/failed materials never change.
+        $oldActor=$env:CODEX_THREAD_ID;$env:CODEX_THREAD_ID='owner'
+        try{
+            $report='.ai-workspace/reports/operation-result.txt';$null=Put $report 'Before local stop record.'
+            $subject=[pscustomobject]@{repositoryId='REPO_LOCAL';exactPaths=@($report);facets=[pscustomobject]@{domain=[pscustomobject]@{state='KNOWN';values=@('aiw:software')};deliverableType=[pscustomobject]@{state='KNOWN';values=@('aiw:code')}}}
+            $policy=Get-Content -LiteralPath $policyPath -Raw|ConvertFrom-Json -Depth 100
+            $policy|Add-Member qualityAssurance ([pscustomobject]@{schemaVersion=1;defaultStages=@('RESULT_REVIEW')})
+            QPolicy $policy 'operation-enable-review-only'
+            $plan=(QPrepare $subject 'operation-prepare-review').plan;QCard $plan 'operation-bind-review'
+            function QStoppedRebind([string]$Name){
+                $external=QPackage EXTERNAL @($report);$external.userConfirmation='SIMULATED_CURRENT_FREE_METADATA_PERMISSION'
+                $flags=[ordered]@{};foreach($field in @('paymentOrSubscription','commercialLicensing','accountOrCredentialChange','publicPublication','installation','protectedOrSecretUpload','crossDomain','formalAssetActivation','projectPhaseChange','gitOrPush','sharedQuotaOrResource','unknownScope')){$flags[$field]=$false}
+                $external|Add-Member externalBinding ([pscustomobject]@{schemaVersion=1;route='TASK_OWNER_DIRECT_DOMAIN_EXTERNAL';provider='fixture-provider';orderedOperations=@([pscustomobject]@{operationId='META-1';operationKind='PROVIDER_PUBLIC_METADATA_READ';declaredInputClass='ZERO_PROJECT_DATA';payloads=@()});outputUse='isolated local stop record';totalQuantity=1;perOperationRetryCeiling=0;totalRetryCeiling=0;costClass='FREE';costCeiling=0;stopConditions=@('stop on missing preparation','stop on ambiguous consumption');batchExecutionMode='ONE_LOGICAL_ATOMIC_EXECUTION';reissuable=$false;ambiguousConsumptionPolicy='BLOCK';escalationFlags=$flags})
+                $start=QStart $external ($Name+'-external')
+                $stopped=Clone $start.boundary;$stopped.preparationReceipts=@($stopped.preparationReceipts|Where-Object{$_-cne'EXTERNAL_BOUNDARY_AUTHORIZED'})
+                $failed=@(QProcess $stopped ($Name+'-external-stopped-prepare') 'PREPARATION_INCOMPLETE')[-1]
+                $stopPath=Json ($runtime+$Name+'-actual-stop.json') ([pscustomobject]@{outcome='STOPPED_PREPARE';providerCalls=0;generationCalls=0;historicalConsumption='UNKNOWN';failedPreparation=$failed.pair;ceiling='ISOLATED_ADAPTER_ONLY; no provider operation was invoked'})
+                $stopRef=[pscustomobject]@{path=$stopPath;identity=(Id $stopPath)}
+                $package=QPackage CONTROL_WRITE @($report) owner $plan.qualityBinding
+                $packagePath=Json ($runtime+$Name+'-control-package.json') $package
+                $intent=Clone $start.receipt.intentEnvelope;$intent.requestedActionKind='CONTROL_WRITE';$intent.requestedResultKind='IMPLEMENTATION_RESULT';$intent.objective='Record this implementation activity actual stopped preparation and unknown history locally';$intent.externalHints=@()
+                $boundary=Clone $start.boundary;$boundary|Add-Member actionRebind ([pscustomobject]@{authorizationRef=[pscustomobject]@{path=$packagePath;identity=(Id $packagePath)};intentEnvelope=$intent;recoveryState='CURRENT'})
+                $inputPath=Json ($runtime+$Name+'-rebind-admit.json') $boundary
+                $compact=Join-Path $temp ($runtime+$Name+'-saved-current-compact.json');$counts=Join-Path $temp ($runtime+$Name+'-body-observation.json')
+                $wrapper=Put ($runtime+$Name+'-observe-rebind.ps1') @'
+param([string]$Entry,[string]$InputPath,[string]$CompactPath,[string]$CountPath)
+$global:OperationBodyCalls=0;$global:OperationDisplayCalls=0
+$probes=@(Set-PSBreakpoint -Command Get-AiwScopedProjectContent -Action {$global:OperationBodyCalls++};Set-PSBreakpoint -Command Get-AiwProcessDisplay -Action {$global:OperationDisplayCalls++})
+try{& $Entry -InputPath $InputPath -CompactReceiptPath $CompactPath -AsJson;$code=$LASTEXITCODE}
+finally{$probes|Remove-PSBreakpoint;[IO.File]::WriteAllText($CountPath,(@{body=$global:OperationBodyCalls;display=$global:OperationDisplayCalls}|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))}
+exit $code
+'@
+                $before=@(Get-Content -LiteralPath $trace).Count
+                $run=QNative $wrapper @('-Entry',(Join-Path $fixtureVersion 'scripts/resolve-process-requirements.ps1'),'-InputPath',$inputPath,'-CompactPath',$compact,'-CountPath',$counts) ($Name+'-rebind-admit')
+                $raw=$run.Output-join"`n";$actual=$raw|ConvertFrom-Json -Depth 100;$null=Json ($runtime+$Name+'-rebind-admit-result.json') $actual
+                if($run.Code-ne0-or$actual.status-cne'PASS'){throw ('OPERATION_REBIND|'+$raw)}
+                $observed=Get-Content -LiteralPath $counts -Raw|ConvertFrom-Json;$after=@(Get-Content -LiteralPath $trace).Count
+                True ($observed.body-eq0-and$observed.display-eq0-and$after-eq$before+1-and-not$actual.ruleBodyLoaded-and$actual.savedCompactReceipt.identity-ceq(Id $compact)) ($Name+'-actual-current-checker-once-with-zero-body-and-renderer') | Out-Host
+                $receipt=Get-Content -LiteralPath $compact -Raw|ConvertFrom-Json -Depth 100
+                $retired=@('framework:PR_EVIDENCE_CEILING_DISCIPLINE','framework:PR_EXTERNAL_DEVICE_BROWSER_SEPARATE','framework:PR_TASK_OWNER_DIRECT_DOMAIN_EXTERNAL')
+                $expected=@($start.receipt.selectedObligations|Where-Object{$_.requirementId-cnotin$retired})
+                True (($receipt.selectedObligations|ConvertTo-Json -Depth 30 -Compress)-ceq($expected|ConvertTo-Json -Depth 30 -Compress)-and@($receipt.selectedObligations|Where-Object{$_.preparationRequirements.Count-eq0-and$_.resultRequirements.Count-eq0}).Count-gt0) ($Name+'-saved-current-obligations-exactly-retire-external-and-retain-empty-rows') | Out-Host
+                True ($receipt.intentEnvelope.requestedActionKind-ceq'CONTROL_WRITE'-and$receipt.binding.authorizedActions[0]-ceq'CONTROL_WRITE'-and$receipt.binding.authorizationIdentity-ceq(Id $packagePath)-and$receipt.selectionIdentity-cne$start.receipt.selectionIdentity-and$receipt.sourceObservation.schemaVersion-eq2-and$receipt.sourceObservation.workRoute.phase-ceq'EXTERNAL'-and($receipt.sourceObservation.loadedRuleIds-join'|')-ceq($start.receipt.sourceObservation.loadedRuleIds-join'|')) ($Name+'-saved-current-action-and-full-original-source-observation') | Out-Host
+                $boundary.PSObject.Properties.Remove('actionRebind');$boundary.discoverReceiptPath=$compact;$boundary.expectedDiscoverReceiptIdentity=Id $compact
+                [pscustomobject]@{package=$package;packagePath=$packagePath;receipt=$receipt;compact=$compact;boundary=$boundary;name=$Name;externalReceipt=$start.receipt;failed=$failed;stopRef=$stopRef}
+            }
+            $production=QStoppedRebind 'operation-no-self'
+            $reportPath=Put $report 'Actual isolated STOPPED_PREPARE; providerCalls=0; generationCalls=0; historicalConsumption=UNKNOWN.'
+            $candidate=[pscustomobject]@{path=$report;identity=(Id $reportPath)}
+            $sourceF=QFinish $production
+            True ($sourceF.input.evidenceRefs.Count-eq0-and$sourceF.value.actionOutcome-ceq'OBSERVED'-and$sourceF.input.discoverReceiptPath-ceq$production.compact-and(Id $production.stopRef.path)-ceq$production.stopRef.identity-and(Id $production.failed.resultPath)-ceq$production.failed.pair.resultRef.identity) 'operation-original-F-consumes-saved-current-compact-without-invented-self-or-external-success'
+            $plan.stages[0].candidateRef=@($candidate);QCard $plan 'operation-freeze-review-candidate'
+            $review=QPackage REVIEW_EXECUTE @($report) reviewer $plan.qualityBinding;$review.reviewIndependence='INDEPENDENT';$review|Add-Member candidateWriter owner;$review|Add-Member materialContributors @('contributor');$review.invalidatesOn+=@('CONTRIBUTOR_SET_CHANGE')
+            $reviewPath=Json ($runtime+'operation-review-package.json') $review
+            $delivery=[pscustomobject]@{channel='TASK_MESSAGE';stage='PREPARE';expectedRecipient='reviewer';observedRecipient='NOT_APPLICABLE';outcome='NOT_SENT';evidence='NOT_APPLICABLE';reviewPackageRef=[pscustomobject]@{path=$reviewPath;identity=(Id $reviewPath)}}
+            $route=QStart (QPackage REVIEW_ROUTE @($report) owner $plan.qualityBinding) 'operation-public-review-route'
+            $route.boundary|Add-Member deliveryContext $delivery;$route.boundary|Add-Member productionFinalizeRef $sourceF.pair
+            $missing=Clone $route.boundary;$missing.PSObject.Properties.Remove('productionFinalizeRef');$null=QProcess $missing 'operation-missing-original-F' 'QUALITY_PRODUCTION_FINALIZE_REQUIRED'
+            # Recompute only this explicitly invalid fixture's decision so that
+            # the public successor reaches the original-obligation loop.
+            $invalidInput=Clone $sourceF.input;$invalidInput.resultReceipts=@($invalidInput.resultReceipts|Where-Object{$_-cne'ACTION_RESULT_OBSERVED'})
+            $invalidResult=Clone $sourceF.value;$invalidResult.decisionIdentity=Get-AiwProcessDecisionIdentity $production.receipt $invalidInput
+            $invalidInputPath=Json ($runtime+'INVALID_FIXTURE-missing-obligation-input.json') $invalidInput;$invalidResultPath=Json ($runtime+'INVALID_FIXTURE-missing-obligation-result.json') $invalidResult
+            $badRoute=Clone $route.boundary;$badRoute.productionFinalizeRef=[pscustomobject]@{inputRef=[pscustomobject]@{path=$invalidInputPath;identity=(Id $invalidInputPath)};resultRef=[pscustomobject]@{path=$invalidResultPath;identity=(Id $invalidResultPath)}}
+            $null=QProcess $badRoute 'operation-public-production-loop-rejects-missing-original-obligation' 'QUALITY_PRODUCTION_FINALIZE_INCOMPLETE'
+            $null=QProcess $route.boundary 'operation-public-review-route-admit'
+            $hostPath=Json ($runtime+'operation-synthetic-host-reviewer.json') ([pscustomobject]@{isError=$false;content=@([pscustomobject]@{type='text';text='{"threadId":"reviewer"}'})})
+            $delivery.stage='OBSERVE';$delivery.observedRecipient='reviewer';$delivery.outcome='SUCCESS';$delivery.evidence=$hostPath+'#'+(Id $hostPath)
+            $routed=QFinish $route @() @() @() $delivery
+            True $routed.value.delivery.delivered 'operation-public-no-self-review-route-consumes-real-rebound-production-F'
+
+            $second=QStoppedRebind 'operation-with-self'
+            $reportPath=Put $report 'Actual isolated stopped preparation recorded and verified; providerCalls=0; historicalConsumption=UNKNOWN.'
+            $candidate=[pscustomobject]@{path=$report;identity=(Id $reportPath)}
+            $test=QStart (QPackage TEST_RUN @($report) owner $plan.qualityBinding) 'operation-real-self-test'
+            $null=QProcess $test.boundary 'operation-real-self-test-admit'
+            $testEntry=Put ($runtime+'operation-check-report.ps1') @'
+param([string]$Path)
+$text=[IO.File]::ReadAllText($Path)
+if(-not$text.Contains('providerCalls=0')-or-not$text.Contains('historicalConsumption=UNKNOWN')){throw 'STOP_RECORD_MISSING_FACTS'}
+Write-Output 'Observed current isolated stop record and retained unknown historical consumption.'
+'@
+            $actualTest=QNative $testEntry @('-Path',$reportPath) 'operation-actual-test-command'
+            True ($actualTest.Code-eq0-and$test.receipt.intentEnvelope.requestedActionKind-ceq'TEST_RUN'-and$test.receipt.counts.sourceBuildCount-eq1) 'operation-actual-self-test-uses-fresh-full-and-real-command'
+            $command=Json ($runtime+'operation-self-command-evidence.json') ([pscustomobject]@{command=('pwsh -File '+$testEntry+' -Path '+$reportPath);exitCode=$actualTest.Code;output=(Ref ($runtime+'operation-actual-test-command-raw.txt'))})
+            $record=Record;$record.checks=@([pscustomobject]@{id='actual-stop-record';method='COMMAND';outcome='PASS';reason='Actual isolated command checked the current report facts.';evidenceLocators=@([pscustomobject]@{path=$command;identity=(Id $command)})})
+            $self=Typed $record SELF_CHECK;$testF=QFinish $test @($self);$secondF=QFinish $second @($self)
+            True ($testF.value.actionOutcome-ceq'PASS'-and$secondF.value.actionOutcome-ceq'OBSERVED') 'operation-real-self-and-original-rebound-production-F-complete'
+
+            QCard $null 'operation-clear-plan-for-policy-evolution'
+            $next=Clone $policy;$next.rules+=@([pscustomobject]@{ruleId='TODAY_ONLY';requirementReason='Current independent policy evolution';effectiveRule='Current later operations must report this newly adopted result.';selectors=@{profiles=@('*');roles=@('*');phases=@('*');actionKinds=@('*');resultKinds=@('*');pathPrefixes=@();capabilities=@();semanticTerms=@();facets=@{}};preparationRequirements=@();resultRequirements=@('TODAY_RESULT_OBSERVED');decisionLocator='fixture:current-policy-evolution'})
+            QPolicy $next 'operation-current-policy-evolution'
+            $currentPlan=(QPrepare $subject 'operation-prepare-current-policy').plan;$currentPlan.stages[0].candidateRef=@($candidate);QCard $currentPlan 'operation-bind-current-policy-plan'
+            $current=New-AiwEvidenceContext $temp '' $framework
+            Good {Read-AiwResultEvidence $current $self EVIDENCE-001 @($candidate) $requirements -RequireSuccess -EvidencePurpose HISTORICAL_SUCCESS -OriginalFinalize @($secondF.pair)} 'operation-public-historical-success-consumes-rebound-original-after-real-policy-evolution'
+            Bad {Read-AiwResultEvidence $current $self EVIDENCE-001 @($candidate) $requirements -RequireSuccess -EvidencePurpose HISTORICAL_SUCCESS -OriginalFinalize @()} 'EVIDENCE_HISTORICAL_FINALIZE_UNBOUND' 'operation-history-still-needs-original-F'
+            # Model the rejected v2 design: old EXTERNAL obligations persisted,
+            # while the action F only satisfied current local-write obligations.
+            $invalidCompact=Clone $second.receipt;$invalidCompact.selectedObligations=@($second.externalReceipt.selectedObligations)
+            Import-Module (Join-Path $fixtureVersion 'scripts/ContentSources.psm1')
+            $a=$invalidCompact.binding
+            $invalidCompact.selectionIdentity=(Get-AiwContentDescriptorIdentity ([ordered]@{source=$invalidCompact.sourceCompositionIdentity;intent=$invalidCompact.intentEnvelope;capabilities=@($a.observedCapabilities);scope=@($a.exactScope);actor=$a.actor;role=$a.role;phase=$a.phase;profile=$a.profile;obligations=@($invalidCompact.selectedObligations)})).Split('|')[1]
+            $invalidCompactPath=Json ($runtime+'INVALID_FIXTURE-stale-external-obligations-compact.json') $invalidCompact
+            $invalidInput=Clone $secondF.input;$invalidInput.discoverReceiptPath=$invalidCompactPath;$invalidInput.expectedDiscoverReceiptIdentity=Id $invalidCompactPath
+            $invalidResult=Clone $secondF.value;$invalidResult.selectionIdentity=$invalidCompact.selectionIdentity;$invalidResult.decisionIdentity=Get-AiwProcessDecisionIdentity $invalidCompact $invalidInput
+            $invalidInputPath=Json ($runtime+'INVALID_FIXTURE-stale-external-obligations-input.json') $invalidInput;$invalidResultPath=Json ($runtime+'INVALID_FIXTURE-stale-external-obligations-result.json') $invalidResult
+            $invalidPair=[pscustomobject]@{inputRef=[pscustomobject]@{path=$invalidInputPath;identity=(Id $invalidInputPath)};resultRef=[pscustomobject]@{path=$invalidResultPath;identity=(Id $invalidResultPath)}}
+            Bad {Read-AiwResultEvidence $current $self EVIDENCE-001 @($candidate) $requirements -RequireSuccess -EvidencePurpose HISTORICAL_SUCCESS -OriginalFinalize @($invalidPair)} 'EVIDENCE_HISTORICAL_FINALIZE_INCOMPLETE' 'operation-history-original-obligation-loop-rejects-stale-external-obligations'
+            True ((Id $second.compact)-ceq$secondF.input.expectedDiscoverReceiptIdentity-and(Id $secondF.inputPath)-ceq$secondF.pair.inputRef.identity-and(Id $secondF.resultPath)-ceq$secondF.pair.resultRef.identity) 'operation-all-original-success-and-failure-materials-remain-unchanged'
+            Write-Output ('FIXTURE|'+$Root+'|scope=operation-rebind-successors|qualification=SYNTHETIC_TEST_FIXTURE_ONLY|providerCalls=0|historicalConsumption=UNKNOWN')
+        }finally{$env:CODEX_THREAD_ID=$oldActor}
+        return
+    }
+    if($RuntimeMaintenanceOnly){
+        $oldActor=$env:CODEX_THREAD_ID;$env:CODEX_THREAD_ID='owner'
+        try{
+            $oldCards=@(foreach($name in @('OLD-ONE','OLD-TWO')){$path=Put ('.ai-workspace/tasks/archive/'+$name+'.md') ("# $name — preserved old task`n- Owner: previous-actor`n- Status: CLOSED`n");[pscustomobject]@{path=$path;identity=(Id $path)}})
+            $paths=@('.ai-workspace/runtime/OLD-ONE/previous-actor/expired.txt','.ai-workspace/runtime/OLD-TWO/previous-actor/expired.txt','.ai-workspace/tmp/old-expired.txt')
+            foreach($path in $paths){$null=Put $path ('Expired anonymous input '+$path)}
+            $failureRelative='.ai-workspace/runtime/OLD-ONE/previous-actor/unique-failure.json'
+            $failurePath=Json $failureRelative ([pscustomobject]@{fixture='Preserved synthetic unique failure';outcome='FAIL'})
+            $failureRef=[pscustomobject]@{path=$failurePath;identity=(Id $failurePath)}
+            $journalRelative='.ai-workspace/runtime/project-adoption/register/state.json';$journalPath=Join-Path $temp $journalRelative;$journalIdentity=Id $journalPath
+            function RuntimeRequest($Action,[string]$Name){
+                $path=Json ($runtime+$Name+'-admit.json') $Action.boundary
+                [pscustomobject]@{operation='RUNTIME_MAINTENANCE';projectRoot=$temp;admitInputRef=[pscustomobject]@{path=$path;identity=(Id $path)};retainedRefs=@($failureRef);retainedPaths=@()}
+            }
+            function RuntimeCall($Request,[string]$Name){
+                $path=Json ($runtime+$Name+'-request.json') $Request
+                $run=QNative (Join-Path $fixtureVersion 'scripts/resolve-workflow-route.ps1') @('-InputPath',$path,'-AsJson') $Name
+                $text=$run.Output-join"`n";$value=$text|ConvertFrom-Json -Depth 100
+                $null=Json ($runtime+$Name+'-result.json') $value
+                [pscustomobject]@{code=$run.Code;value=$value;text=$text}
+            }
+            $a=QStart (QPackage CONTROL_WRITE $paths) 'runtime-maintenance-original'
+            $request=RuntimeRequest $a 'runtime-maintenance-original'
+            $last=Join-Path $temp $paths[-1];$lastBytes=[IO.File]::ReadAllBytes($last)
+            [IO.File]::Delete($last);[IO.Directory]::CreateDirectory($last)|Out-Null
+            try{$invalid=RuntimeCall $request 'runtime-late-directory'}finally{[IO.Directory]::Delete($last,$false);[IO.File]::WriteAllBytes($last,$lastBytes)}
+            True ($invalid.code-ne0-and$invalid.text.Contains('EVIDENCE_NOT_FILE')-and@($paths|Where-Object{-not[IO.File]::Exists((Join-Path $temp $_))}).Count-eq0) 'runtime-late-invalid-object-prevents-all-deletion'
+            $retainedAction=QStart (QPackage CONTROL_WRITE @($paths+$failureRelative+$journalRelative)) 'runtime-retained-action'
+            $retainedRequest=RuntimeRequest $retainedAction 'runtime-retained-action'
+            $retained=RuntimeCall $retainedRequest 'runtime-retained-action'
+            True ($retained.value.status-ceq'REJECTED'-and$retained.value.removed.Count-eq0-and$journalPath-in$retained.value.retained-and$failurePath-in$retained.value.retained-and@($paths|Where-Object{-not[IO.File]::Exists((Join-Path $temp $_))}).Count-eq0) 'runtime-known-adoption-and-explicit-failure-block-the-whole-set'
+            $before=@(Get-Content -LiteralPath $trace).Count
+            $hold=[IO.File]::Open($last,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+            try{$partial=RuntimeCall $request 'runtime-actual-io'}finally{$hold.Dispose()}
+            $after=@(Get-Content -LiteralPath $trace).Count
+            True ($partial.code-eq0-and$partial.value.admission.status-ceq'PASS'-and$after-eq$before+1-and$partial.value.actor-ceq'owner'-and$partial.value.taskId-ceq'EVIDENCE-001') 'runtime-original-current-admit-invokes-complete-checker-exactly-once'
+            True ($partial.value.status-ceq'PARTIAL_FAILURE'-and$partial.value.removed.Count-eq2-and$last-in$partial.value.remaining-and@($partial.value.failures|Where-Object kind -CEQ IO_ERROR).Count-eq1-and$partial.value.postimages[-1].identity-ceq(Id $last)) 'runtime-real-sharing-failure-preserves-remaining-and-actual-postimages'
+            $f=QFinish $a
+            True ($f.value.status-ceq'PASS'-and[IO.File]::ReadAllText($taskPath).Contains('- Status: ACTIVE')-and[IO.File]::Exists($request.admitInputRef.path)) 'runtime-partial-original-F-records-observation-with-task-still-active'
+            $rest=QStart (QPackage CONTROL_WRITE @($paths[-1])) 'runtime-exact-remaining'
+            $finished=RuntimeCall (RuntimeRequest $rest 'runtime-exact-remaining') 'runtime-exact-remaining'
+            $f=QFinish $rest
+            True ($finished.value.status-ceq'PASS'-and$finished.value.removed.Count-eq1-and$finished.value.postimages[0].identity-ceq'MISSING'-and$f.value.status-ceq'PASS') 'runtime-new-current-package-deletes-only-remaining-and-original-F-completes'
+            True ((Id $journalPath)-ceq$journalIdentity-and(Id $failurePath)-ceq$failureRef.identity-and@($oldCards|Where-Object{(Id $_.path)-cne$_.identity}).Count-eq0) 'runtime-old-closed-cards-adoption-and-unique-failure-stay-unchanged'
+            # The real original F owns this cleanup observation. A later real
+            # historical reader, not the retention walker, validates its source.
+            $producedRelative=$runtime+'producer-output.txt';$null=Put $producedRelative 'Before production.'
+            $production=QStart (QPackage CONTROL_WRITE @($producedRelative)) 'runtime-private-producer'
+            $null=QProcess $production.boundary 'runtime-private-producer-admit'
+            $producedPath=Put $producedRelative 'Observed final production.'
+            $produced=[pscustomobject]@{path=$producedRelative;identity=(Id $producedPath)}
+            $record=[pscustomobject]@{schemaVersion=1;taskId='EVIDENCE-001';actor='owner';candidateObjects=@($produced);requirementsRef=$requirements;outcome='PASS';checks=@([pscustomobject]@{id='actual-production';method='MODEL_JUDGMENT';outcome='PASS';reason='Observed this exact isolated output and its original admitted production.';evidenceLocators=@($requirements)});evidenceLocators=@($requirements)}
+            $typed=Typed $record SELF_CHECK
+            $original=QFinish $production @($typed) -InputSharingFailure
+            True ($original.value.inputCleanup.status-ceq'PARTIAL_FAILURE'-and$original.value.inputCleanup.failures[0].kind-ceq'IO_ERROR'-and[IO.File]::Exists($original.inputPath)) 'runtime-original-successful-F-has-real-input-IO-remnant'
+            $consumer=New-AiwEvidenceContext $temp '' $framework
+            $null=Read-AiwResultEvidence $consumer $typed EVIDENCE-001 @($produced) $requirements -RequireSuccess -EvidencePurpose HISTORICAL_SUCCESS -OriginalFinalize @($original.pair)
+            $evidenceOwner=(Get-Command Read-AiwResultEvidence).Module
+            $handoff=& $evidenceOwner {param($c)Get-EvRetentionHandoff $c} $consumer
+            True ($handoff.producers.Count-eq1-and$consumer.RepositoryRoot-ceq$temp) 'runtime-private-handoff-comes-from-completed-historical-validation'
+            Import-Module (Join-Path $fixtureVersion 'scripts/WorkflowDelivery.psm1')
+            $evidence=[pscustomobject]@{retentionContext=$handoff.context;retentionValues=@();retentionProducers=$handoff.producers}
+            $consumerBoundary=[pscustomobject]@{mode='FINALIZE_OUTPUT'}
+            $originalBytes=[IO.File]::ReadAllBytes($original.inputPath)
+            [IO.File]::WriteAllText($original.inputPath,'{"later":"generation"}',$utf8)
+            try{
+                $changed=Complete-AiwRuntimeConsumption $original.value $consumerBoundary $production.receipt $request.admitInputRef.path -Evidence $evidence
+                True ($changed.status-ceq'RETAINED'-and$original.inputPath-in$changed.remaining-and@($changed.observations|Where-Object reason -CEQ CONSUMED_OBJECT_CHANGED).Count-eq1) 'runtime-validated-producer-does-not-delete-replaced-input-bytes'
+            }finally{[IO.File]::WriteAllBytes($original.inputPath,$originalBytes)}
+            $released=Complete-AiwRuntimeConsumption $original.value $consumerBoundary $production.receipt $request.admitInputRef.path -Evidence $evidence
+            True ($released.status-ceq'PASS'-and$original.inputPath-in$released.removed-and-not[IO.File]::Exists($original.inputPath)) 'runtime-validated-successful-producer-releases-only-matching-real-IO-remnant'
+            Write-Output ('FIXTURE|'+$Root+'|scope=runtime-maintenance|maintenance='+[bool]$Maintenance+'|qualification=SYNTHETIC_TEST_FIXTURE_ONLY')
+        }finally{$env:CODEX_THREAD_ID=$oldActor}
+        return
     }
     $subject=[pscustomobject]@{repositoryId=$(if($Maintenance){'ai-workspace-framework'}else{'REPO_LOCAL'});exactPaths=@('result.md');facets=[pscustomobject]@{domain=[pscustomobject]@{state='KNOWN';values=@('aiw:software')};deliverableType=[pscustomobject]@{state='KNOWN';values=@('aiw:code')}}}
     $legacy=QPrepare $subject 'legacy-prepare';True ($legacy.mode-ceq'LEGACY'-and-not$legacy.authorityGranted-and$null-eq$legacy.plan) 'quality-unenabled-project-remains-legacy'
@@ -244,6 +441,58 @@ function Test-QualityAssuranceConsumers([string]$Root,[switch]$Maintenance){
             True ($checked.Code-ne0-and($checked.Output-join"`n").Contains('QUALITY_PLAN_REQUIRED')-and-not($checked.Output-join"`n").Contains('PROCESS_POLICY_FIELDS')) ('quality-maintenance-'+$repo+'-checker-reaches-quality-plan-required')
         }
         QCard $plan 'root-restore-plan'
+        # Continue the original SOURCE production through actual independent
+        # review/acceptance and a CONTROL archive. Policy evolution is real;
+        # original successful producer obligations remain frozen in their F.
+        QCard $null 'root-unbind-before-policy-evolution'
+        $closurePolicy=Clone $policy;$closurePolicy.qualityAssurance.defaultStages=@('SELF_CHECK','RESULT_REVIEW','RESULT_ACCEPT')
+        QPolicy $closurePolicy 'root-enable-reviewed-closure'
+        $closurePlan=(QPrepare $subject 'root-prepare-reviewed-closure').plan
+        foreach($stage in $closurePlan.stages){$stage.candidateRef=@($candidate)}
+        $closureSelf=@($closurePlan.stages|Where-Object kind -CEQ 'SELF_CHECK')[0]
+        $closureSelf.evidenceRefs=@($self)
+        $closureSelf|Add-Member evidenceConsumption ([pscustomobject]@{purpose='HISTORICAL_SUCCESS';originalFinalize=@($produced.pair)})
+        QCard $closurePlan 'root-bind-reviewed-closure'
+        $review=QPackage REVIEW_EXECUTE @('result.md') reviewer $closurePlan.qualityBinding
+        $review.reviewIndependence='INDEPENDENT';$review|Add-Member candidateWriter owner;$review|Add-Member materialContributors @('contributor');$review.invalidatesOn+=@('CONTRIBUTOR_SET_CHANGE')
+        $reviewAction=QStart $review 'root-source-independent-review';$null=QProcess $reviewAction.boundary 'root-source-independent-review-admit'
+        $reviewRecord=Record reviewer APPROVED;$reviewRecord|Add-Member authorizationRef ([pscustomobject]@{path=$reviewAction.packagePath;identity=(Id $reviewAction.packagePath)})
+        $reviewRef=Typed $reviewRecord REVIEW_VERDICT
+        $ownerHost=Json ($runtime+'root-synthetic-host-owner.json') ([pscustomobject]@{isError=$false;content=@([pscustomobject]@{type='text';text='{"threadId":"owner"}'})})
+        $ownerDelivery=[pscustomobject]@{channel='TASK_MESSAGE';stage='OBSERVE';expectedRecipient='owner';observedRecipient='owner';outcome='SUCCESS';evidence=($ownerHost+'#'+(Id $ownerHost))}
+        $reviewF=QFinish $reviewAction @($reviewRef) @() @() $ownerDelivery
+        $closureReview=@($closurePlan.stages|Where-Object kind -CEQ 'RESULT_REVIEW')[0]
+        $closureReview.evidenceRefs=@($reviewRef);$closureReview|Add-Member evidenceConsumption ([pscustomobject]@{purpose='HISTORICAL_SUCCESS';originalFinalize=@($reviewF.pair)})
+        QCard $closurePlan 'root-bind-source-review'
+        $closureAccept=QPackage RESULT_ACCEPT @('result.md') owner $closurePlan.qualityBinding
+        $closureAccept|Add-Member acceptanceBinding ([pscustomobject]@{candidateObjects=@($candidate);requirementsRef=$requirements;prerequisiteEvidenceRefs=@($self,$reviewRef);reservedUserDecisionRefs=@();prerequisiteConsumption=[pscustomobject]@{purpose='HISTORICAL_SUCCESS';originalFinalize=@($produced.pair,$reviewF.pair)}})
+        $closureAction=QStart $closureAccept 'root-source-reviewed-acceptance';$null=QProcess $closureAction.boundary 'root-source-reviewed-acceptance-admit'
+        $closureRecord=Record owner ACCEPTED;$closureRecord|Add-Member authorizationRef ([pscustomobject]@{path=$closureAction.packagePath;identity=(Id $closureAction.packagePath)})
+        $closureAccepted=Typed $closureRecord RESULT_ACCEPTANCE
+        $closureF=QFinish $closureAction @($closureAccepted) @() @() $nativeDelivery
+        $allOriginal=@($produced.pair,$reviewF.pair,$closureF.pair)
+        $closureStage=@($closurePlan.stages|Where-Object kind -CEQ 'RESULT_ACCEPT')[0]
+        $closureStage.evidenceRefs=@($closureAccepted);$closureStage|Add-Member evidenceConsumption ([pscustomobject]@{purpose='HISTORICAL_SUCCESS';originalFinalize=$allOriginal})
+        QCard $closurePlan 'root-bind-source-acceptance'
+        $controlContext=New-AiwPackageEvidenceContext $temp ([pscustomobject]@{schemaVersion=2;repositoryId='CONTROL'}) $framework -TaskPath $taskRelative
+        Good {Read-AiwResultEvidence $controlContext $closureAccepted EVIDENCE-001 @($candidate) $requirements -RequireSuccess -EvidencePurpose HISTORICAL_SUCCESS -OriginalFinalize $allOriginal} 'maintenance-control-consumes-original-source-review-and-acceptance-after-policy-evolution'
+        True ($controlContext.RepositoryRoot-ceq$temp) 'historical-source-read-does-not-mutate-current-control-root'
+        $denied=New-AiwPackageEvidenceContext $temp ([pscustomobject]@{schemaVersion=2;repositoryId='CONTROL'}) $framework @((Join-Path $objectRoot 'result.md')) -TaskPath $taskRelative
+        Bad {Read-AiwResultEvidence $denied $closureAccepted EVIDENCE-001 @($candidate) $requirements -EvidencePurpose HISTORICAL_SUCCESS -OriginalFinalize $allOriginal} 'EVIDENCE_PATH_FORBIDDEN' 'maintenance-current-protection-still-denies-historical-source-candidate'
+        # Invalid but identity-consistent fixture reaches the root comparison,
+        # rather than merely failing at an unrelated reference checksum.
+        $badSource=Clone $production.receipt;$badSource.binding.objectRoot=$temp
+        $badCompact=Json ($runtime+'invalid-historical-root-compact.json') $badSource
+        $badInput=Clone $produced.input;$badInput.discoverReceiptPath=$badCompact;$badInput.expectedDiscoverReceiptIdentity=Id $badCompact
+        $badInputPath=Json ($runtime+'invalid-historical-root-finalize.json') $badInput
+        $badResult=Clone $produced.value;$badResult.decisionIdentity=Get-AiwProcessDecisionIdentity $badSource $badInput
+        $badResultPath=Json ($runtime+'invalid-historical-root-result.json') $badResult
+        $badPair=[pscustomobject]@{inputRef=[pscustomobject]@{path=$badInputPath;identity=(Id $badInputPath)};resultRef=[pscustomobject]@{path=$badResultPath;identity=(Id $badResultPath)}}
+        Bad {Read-AiwResultEvidence $controlContext $self EVIDENCE-001 @($candidate) $requirements -EvidencePurpose HISTORICAL_SUCCESS -OriginalFinalize @($badPair)} 'EVIDENCE_HISTORICAL_ROOT_DRIFT' 'maintenance-unbound-historical-object-root-is-rejected-at-root-check'
+        $closed=$baseCard.Replace('lifecycle=ACTIVE;','lifecycle=CLOSED;').Replace('- Status: ACTIVE','- Status: CLOSED')+"- Writer / reviewer / authorization: NONE / NONE / NONE`n- Closure outcome: SUCCESS`n- Closure evidence: Original SOURCE production, review and acceptance; current CONTROL archive.`n- Remaining obligations: NONE`n- Artifact disposition: Isolated SOURCE result retained; Git DEFERRED.`n"
+        $closed+="- Closure basis: Actual original successful SOURCE evidence.`n- Output disposition: result.md retained in fixture.`n- Git disposition: DEFERRED; fixture only.`n- Unresolved obligations: NONE`n- Writer: RELEASED`n- Reviewer: RELEASED`n- Authorization: RELEASED`n"
+        QCard $closurePlan 'root-source-history-control-archive' $closed -Archive
+        True (-not[IO.File]::Exists($taskPath)-and[IO.File]::ReadAllText((Join-Path $temp '.ai-workspace/tasks/archive/EVIDENCE-001.md')).Contains('lifecycle=CLOSED;')) 'maintenance-source-history-control-success-archive-original-F-complete'
         Write-Output ('FIXTURE|'+$Root+'|scope=maintenance-root-quality|qualification=SYNTHETIC_TEST_FIXTURE_ONLY');return
     }
     # Stable matcher, strict shapes and current drift: fault copies do not mutate
@@ -542,6 +791,15 @@ function Test-HistoricalInputConsumers([string]$Root){
 }
 try{
     [IO.Directory]::CreateDirectory($temp)|Out-Null;Set-Location -LiteralPath $temp;[Environment]::CurrentDirectory=$temp
+    if($Group-ceq'OperationRebind'){
+        Test-QualityAssuranceConsumers (Join-Path $temp 'operation-rebind') -OperationRebindOnly
+        $completed=$true;Write-Output ('RESULT|'+$script:passed+'/'+$script:passed+' passed|scope=operation-rebind-successors|evidenceCeiling=INSTRUCTION_BOUND');return
+    }
+    if($Group-ceq'RuntimeMaintenance'){
+        Test-QualityAssuranceConsumers (Join-Path $temp 'runtime-local') -RuntimeMaintenanceOnly
+        Test-QualityAssuranceConsumers (Join-Path $temp 'runtime-maintenance') -Maintenance -RuntimeMaintenanceOnly
+        $completed=$true;Write-Output ('RESULT|'+$script:passed+'/'+$script:passed+' passed|scope=runtime-maintenance|evidenceCeiling=INSTRUCTION_BOUND');return
+    }
     if($Group-cin@('QualityAssurance','QualityMaintenance')){
         Test-QualityAssuranceConsumers (Join-Path $temp 'quality') -Maintenance:($Group-ceq'QualityMaintenance')
         $completed=$true;Write-Output ('RESULT|'+$script:passed+'/'+$script:passed+' passed|scope=result-quality|evidenceCeiling=INSTRUCTION_BOUND');return
@@ -1184,6 +1442,7 @@ try{
         Bad {Read-AiwResultEvidence $targetContext $targetHistory.typed EVIDENCE-001 @($targetCandidate) $requirements -EvidencePurpose HISTORICAL_SUCCESS -OriginalFinalize @($targetHistory.pair)} 'EXECUTION_TARGET_REPARSE' 'historical-target-without-protection-still-rejects-reparse'
     }finally{[IO.Directory]::Delete($targetProduct)}
     Test-HistoricalInputConsumers (Join-Path $temp 'historical-inputs')
+    Test-QualityAssuranceConsumers (Join-Path $temp 'operation-rebind') -OperationRebindOnly
     $completed=$true
     Write-Output ('RESULT|'+$script:passed+'/'+$script:passed+' passed|scope=result-acceptance|evidenceCeiling=INSTRUCTION_BOUND')
 }catch{Write-Output ('DIAG|fixture='+$temp);Write-Output $_.ScriptStackTrace;throw}finally{

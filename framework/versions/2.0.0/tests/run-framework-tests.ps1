@@ -3,6 +3,7 @@ param([switch]$SkipManifest,[switch]$SkipBaseline,[switch]$SkipPerformanceSmoke,
 
 # Script-body boundary: keep the original script scope and PSBoundParameters.
 $runnerPrimaryError=$null;$runnerPrimaryStage=$null;$runnerCleanupError=$null;$runnerFirstFailureChild=$null;$runnerStage='INITIALIZATION'
+$resumeScopeOwner=$null;$resumePreviousScope=$null
 try {
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -14,7 +15,8 @@ if([string]::IsNullOrWhiteSpace($script:pwshExecutable)){throw 'POWERSHELL7_PROC
 Import-Module (Join-Path $PSScriptRoot 'TestHarness.psm1')
 if(-not$InternalLegacyRun){
  if(-not$PSBoundParameters.ContainsKey('ProofSchemaVersion')-and($AcceptedBaselinePath-or$ExpectedAcceptedBaselineIdentity)){$ProofSchemaVersion=1} # Existing explicit v1 baseline calls, including the summary frontdoor.
- Import-Module (Join-Path $PSScriptRoot 'TestGroupEvidence.psm1')
+ $resumeScopeOwner=@(Import-Module (Join-Path $PSScriptRoot 'TestGroupEvidence.psm1') -PassThru)[0]
+ $resumePreviousScope=& $resumeScopeOwner {Enter-TestResumeReadScope}
  $releaseReader=Import-Module (Join-Path $PSScriptRoot '../scripts/ReleaseValidation.psm1') -PassThru
  foreach($command in @('Get-AiwReleaseFileIdentity','Expand-AiwReleasePackage','Get-AiwReleaseQualification','Assert-AiwReleaseBuildEvidence','Get-AiwReleasePackageFacts')){if(-not$releaseReader.ExportedCommands.ContainsKey($command)-or$releaseReader.ExportedCommands[$command].Module.Path-cne$releaseReader.Path){throw ('RELEASE_READER_OWNER_COMMAND|'+$command)}}
   if($Phase-ceq'PREPACKAGE'-and$PackagePath){throw 'PREPACKAGE_CANNOT_READ_FINAL_PACKAGE'}
@@ -110,7 +112,9 @@ if(-not$InternalLegacyRun){
  }
   function Get-RunnerOriginalEnvironment($OriginalRef,$Group,$FreshEnvironment){
    if((Get-AiwTestFileIdentity $OriginalRef.path)-cne$OriginalRef.identity){throw 'TEST_PLAN_ORIGINAL_DRIFT'}
-   $record=Read-AiwTestJson $OriginalRef.path -StringFields @('startedUtc','endedUtc')
+   $matches=@(& $resumeScopeOwner {param($paths,$id)Get-TestResumeGroupRecords $paths $id} $ResumeEvidence $Group.id)
+   if($matches.Count-ne1-or$matches[0].path-cne$OriginalRef.path){throw 'TEST_PLAN_ORIGINAL_DRIFT'}
+   $record=$matches[0].record
    try{
     if($record.schemaVersion-ne2-or$record.executionKind-cne'EXECUTED'-or$record.groupId-cne$Group.id){return $null}
     $environment=@{}
@@ -271,4 +275,6 @@ if($MainIntegrationOnly){Write-Output 'RESULT|all domain children complete|scope
  if($null-ne$runnerCleanupError){$errorEnvelope.cleanupError=[ordered]@{reason=[string]$runnerCleanupError.Exception.Message;scriptStackTrace=[string]$runnerCleanupError.ScriptStackTrace;fullyQualifiedErrorId=[string]$runnerCleanupError.FullyQualifiedErrorId}}
  [Console]::Error.WriteLine(($errorEnvelope|ConvertTo-Json -Depth 30 -Compress -EscapeHandling EscapeNonAscii))
  exit 1
+}finally{
+ if($null-ne$resumePreviousScope){& $resumeScopeOwner {param($previous)Exit-TestResumeReadScope $previous} $resumePreviousScope}
 }

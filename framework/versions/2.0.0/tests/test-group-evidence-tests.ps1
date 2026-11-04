@@ -1575,6 +1575,61 @@ try{
  $cleanup=@{status='CLEAN';root=$cleanRoot;entries=@();workers=@()};$recordPath=Join-Path $rawRoot 'original-executed.json'
  $record=Complete-AiwTestGroupEvidence $recordPath $fixtureGroup $before $after $process $cleanup
  Check (Assert-AiwTestGroupEvidence $record $fixtureGroup $after) 'real-command-raw-inputs-named-cases-and-cleanup-complete'
+ # Use the real selector and validator inside the same private lifetime as the
+ # runner. Wrap only JSON reading to count actual original-record parses.
+ $resumeOwner=(Get-Command Select-AiwTestGroupExecution).Module
+ $otherResume=Join-Path $rawRoot 'resume-other-group.json'
+ $otherRecord=Clone $record;$otherRecord.groupId='unconsumed.group'
+ Write-AiwTestJson $otherResume $otherRecord
+ $otherBytes=[IO.File]::ReadAllBytes($otherResume)
+ & $resumeOwner {
+  $script:ResumeTestReadOriginal=${function:Read-AiwTestJson}
+  $script:ResumeTestParses=@{}
+  function script:Read-AiwTestJson([string]$Path,[string[]]$StringFields=@(),[string[]]$NullableStringFields=@()){
+   if(-not$script:ResumeTestParses.ContainsKey($Path)){$script:ResumeTestParses[$Path]=0}
+   $script:ResumeTestParses[$Path]++
+   & $script:ResumeTestReadOriginal $Path $StringFields $NullableStringFields
+  }
+ }
+ $resumePrevious=& $resumeOwner {Enter-TestResumeReadScope}
+ try{
+  $unreadableResume=Join-Path $rawRoot 'never-created-resume.json'
+  $alwaysFresh=Clone $fixtureGroup;$alwaysFresh.alwaysFresh=$true
+  $unknownSnapshot=Clone $after;$unknownSnapshot.facts.unknownDependencies=@('unclosed')
+  Check ((Select-AiwTestGroupExecution $alwaysFresh $after @($unreadableResume) -PlanOnly).reason-ceq'FRESH_REQUIRED'-and(Select-AiwTestGroupExecution $fixtureGroup $unknownSnapshot @($unreadableResume) -PlanOnly).reason-ceq'FRESH_REQUIRED'-and(Select-AiwTestGroupExecution $fixtureGroup $after @() -PlanOnly).reason-ceq'NO_COMPLETE_ORIGINAL'-and(& $resumeOwner {$null-eq$script:ResumeRecordIndex-and$script:ResumeTestParses.Count-eq0})) 'resume-index-lazy-no-read-for-always-fresh-unknown-or-empty-members'
+  foreach($iteration in 1..2){
+   $choice=Select-AiwTestGroupExecution $fixtureGroup $after @($recordPath,$otherResume) -PlanOnly
+   Check ($choice.selection-ceq'REUSE_WITH_REVALIDATION') ('resume-index-current-selector-validates-real-original-'+$iteration)
+  }
+  $parses=& $resumeOwner {param($a,$b)@($script:ResumeTestParses[$a],$script:ResumeTestParses[$b])} $recordPath $otherResume
+  Check ($parses[0]-eq1-and$parses[1]-eq1) 'resume-index-stable-target-and-nontarget-original-parsed-once'
+  $copies=@(& $resumeOwner {param($paths,$id)Get-TestResumeGroupRecords $paths $id} @($recordPath,$otherResume) $fixtureGroup.id)
+  $copies[0].record.outcome='FAIL'
+  Check ((Select-AiwTestGroupExecution $fixtureGroup $after @($recordPath,$otherResume) -PlanOnly).selection-ceq'REUSE_WITH_REVALIDATION') 'resume-index-consumers-cannot-mutate-retained-parsed-original'
+  # A previously irrelevant member now names the target. The unchanged target
+  # cannot hide this duplicate; no global rejection of other groups is added.
+  $otherRecord.groupId=$fixtureGroup.id
+  [IO.File]::WriteAllText($otherResume,($otherRecord|ConvertTo-Json -Depth 100 -Compress)+"`n",[Text.UTF8Encoding]::new($false))
+  Reject {Select-AiwTestGroupExecution $fixtureGroup $after @($recordPath,$otherResume) -PlanOnly} 'TEST_DUPLICATE_RESUME_GROUP' 'resume-index-observes-nontarget-bytes-becoming-duplicate-target'
+  [IO.File]::WriteAllBytes($otherResume,$otherBytes)
+  $onlyTarget=Select-AiwTestGroupExecution $fixtureGroup $after @($recordPath) -PlanOnly
+  Check ($onlyTarget.selection-ceq'REUSE_WITH_REVALIDATION'-and(& $resumeOwner {$script:ResumeRecordIndex.Count})-eq1) 'resume-index-current-membership-removes-retired-member'
+  $again=Select-AiwTestGroupExecution $fixtureGroup $after @($recordPath,$otherResume) -PlanOnly
+  Check ($again.selection-ceq'REUSE_WITH_REVALIDATION'-and(& $resumeOwner {param($p)$script:ResumeTestParses[$p]} $otherResume)-eq3) 'resume-index-readded-member-is-parsed-from-current-bytes'
+  $rawBefore=[IO.File]::ReadAllBytes($process.Record.stdout.path)
+  try{
+   [IO.File]::AppendAllText($process.Record.stdout.path,'actual raw drift after planning')
+   $invalid=Select-AiwTestGroupExecution $fixtureGroup $after @($recordPath,$otherResume) -PlanOnly
+   Check ($invalid.selection-ceq'EXECUTE'-and$invalid.reason.Contains('RAW_CORRUPT')) 'resume-index-never-caches-pass-after-original-raw-drift'
+  }finally{[IO.File]::WriteAllBytes($process.Record.stdout.path,$rawBefore)}
+ }finally{& $resumeOwner {param($previous)Exit-TestResumeReadScope $previous} $resumePrevious}
+ try{
+  $independent=Select-AiwTestGroupExecution $fixtureGroup $after @($recordPath) -PlanOnly
+  Check ($independent.selection-ceq'REUSE_WITH_REVALIDATION'-and(& $resumeOwner {param($p)$script:ResumeTestParses[$p]} $recordPath)-eq2-and(& $resumeOwner {$null-eq$script:ResumeRecordIndex-and-not$script:ResumeReadScopeEnabled})) 'resume-index-independent-public-consumer-reads-own-original-after-scope-end'
+ }finally{
+  & $resumeOwner {Set-Item Function:script:Read-AiwTestJson $script:ResumeTestReadOriginal;Remove-Variable ResumeTestReadOriginal,ResumeTestParses -Scope Script}
+ }
+
  $originalIdentity=Get-AiwTestFileIdentity $recordPath
  $selection=Select-AiwTestGroupExecution $fixtureGroup $after @($recordPath) (Join-Path $rawRoot 'revalidation.json')
  Check ($selection.selection-ceq'REUSE_WITH_REVALIDATION'-and(Get-AiwTestFileIdentity $recordPath)-ceq$originalIdentity-and$selection.original.identity-ceq$originalIdentity) 'reuse-keeps-original-command-time-and-record-immutable'

@@ -5,12 +5,15 @@ Set-StrictMode -Version Latest
 if($PSVersionTable.PSEdition-cne'Core'-or$PSVersionTable.PSVersion.Major-lt7){throw 'POWERSHELL7_REQUIRED'}
 # Share the same bounded original registration/source-maintenance recipe with
 # the repo-local case. No whole-version integration view or full suite is run.
-if($Case-ceq'QualityAssurance'){
+function Invoke-MaintenanceQualityConsumer {
  Import-Module (Join-Path $PSScriptRoot 'TestHarness.psm1')
- $quality=Invoke-AiwTestProcess ([Environment]::ProcessPath) @('-NoProfile','-NonInteractive','-File',(Join-Path $PSScriptRoot 'result-acceptance-tests.ps1'),'-Group','QualityMaintenance','-KeepFixture') -WorkingDirectory (Get-Location).Path -GroupId 'maintenance-quality-frontdoor'
+ $quality=Invoke-AiwTestProcess ([Environment]::ProcessPath) @('-NoProfile','-NonInteractive','-File',(Join-Path $PSScriptRoot 'result-acceptance-tests.ps1'),'-Group','QualityMaintenance') -WorkingDirectory (Get-Location).Path -GroupId 'maintenance-quality-frontdoor'
  $quality.Output|Write-Output
  if($quality.Code-ne0){throw ('MAINTENANCE_QUALITY_NATIVE|exit='+$quality.Code)}
- Write-Output 'EVIDENCE_CEILING|PARTIAL|maintenance-quality-original-registration-and-root-frontdoors|synthetic-qualification-only'
+}
+if($Case-ceq'QualityAssurance'){
+ Invoke-MaintenanceQualityConsumer
+ Write-Output 'EVIDENCE_CEILING|PARTIAL|maintenance-quality-and-source-history-archive-original-frontdoors|synthetic-qualification-only'
  return
 }
 Import-Module (Join-Path $PSScriptRoot 'IntegrationFixture.psm1') -Force
@@ -27,7 +30,7 @@ function Test-IntegrationMaintenanceBootstrap {
  $currentTopology=Invoke-Ps $resolver @('-ControlRepositoryPath',$control,'-ExpectedProjectConfigIdentity',$configIdentity,'-AsJson')
  $currentFacts=$false
  if($currentTopology.Code-eq0){$reply=$currentTopology.Output[-1]|ConvertFrom-Json -Depth 100;$currentFacts=$reply.controllerState-ceq'CURRENT'-and$reply.runtimeRoot-ceq$fixedRuntime-and$reply.targetRoot-ceq$target}
- $required=@('当前任务、责任和权限只取CONTROL','读取project、controller、corrections、policy及人类约定','唯一固定runtimeRoot','resolve-framework-maintenance-target.ps1','固定runtime提供规则与工具，TARGET只承载开发源码','先读TARGET/README及适用framework/FRAMEWORK_RELEASE','不要求TARGET根AGENTS/CLAUDE','不从开发HEAD补运行模块','绑定当前Owner、真实actor/route、profile、selected repository','TOOL_CONTRACT唯一IntentEnvelope段','resolve-framework-maintenance-process-requirements.ps1','当前全部必要完整正文','CONTROL与TARGET写入分别绑定精确repository包','及相应ADMIT','正式交付按当前真实结果与消费者FINALIZE','Review、Git、push、external及运行包采用分别成立','具体合同取固定TOOL_CONTRACT/根PROJECT_ADOPTION','不创建第二控制面、不授予移动仓库或切换运行包权限','SOURCE写入由固定runtime收口','源码变化本身不改本项目pin')
+ $required=@('当前任务、责任和权限只取CONTROL','读取project、controller、corrections、policy及人类约定','唯一固定runtimeRoot','resolve-framework-maintenance-target.ps1','固定runtime提供规则与工具，TARGET只承载开发源码','先读TARGET/README及适用framework/FRAMEWORK_RELEASE','不要求TARGET根AGENTS/CLAUDE','不从开发HEAD补运行模块','绑定当前Owner、真实actor/route、profile、selected repository','TOOL_CONTRACT唯一IntentEnvelope段','resolve-framework-maintenance-process-requirements.ps1','组装全部当前必要完整正文和义务','CONTROL与TARGET写入分别绑定精确repository包','及相应ADMIT','正式交付按当前真实结果与消费者FINALIZE','Review、Git、push、external及运行包采用分别成立','具体合同取固定TOOL_CONTRACT/根PROJECT_ADOPTION','不创建第二控制面、不授予移动仓库或切换运行包权限','SOURCE写入由固定runtime收口','源码变化本身不改本项目pin')
  $missing=@($required|Where-Object{-not$renderedBootstrap.Contains($_)})
  if($missing.Count){Write-Output ('DIAG|maintenance-bootstrap-current-contract|'+($missing-join';'))}
  Assert-True ($fullColdLoad.Code-ne0-and$currentFacts-and$missing.Count-eq0-and-not$renderedBootstrap.Contains('AllowLegacyTargetControlPlane')-and-not$renderedBootstrap.Contains('显式读取 `<TARGET>/AGENTS.md`')) 'maintenance-bootstrap-root-owned-full-cold-route'
@@ -614,4 +617,5 @@ Test-IntegrationMaintenanceFrontdoor
     Assert-True ((Get-Identity $configPath) -ceq $configIdentity) 'maintenance-fixture-config-restored'
 }
 } finally { if($integrationContext){Close-IntegrationContext $integrationContext} }
+if($Case-ceq'All'){Invoke-MaintenanceQualityConsumer}
 Write-Output ('RESULT|'+(Get-IntegrationCheckCount)+'/'+(Get-IntegrationCheckCount)+' passed|scope=Framework-2.0.0-maintenance|')

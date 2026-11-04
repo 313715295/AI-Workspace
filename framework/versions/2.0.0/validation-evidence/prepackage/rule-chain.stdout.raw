@@ -1,0 +1,64 @@
+PASS|current-facts-wait-micro
+PASS|current-facts-readiness-git
+PASS|current-facts-git-pending
+PASS|current-facts-push
+PASS|current-facts-review-plan-critical
+PASS|current-facts-review-standard
+PASS|current-facts-review-micro
+PASS|current-facts-review-critical-control
+PASS|current-facts-wait-plan
+PASS|current-facts-wait-user-response-control
+PASS|current-facts-organization-followup
+PASS|current-facts-organization-review-execute
+PASS|current-facts-organization-new-assignment-control
+PASS|current-facts-organization-internal-plan
+PASS|not-upgrade-mapping
+PASS|not-upgrade-pinning
+PASS|not-upgrade-spindle
+PASS|actual-upgrade-pin
+PASS|actual-upgrade-PIN change
+PASS|actual-upgrade-upgrade
+PASS|actual-upgrade-adoption
+PASS|actual-upgrade-migration
+PASS|fixture-repair-is-not-project-governance
+PASS|project-governance-project correction
+PASS|project-governance-项目纠正
+PASS|project-governance-corrections.json
+PASS|unknown-keeps-affected-upgrade-rule
+PASS|unknown-does-not-invent-review-action
+PASS|not-controller-transition-current controller progress
+PASS|not-controller-transition-controller task status update
+PASS|not-controller-transition-主控状态整理
+PASS|not-controller-transition-task handoff
+PASS|not-controller-transition-handoff
+PASS|not-controller-transition-takeover
+PASS|not-controller-transition-epoch
+PASS|not-controller-transition-controller effort adjustment
+PASS|not-controller-transition-controller handoffStatus
+PASS|actual-controller-transition-controller handoff
+PASS|actual-controller-transition-controller takeover
+PASS|actual-controller-transition-controller transition
+PASS|actual-controller-transition-controller epoch change
+PASS|actual-controller-transition-主控交接
+PASS|actual-controller-transition-主控接任
+PASS|actual-controller-transition-主控切换
+PASS|actual-controller-transition-主控移交
+PASS|unknown-keeps-controller-transition-rule
+PASS|unknown-task-owner-does-not-create-controller-transition
+PASS|controller-current-action-Cancel the controller handoff; update progress only.
+PASS|controller-current-action-If approved later, perform controller takeover; now update progress.
+PASS|design-review-with-no-path-loads-product-quality
+PASS|implementation-review-loads-shared-not-author-procedure
+PASS|author-loads-cross-professional-quality-and-own-procedure
+PASS|none-organization-planning-loads-quality-without-execution-gates
+PASS|unknown-keeps-known-role-boundary
+PASS|only-current-action-Cancel the review; only explain the design.
+PASS|only-current-action-If later approved, arrange review; now explain the design.
+PASS|only-current-action-Do not implement; compare the existing design.
+PASS|shared-rule-complete-body-equals-current-project-source
+PASS|review-planning-needs-no-future-evidence
+PASS|micro-implementation-without-knowledge-still-loads-core-judgment
+PASS|complete-core-learning-responsibility-not-hidden-in-optional-method
+PASS|core-method-link-does-not-load-entire-optional-method
+PASS|core-software-method-link-does-not-load-entire-optional-method
+RULE_CHAIN_TESTS_PASS|checks=63|historicalCases=14|evidence=DETERMINISTIC_SELECTION_ONLY

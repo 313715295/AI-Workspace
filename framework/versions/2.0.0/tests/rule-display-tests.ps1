@@ -20,9 +20,9 @@ function Discover {
  $null=[IO.Directory]::CreateDirectory($directory)
  $script:LastDisplayPath=Join-Path $directory ([guid]::NewGuid().ToString('N')+'.txt')
  $global:DisplayComposerCalls=0
- $probe=Set-PSBreakpoint -Command Invoke-ProcessRequirementComposition -Action {$global:DisplayComposerCalls++}
+ $probe=Set-PSBreakpoint -Command Invoke-AiwProcessCompositionCore -Action {$global:DisplayComposerCalls++}
  try{$global:LASTEXITCODE=0;$lines=@(& $resolver -InputPath $inputPath -AsJson -DisplayPath $script:LastDisplayPath)}finally{Remove-PSBreakpoint $probe}
- if($global:DisplayComposerCalls-ne1){throw ('PUBLIC_COMPOSER_COUNT|'+$global:DisplayComposerCalls)}
+ if($global:DisplayComposerCalls-ne1){throw ('PUBLIC_COMPOSER_COUNT|'+$global:DisplayComposerCalls+'|ORIGINAL_RESULT|'+($lines-join'|'))}
  if(($lines-join'')-match'[^\x00-\x7f]'){throw 'MACHINE_NATIVE_TRANSPORT_NOT_ASCII'}
  $code=$global:LASTEXITCODE;$value=($lines-join"`n")|ConvertFrom-Json -Depth 100
  if($code-ne0){throw ($lines-join"`n")};return $value
@@ -54,6 +54,10 @@ try{
  $projection=Get-AiwProcessDisplay $result
  Check ($projection.status-ceq'EVALUATION_ONLY'-and$projection.contextBodyReuse-ceq'FULL'-and-not$projection.modelLoadProven) 'display-keeps-evaluation-and-context-ceiling'
  $selectedIds=@($result.selectedRuleBlocks.requirementId)
+ $hostDelivery=@($result.selectedRuleBlocks|Where-Object requirementId -CEQ 'framework:PR_COMPACT_NON_INTERRUPT_DELIVERY')
+ $ordinaryOwner=@($result.selectedRuleBlocks|Where-Object requirementId -CEQ 'framework:PR_PROCESS_REQUIREMENTS_PROGRESSIVE_BOUNDARIES')
+ Check ($hostDelivery.Count-eq1-and$ordinaryOwner.Count-eq1-and$ordinaryOwner[0].fullText.Contains('无正式Review/接受、TASK_MESSAGE、关闭/责任转换或continuation消费者')-and$ordinaryOwner[0].fullText.Contains('不产生假PASS')-and[regex]::Matches($projection.text,'仅本次实际NONE、无包无副作用').Count-eq1) 'host-delivery-selection-includes-one-complete-ordinary-user-exception-owner'
+
  Check ([string]::Join('|',@($projection.currentRules.requirementId))-ceq[string]::Join('|',$selectedIds)) 'projection-keeps-exact-current-selection-and-order'
  Check (($result|ConvertTo-Json -Depth 100 -Compress)-ceq$original) 'projection-does-not-mutate-resolver-result'
  $inlineRules=@($projection.currentRules|Where-Object requirementId -like '*:INLINE_*')
@@ -88,6 +92,22 @@ try{
  Reject {Get-AiwProcessDisplay $bad} 'invented-obligation-refused'
  $bad=$original|ConvertFrom-Json -Depth 100;$bad.selectedRuleBlocks[0].displayParts[0].sourceIdentity='UNKNOWN'
  Reject {Get-AiwProcessDisplay $bad} 'unbound-source-cannot-be-deduplicated'
+ # The actual composer projection must show the selected project mode and
+ # retain its full bodies. An existing selected rule is not automatically a grant.
+ $savedInput=$inputValue|ConvertTo-Json -Depth 100
+ $inputValue.schemaVersion=5;$inputValue['ruleLoad']=[ordered]@{mode='FULL'}
+ $policy['externalAuthorization']=[ordered]@{schemaVersion=1;mode='PROJECT_PREAUTHORIZED';grantRuleIds=@('INLINE_A')}
+ SaveJson $policyPath $policy;$externalResult=Discover;$externalDisplay=Get-AiwProcessDisplay $externalResult
+ Check ($externalResult.projectExternalAuthorization.mode-ceq'PROJECT_PREAUTHORIZED'-and$externalDisplay.text.Contains('Project external authorization: PROJECT_PREAUTHORIZED')-and$externalDisplay.text.Contains('INLINE_A')-and$externalDisplay.text.Contains($longBody)-and-not$externalResult.projectExternalAuthorization.perCallAuthorityGranted) 'external-mode-and-complete-selected-grant-visible-with-no-action-authority'
+ $bad=$externalResult|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100;$bad.projectExternalAuthorization.selectedGrantRuleIds=@('SOURCE_A')
+ Reject {Get-AiwProcessDisplay $bad} 'selected-nongrant-rule-cannot-be-presented-as-project-grant'
+ $bad=$externalResult|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100;$bad.projectExternalAuthorization.policyIdentity='1|'+('A'*64)
+ Reject {Get-AiwProcessDisplay $bad} 'mode-projection-cannot-change-bound-policy'
+ $policy.externalAuthorization=[ordered]@{schemaVersion=1;mode='PER_ACTION'};SaveJson $policyPath $policy
+ $perActionDisplay=Get-AiwProcessDisplay (Discover)
+ Check ($perActionDisplay.text.Contains('Project external authorization: PER_ACTION')-and-not$perActionDisplay.text.Contains('Do not create a per-call task/package')) 'explicit-per-action-display-does-not-recommend-direct-execution'
+ $policy.Remove('externalAuthorization');SaveJson $policyPath $policy
+ $inputValue=$savedInput|ConvertFrom-Json -Depth 100 -AsHashtable
  # Same words from another file remain a distinct source, even with the same
  # exact bytes. Reuse the actual source binding builder and rediscover it.
  SaveText (Join-Path $temp 'docs/another.md') 'EXACT_SHARED_DEPENDENCY'
@@ -183,7 +203,7 @@ try{
  $null=[IO.Directory]::CreateDirectory($directory)
  $script:LastDisplayPath=Join-Path $directory ([guid]::NewGuid().ToString('N')+'.txt')
  $global:DisplayComposerCalls=0
- $probe=Set-PSBreakpoint -Command Invoke-ProcessRequirementComposition -Action {$global:DisplayComposerCalls++}
+ $probe=Set-PSBreakpoint -Command Invoke-AiwProcessCompositionCore -Action {$global:DisplayComposerCalls++}
  try{$global:LASTEXITCODE=0;$lines=@(& $resolver -InputPath $inputPath -AsJson -DisplayPath $script:LastDisplayPath)}finally{Remove-PSBreakpoint $probe}
  if($global:DisplayComposerCalls-ne0){throw ('REJECTED_INPUT_COMPOSER_COUNT|'+$global:DisplayComposerCalls)}
  if(($lines-join'')-match'[^\x00-\x7f]'){throw 'MACHINE_NATIVE_TRANSPORT_NOT_ASCII'};$failed=($lines-join"`n")|ConvertFrom-Json -Depth 100

@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([ValidateSet('All','Schema1ControlPlane','NativeIO','JsonConsumers')][string]$Case='All')
+param([ValidateSet('All','Schema1ControlPlane','NativeIO','JsonConsumers','ExternalPolicy')][string]$Case='All')
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 if($PSVersionTable.PSEdition-cne'Core'-or$PSVersionTable.PSVersion.Major-lt7){throw 'POWERSHELL7_REQUIRED'}
@@ -128,6 +128,73 @@ function Test-IntegrationSchema1ControlPlane {
  $restored=Invoke-Ps $checker $repoLocalSchema1Args $repoLocal
  Assert-True ($restored.Code-eq0) 'authorization-schema1-reparse-valid-baseline-after'
 }
+function Test-IntegrationProjectExternalPolicy {
+ # These are controlled executor decisions, not a new permission interpreter.
+ # The real public composer must make the complete project grant available;
+ # the actual local command then runs directly, without per-call artifacts.
+ $runtime=Join-Path $temp 'external-policy-runtime'
+ $runtimeVersion=New-IntegrationRuntimeFixture $runtime
+ $null=Seal-ReleaseFixture $runtimeVersion 'EXTERNAL_POLICY_TEST_FIXTURE'
+ $externalResolver=Join-Path $runtimeVersion 'scripts/resolve-process-requirements.ps1'
+ $root=Join-Path $temp 'external-policy-project';$cp=Join-Path $root '.ai-workspace'
+ $configPath=Join-Path $cp 'project.json';$policyPath=Join-Path $cp 'process-policy.json';$correctionsPath=Join-Path $cp 'corrections.json'
+ Write-Utf8 $configPath (([ordered]@{schemaVersion=7;id='external-policy-fixture';displayName='External policy fixture';controlPlaneLayout='repo-local';repositoryRoot='..';frameworkVersion='2.0.0';frameworkToolBackend='powershell7';routineExcludedPaths=@();frameworkCapabilities=[ordered]@{};sourceBindings=@();processPolicy=[ordered]@{schemaVersion=3;locator='.ai-workspace/process-policy.json'}})|ConvertTo-Json -Depth 20)
+ Write-Utf8 $correctionsPath (([ordered]@{schemaVersion=3;contractVersion='2.0.0';projectId='external-policy-fixture';corrections=@()})|ConvertTo-Json)
+ Write-Utf8 (Join-Path $cp 'controller.json') (([ordered]@{schemaVersion=1;projectId='external-policy-fixture';controllerId='controller-fixture';controllerEpoch=1;state='CURRENT'})|ConvertTo-Json)
+ Write-Utf8 (Join-Path $cp 'BOOTSTRAP.md') "<!-- PROJECT-CUSTOM:BEGIN -->`n<!-- PROJECT-CUSTOM:END -->"
+ $grantText='Fixture original permission: executor-fixture may run the local counter tool for one operation per request, no retries. There is no network provider or money. No account changes, uploads, public publication or delegation. A failed or unknown result stops the request.'
+ $rule=[ordered]@{ruleId='LOCAL_COUNTER_GRANT';requirementReason='Only the local isolated counter is allowed';effectiveRule=$grantText;selectors=[ordered]@{profiles=@('*');roles=@('EXECUTOR');phases=@('EXTERNAL');actionKinds=@('EXTERNAL');resultKinds=@('*');pathPrefixes=@();capabilities=@();semanticTerms=@()};preparationRequirements=@();resultRequirements=@();decisionLocator='fixture:original-permission'}
+ $policy=[ordered]@{schemaVersion=3;contractVersion='2.0.0';projectId='external-policy-fixture';rules=@($rule);externalAuthorization=[ordered]@{schemaVersion=1;mode='PROJECT_PREAUTHORIZED';grantRuleIds=@('LOCAL_COUNTER_GRANT')}}
+ Write-Utf8 $policyPath ($policy|ConvertTo-Json -Depth 30)
+ $inputValue=[ordered]@{schemaVersion=5;mode='DISCOVER';contextType='PROJECT_EXTERNAL';requestContext=[ordered]@{sessionId='executor-fixture';requestId='external-policy-fixture';role='EXECUTOR';phase='EXTERNAL';profile='STANDARD'};ruleLoad=[ordered]@{mode='FULL'};projectRoot=$root;frameworkRoot=$runtime;taskPath='NOT_APPLICABLE';expectedProjectConfigIdentity=Get-Identity $configPath;expectedCorrectionsIdentity=Get-Identity $correctionsPath;expectedTaskIdentity='NOT_APPLICABLE';observedActor='executor-fixture';capabilities=@();exactPaths=@();forbiddenPaths=@();protectedPaths=@();authorizationPackagePath='NOT_REQUIRED';expectedAuthorizationIdentity='NOT_REQUIRED';userDecision='NOT_REQUIRED';recoveryState='CURRENT';hostEnforcementGrade='INSTRUCTION_BOUND';invocationState='PROVEN_EXPLICIT';evaluationOnly=$false;intentEnvelope=[ordered]@{schemaVersion=2;objective='Use the explicitly permitted local fixture counter; preserve its real outcome and never retry unknown consumption.';requestedActionKind='EXTERNAL';requestedResultKind='EXTERNAL_RESULT';semanticHints=@();pathHints=@();capabilityHints=@();mutationHints=@();externalHints=@();ambiguityState='CLEAR';facets=[ordered]@{domain=[ordered]@{state='KNOWN';values=@('aiw:software')};workType=[ordered]@{state='KNOWN';values=@('aiw:implementation')};deliverableType=[ordered]@{state='KNOWN';values=@('aiw:code')};stage=[ordered]@{state='KNOWN';values=@('aiw:implementation')}}}}
+ $loadPath=Join-Path $root 'initial-rule-load.json';Write-Utf8 $loadPath ($inputValue|ConvertTo-Json -Depth 30)
+ $loaded=Invoke-Ps $externalResolver @('-InputPath',$loadPath,'-AsJson') $root
+ if($loaded.Code-ne0){throw ('EXTERNAL_POLICY_INITIAL_LOAD|'+$loaded.Text)}
+ $value=$loaded.Stdout|ConvertFrom-Json -Depth 100
+ $grants=@($value.selectedRuleBlocks|Where-Object requirementId -CEQ 'project:external-policy-fixture:LOCAL_COUNTER_GRANT')
+ Assert-True ($value.status-ceq'PASS'-and$value.projectExternalAuthorization.mode-ceq'PROJECT_PREAUTHORIZED'-and$grants.Count-eq1-and$grants[0].fullText-ceq$grantText-and$value.compactReceipt.binding.authorizedActions.Count-eq0) 'native-public-full-load-delivers-real-project-grant-without-task-or-action-package'
+ $nativeTool=Join-Path $root 'local-counter.ps1'
+ Write-Utf8 $nativeTool @'
+param([string]$ObservationPath,[ValidateSet('SUCCESS','FAILURE','UNKNOWN')][string]$Outcome)
+$ErrorActionPreference='Stop'
+if([IO.File]::Exists($ObservationPath)){throw 'COUNTER_REQUEST_ALREADY_CONSUMED'}
+$value=[ordered]@{outcome=$Outcome;calls=1;retries=0;provider='isolated-local-counter';operation='COUNT_ONCE';processId=$PID}
+[IO.File]::WriteAllText($ObservationPath,($value|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
+$value|ConvertTo-Json -Compress
+if($Outcome-eq'FAILURE'){exit 9};if($Outcome-eq'UNKNOWN'){exit 10};exit 0
+'@
+ $controlBefore=Get-PhysicalFixtureTree $cp
+ foreach($outcome in @('SUCCESS','FAILURE','UNKNOWN')){
+  $observationPath=Join-Path $root ('counter-'+$outcome+'.json')
+  # The request window contains exactly this native call. No resolver, action
+  # package, new task or second native request is invoked in this window.
+  $run=Invoke-Ps $nativeTool @('-ObservationPath',$observationPath,'-Outcome',$outcome) $root
+  $actual=Get-Content -LiteralPath $observationPath -Raw|ConvertFrom-Json
+  $returned=$run.Stdout|ConvertFrom-Json
+  $expectedCode=switch($outcome){SUCCESS{0};FAILURE{9};UNKNOWN{10}}
+  Assert-True ($run.Code-eq$expectedCode-and$actual.outcome-ceq$outcome-and$actual.calls-eq1-and$actual.retries-eq0-and$actual.processId-eq$returned.processId-and$actual.processId-ne$PID) ('direct-native-'+$outcome+'-one-real-process-call-no-retry')
+  Assert-True ((Get-PhysicalFixtureTree $cp)-ceq$controlBefore-and-not(Test-Path -LiteralPath (Join-Path $cp 'tasks'))) ('direct-native-'+$outcome+'-zero-per-call-task-package-or-boundary-files')
+ }
+ # A second project policy chooses the existing per-action flow. The original
+ # strict binding2 positives/negatives are consumed below, not reimplemented.
+ $policy.externalAuthorization=[ordered]@{schemaVersion=1;mode='PER_ACTION'};Write-Utf8 $policyPath ($policy|ConvertTo-Json -Depth 30)
+ $perAction=Invoke-Ps $externalResolver @('-InputPath',$loadPath,'-AsJson') $root
+ Assert-True ($perAction.Code-ne0-and$perAction.Text.Contains('EXTERNAL_ACTION_PACKAGE_OR_SELECTED_PROJECT_GRANT_REQUIRED')) 'explicit-per-action-policy-refuses-direct-taskless-context'
+ $policy.Remove('externalAuthorization');Write-Utf8 $policyPath ($policy|ConvertTo-Json -Depth 30)
+ $default=Invoke-Ps $externalResolver @('-InputPath',$loadPath,'-AsJson') $root
+ Assert-True ($default.Code-ne0-and$default.Text.Contains('EXTERNAL_ACTION_PACKAGE_OR_SELECTED_PROJECT_GRANT_REQUIRED')) 'omitted-policy-setting-preserves-per-action-default'
+ $policy['externalAuthorization']=[ordered]@{schemaVersion=1;mode='PROJECT_PREAUTHORIZED';grantRuleIds=@('LOCAL_COUNTER_GRANT')}
+ $policy.rules[0].selectors.actionKinds=@('NONE');Write-Utf8 $policyPath ($policy|ConvertTo-Json -Depth 30)
+ $outOfScope=Invoke-Ps $externalResolver @('-InputPath',$loadPath,'-AsJson') $root
+ Assert-True ($outOfScope.Code-ne0-and$outOfScope.Text.Contains('EXTERNAL_ACTION_PACKAGE_OR_SELECTED_PROJECT_GRANT_REQUIRED')) 'unselected-project-grant-does-not-enable-direct-external-context'
+ Write-Output 'EVIDENCE_CEILING|controlled-native-tool-requests; one initial FULL; each request calls=1 retries=0 new-task/package/D-A-F=0; no natural-model-compliance-or-provider-enforcement-claim'
+ $grantRun=Invoke-AiwTestProcess ([Environment]::ProcessPath) @('-NoProfile','-NonInteractive','-File',(Join-Path $PSScriptRoot 'authorization-receipt-regression-tests.ps1'),'-Group','ExternalGrant') -WorkingDirectory (Get-Location).Path -GroupId 'integration-project-external-existing-grants'
+ foreach($line in $grantRun.Output){if($line-cnotmatch'^RESULT\|'){Write-Output $line}}
+ Assert-True ($grantRun.Code-eq0) 'integration-consumes-original-default-paid-delegated-revoked-and-unknown-grant-boundaries'
+}
+
+ if($Case-cin@('All','ExternalPolicy')){Test-IntegrationProjectExternalPolicy}
+ if($Case-ceq'ExternalPolicy'){Write-Output 'EVIDENCE_CEILING|PARTIAL|project-external-policy-and-existing-grants';return}
  $maintenanceFixture=New-IntegrationMaintenanceFixture -Register
  foreach($key in $maintenanceFixture.Keys){Set-Variable -Name $key -Value $maintenanceFixture[$key]}
  if($Case-cin@('All','NativeIO')){Test-IntegrationSafeGitNativeIo}

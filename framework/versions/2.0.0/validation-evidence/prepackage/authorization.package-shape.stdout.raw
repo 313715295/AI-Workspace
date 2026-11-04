@@ -1,0 +1,25 @@
+PASS|task-card-active-write-allows-external-authorization-carrier
+PASS|external-authorization-package-binds-stable-task-preimage
+PASS|task-card-single-inline-authorization-remains-structurally-compatible
+PASS|task-card-rejects-multiple-inline-authorization-blocks
+PASS|authorization-canonical-standard-package-passes
+PASS|authorization-temporary-actor-multi-action-plan-admits-first-step
+PASS|continuation-accepts-twenty-explicit-bounded-steps
+PASS|authorization-continuation-plan-rejects-skipped-first-step
+PASS|authorization-continuation-plan-requires-result-drift-invalidator
+PASS|authorization-decision-class-is-case-sensitive
+PASS|authorization-controller-role-is-case-sensitive
+PASS|owner-can-preauthorize-bounded-repair-review-without-changing-work-route
+PASS|owner-issuer-real-contributor-overlap-is-legal-in-parent-plan
+PASS|invalid-internal-contributor-set-refuses-before-child
+PASS|invalid-internal-contributor-set-refuses-before-child
+PASS|invalid-internal-contributor-set-refuses-before-child
+PASS|repair-review-accepts-task-selected-finite-plan-over-eight
+PASS|repair-review-still-requires-positive-bounded-plan
+PASS|flat-only-finding-cannot-prepare-a-repair-grant
+PASS|flat-only-child-fails-real-checker
+PASS|repair-cycle-exhaustion-requires-owner
+PASS|stale-verdict-cannot-authorize-repair
+PASS|broadened-impact-does-not-use-focused-repair
+PASS|bounded-plan-never-waives-reviewer-independence
+RESULT|24 passed|scope=authorization-receipt-regression|group=PackageShape

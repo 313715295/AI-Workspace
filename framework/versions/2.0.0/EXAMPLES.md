@@ -12,7 +12,7 @@
 
 current card 可声明 `Work route: actor=task-123; role=EXECUTOR; phase=VERIFY`。TASK_OWNER 给 `review-task-9` 签发纯 `REVIEW_EXECUTE` package 后，任务卡仍保持 `task-123`；receipt 报告 `taskActor=task-123`、`actor=review-task-9`、`role=REVIEWER`、`phase=REVIEW`。
 
-新审核由分派者创建可见会话并显式落实选定模型和effort；返回真实ID后绑定独立性、候选及审核包，再让该审核者消费完整材料。接收者负责审核，不负责建立另一位Reviewer。同项修复复审复用该会话，条件是仍独立且上下文可用。
+新审核由分派者创建新的可见会话并显式落实选定模型和effort；初始提示一次交齐完整材料与不可执行待绑定原件，取得真实ID后由接收者按HOST核原件并绑定自身，之后才准入审核。接收者负责审核，不负责建立另一位Reviewer。同项修复复审复用该会话，条件是仍独立且上下文可用。
 
 例如范围、writer和Reviewer均已确定的任务，在本地写测包配置`repairReviewPlan={writer,reviewer,maxCycles,materialContributors}`，maxCycles取本任务的有限计划。生产FINALIZE后，REPAIR_REVIEW以INITIAL_REVIEW/cycle=0及生产FINALIZE准备首次审核包；verdict字段为NOT_APPLICABLE。审核提出真实CHANGES_REQUESTED后，以cycle=1准备REPAIR，修复FINALIZE后准备REREVIEW。每包都独立准入，最终Owner接受单独处理。普通无需独立审核的任务直接完成，不强制造计划或新任务。
 
@@ -90,7 +90,7 @@ if ($LASTEXITCODE -ne 0) { throw 'WORKFLOW_FAILED' }
 if ($LASTEXITCODE -ne 0) { throw 'PROCESS_OR_SAVE_FAILED' }
 ```
 
-参数只代表官方调用，不能复制样例布尔值充当当前授权事实。Maintenance使用自己的固定包根适配器；TARGET保留已支持的schema2 DISCOVER/schema1 compact组合。
+参数只代表官方调用，不能复制样例布尔值充当当前授权事实。Maintenance使用自己的固定包根适配器；当前SOURCE/CONTROL按固定TOOLCHAIN声明使用输入/compact；仅旧固定TC2保留其schema2 DISCOVER/schema1 compact组合。
 
 ## 到期 receipt 的独立删除与核验
 
@@ -110,6 +110,32 @@ if (checked.exit_code !== 0) throw new Error("删除后核验未通过");
 ```
 
 删除调用只删除该文件，核验调用只读。普通文件不默认加 `-Force`、清属性或在失败后升级强制删除；特殊属性需按其真实原因和原权限处理。宿主政策拒绝时停止，不以换工具或改命令重试；分开调用也不保证宿主批准。
+
+## 当前有限任务释放旧 runtime 文件
+
+按 [RUNTIME_MAINTENANCE 合同](TOOL_CONTRACT.md#workflow_route_resolveruntime_maintenance) 先确认精确旧文件的最后消费者和保留项。当前 ACTIVE 有限维护任务的纯 CONTROL_WRITE 包可绑定两个旧任务 runtime 与本项目 tmp 下的已存在普通文件；删除路径及前像只在该包中出现，不修改旧卡或借旧 actor 权限。完成当前 DISCOVER、完整规则读取和准备义务，将原 boundary3 ADMIT_ACTION 输入保存为 `$admitInputPath`，此时**不先执行 ADMIT**。
+
+```powershell
+# 下列路径/refs来自当前已核验材料；workflowEntry由已采用固定TOOLCHAIN解析。
+# projectRoot为当前项目/CONTROL绝对根，retainedRefs/retainedPaths为实际保留集合（数组）。
+$admitBytes = [IO.File]::ReadAllBytes($admitInputPath)
+$admitIdentity = $admitBytes.Length.ToString() + '|' +
+    [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($admitBytes))
+$request = [ordered]@{
+    operation = 'RUNTIME_MAINTENANCE'
+    projectRoot = $projectRoot
+    admitInputRef = @{ path = $admitInputPath; identity = $admitIdentity }
+    retainedRefs = @($retainedRefs)
+    retainedPaths = @($retainedPaths)
+}
+$raw = & pwsh -NoProfile -NonInteractive -File $workflowEntry `
+    -InputJson ($request | ConvertTo-Json -Depth 50 -Compress) -AsJson
+$exitCode = $LASTEXITCODE
+if ($exitCode -ne 0) { throw ($raw -join "`n") } # 保原失败输出，不重放删除。
+$release = ($raw -join "`n") | ConvertFrom-Json -Depth 50
+```
+
+先保存真实 `$raw/$exitCode`。入口内部完成原完整 ADMIT；Maintenance 自动经同固定根适配器。`REJECTED` 未进行删除，不以此构造成功后像。实际准入后的 PASS、RETAINED 或 PARTIAL_FAILURE 均须核 `$release.postimages` 并沿原 CONTROL_WRITE 完成 FINALIZE：为原完整路径集提供 `OBJECT_POSTIMAGE|<path>|<实际identity或MISSING>`，保全部原义务，不把 `$release.admission` 当成 FINALIZE。部分失败保原结果、未删文件及当前任务，原F如实记录后由 Owner 仅为真实剩余重绑权限；不得循环重放整个请求。调用和原F本身的材料仍在使用，不能列入删除集。
 
 ## 外置授权包示例
 
@@ -176,3 +202,171 @@ if (checked.exit_code !== 0) throw new Error("删除后核验未通过");
 ## 显式质量选择示例
 
 未启用的CRITICAL任务保持原必审。已采用支持C的匿名项目可沿原来源维护将policy3启用qualityAssurance1/defaultStages=[SELF_CHECK]，只读prepare→原卡plan2→fresh普通成果包；真实SELF后可按实际需要另作接受/关闭，不凭CRITICAL额外造普通Review。若稳定规则profiles=[STANDARD]、pathPrefixes=[src]且qualityStages=[RESULT_REVIEW]命中，所有角色阶段都保Review门，缺实际verdict不能接受/成功关闭。defaultStages=[]且无命中规则是真零，可交如实未验证成果，但保USER_DECISION等额外阶段、实际测试失败和专门通道要求。字段未知、孤立qualityStages、假空/漏条件阶段、策略/subject漂移一律拒绝。无SELF而选Review时提供真实生产FINALIZE input/result及完整冻结A；删SELF不改一次失败TEST_RUN，也不能造成功后继。旧runtime仍拒新字段/operation，未完成活跃及历史C消费者前不能透明降级。
+
+## 同活动操作与完整正文输出
+
+实现中改源码、补测试代码、记录当前事实可仍是同一活动，当前action据实际操作分别填写；写任务卡不自动变成task-organization。真实分派、责任/路线或生命周期转换才改变组织事实。进入TEST_RUN、自查、审核或验证后返修，domain/workType/stage据事实变化，完整加载当前规则；不能为省加载伪填原实现分类。
+
+原EXTERNAL已停止、provider为0且无后续外部动作时，同活动CONTROL记录可沿新包ADMIT_ACTION/actionRebind，当前义务排除已退场外部规则，保存新compact供原FINALIZE消费；原失败、UNKNOWN和次数仍保留。新要求、重新进入旧规则、来源/许可/真实路线变化或正文不确定均FULL。公开历史消费者仍使用原冻结义务；当前policy合法演进不改写历史。
+
+在支持functions.exec的宿主中，调用前为外层和内层分别设置足够容量。以下24000/20000只是示例，不是阈值或不会截断的保证；按实际完整正文调整，且不与机器JSON或其他长输出混排。命令中的路径须先替换为当前真实固定入口和绑定输入。
+
+```javascript
+// @exec: {"max_output_tokens": 24000}
+const r = await tools.exec_command({
+  cmd: "pwsh -NoProfile -File 'C:/fixed/scripts/resolve-process-requirements.ps1' -InputPath 'C:/project/.ai-workspace/runtime/TASK-001/actor-1/discover.json'",
+  max_output_tokens: 20000
+});
+if (r.session_id) {
+  store("ruleLoadSession", r.session_id);
+  text(r.output);
+  text({session_id:r.session_id, state:"RUNNING_SAME_COMMAND"});
+} else {
+  text(r.output);
+  if (r.exit_code !== 0) throw new Error("规则调用失败；保留实际输出");
+}
+```
+
+未完成时保存session_id，只等待同一命令；不要丢掉会话后重跑DISCOVER。若等待输出仍未完成，继续保留原session_id。默认一次完整官方text，不主动分页或保存副本。实际跨进程编码/输出限制需要时，在该次调用使用已有-AsJson/-DisplayPath：程序捕获机器结果并核exit/status，只向模型读取同次UTF-8官方text。真实截断后从同一返回或DisplayPath补缺失完整单元及义务，不重新选择、不从项目扫描拼文。AIW-END存在不证明中部未被裁剪。
+
+## 有限会话的继续与收尾
+
+| 当前真实工作 | 现有ROUTE输入与处理 |
+|---|---|
+| 原成果仍未完成，原actor合格且上下文健康 | outcomeMatch=true，独立/隔离条件均未新增时REUSE |
+| 同一审核的有界修复复审，原Reviewer仍独立 | 沿原审核目标续作，不冒称一个新独审 |
+| 新有限成果 | outcomeMatch=false或requiresDistinctOutcome=true，MUST_NEW |
+| 新独立审核 | requiresIndependentContext=true，MUST_NEW并核全部贡献者排除 |
+| 已关闭/归档会话拟接新成果 | 按新成果处理，不默认恢复改名；原事必要补正可回原会话 |
+| 仅修改显示标题 | 不改变Owner、权限、范围、贡献历史或成果是否相同 |
+
+有限成果已交付、原结果已消费且无后续职责，由实际收尾责任人在已有权限内调用宿主归档并核对结果。任务卡已归档不能替代会话归档；待验收、同项返修或真实长期职责则保留。未知/失败保留真实状态，不建自动归档平台或批量扫描历史会话。表中字段只是明确语义输入，不能证明自然模型始终判断正确。
+
+## externalBinding2的本地构造
+
+以下函数可直接粘贴到PowerShell 7，只构造候选，不调用provider。调用者先按项目保护与读取许可核对下列精确路径，再一次填写$request中的当前项目/任务引用、grantPaths、provider、按序操作、用途、语义assessment、全部flags、原重试/停止条件及实际存在的grantConditions。路径/身份不替代亲读原许可；未知语义应先查清，不能填false凑齐。项目身份、grantRefs及provider/operationIds/outputUse重复字段由函数派生。
+
+```powershell
+function New-LocalExternalCandidate([System.Collections.IDictionary]$Request) {
+    $ErrorActionPreference = 'Stop'
+    $utf8 = [Text.UTF8Encoding]::new($false, $true)
+    function ByteIdentity([byte[]]$Bytes) {
+        return $Bytes.LongLength.ToString([Globalization.CultureInfo]::InvariantCulture) + '|' +
+            [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($Bytes))
+    }
+    function FileRef([string]$Path) {
+        return [ordered]@{path=$Path;identity=(ByteIdentity ([IO.File]::ReadAllBytes($Path)))}
+    }
+    $flagNames = @('paymentOrSubscription','commercialLicensing','accountOrCredentialChange',
+        'publicPublication','installation','protectedOrSecretUpload','crossDomain',
+        'formalAssetActivation','projectPhaseChange','gitOrPush','sharedQuotaOrResource','unknownScope')
+    if ($Request.escalationFlags -isnot [System.Collections.IDictionary] -or
+        $Request.escalationFlags.Count -ne $flagNames.Count) { throw '填写全部实际flags' }
+    foreach ($name in $flagNames) {
+        if (-not $Request.escalationFlags.Contains($name) -or
+            $Request.escalationFlags[$name] -isnot [bool]) { throw ('实际boolean缺失: '+$name) }
+    }
+    # 以下是显式语义输入，不由hash、载荷类型或provider推断。
+    foreach ($name in @('withdrawalOrReplacementObserved','paidResourceUse','sharedResourceUse','delegationPermitted')) {
+        if (-not $Request.assessment.Contains($name) -or
+            $Request.assessment[$name] -isnot [bool]) { throw ('实际assessment缺失: '+$name) }
+    }
+    $operations = [Collections.Generic.List[object]]::new()
+    $localPayloads = [Collections.Generic.List[object]]::new()
+    foreach ($op in $Request.orderedOperations) {
+        $payloads = [Collections.Generic.List[object]]::new()
+        foreach ($payload in $op.payloads) {
+            if ($payload.sourceBytes -isnot [byte[]]) { throw 'sourceBytes须为实际本地byte[]' }
+            # 示例仅实现这两种算法；项目可明确实现自己的版本算法，不是框架枚举。
+            [byte[]]$bytes = switch -CaseSensitive ($payload.canonicalizationVersion) {
+                'UTF8_LF_V1' {
+                    $text = $utf8.GetString($payload.sourceBytes)
+                    if ($text.StartsWith([string][char]0xFEFF,[StringComparison]::Ordinal)) { throw 'UTF8_LF_V1拒绝BOM' }
+                    $utf8.GetBytes($text.Replace("`r`n","`n").Replace("`r","`n"))
+                    break
+                }
+                'RAW_BYTES_V1' { $payload.sourceBytes; break }
+                default { throw '请先实现该项目算法的唯一计算说明' }
+            }
+            $identity = ByteIdentity $bytes
+            $payloads.Add([ordered]@{payloadKind=$payload.payloadKind;
+                normalizedIdentity=$identity;canonicalizationVersion=$payload.canonicalizationVersion})
+            $localPayloads.Add([ordered]@{operationId=$op.operationId;payloadIndex=$payloads.Count-1;
+                bytes=$bytes;identity=$identity})
+        }
+        $operations.Add([ordered]@{operationId=$op.operationId;operationKind=$op.operationKind;
+            declaredInputClass=$op.declaredInputClass;payloads=$payloads.ToArray()})
+    }
+    $assessment = [ordered]@{status=$Request.assessment.status;
+        withdrawalOrReplacementObserved=$Request.assessment.withdrawalOrReplacementObserved;
+        provider=$Request.provider;operationIds=@($operations | ForEach-Object {$_.operationId});
+        outputUse=$Request.outputUse;paidResourceUse=$Request.assessment.paidResourceUse;
+        sharedResourceUse=$Request.assessment.sharedResourceUse;
+        delegationPermitted=$Request.assessment.delegationPermitted}
+    $binding = [ordered]@{schemaVersion=2;route='TASK_OWNER_DIRECT_DOMAIN_EXTERNAL';
+        provider=$Request.provider;orderedOperations=$operations.ToArray();outputUse=$Request.outputUse;
+        perOperationRetryCeiling=$Request.perOperationRetryCeiling;totalRetryCeiling=$Request.totalRetryCeiling;
+        stopConditions=$Request.stopConditions;batchExecutionMode='ONE_LOGICAL_ATOMIC_EXECUTION';
+        reissuable=$false;ambiguousConsumptionPolicy='BLOCK';escalationFlags=$Request.escalationFlags;
+        grantRefs=@($Request.grantPaths | ForEach-Object {FileRef $_});grantAssessment=$assessment}
+    if ($Request.Contains('grantConditions')) { $binding.grantConditions=$Request.grantConditions }
+    return [pscustomobject]@{status='PREPARED_NOT_ADMITTED';authorityGranted=$false;
+        projectRef=(FileRef (Join-Path $Request.projectRoot '.ai-workspace/project.json'));
+        taskRef=(FileRef $Request.taskPath);externalBinding=$binding;localPayloads=$localPayloads.ToArray()}
+}
+```
+
+调用形状如下。只有本隔离示例的事实是：公共元数据、无项目数据、不购买、不改账户、不上传/发布、不委派、不重试、不涉及共享资源；因此逐项flags为false，assessment来自该示例原许可。真实调用必须替换为已经亲读的当前决定和实际boolean，不能把本例当授权或默认值。这里没有原金额或期限，所以不添加FREE/0、金额或deadline；若真实原许可规定条件，填写其原值与本次实际需求。
+
+```powershell
+$request = [ordered]@{
+    projectRoot='C:/isolated-example'
+    taskPath='C:/isolated-example/.ai-workspace/tasks/active/EXAMPLE-001.md'
+    grantPaths=@('C:/isolated-example/.ai-workspace/reports/public-metadata-permission.txt')
+    provider='EXAMPLE_PROVIDER'; outputUse='查看该provider公开能力说明'
+    orderedOperations=@([ordered]@{operationId='READ-1';operationKind='PROVIDER_PUBLIC_METADATA_READ';
+        declaredInputClass='ZERO_PROJECT_DATA';payloads=@()})
+    assessment=[ordered]@{status='CURRENT_AND_COVERED';withdrawalOrReplacementObserved=$false;
+        paidResourceUse=$false;sharedResourceUse=$false;delegationPermitted=$false}
+    escalationFlags=[ordered]@{
+        paymentOrSubscription=$false;commercialLicensing=$false;accountOrCredentialChange=$false
+        publicPublication=$false;installation=$false;protectedOrSecretUpload=$false;crossDomain=$false
+        formalAssetActivation=$false;projectPhaseChange=$false;gitOrPush=$false
+        sharedQuotaOrResource=$false;unknownScope=$false
+    }
+    perOperationRetryCeiling=0;totalRetryCeiling=0
+    stopConditions=@('原许可撤回或范围不符即停止','结果UNKNOWN不重发')
+}
+$prepared = New-LocalExternalCandidate $request
+$prepared.externalBinding | ConvertTo-Json -Depth 30
+```
+
+EXACT_PAYLOADS时在同一$request里替换对应操作，operationKind/payloadKind由项目定义，每项填明确canonicalizationVersion及实际sourceBytes。例如：
+
+```powershell
+$request.orderedOperations = @([ordered]@{
+    operationId='DRAFT-1';operationKind='PROJECT_DEFINED_DRAFT';declaredInputClass='EXACT_PAYLOADS'
+    payloads=@([ordered]@{payloadKind='PROJECT_TEXT';canonicalizationVersion='UTF8_LF_V1';
+        sourceBytes=[Text.UTF8Encoding]::new($false,$true).GetBytes("中文`r`n第二行  `r尾部 ")})
+})
+```
+
+相应assessment及flags必须先按该实际上传重新判断，不能沿用公共元数据例子的许可判断。函数规范化为LF，保留尾部空格及原尾换行是否存在，长度按bytes计算；不Trim、不NFC。RAW_BYTES_V1原样处理二进制。这段本地bytes计算不授上传权，也不表示该输入适用真实provider。
+
+将候选externalBinding与projectRef/taskRef所指当前身份放入原精确授权包；主体、完整路径/对象、许可与语义仍由原checker及DISCOVER/ADMIT检查，不把PREPARED输出当包或新权限。仅binding2的sharedQuotaOrResource=true可由原许可覆盖，其他true flags仍需原独立门；付费资源已获批不等于新购买获批。adapter在实际调用前对真正发送的bytes重算并匹配identity，按orderedOperations次序映射到provider参数并保存原返回。ONE_LOGICAL_ATOMIC_EXECUTION不承诺服务端事务；明确每操作有限重试可用，UNKNOWN只沿原许可且供应商可证安全的查询/恢复，不重开批次清零。生成结果、费用、专业验收及TASK_MESSAGE送达分别以各自原始证据判断。
+
+## 项目预授权直接调用
+
+在项目原policy3中，以现有规则保存许可正文和selectors。例如`LOCAL_TOOL_USE`明确本地预览工具、账号/数据范围、既有额度、允许的执行/委派主体与失败/未知时停止，再选择：
+
+```json
+"externalAuthorization": {
+  "schemaVersion": 1,
+  "mode": "PROJECT_PREAUTHORIZED",
+  "grantRuleIds": ["LOCAL_TOOL_USE"]
+}
+```
+
+这里的ruleId必须已存在且本活动实际选中；工具/provider、费用、数据及委派范围由真实项目决定填写，不从此例复制授权。首次或恢复时取得完整许可与当前规则；无适用任务使用TOOL_CONTRACT的PROJECT_EXTERNAL，保真实EXTERNAL意图。随后在许可范围内直接调用原工具，保其实际返回并交付，不新建一图一卡、逐次EXTERNAL包或D/A/F。失败/UNKNOWN保原记录且不盲重试。项目撤回、范围不符或宿主拒绝时不发新调用。
+
+要保持原按次行为可省略该设置，或写`{"schemaVersion":1,"mode":"PER_ACTION"}`；使用原ExternalGrant构造例子和准入链。两种模式不能把未调用、未知消费或加载PASS说成工具成功。

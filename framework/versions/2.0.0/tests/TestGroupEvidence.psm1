@@ -363,12 +363,53 @@ function Complete-AiwTestGroupEvidence {
  Write-AiwTestJson $Path $record
  return Read-AiwTestJson $Path -StringFields @('startedUtc','endedUtc')
 }
+# Runner-owned, private lifetime. The index is allocated only after the existing
+# fresh/unknown short circuit, and never carries a successful validation result.
+$script:ResumeReadScopeEnabled=$false
+$script:ResumeRecordIndex=$null
+function Enter-TestResumeReadScope {
+ $previous=[pscustomobject]@{enabled=$script:ResumeReadScopeEnabled;index=$script:ResumeRecordIndex}
+ $script:ResumeReadScopeEnabled=$true;$script:ResumeRecordIndex=$null
+ return $previous
+}
+function Exit-TestResumeReadScope($Previous){
+ $script:ResumeRecordIndex=$Previous.index;$script:ResumeReadScopeEnabled=$Previous.enabled
+}
+function Copy-TestResumeValue($Value){
+ if($null-eq$Value){return $null}
+ if($Value-is[Array]){$items=[Collections.Generic.List[object]]::new();foreach($item in $Value){$items.Add((Copy-TestResumeValue $item))};return ,$items.ToArray()}
+ if($Value-is[pscustomobject]){$copy=[ordered]@{};foreach($property in $Value.PSObject.Properties){$copy[$property.Name]=Copy-TestResumeValue $property.Value};return [pscustomobject]$copy}
+ if($Value-is[Collections.IDictionary]){$copy=[ordered]@{};foreach($key in $Value.Keys){$copy[$key]=Copy-TestResumeValue $Value[$key]};return $copy}
+ return $Value
+}
+function Get-TestResumeGroupRecords([string[]]$Paths,[string]$GroupId){
+ if(-not$Paths.Count){return @()}
+ $previous=if($script:ResumeReadScopeEnabled-and$null-ne$script:ResumeRecordIndex){$script:ResumeRecordIndex}else{[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal)}
+ $current=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal)
+ $matches=[Collections.Generic.List[object]]::new()
+ try{
+  # Observe every current member, including records for other groups. Rebuild
+  # this group's list from those facts so changed membership/group IDs are seen.
+  foreach($path in $Paths){
+   $full=[IO.Path]::GetFullPath($path);$identity=Get-AiwTestFileIdentity $full
+   if($previous.ContainsKey($full)-and$previous[$full].identity-ceq$identity){$entry=$previous[$full]}
+   else{
+    $record=Read-AiwTestJson $full -StringFields @('startedUtc','endedUtc')
+    if((Get-AiwTestFileIdentity $full)-cne$identity){throw 'TEST_RESUME_RECORD_DRIFT'}
+    $entry=[pscustomobject]@{identity=$identity;record=$record}
+   }
+   $current[$full]=$entry
+   if($entry.record.groupId-ceq$GroupId){$matches.Add([pscustomobject]@{path=$path;record=(Copy-TestResumeValue $entry.record)})}
+  }
+  if($script:ResumeReadScopeEnabled){$script:ResumeRecordIndex=$current}
+  return $matches.ToArray()
+ }catch{$script:ResumeRecordIndex=$null;throw}
+}
 function Select-AiwTestGroupExecution {
  param([Parameter(Mandatory)]$Group,[Parameter(Mandatory)]$CurrentSnapshot,[string[]]$ResumeEvidence=@(),[string]$RevalidationPath,[switch]$PlanOnly)
  if($null-ne$CurrentSnapshot.facts.PSObject.Properties['behaviorContractIdentity']-and$CurrentSnapshot.facts.verifierIdentity-cne(Get-AiwTestLoadedVerifierIdentity)){throw 'RELEASE_CURRENT_VERIFIER_BINDING'}
  if($Group.alwaysFresh-or@($CurrentSnapshot.facts.unknownDependencies).Count){return [pscustomobject]@{selection='EXECUTE';reason='FRESH_REQUIRED';original=$null}}
- $matches=@()
- foreach($path in $ResumeEvidence){$record=Read-AiwTestJson $path -StringFields @('startedUtc','endedUtc');if($record.groupId-ceq$Group.id){$matches+=@([pscustomobject]@{path=$path;record=$record})}}
+ $matches=@(Get-TestResumeGroupRecords $ResumeEvidence $Group.id)
  if($matches.Count-gt1){throw 'TEST_DUPLICATE_RESUME_GROUP'}
  if($matches.Count-eq0){return [pscustomobject]@{selection='EXECUTE';reason='NO_COMPLETE_ORIGINAL';original=$null}}
  if($null-ne$CurrentSnapshot.facts.PSObject.Properties['behaviorContractIdentity']-and$matches[0].record.schemaVersion-ne2){return [pscustomobject]@{selection='EXECUTE';reason='LEGACY_BEHAVIOR_FACTS_UNPROVEN';original=@{path=$matches[0].path;identity=(Get-AiwTestFileIdentity $matches[0].path)}}}

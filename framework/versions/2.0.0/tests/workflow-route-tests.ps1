@@ -129,6 +129,20 @@ try{New-Item -ItemType Directory -Path $temp|Out-Null
     Assert-True ([string]$routeIndependentNew.Value.decision -ceq 'MUST_NEW' -and [string]$routeIndependentNew.Value.reason -ceq 'INDEPENDENT_CONTEXT_REQUIRED') 'workflow-route-independent-reviewer-full-context'
     Assert-True ($routeReuse.Run.Code -eq 0 -and [string]$routeReuse.Value.decision -ceq 'REUSE') 'workflow-route-owner-self-exec-or-qualified-actor-keeps-task-owner'
 
+    # Semantic inputs are supplied explicitly, not inferred from titles or chat age.
+    # Existing reuse/new/independent cases above remain the primary route checks.
+    foreach($case in @(
+        @{name='same-review-bounded-repair';different=$false;distinct=$false;expected='REUSE'},
+        @{name='same-unfinished-outcome-title-only';different=$false;distinct=$false;expected='REUSE'},
+        @{name='archived-chat-new-outcome';different=$true;distinct=$false;expected='MUST_NEW'},
+        @{name='distinct-finite-outcome';different=$false;distinct=$true;expected='MUST_NEW'})){
+        $route=[ordered]@{};foreach($key in $routeBase.Keys){$route[$key]=$routeBase[$key]}
+        $route.outcomeMatch=-not$case.different;$route.requiresDistinctOutcome=$case.distinct
+        $observed=Invoke-WorkflowCase $workflowResolver $temp ('semantic-'+$case.name) $route
+        Assert-True ($observed.Run.Code-eq0-and$observed.Value.decision-ceq$case.expected) ('workflow-route-semantic-'+$case.name)
+    }
+    Write-Output 'EVIDENCE_CEILING|EXPLICIT_ROUTE_INPUTS_NOT_NATURAL_SEMANTIC_COMPLIANCE_OR_HOST_ARCHIVAL'
+
     foreach($role in @('TASK_OWNER','INDEPENDENT_REVIEWER','CONTROLLER','USER','NONE')){
         $legacy=Invoke-WorkflowCase $workflowResolver $temp ('terminal-unbound-'+$role) ([ordered]@{operation='TERMINAL';terminalStatus='COMPLETE';reportChannelAvailable=$true;proposedConsumerRole=$role;controllerEscalationRequired=$false})
         Assert-True ($legacy.Run.Code-ne0) ('workflow-terminal-rejects-unbound-role-'+$role)

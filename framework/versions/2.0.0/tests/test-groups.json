@@ -298,7 +298,9 @@
       "entry": "framework/versions/2.0.0/tests/integration-surface-tests.ps1",
       "arguments": [],
       "phase": "PREPACKAGE",
-      "requiredFor": [],
+      "requiredFor": [
+        "FULL"
+      ],
       "casePolicy": "OBSERVED_NAMED_CASES",
       "requiredCaseIds": [],
       "completionPattern": "^RESULT\\|.*\\|scope=Framework-2.0.0-surface\\|",
@@ -408,7 +410,9 @@
       "entry": "framework/versions/2.0.0/tests/integration-maintenance-tests.ps1",
       "arguments": [],
       "phase": "PREPACKAGE",
-      "requiredFor": [],
+      "requiredFor": [
+        "FULL"
+      ],
       "casePolicy": "OBSERVED_NAMED_CASES",
       "requiredCaseIds": [
         "maintenance-target-rebind-keeps-original-root-checker-and-current-target-scope",
@@ -520,7 +524,9 @@
       "entry": "framework/versions/2.0.0/tests/integration-authorization-tests.ps1",
       "arguments": [],
       "phase": "PREPACKAGE",
-      "requiredFor": [],
+      "requiredFor": [
+        "FULL"
+      ],
       "casePolicy": "OBSERVED_NAMED_CASES",
       "requiredCaseIds": [],
       "completionPattern": "^RESULT\\|.*\\|scope=Framework-2.0.0-authorization\\|",
@@ -629,7 +635,9 @@
       "entry": "framework/versions/2.0.0/tests/integration-process-tests.ps1",
       "arguments": [],
       "phase": "PREPACKAGE",
-      "requiredFor": [],
+      "requiredFor": [
+        "FULL"
+      ],
       "casePolicy": "OBSERVED_NAMED_CASES",
       "requiredCaseIds": [],
       "completionPattern": "^RESULT\\|.*\\|scope=Framework-2.0.0-process\\|",
@@ -852,7 +860,9 @@
         "CurrentCoverage"
       ],
       "phase": "PREPACKAGE",
-      "requiredFor": [],
+      "requiredFor": [
+        "FULL"
+      ],
       "casePolicy": "OBSERVED_NAMED_CASES",
       "requiredCaseIds": [
         "complete-chain-real-a-pass-and-natural-b-fail",
@@ -943,7 +953,9 @@
         "ProofSchema"
       ],
       "phase": "PREPACKAGE",
-      "requiredFor": [],
+      "requiredFor": [
+        "FULL"
+      ],
       "casePolicy": "OBSERVED_NAMED_CASES",
       "requiredCaseIds": [
         "proof-v2-explicit-pending-shape-without-future-qualification",
@@ -1267,7 +1279,9 @@
         "RuleSelection"
       ],
       "phase": "PREPACKAGE",
-      "requiredFor": [],
+      "requiredFor": [
+        "FULL"
+      ],
       "casePolicy": "OBSERVED_NAMED_CASES",
       "requiredCaseIds": [
         "actual-public-registration-produces-current-empty-adoption"
@@ -1326,7 +1340,9 @@
         "SourceChangeRecovery"
       ],
       "phase": "PREPACKAGE",
-      "requiredFor": [],
+      "requiredFor": [
+        "FULL"
+      ],
       "casePolicy": "OBSERVED_NAMED_CASES",
       "requiredCaseIds": [
         "actual-public-registration-produces-current-empty-adoption"
@@ -1444,7 +1460,9 @@
         "PlanShape"
       ],
       "phase": "PREPACKAGE",
-      "requiredFor": [],
+      "requiredFor": [
+        "FULL"
+      ],
       "casePolicy": "OBSERVED_NAMED_CASES",
       "requiredCaseIds": [
         "invalid-plan-TASK_ID"
@@ -1503,7 +1521,9 @@
         "OriginalRecovery"
       ],
       "phase": "PREPACKAGE",
-      "requiredFor": [],
+      "requiredFor": [
+        "FULL"
+      ],
       "casePolicy": "OBSERVED_NAMED_CASES",
       "requiredCaseIds": [
         "apply-does-not-claim-finalize-or-completion"
@@ -1562,7 +1582,9 @@
         "PackageShape"
       ],
       "phase": "PREPACKAGE",
-      "requiredFor": [],
+      "requiredFor": [
+        "FULL"
+      ],
       "casePolicy": "OBSERVED_NAMED_CASES",
       "requiredCaseIds": [],
       "completionPattern": "^RESULT\\|\\d+ passed\\|scope=authorization-receipt-regression\\|group=PackageShape$",
@@ -1621,7 +1643,9 @@
         "BindingIndependence"
       ],
       "phase": "PREPACKAGE",
-      "requiredFor": [],
+      "requiredFor": [
+        "FULL"
+      ],
       "casePolicy": "OBSERVED_NAMED_CASES",
       "requiredCaseIds": [],
       "completionPattern": "^RESULT\\|\\d+ passed\\|scope=authorization-receipt-regression\\|group=BindingIndependence$",
@@ -1680,7 +1704,9 @@
         "ContinuationRepair"
       ],
       "phase": "PREPACKAGE",
-      "requiredFor": [],
+      "requiredFor": [
+        "FULL"
+      ],
       "casePolicy": "OBSERVED_NAMED_CASES",
       "requiredCaseIds": [],
       "completionPattern": "^RESULT\\|\\d+ passed\\|scope=authorization-receipt-regression\\|group=ContinuationRepair$",
@@ -1739,7 +1765,9 @@
         "DeliveryAcceptance"
       ],
       "phase": "PREPACKAGE",
-      "requiredFor": [],
+      "requiredFor": [
+        "FULL"
+      ],
       "casePolicy": "OBSERVED_NAMED_CASES",
       "requiredCaseIds": [],
       "completionPattern": "^RESULT\\|\\d+ passed\\|scope=authorization-receipt-regression\\|group=DeliveryAcceptance$",
@@ -2467,7 +2495,9 @@
         "Publication"
       ],
       "phase": "PREPACKAGE",
-      "requiredFor": [],
+      "requiredFor": [
+        "FULL"
+      ],
       "casePolicy": "OBSERVED_NAMED_CASES",
       "requiredCaseIds": [
         "MEMBER-reaches-publication-eligibility-rejection",
@@ -2791,7 +2821,9 @@
       "entry": "framework/versions/2.0.0/tests/content-sources-local-tests.ps1",
       "arguments": [],
       "phase": "PREPACKAGE",
-      "requiredFor": [],
+      "requiredFor": [
+        "FULL"
+      ],
       "casePolicy": "OBSERVED_NAMED_CASES",
       "requiredCaseIds": [
         "owned-composition-retains-each-rule-complete-conditions-and-dependency-order",
@@ -3047,7 +3079,9 @@
       "entry": "framework/versions/2.0.0/tests/effective-rule-set-tests.ps1",
       "arguments": [],
       "phase": "PREPACKAGE",
-      "requiredFor": [],
+      "requiredFor": [
+        "FULL"
+      ],
       "casePolicy": "OBSERVED_NAMED_CASES",
       "requiredCaseIds": [
         "public-source-lifecycle-current-normative-unit-never-probes-unused-persistent-cache",
@@ -3261,7 +3295,9 @@
       "entry": "framework/versions/2.0.0/tests/facets-selection-tests.ps1",
       "arguments": [],
       "phase": "PREPACKAGE",
-      "requiredFor": [],
+      "requiredFor": [
+        "FULL"
+      ],
       "casePolicy": "OBSERVED_NAMED_CASES",
       "requiredCaseIds": [],
       "completionPattern": "^PASS\\|facets-selection\\|assertions=",
@@ -3698,7 +3734,9 @@
       "entry": "framework/versions/2.0.0/tests/process-runtime-v2-tests.ps1",
       "arguments": [],
       "phase": "PREPACKAGE",
-      "requiredFor": [],
+      "requiredFor": [
+        "FULL"
+      ],
       "casePolicy": "OBSERVED_NAMED_CASES",
       "requiredCaseIds": [
         "legacy-reuse-loads-complete-current-rules-and-obligations",
@@ -3811,7 +3849,9 @@
       "entry": "framework/versions/2.0.0/tests/result-acceptance-tests.ps1",
       "arguments": [],
       "phase": "PREPACKAGE",
-      "requiredFor": [],
+      "requiredFor": [
+        "FULL"
+      ],
       "casePolicy": "OBSERVED_NAMED_CASES",
       "requiredCaseIds": [],
       "completionPattern": "^RESULT\\|.*\\|scope=result-acceptance",
@@ -3913,7 +3953,9 @@
       "entry": "framework/versions/2.0.0/tests/rule-chain-tests.ps1",
       "arguments": [],
       "phase": "PREPACKAGE",
-      "requiredFor": [],
+      "requiredFor": [
+        "FULL"
+      ],
       "casePolicy": "OBSERVED_NAMED_CASES",
       "requiredCaseIds": [],
       "completionPattern": "^RULE_CHAIN_TESTS_PASS\\|checks=",
@@ -4015,7 +4057,9 @@
       "entry": "framework/versions/2.0.0/tests/rule-display-tests.ps1",
       "arguments": [],
       "phase": "PREPACKAGE",
-      "requiredFor": [],
+      "requiredFor": [
+        "FULL"
+      ],
       "casePolicy": "OBSERVED_NAMED_CASES",
       "requiredCaseIds": [
         "legacy-reuse-displays-all-current-bodies-order-and-obligations",
@@ -4122,7 +4166,9 @@
       "entry": "framework/versions/2.0.0/tests/source-postimage-transition-tests.ps1",
       "arguments": [],
       "phase": "PREPACKAGE",
-      "requiredFor": [],
+      "requiredFor": [
+        "FULL"
+      ],
       "casePolicy": "OBSERVED_NAMED_CASES",
       "requiredCaseIds": [],
       "completionPattern": "^RESULT\\|.*\\|scope=source-postimage-transition",
@@ -4224,7 +4270,9 @@
       "entry": "framework/versions/2.0.0/tests/source-snapshot-boundary-tests.ps1",
       "arguments": [],
       "phase": "PREPACKAGE",
-      "requiredFor": [],
+      "requiredFor": [
+        "FULL"
+      ],
       "casePolicy": "OBSERVED_NAMED_CASES",
       "requiredCaseIds": [
         "same-path-length-time-counterexample-reaches-original-boundary",
@@ -4331,7 +4379,9 @@
       "entry": "framework/versions/2.0.0/tests/workflow-delivery-tests.ps1",
       "arguments": [],
       "phase": "PREPACKAGE",
-      "requiredFor": [],
+      "requiredFor": [
+        "FULL"
+      ],
       "casePolicy": "OBSERVED_NAMED_CASES",
       "requiredCaseIds": [],
       "completionPattern": "^WORKFLOW_DELIVERY_TESTS_PASS\\|checks=",
@@ -4433,7 +4483,9 @@
       "entry": "framework/versions/2.0.0/tests/workflow-route-tests.ps1",
       "arguments": [],
       "phase": "PREPACKAGE",
-      "requiredFor": [],
+      "requiredFor": [
+        "FULL"
+      ],
       "casePolicy": "OBSERVED_NAMED_CASES",
       "requiredCaseIds": [],
       "completionPattern": "^RESULT\\|.*\\|scope=workflow-route",
@@ -4696,7 +4748,9 @@
         "Core"
       ],
       "phase": "PREPACKAGE",
-      "requiredFor": [],
+      "requiredFor": [
+        "FULL"
+      ],
       "casePolicy": "OBSERVED_NAMED_CASES",
       "requiredCaseIds": [
         "real-command-raw-inputs-named-cases-and-cleanup-complete",
@@ -5640,7 +5694,9 @@
         "Mechanism"
       ],
       "phase": "PREPACKAGE",
-      "requiredFor": [],
+      "requiredFor": [
+        "FULL"
+      ],
       "casePolicy": "OBSERVED_NAMED_CASES",
       "requiredCaseIds": [
         "schema2-current-reader-accepts-original-qualified-shape",

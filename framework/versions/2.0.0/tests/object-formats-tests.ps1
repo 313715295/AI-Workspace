@@ -46,6 +46,22 @@ try{
     $policyPath=Join-Path $temp 'legacy-policy.json';Store $policyPath $policy
     $convertedPolicy=Read-AiwCurrentObject PROCESS_POLICY $policyPath (Identity $policyPath) $ctx
     Check ($convertedPolicy.Value.schemaVersion-eq3-and$null-eq$convertedPolicy.Value.PSObject.Properties['selectedRulePackBytes']) 'policy-format-removes-quota-without-losing-rules'
+    # The format adapter must not invent a direct grant for old policy bytes.
+    Check ($null-eq$convertedPolicy.Value.PSObject.Properties['externalAuthorization']) 'legacy-policy-adaptation-keeps-per-action-default-without-invented-setting'
+    $externalPolicyPath=Join-Path $temp 'external-policy.json'
+    $externalPolicy=[pscustomobject]@{schemaVersion=3;contractVersion='2.0.0';projectId='fixture';rules=@();externalAuthorization=[pscustomobject]@{schemaVersion=1;mode='PER_ACTION'}}
+    Store $externalPolicyPath $externalPolicy;$beforeExternal=Identity $externalPolicyPath
+    $externalRead=Read-AiwCurrentObject PROCESS_POLICY $externalPolicyPath $beforeExternal $ctx
+    Check ($externalRead.Status-ceq'CURRENT'-and$externalRead.Segments.Count-eq0-and-not$externalRead.Persisted-and$externalRead.Value.externalAuthorization.mode-ceq'PER_ACTION'-and(Identity $externalPolicyPath)-ceq$beforeExternal) 'explicit-per-action-setting-keeps-original-current-format-bytes'
+    $externalPolicy.externalAuthorization=[pscustomobject]@{schemaVersion=1;mode='PROJECT_PREAUTHORIZED';grantRuleIds=@('LOCAL_TOOL_GRANT')}
+    Store $externalPolicyPath $externalPolicy;$externalRead=Read-AiwCurrentObject PROCESS_POLICY $externalPolicyPath (Identity $externalPolicyPath) $ctx
+    Check ($externalRead.Value.externalAuthorization.grantRuleIds.Count-eq1-and$externalRead.Segments.Count-eq0) 'format-preserves-project-preauthorization-reference-for-composer-semantic-validation'
+    foreach($case in @('UNKNOWN_MODE','EMPTY_GRANT','PER_ACTION_EXTRA_GRANT')){
+        $badExternal=Clone $externalPolicy
+        switch($case){UNKNOWN_MODE{$badExternal.externalAuthorization.mode='AUTOMATIC'};EMPTY_GRANT{$badExternal.externalAuthorization.grantRuleIds=@()};PER_ACTION_EXTRA_GRANT{$badExternal.externalAuthorization.mode='PER_ACTION'}}
+        Store $externalPolicyPath $badExternal
+        Reject {Read-AiwCurrentObject PROCESS_POLICY $externalPolicyPath (Identity $externalPolicyPath) $ctx} 'FORMAT_CURRENT_VALIDATION_FAILED|PROCESS_POLICY' ('external-policy-format-'+$case)
+    }
     $legacyRecord=[pscustomobject]@{correctionId='LEGACY';introducedAgainstFramework='1.16.0';requirementReason='Preserve the original decision.';effectiveRule='Keep the legacy statement.';applicability='Free prose about DOMAIN_OWNER and SOURCE_WRITE is not permission.';decisionLocator='fixture:original-user'}
     $corrections=[pscustomobject]@{schemaVersion=1;projectId='fixture';corrections=@($legacyRecord)};$correctionPath=Join-Path $temp 'legacy-corrections.json';Store $correctionPath $corrections
     $convertedCorrections=Read-AiwCurrentObject PROJECT_CORRECTIONS $correctionPath (Identity $correctionPath) $ctx

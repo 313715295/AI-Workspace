@@ -1,7 +1,11 @@
 # 授权模型
 
 <!-- AIW-REQUIREMENT:PR_ACTION_AUTHORIZATION_INDEPENDENT:BEGIN -->
-受治理动作须有当前、显式、限域的动作包；恢复、任务分配、Review及机械PASS不产生动作权限。安全范围内的只读工作无需implementation包。CONTROL_WRITE、SOURCE_WRITE、TEST_WRITE、TEST_RUN、BROWSER_RUN、DEVICE_RUN、REVIEW_ROUTE、REVIEW_EXECUTE、RESULT_ACCEPT、GIT_STAGE、GIT_COMMIT、PUSH和EXTERNAL分别满足自己的动作门；动作授权与过程准备分别成立；已证明等价的原checker可由ADMIT内的实际完整调用满足，精确条件如下。
+按次动作路径须有当前、显式、限域的动作包；恢复、任务分配、Review及机械PASS不产生动作权限。项目外部调用可明确选择下述预授权直接模式，其他动作门不受影响。安全范围内的只读工作无需implementation包。CONTROL_WRITE、SOURCE_WRITE、TEST_WRITE、TEST_RUN、BROWSER_RUN、DEVICE_RUN、REVIEW_ROUTE、REVIEW_EXECUTE、RESULT_ACCEPT、GIT_STAGE、GIT_COMMIT、PUSH和EXTERNAL分别满足自己的动作门；动作授权与过程准备分别成立；已证明等价的原checker可由ADMIT内的实际完整调用满足，精确条件如下。
+
+项目在process-policy.externalAuthorization中选择PER_ACTION（缺省）或PROJECT_PREAUTHORIZED。后者仅在当前项目许可完整覆盖实际工具/provider、操作、执行/委派主体、账号/数据、费用及恢复条件，且没有撤回、冲突或未知时，由实际执行者直接调用原工具。调用本身不要求逐次任务卡、EXTERNAL包、DISCOVER/ADMIT/FINALIZE；原工具返回与宿主观察保留真实成功、失败或UNKNOWN，随当前成果自然交付。它不免除首次/活动变化/恢复时的完整规则读取，也不产生可供其他动作续权的成功收据。当前项目设置和完整许可的读取接口取TOOL_CONTRACT，语义覆盖仍为INSTRUCTION_BOUND。
+
+直接模式不授予Git、设备、浏览器或源码/控制面写入，不绕过宿主权限和用户亲自保留事项。未设金额或次数不填FREE/0、不自动索取逐次批准；撤回、越界或必要事实未知停止本次调用。公开发布、秘密上传、账户/凭据变更等独立边界按当前实际权限处理，不能从一般许可或hash推断获准。明确使用按次包时仍走原checker及过程门，直接模式不能把缺包或坏包变成按次准入PASS。
 
 用户明确采用Framework开展项目工作时，沿已批准接入模板建立项目工作决定约定，无须逐步骤再次确认同一已批准工作；仅查看文件或未采纳建议不构成采用。约定来源是人类明确采用/确认的项目正文或直接决定：AI根据当前采用Framework、有效纠正及永久规则作出的具体决定，在该约定范围内执行。当前人类收窄、撤回和明确保留事项优先；恢复、压缩或更换执行者不自行撤销仍有效授权。授权原文由项目用户拥有，导航模板不独自授权，也不覆盖宿主更高优先级限制。
 
