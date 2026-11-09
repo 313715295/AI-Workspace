@@ -89,7 +89,9 @@ try {
         $facetVocabulary+=@($fragment.facetVocabulary)
         $ownerIds = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
         foreach ($rule in @($fragment.requirements)) {
-            Assert-ExactFields $rule @('requirementId','legacyAliases','title','description','selectors','exactBlockLocator','preparationRequirements','resultRequirements') 'REQUIREMENT_RULE'
+            $ruleFields=@('requirementId','legacyAliases','title','description','selectors','exactBlockLocator','preparationRequirements','resultRequirements')
+            if($null-ne$rule.PSObject.Properties['bodySelectors']){$ruleFields+='bodySelectors'}
+            Assert-ExactFields $rule $ruleFields 'REQUIREMENT_RULE'
             if ([string]$rule.requirementId -cnotmatch '^PR_[A-Z0-9_]+$' -or -not $ids.Add([string]$rule.requirementId)) { throw 'REQUIREMENT_ID' }
             foreach ($field in @('title','description','exactBlockLocator')) { if (-not ($rule.$field -is [string]) -or [string]::IsNullOrWhiteSpace([string]$rule.$field)) { throw ('REQUIREMENT_TEXT|' + $field) } }
             $locator = [string]$rule.exactBlockLocator
@@ -109,7 +111,7 @@ try {
             Assert-StringArray $rule.resultRequirements 'REQUIREMENT_RESULT'
             & $compositionModule { param($selectors) Assert-AiwSelectorContract $selectors 'REQUIREMENT_SELECTORS' } $rule.selectors
             if($null-eq$rule.selectors.PSObject.Properties['facets']){throw 'REQUIREMENT_FACETS_REQUIRED'}
-            $requirements += [ordered]@{
+            $projectedRule = [ordered]@{
                 requirementId = [string]$rule.requirementId
                 legacyAliases = @($rule.legacyAliases)
                 title = [string]$rule.title
@@ -120,6 +122,11 @@ try {
                 preparationRequirements = @($rule.preparationRequirements)
                 resultRequirements = @($rule.resultRequirements)
             }
+            if($null-ne$rule.PSObject.Properties['bodySelectors']){
+                & $compositionModule {param($body) Assert-AiwBodySelectorContract $body 'REQUIREMENT_BODY_SELECTORS'} $rule.bodySelectors
+                $projectedRule.bodySelectors=$rule.bodySelectors
+            }
+            $requirements += $projectedRule
         }
         $markerMatches = [regex]::Matches($ownerText, '<!-- AIW-REQUIREMENT:(?<id>PR_[A-Z0-9_]+):(?<edge>BEGIN|END) -->')
         $markerCounts = @{}
@@ -138,7 +145,10 @@ try {
     $requirementsById=@{};foreach($item in $requirements){$requirementsById[[string]$item.requirementId]=$item}
     $orderedRequirements=@();foreach($id in (Get-OrdinalSortedStrings @($requirementsById.Keys))){$orderedRequirements+=$requirementsById[$id]}
     $vocabulary=& $compositionModule {param($entries) Get-AiwFacetVocabulary -NativeVocabulary $entries} $facetVocabulary
-    foreach($rule in $orderedRequirements){& $compositionModule {param($facets,$vocabulary) Assert-AiwFacetSelector -Facets $facets -Vocabulary $vocabulary} $rule.selectors.facets $vocabulary}
+    foreach($rule in $orderedRequirements){
+        & $compositionModule {param($facets,$vocabulary) Assert-AiwFacetSelector -Facets $facets -Vocabulary $vocabulary} $rule.selectors.facets $vocabulary
+        if($rule.Contains('bodySelectors')){& $compositionModule {param($body,$vocabulary) Assert-AiwBodySelectorContract $body 'REQUIREMENT_BODY_SELECTORS' $vocabulary} $rule.bodySelectors $vocabulary}
+    }
     $vocabularyByKey=@{};foreach($entry in $facetVocabulary){$vocabularyByKey[$entry.dimension+'|'+$entry.id]=$entry}
     $orderedVocabulary=@();foreach($key in (Get-OrdinalSortedStrings @($vocabularyByKey.Keys))){$orderedVocabulary+=$vocabularyByKey[$key]}
     $projection = [ordered]@{schemaVersion=3;frameworkVersion='2.0.0';catalogVersion='4';facetVocabulary=@($orderedVocabulary);requirements=@($orderedRequirements)}

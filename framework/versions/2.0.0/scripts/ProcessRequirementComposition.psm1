@@ -700,7 +700,8 @@ function Get-AiwProcessBindingSnapshotCore {
         $correctionFile=Join-Path $ProjectRoot '.ai-workspace/corrections.json'
         $correctionIdentity=if([IO.File]::Exists($correctionFile)){Get-AiwFileIdentity $correctionFile}else{'MISSING'}
         $declaredIntent=if($SelectionContext.intentEnvelope.schemaVersion-eq2){$SelectionContext.intentEnvelope}else{$null}
-        $arguments=@{ProjectRoot=$ProjectRoot;FrameworkRoot=$FrameworkRoot;TargetVersion=$TargetVersion;ExpectedProjectConfigIdentity=$configuration;ExpectedCorrectionsIdentity=$correctionIdentity;Profile=$SelectionContext.profile;Role=$SelectionContext.role;Phase=$SelectionContext.phase;Actor=$SelectionContext.actor;TaskIdentity=$currentTask;Capabilities=@($SelectionContext.capabilities);Objective=(Get-AiwProcessSemanticText $SelectionContext.intentEnvelope);ActionKind=$SelectionContext.actionKind;ResultKind=$SelectionContext.resultKind;ExactPaths=@($SelectionContext.exactPaths);ForbiddenPaths=$ForbiddenPaths;IntentEnvelope=$declaredIntent;EvaluationOnly=[bool]$ProspectiveAdoptionProjection;BindingSnapshotOnly=$true;RuleObservation=$RuleObservation;ObservedWorkRoute=$currentWorkRoute;PreviousOperation=$PreviousOperation;IncludeOperationFacts=[bool]$IncludeOperationFacts}
+        $observedContext=if($TaskRelativePath-cne'NOT_APPLICABLE'){'TASK'}elseif($SelectionContext.actionKind-ceq'EXTERNAL'){'PROJECT_EXTERNAL'}else{'PROJECT_READ_ONLY'}
+        $arguments=@{ProjectRoot=$ProjectRoot;FrameworkRoot=$FrameworkRoot;TargetVersion=$TargetVersion;ExpectedProjectConfigIdentity=$configuration;ExpectedCorrectionsIdentity=$correctionIdentity;Profile=$SelectionContext.profile;Role=$SelectionContext.role;Phase=$SelectionContext.phase;Actor=$SelectionContext.actor;TaskIdentity=$currentTask;Capabilities=@($SelectionContext.capabilities);Objective=(Get-AiwProcessSemanticText $SelectionContext.intentEnvelope);ActionKind=$SelectionContext.actionKind;ResultKind=$SelectionContext.resultKind;ExactPaths=@($SelectionContext.exactPaths);ForbiddenPaths=$ForbiddenPaths;IntentEnvelope=$declaredIntent;EvaluationOnly=[bool]$ProspectiveAdoptionProjection;BindingSnapshotOnly=$true;RuleObservation=$RuleObservation;ObservedWorkRoute=$currentWorkRoute;ObservedContextType=$observedContext;PreviousOperation=$PreviousOperation;IncludeOperationFacts=[bool]$IncludeOperationFacts}
         try{return Invoke-AiwProcessCompositionCore @arguments}catch{
             if($RequireNoBody-or$null-eq$RuleObservation-or$_.Exception.Message-cnotlike'RULE_LOAD_REQUIRED*'){throw}
             # Original completion/adoption may require a newly observed full
@@ -829,11 +830,44 @@ function Assert-AiwSelectorContract {
     }
 }
 
+function ConvertTo-AiwBodySelector($Body){
+    [pscustomobject]@{profiles=@($Body.profiles);roles=@($Body.roles);phases=@('*');actionKinds=@('*');resultKinds=@('*');pathPrefixes=@();capabilities=@();semanticTerms=@();facets=$Body.facets;contextTypes=@($Body.contextTypes)}
+}
+function Assert-AiwBodySelectorContract($Body,[string]$Label,$Vocabulary=$null){
+    Assert-AiwExactFields $Body @('profiles','roles','contextTypes','facets') $Label
+    foreach($axis in @('profiles','roles','contextTypes')){
+        Assert-AiwStringArray $Body.$axis ($Label+'_'+$axis)
+        if(-not@($Body.$axis).Count-or('*'-cin@($Body.$axis)-and@($Body.$axis).Count-ne1)){throw ($Label+'_BOUNDARY')}
+    }
+    foreach($value in $Body.contextTypes){if($value-cnotin@('*','TASK','PROJECT_READ_ONLY','PROJECT_EXTERNAL')){throw ($Label+'_CONTEXT_TYPE')}}
+    if($Body.facets-isnot[pscustomobject]){throw ($Label+'_FACETS_TYPE')}
+    if(@($Body.facets.PSObject.Properties|Where-Object{$_.Name-cnotin@('domain','workType','stage')}).Count){throw ($Label+'_FACET_DIMENSION')}
+    $selector=ConvertTo-AiwBodySelector $Body
+    $selector.PSObject.Properties.Remove('contextTypes')
+    Assert-AiwSelectorContract $selector $Label
+    if($null-ne$Vocabulary){Assert-AiwFacetSelector -Facets $Body.facets -Vocabulary $Vocabulary}
+}
+function Get-AiwRuleSourceIdentity($Bindings,$Observation){
+    $source=[ordered]@{sourceValidationScope='SELECTED_RULE_CLOSURE_V1'}
+    foreach($key in @('frameworkVersionIdentity','releaseManifestIdentity','nativeCatalogIdentity','candidatePilotStateIdentity','projectConfigIdentity','correctionsIdentity','policyIdentity','bootstrapManagedIdentity','projectCustomIdentity','projectAgentsIdentity','projectStandardsIdentity','contentSnapshotIdentity','effectiveSetIdentity','implementationIdentity')){$source[$key]=$Bindings.$key}
+    if($null-ne$Observation){
+        $source.observedBodies=[ordered]@{selectionIdentity=$Observation.selectionIdentity;nativeFiles=@($Observation.nativeFiles);projectDocuments=@($Observation.projectDocuments)}
+        if($Observation.schemaVersion-eq2){$source.observedBodies.loadedRuleIds=@($Observation.loadedRuleIds)}
+    }
+    # Actor, current operation, task postimage and work route are separately
+    # checked authority facts, not identities of the complete loaded bodies.
+    return (Get-AiwContentDescriptorIdentity $source).Split('|')[1]
+}
 function Test-AiwRuleMatch {
-    param($Selectors,[string]$Profile,[string]$Role,[string]$Phase,[string]$ActionKind,[string]$ResultKind,[string[]]$Paths,[string[]]$Capabilities,[string]$Objective,[bool]$SemanticApplicabilityUnknown,$IntentFacets=$null)
+    param($Selectors,[string]$Profile,[string]$Role,[string]$Phase,[string]$ActionKind,[string]$ResultKind,[string[]]$Paths,[string[]]$Capabilities,[string]$Objective,[bool]$SemanticApplicabilityUnknown,$IntentFacets=$null,[string]$ContextType='UNKNOWN')
     foreach($axis in @('profiles','roles','phases','actionKinds','resultKinds')){
         $actual=switch($axis){profiles{$Profile};roles{$Role};phases{$Phase};actionKinds{$ActionKind};resultKinds{$ResultKind}}
         if(-not(Test-AiwSelectorValue @($Selectors.$axis) $actual)){return [pscustomobject]@{Match=$false;Decision='NO_MATCH';Semantic='STRUCTURAL_NO_MATCH';Reasons=@($axis)}}
+    }
+    $contextUnknown=$false
+    if($null-ne$Selectors.PSObject.Properties['contextTypes']){
+        if($ContextType-ceq'UNKNOWN'){$contextUnknown=$true}
+        elseif(-not(Test-AiwSelectorValue @($Selectors.contextTypes) $ContextType)){return [pscustomobject]@{Match=$false;Decision='NO_MATCH';Semantic='STRUCTURAL_NO_MATCH';Reasons=@('contextTypes')}}
     }
     foreach($required in @($Selectors.capabilities)){
         if([string]$required-cne'*'-and[string]$required-cnotin$Capabilities){return [pscustomobject]@{Match=$false;Decision='NO_MATCH';Semantic='STRUCTURAL_NO_MATCH';Reasons=@('capabilities')}}
@@ -846,7 +880,9 @@ function Test-AiwRuleMatch {
             # An unclassified private observation is not a new IntentEnvelope.
             $unknown=[ordered]@{};foreach($dimension in @('domain','workType','deliverableType','stage')){$unknown[$dimension]=[pscustomobject]@{state='UNKNOWN';values=@()}};$IntentFacets=[pscustomobject]$unknown
         }
-        return Test-AiwFacetSelector -SelectorFacets $Selectors.facets -IntentFacets $IntentFacets
+        $result=Test-AiwFacetSelector -SelectorFacets $Selectors.facets -IntentFacets $IntentFacets
+        if($result.Match-and$contextUnknown){return [pscustomobject]@{Match=$true;Decision='CONSERVATIVE';Semantic='BODY_CONTEXT_UNKNOWN';Reasons=@($result.Reasons)+@('contextTypes')}}
+        return $result
     }
     # Old textual applicability is retained as evidence, never promoted into a
     # new classification or current execution trigger. Structural limits remain.
@@ -1188,19 +1224,19 @@ function Get-AiwSelectedPublicationMaterial($ProjectRoot,$ConfigIdentity,$Rules,
 function Get-AiwSelectedObligations($Catalog,$Records,$LegacyEffective,$PolicyRules,$Custom,[string]$ProjectId,$Plan){
     foreach($rule in $Catalog.requirements){
         $id='framework:'+$rule.requirementId
-        if($Plan.matches[$id].Match){[pscustomobject]@{requirementId=$id;preparationRequirements=@($rule.preparationRequirements);resultRequirements=@($rule.resultRequirements)}}
+        if($Plan.operationMatches[$id].Match){[pscustomobject]@{requirementId=$id;preparationRequirements=@($rule.preparationRequirements);resultRequirements=@($rule.resultRequirements)}}
     }
     foreach($item in $LegacyEffective){
         $id=[string]$item.legacyRequirementId
         if($item.sourceSchemaVersion-eq1){[pscustomobject]@{requirementId=$id;preparationRequirements=@();resultRequirements=@()};continue}
-        if(-not$Plan.matches[$id].Match){continue}
+        if(-not$Plan.operationMatches[$id].Match){continue}
         $record=@($Records|Where-Object Alias -CEQ $id)[0].Record
         $prep=@($record.preparationRequirements)+@($record.requiredFacts)+@($record.mechanicalCheckRefs)
         [pscustomobject]@{requirementId=$id;preparationRequirements=@($prep|Sort-Object -Unique);resultRequirements=@($record.resultRequirements)}
     }
     foreach($rule in $PolicyRules){
         $id='project:'+$ProjectId+':'+$rule.ruleId
-        if($Plan.matches[$id].Match){[pscustomobject]@{requirementId=$id;preparationRequirements=@($rule.preparationRequirements);resultRequirements=@($rule.resultRequirements)}}
+        if($Plan.operationMatches[$id].Match){[pscustomobject]@{requirementId=$id;preparationRequirements=@($rule.preparationRequirements);resultRequirements=@($rule.resultRequirements)}}
     }
     if($Custom.HasNormativeContent){[pscustomobject]@{requirementId=('project-custom:'+$ProjectId);preparationRequirements=@();resultRequirements=@()}}
 }
@@ -1266,6 +1302,7 @@ function Invoke-AiwProcessCompositionCore {
         $RuleObservation=$null,
         $PublicationMaterial=$null,
         $ObservedWorkRoute=$null,
+        [ValidateSet('UNKNOWN','TASK','PROJECT_READ_ONLY','PROJECT_EXTERNAL')][string]$ObservedContextType='UNKNOWN',
         $PreviousOperation=$null,
         [switch]$IncludeOperationFacts
     )
@@ -1327,7 +1364,9 @@ try {
     $nativeById = @{}
     $nativeByAlias = @{}
     foreach ($requirement in @($catalog.requirements)) {
-        Assert-AiwExactFields $requirement @('requirementId','legacyAliases','title','description','ownerModule','selectors','exactBlockLocator','preparationRequirements','resultRequirements') 'NATIVE_REQUIREMENT'
+        $requirementFields=@('requirementId','legacyAliases','title','description','ownerModule','selectors','exactBlockLocator','preparationRequirements','resultRequirements')
+        if($null-ne$requirement.PSObject.Properties['bodySelectors']){$requirementFields+='bodySelectors';Assert-AiwBodySelectorContract $requirement.bodySelectors 'NATIVE_BODY_SELECTORS' $nativeVocabulary}
+        Assert-AiwExactFields $requirement $requirementFields 'NATIVE_REQUIREMENT'
         $nativeId='framework:'+[string]$requirement.requirementId
         if ([string]$requirement.requirementId -cnotmatch '^PR_[A-Z0-9_]+$' -or $nativeById.ContainsKey($nativeId)) { throw 'NATIVE_REQUIREMENT_ID' }
         Assert-AiwStringArray $requirement.legacyAliases 'NATIVE_REQUIREMENT_ALIASES'
@@ -1431,7 +1470,9 @@ try {
     foreach ($rule in $policyRules) {
         $bodyFields=@($rule.PSObject.Properties.Name|Where-Object{$_-in@('effectiveRule','source')})
         if($bodyFields.Count-ne1){throw 'PROCESS_POLICY_RULE_BODY'}
-        $ruleFields=@('ruleId','requirementReason','selectors','preparationRequirements','resultRequirements','decisionLocator',$bodyFields[0]);if($null-ne$rule.PSObject.Properties['qualityStages']){$ruleFields+='qualityStages'};Assert-AiwExactFields $rule $ruleFields 'PROCESS_POLICY_RULE'
+        $ruleFields=@('ruleId','requirementReason','selectors','preparationRequirements','resultRequirements','decisionLocator',$bodyFields[0]);if($null-ne$rule.PSObject.Properties['qualityStages']){$ruleFields+='qualityStages'}
+        if($null-ne$rule.PSObject.Properties['bodySelectors']){$ruleFields+='bodySelectors';Assert-AiwBodySelectorContract $rule.bodySelectors 'PROCESS_POLICY_BODY_SELECTORS' $vocabulary}
+        Assert-AiwExactFields $rule $ruleFields 'PROCESS_POLICY_RULE'
         if ([string]$rule.ruleId -cnotmatch '^[A-Z][A-Z0-9_]*$'-or-not$declaredPolicyIds.Add([string]$rule.ruleId)) { throw 'PROCESS_POLICY_RULE_ID' }
         Assert-AiwSelectorContract $rule.selectors 'PROCESS_POLICY_SELECTORS'
         if($null-ne$rule.selectors.PSObject.Properties['facets']){Assert-AiwFacetSelector -Facets $rule.selectors.facets -Vocabulary $vocabulary}
@@ -1442,14 +1483,16 @@ try {
     }
     $readTrace.Add([pscustomobject]@{sequence=$readTrace.Count;event='GLOBAL_DECLARATIONS_VALIDATED';authority=$false})
     $readTrace.Add([pscustomobject]@{sequence=$readTrace.Count;event='SELECTION_STARTED';authority=$false})
-    $selectionPlan=Get-AiwRuleSelectionPlan $catalog $records $policyRules $custom $projectId $Profile $Role $Phase $ActionKind $ResultKind $ExactPaths $Capabilities $Objective ([bool]$SemanticApplicabilityUnknown) $intentFacets
+    $selectionPlan=Get-AiwRuleSelectionPlan $catalog $records $policyRules $custom $projectId $Profile $Role $Phase $ActionKind $ResultKind $ExactPaths $Capabilities $Objective ([bool]$SemanticApplicabilityUnknown) $intentFacets $ObservedContextType
     $currentObligations=@(Get-AiwSelectedObligations $catalog $records $legacyEffective $policyRules $custom $projectId $selectionPlan)
     $obligationsById=@{};foreach($row in $currentObligations){$obligationsById[$row.requirementId]=$row}
+    foreach($id in $selectionPlan.ruleIds){if(-not$obligationsById.ContainsKey($id)){$obligationsById[$id]=[pscustomobject]@{preparationRequirements=@();resultRequirements=@()}}}
     $implementationIdentity=Get-AiwProcessImplementationIdentity -FrameworkRoot $framework -TargetVersion $TargetVersion -PackageObservation $runtimePackageObservation
     $agentsIdentity=Get-AiwProjectAgentsIdentity $project $ForbiddenPaths
     $declarationBindings=[ordered]@{projectConfigIdentity=$configDoc.Identity;controllerIdentity=$controllerIdentity;correctionsIdentity=$correctionsIdentity;policyIdentity=$policyIdentity;bootstrapManagedIdentity=$custom.ManagedIdentity;projectCustomIdentity=$custom.Identity;projectAgentsIdentity=$agentsIdentity;taskIdentity=$TaskIdentity;frameworkVersionIdentity=$versionDoc.Identity;releaseManifestIdentity=$releaseManifestIdentity;candidatePilotStateIdentity=$candidatePilotStateIdentity;nativeCatalogIdentity=$catalogDoc.Identity;implementationIdentity=$implementationIdentity}
     $ruleSelectionIdentity=Get-AiwContentDescriptorIdentity @($selectionPlan.ruleIds)
     if($BindingSnapshotOnly-and$null-ne$RuleObservation){
+        if($ObservedContextType-ceq'UNKNOWN'){throw 'RULE_LOAD_REQUIRED|BODY_CONTEXT_UNKNOWN'}
         $observationFields=@('schemaVersion','selectionIdentity','bindings','nativeFiles','projectDocuments')
         $loadedIds=@($selectionPlan.ruleIds);$loadedPolicy=$selectionPlan.policyRules
         if($RuleObservation.schemaVersion-eq2){
@@ -1460,18 +1503,8 @@ try {
             $loadedIds=@($RuleObservation.loadedRuleIds)
             $declaredIds=@($catalog.requirements|ForEach-Object{'framework:'+$_.requirementId})+@($legacyEffective|ForEach-Object legacyRequirementId)+@($policyRules|ForEach-Object{'project:'+$projectId+':'+$_.ruleId})
             if($custom.HasNormativeContent){$declaredIds+='project-custom:'+$projectId}
-            if(@($loadedIds|Where-Object{$_-cnotin$declaredIds}).Count-or@($currentObligations.requirementId|Where-Object{$_-cnotin$loadedIds}).Count){throw 'RULE_LOAD_REQUIRED|SELECTION_CHANGED'}
+            if(@($loadedIds|Where-Object{$_-cnotin$declaredIds}).Count-or@($selectionPlan.ruleIds|Where-Object{$_-cnotin$loadedIds}).Count){throw 'RULE_LOAD_REQUIRED|SELECTION_CHANGED'}
             $loadedPolicy=@($policyRules|Where-Object{('project:'+$projectId+':'+$_.ruleId)-cin$loadedIds})
-            if($null-ne$PreviousOperation){
-                $previousIds=@($PreviousOperation.selectedObligations.requirementId)
-                if(@($currentObligations.requirementId|Where-Object{$_-cnotin$previousIds}).Count){throw 'RULE_LOAD_REQUIRED|NEW_REQUIREMENT'}
-                # Reuse the selector with today's non-operation facts and the
-                # previous operation. A path/facet change cannot retire a rule.
-                $previousPlan=Get-AiwRuleSelectionPlan $catalog $records $policyRules $custom $projectId $Profile $PreviousOperation.role $PreviousOperation.phase $PreviousOperation.actionKind $PreviousOperation.resultKind $ExactPaths $Capabilities $Objective ([bool]$SemanticApplicabilityUnknown) $intentFacets
-                foreach($id in @($previousIds|Where-Object{$_-cnotin$currentObligations.requirementId})){
-                    if(-not$previousPlan.matches.ContainsKey($id)-or-not$previousPlan.matches[$id].Match){throw 'RULE_LOAD_REQUIRED|NON_OPERATION_RETIREMENT'}
-                }
-            }
         }elseif($RuleObservation.schemaVersion-ne1-or$RuleObservation.selectionIdentity-cne$ruleSelectionIdentity){throw 'RULE_LOAD_REQUIRED|SELECTION_CHANGED'}
         Assert-AiwExactFields $RuleObservation $observationFields 'RULE_SOURCE_OBSERVATION' 
         foreach($name in $declarationBindings.Keys){
@@ -1561,28 +1594,10 @@ try {
     }
     if ($legacyConflicts.Count -gt 0) { throw 'PROJECT_CORRECTION_CONFLICT' }
 
-    $sourceMaterial = @(
-        "sourceScope=SELECTED_RULE_CLOSURE_V1",
-        "framework=$TargetVersion",
-        "composer=$ComposerVersion",
-        "version=$($versionDoc.Identity)",
-        "manifest=$releaseManifestIdentity",
-        "candidatePilot=$candidatePilotStateIdentity",
-        "catalog=$($catalogDoc.Identity)",
-        "project=$($configDoc.Identity)",
-        "controller=$controllerIdentity",
-        "corrections=$correctionsIdentity",
-        "policy=$policyIdentity",
-        "projectStandards=$($projectStandards.Identity)",
-        "effectiveSet=$($effectiveSet.identity)",
-        "implementation=$implementationIdentity",
-        "custom=$($custom.Identity)",
-        "agents=$agentsIdentity",
-        "task=$TaskIdentity",
-        "actor=$Actor", "role=$Role", "phase=$Phase", "profile=$Profile",
-        "capabilities=$([string]::Join(',',@($Capabilities|Sort-Object)))"
-    ) -join "`n"
-    $sourceKey=Get-AiwSha256Hex $script:Utf8Strict.GetBytes($sourceMaterial)
+    foreach($row in @($selected)){
+        $declaration=if($row.source-ceq'FRAMEWORK'){$nativeById[[string]$row.requirementId]}elseif($row.source-ceq'PROJECT_POLICY'){@($policyRules|Where-Object{('project:'+$projectId+':'+[string]$_.ruleId)-ceq[string]$row.requirementId})[0]}elseif($row.source-ceq'PROJECT_CORRECTION'-and$row.ownerModule-ceq'PROJECT_CORRECTIONS_V2'){@($records|Where-Object{[string]$_.Alias-ceq[string]$row.requirementId})[0].Record}else{[ordered]@{requirementId=$row.requirementId;preparationRequirements=@($row.preparationRequirements);resultRequirements=@($row.resultRequirements)}}
+        $row|Add-Member declarationIdentity (Get-AiwContentDescriptorIdentity $declaration)
+    }
     $evidenceCeilings=@('SOURCE_VALIDATION_SELECTED_CLOSURE_V1')
     if($null-ne$runtimePackageObservation){$evidenceCeilings+='FIXED_ADOPTED_CONSUMED_MEMBERS'}
     if($candidatePilotStateIdentity-cne'MISSING'){$evidenceCeilings+='LOCAL_CANDIDATE_PILOT'}
@@ -1601,6 +1616,8 @@ try {
         $sourceObservation|Add-Member loadedRuleIds @($selected.requirementId)
         $sourceObservation|Add-Member workRoute (Copy-AiwFormatValue $ObservedWorkRoute)
     }
+    $sourceKey=Get-AiwRuleSourceIdentity $bindingFacts $sourceObservation
+    if($ObservedContextType-ceq'UNKNOWN'){$evidenceCeilings+='BODY_CONTEXT_UNKNOWN'}
     return [pscustomobject]@{
         status=$(if($candidateEvaluation){'EVALUATION_ONLY'}else{'PASS'}); projectId=$projectId; targetVersion=$TargetVersion; sourceCompositionIdentity=$sourceKey
         projectConfigIdentity=$configDoc.Identity; controllerIdentity=$controllerIdentity; correctionsIdentity=$correctionsIdentity; policyIdentity=$policyIdentity; bootstrapManagedIdentity=$custom.ManagedIdentity;projectCustomIdentity=$custom.Identity;projectAgentsIdentity=$agentsIdentity; projectStandardsIdentity=$projectStandards.Identity
@@ -1611,13 +1628,13 @@ try {
             configured=$externalAuthorization.configured;mode=$externalAuthorization.mode
             policyIdentity=$policyIdentity
             grantRuleIds=@($externalAuthorization.grantRuleIds)
-            selectedGrantRuleIds=@($externalAuthorization.grantRuleIds|Where-Object{('project:'+$projectId+':'+$_)-cin@($selected.requirementId)})
+            selectedGrantRuleIds=@($externalAuthorization.grantRuleIds|Where-Object{('project:'+$projectId+':'+$_)-cin@($currentObligations.requirementId)})
             evidenceCeiling='INSTRUCTION_BOUND';perCallAuthorityGranted=$false
         }
         facetVocabularyIdentity=$vocabulary.identity;intentFacets=$intentFacets;intentOrigin=$intentOrigin;selectionTrace=$selectionTrace;legacySelectorDifferences=$legacySelectorDifferences;readTrace=$readTrace.ToArray()
         candidatePilotStateIdentity=$candidatePilotStateIdentity
         stillEffective=@($legacyEffective); conflicts=@($legacyConflicts); inactive=@($inactiveCorrections)
-        selectedRequirements=@($selected); selectedRulePackBytes=$selectedRulePackBytes; absoluteSelectedRulePackBytes=$script:AbsoluteSelectedRulePackBytes; evidenceCeilings=@($evidenceCeilings)
+        selectedRequirements=@($selected);selectedObligations=@($currentObligations); selectedRulePackBytes=$selectedRulePackBytes; absoluteSelectedRulePackBytes=$script:AbsoluteSelectedRulePackBytes; evidenceCeilings=@($evidenceCeilings)
         sourceBuildCount=1; legacyCorrectionsFullReadCount=$(if(@($legacyEffective|Where-Object{[int]$_.sourceSchemaVersion-eq1}).Count-gt0){1}else{0}); legacyProjectCustomFullReadCount=$(if($custom.HasNormativeContent){1}else{0})
     }
 
@@ -1869,13 +1886,17 @@ function Get-AiwSourceChangeRootTools([string]$FrameworkRoot) {
 }
 Export-ModuleMember -Function Get-AiwSourceChangeRootTools
 
-function Get-AiwSourceChangeSelectionIdentity([object[]]$Requirements) {
+function Get-AiwSourceChangeSelectionIdentity([object[]]$Requirements,[AllowEmptyCollection()][object[]]$Obligations=$null) {
     # Display locators for projected carrier bytes are temporary evidence
     # locations. Source snapshots already bind physical sources; the selection
     # binds complete bodies and obligations independently of those locations.
     $material=@(foreach($rule in $Requirements){
         [ordered]@{requirementId=$rule.requirementId;source=$rule.source;ownerModule=$rule.ownerModule;semanticApplicability=$rule.semanticApplicability;fullText=$rule.fullText;preparationRequirements=@($rule.preparationRequirements);resultRequirements=@($rule.resultRequirements)}
     })
+    if($null-ne$Obligations){
+        $bodies=@(foreach($rule in $Requirements){[ordered]@{requirementId=$rule.requirementId;source=$rule.source;ownerModule=$rule.ownerModule;declarationIdentity=$rule.declarationIdentity;fullText=$rule.fullText}})
+        return Get-AiwContentDescriptorIdentity ([ordered]@{bodies=$bodies;selectedObligations=@($Obligations)})
+    }
     return Get-AiwContentDescriptorIdentity $material
 }
 Export-ModuleMember -Function Get-AiwSourceChangeSelectionIdentity
@@ -1931,7 +1952,7 @@ function Get-AiwSourceChangeTarget($Receipt,$ConfigDocument,$PolicyDocument,[obj
         $previousContext=if($null-ne$targetScope){$targetScope.context}else{$null}
         if($null-ne$targetScope){$targetScope.context=$context}
         try{
-        $composition=Invoke-ProcessRequirementComposition -ProjectRoot $project -FrameworkRoot $Receipt.sourceLocators.frameworkRoot -TargetVersion '2.0.0' -ExpectedProjectConfigIdentity $ConfigDocument.Identity -ExpectedCorrectionsIdentity $Receipt.sourceBindings.correctionsIdentity -Profile $binding.profile -Role $binding.role -Phase $binding.phase -Actor $binding.actor -TaskIdentity $binding.taskIdentity -UseDeclaredCapabilities -IntentEnvelope $Receipt.intentEnvelope -Objective (Get-AiwProcessSemanticText $Receipt.intentEnvelope) -ActionKind $Receipt.intentEnvelope.requestedActionKind -ResultKind $Receipt.intentEnvelope.requestedResultKind -ExactPaths @($binding.exactScope) -ForbiddenPaths @($binding.forbiddenScope) -EvaluationOnly -ContentContext $context -ValidateCompleteAdoptedSet
+        $composition=Invoke-AiwProcessCompositionCore -ProjectRoot $project -FrameworkRoot $Receipt.sourceLocators.frameworkRoot -TargetVersion '2.0.0' -ExpectedProjectConfigIdentity $ConfigDocument.Identity -ExpectedCorrectionsIdentity $Receipt.sourceBindings.correctionsIdentity -Profile $binding.profile -Role $binding.role -Phase $binding.phase -Actor $binding.actor -TaskIdentity $binding.taskIdentity -UseDeclaredCapabilities -IntentEnvelope $Receipt.intentEnvelope -Objective (Get-AiwProcessSemanticText $Receipt.intentEnvelope) -ActionKind $Receipt.intentEnvelope.requestedActionKind -ResultKind $Receipt.intentEnvelope.requestedResultKind -ExactPaths @($binding.exactScope) -ForbiddenPaths @($binding.forbiddenScope) -EvaluationOnly -ContentContext $context -ValidateCompleteAdoptedSet -ObservedContextType TASK
         }finally{if($null-ne$targetScope){$targetScope.context=$previousContext}}
         if('PROJECT_STANDARD_SOURCE_DRIFT_CONSERVATIVE_LOAD'-cin@($composition.evidenceCeilings)){throw 'SOURCE_CHANGE_TARGET_SOURCE_DRIFT'}
         # Knowledge remains reference-only: validate descriptors/permissions;
@@ -1955,7 +1976,7 @@ function Get-AiwSourceChangeTarget($Receipt,$ConfigDocument,$PolicyDocument,[obj
             }
         }
         foreach($rule in $composition.selectedRequirements){foreach($part in $rule.displayParts){if($part.sourceLocator-ceq$files[1]){$part.sourceLocator=$PolicyDocument.Path}}}
-        $target=[pscustomobject]@{projectConfigIdentity=$ConfigDocument.Identity;policyIdentity=$PolicyDocument.Identity;projectStandardsIdentity=$composition.projectStandardsIdentity;contentSnapshotIdentity=$composition.contentSnapshotIdentity;effectiveSetIdentity=$composition.effectiveSetIdentity;selectedRulesIdentity=(Get-AiwSourceChangeSelectionIdentity @($composition.selectedRequirements))}
+        $target=[pscustomobject]@{projectConfigIdentity=$ConfigDocument.Identity;policyIdentity=$PolicyDocument.Identity;projectStandardsIdentity=$composition.projectStandardsIdentity;contentSnapshotIdentity=$composition.contentSnapshotIdentity;effectiveSetIdentity=$composition.effectiveSetIdentity;selectedRulesIdentity=(Get-AiwSourceChangeSelectionIdentity @($composition.selectedRequirements) @($composition.selectedObligations))}
         return [pscustomobject]@{binding=$target;composition=$composition}
     }catch{$projectionFailure=$_;throw}finally{
       try{
@@ -2130,7 +2151,7 @@ try {
     $token='PROJECT_SOURCE_CHANGE|'+$candidatePath+'|'+(Get-AiwFileIdentity $candidatePath)
     $boundary=[pscustomobject]@{discoverReceiptPath=$DiscoverReceiptPath;expectedDiscoverReceiptIdentity=$receiptDocument.Identity;preparationReceipts=@($token)}
     $null=Get-AiwProjectSourceChange -Receipt $receipt -Boundary $boundary -Stage ADMIT
-    return [pscustomobject]@{candidate=[pscustomobject]@{path=$candidatePath;identity=(Get-AiwFileIdentity $candidatePath)};preparationReceipt=$token;permissionChanges=$changes;selectedRuleBlocks=@($target.composition.selectedRequirements);preparationRequirements=@($target.composition.selectedRequirements.preparationRequirements|Sort-Object -Unique);resultRequirements=@($target.composition.selectedRequirements.resultRequirements|Sort-Object -Unique);authorityGranted=$false;projectWritePerformed=$false}
+    return [pscustomobject]@{candidate=[pscustomobject]@{path=$candidatePath;identity=(Get-AiwFileIdentity $candidatePath)};preparationReceipt=$token;permissionChanges=$changes;selectedRuleBlocks=@($target.composition.selectedRequirements);selectedObligations=@($target.composition.selectedObligations);preparationRequirements=@($target.composition.selectedObligations.preparationRequirements|Sort-Object -Unique);resultRequirements=@($target.composition.selectedObligations.resultRequirements|Sort-Object -Unique);authorityGranted=$false;projectWritePerformed=$false}
 
 } finally { Exit-AiwProjectSourceScope $aiwPublicationScopeLease }
 }
@@ -2178,7 +2199,7 @@ function New-AiwProjectSourcePublicationPreparation {
             $boundary=[pscustomobject]@{discoverReceiptPath=$facts.$member.receiptRef.path;expectedDiscoverReceiptIdentity=$facts.$member.receiptRef.identity;preparationReceipts=@($token)}
             $null=Get-AiwPublicationCandidateCore $facts.$member.receipt $boundary $reference ADMIT -VerifiedFacts $facts -VerifiedTargets $targets
         }
-        return [pscustomobject]@{candidate=$reference;preparationReceipt=$token;permissionChanges=$plan.permissionChanges;members=@(foreach($member in @('SOURCE','CONTROL')){[pscustomobject]@{member=$member;selectedRuleBlocks=@($targets[$member].composition.selectedRequirements);preparationRequirements=@($targets[$member].composition.selectedRequirements.preparationRequirements|Sort-Object -Unique);resultRequirements=@($targets[$member].composition.selectedRequirements.resultRequirements|Sort-Object -Unique)}});authorityGranted=$false;projectWritePerformed=$false}
+        return [pscustomobject]@{candidate=$reference;preparationReceipt=$token;permissionChanges=$plan.permissionChanges;members=@(foreach($member in @('SOURCE','CONTROL')){[pscustomobject]@{member=$member;selectedRuleBlocks=@($targets[$member].composition.selectedRequirements);selectedObligations=@($targets[$member].composition.selectedObligations);preparationRequirements=@($targets[$member].composition.selectedObligations.preparationRequirements|Sort-Object -Unique);resultRequirements=@($targets[$member].composition.selectedObligations.resultRequirements|Sort-Object -Unique)}});authorityGranted=$false;projectWritePerformed=$false}
     }finally{Exit-AiwProjectSourceScope $aiwPublicationScopeLease}
 }
 function Get-AiwProjectSourcePublicationCandidate {
@@ -2236,8 +2257,9 @@ Export-ModuleMember -Function Get-AiwProjectSourcePermissionChanges,Get-AiwProje
 
 # Selection consumes current declarations and facts once. Dependency nodes
 # belong to the selected descriptor graph and are never selected a second time.
-function Get-AiwRuleSelectionPlan($Catalog,$Records,$PolicyRules,$Custom,[string]$ProjectId,[string]$Profile,[string]$Role,[string]$Phase,[string]$ActionKind,[string]$ResultKind,[string[]]$Paths,[string[]]$Capabilities,[string]$Objective,[bool]$Unknown,$Facets){
+function Get-AiwRuleSelectionPlan($Catalog,$Records,$PolicyRules,$Custom,[string]$ProjectId,[string]$Profile,[string]$Role,[string]$Phase,[string]$ActionKind,[string]$ResultKind,[string[]]$Paths,[string[]]$Capabilities,[string]$Objective,[bool]$Unknown,$Facets,[string]$ContextType='UNKNOWN'){
     $matches=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal)
+    $operationMatches=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal)
     $ids=[Collections.Generic.List[string]]::new();$trace=[Collections.Generic.List[object]]::new()
     $policy=[Collections.Generic.List[object]]::new();$corrections=[Collections.Generic.List[object]]::new()
     $requests=@()
@@ -2249,7 +2271,13 @@ function Get-AiwRuleSelectionPlan($Catalog,$Records,$PolicyRules,$Custom,[string
     }
     foreach($rule in $PolicyRules){$requests+=,[pscustomobject]@{id=('project:'+$ProjectId+':'+$rule.ruleId);selectors=$rule.selectors;record=$rule;source='POLICY'}}
     foreach($request in $requests){
-        $match=Test-AiwRuleMatch $request.selectors $Profile $Role $Phase $ActionKind $ResultKind $Paths $Capabilities $Objective $Unknown $Facets
+        $operation=Test-AiwRuleMatch $request.selectors $Profile $Role $Phase $ActionKind $ResultKind $Paths $Capabilities $Objective $Unknown $Facets $ContextType
+        $operationMatches.Add($request.id,$operation)
+        $match=$operation
+        if(-not$operation.Match-and$request.source-cne'CORRECTION'-and$null-ne$request.record.PSObject.Properties['bodySelectors']){
+            $bodySelector=ConvertTo-AiwBodySelector $request.record.bodySelectors
+            $match=Test-AiwRuleMatch $bodySelector $Profile $Role $Phase $ActionKind $ResultKind $Paths $Capabilities $Objective $Unknown $Facets $ContextType
+        }
         $matches.Add($request.id,$match)
         $trace.Add([ordered]@{requirementId=$request.id;decision=$match.Decision;reason=$match.Semantic;dimensions=$match.Reasons})
         if(-not$match.Match){continue}
@@ -2258,7 +2286,7 @@ function Get-AiwRuleSelectionPlan($Catalog,$Records,$PolicyRules,$Custom,[string
         elseif($request.source-ceq'CORRECTION'){$corrections.Add($request.record)}
     }
     if($Custom.HasNormativeContent){$ids.Add('project-custom:'+$ProjectId)}
-    return [pscustomobject]@{matches=$matches;ruleIds=$ids.ToArray();policyRules=$policy.ToArray();corrections=$corrections.ToArray();trace=$trace.ToArray()}
+    return [pscustomobject]@{matches=$matches;operationMatches=$operationMatches;ruleIds=$ids.ToArray();policyRules=$policy.ToArray();corrections=$corrections.ToArray();trace=$trace.ToArray()}
 }
 function Get-AiwStandardsSubsetSnapshot($Complete,[object[]]$Rules){
     $resolved=@{};$rows=[Collections.Generic.List[string]]::new()

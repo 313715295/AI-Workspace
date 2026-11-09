@@ -136,7 +136,19 @@
       ],
       "resultRequirements": [
         "DELIVERY_RECEIPT"
-      ]
+      ],
+      "bodySelectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "contextTypes": [
+          "TASK"
+        ],
+        "facets": {}
+      }
     },
     {
       "requirementId": "PR_CODEX_TOOL_OPERATION_RESOLUTION",

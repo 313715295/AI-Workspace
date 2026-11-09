@@ -7,6 +7,7 @@ param(
     [switch]$CoreOnly,
     [switch]$FixedRuntimeOnly,
     [switch]$SourceContractOnly,
+    [switch]$SourceMaterialOnly,
     [string]$SeedTargetRoot,
     [string]$HistorySeedRoot,
     [switch]$RecoveryDirectionOnly,
@@ -33,6 +34,7 @@ if($CorrectionAdoption-and($Layout-cne'ORDINARY'-or-not$FixedRuntimeOnly-or$Hist
 if($ModuleBindingOnly-and($LegacyFrameworkVersion-cne'2.0.0'-or-not$TargetRuntimeRoot-or$HistorySeedRoot-or$SeedTargetRoot-or$CorrectionAdoption-or$NonOwner-or$BaselineTransactionModule)){throw 'MODULE_BINDING_FIXTURE_ARGUMENTS'}
 if($TargetRuntimeRoot-and-not$ModuleBindingOnly){throw 'MODULE_BINDING_TARGET_REQUIRES_SELECTOR'}
 if($RetainedModuleBindingEvidence-and-not$ModuleBindingOnly){throw 'RETAINED_BINDING_REQUIRES_SELECTOR'}
+if($SourceMaterialOnly-and($LegacyFrameworkVersion-cne'2.0.0'-or$ModuleBindingOnly-or$FixedRuntimeOnly-or$CoreOnly-or$SourceContractOnly-or$TargetRuntimeRoot-or$RetainedModuleBindingEvidence-or$SeedTargetRoot-or$HistorySeedRoot-or$RecoveryDirectionOnly-or$CorrectionLifecycleOnly-or$CorrectionAdoption-or$ProviderSnapshotOnly-or$NonOwner-or$BaselineTransactionModule-or$B1Daily-or$SourceLocation-cne'RELATIVE')){throw 'SOURCE_MATERIAL_FIXTURE_ARGUMENTS'}
 $sourceRoot=Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $pwsh=(Get-Command pwsh -CommandType Application).Source
 $utf8=[Text.UTF8Encoding]::new($false);$passed=0
@@ -87,9 +89,9 @@ function Seed-AdoptionCorrections([string]$Project,[string]$Runtime,[string]$Ver
     return [pscustomobject]@{path=$planPath;identity=(Id $planPath);scope=@(Get-AiwCorrectionAdoptionScope $Project $group @('private'));prior=@($carrier.corrections);binary=$newBinary.afterBase64}
 }
 function InvokeTool([string]$Tool,[hashtable]$Parameters,[string]$WorkingDirectory=$sourceRoot){
-    $call=Join-Path $temp ('call-'+[guid]::NewGuid().ToString('N')+'.json');SaveJson $call @{tool=$Tool;parameters=$Parameters;workingDirectory=$WorkingDirectory}
+    $call=Join-Path $temp ('call-'+[guid]::NewGuid().ToString('N')+'.json');SaveJson $call @{tool=$Tool;parameters=$Parameters;workingDirectory=$WorkingDirectory;nativeOutputModule=(Join-Path $sourceRoot 'framework/versions/2.0.0/tests/TestNativeOutput.psm1')}
     $stdout='';$stderr=''
-    if($ModuleBindingOnly){
+    if($ModuleBindingOnly-or$SourceMaterialOnly){
         $native=Invoke-AiwTestProcess -Executable $pwsh -Arguments @('-NoProfile','-NonInteractive','-File',$runner,'-InputPath',$call) -WorkingDirectory $WorkingDirectory -EvidenceDirectory (Join-Path $temp 'native') -GroupId 'adoption-module-binding'
         $stdout=$native.StdoutText;$stderr=$native.StderrText;$code=$native.Code;$output=@($native.Output)
     }elseif($ProviderSnapshotOnly){
@@ -104,14 +106,14 @@ function InvokeTool([string]$Tool,[hashtable]$Parameters,[string]$WorkingDirecto
         $code=$LASTEXITCODE
     }
     $value=$null
-    if($ProviderSnapshotOnly-or$code-eq0){try{$value=$(if($ProviderSnapshotOnly-or$ModuleBindingOnly){$stdout}else{$output-join"`n"})|ConvertFrom-Json -Depth 100;if(@($value).Count-eq1-and@($value)[0]-is[string]-and@($value)[0].StartsWith('{')){$value=@($value)[0]|ConvertFrom-Json -Depth 100}}catch{if($code-eq0){throw}}}
+    if($ProviderSnapshotOnly-or$code-eq0){try{$value=$(if($ProviderSnapshotOnly-or$ModuleBindingOnly-or$SourceMaterialOnly){$stdout}else{$output-join"`n"})|ConvertFrom-Json -Depth 100;if(@($value).Count-eq1-and@($value)[0]-is[string]-and@($value)[0].StartsWith('{')){$value=@($value)[0]|ConvertFrom-Json -Depth 100}}catch{if($code-eq0){throw}}}
     $result=[pscustomobject]@{code=$code;value=$value;text=($output-join"`n")}
     # Retain every real invocation, including the failure that ends a long case.
     if($true){
         $resultPath=[IO.Path]::ChangeExtension($call,'.result.json')
         SaveJson $resultPath ([ordered]@{invocation=$call;tool=$Tool;parameters=$Parameters;workingDirectory=$WorkingDirectory;exitCode=$code;stdout=$stdout;stderr=$stderr;output=$result.text;parsed=$value})
         $result|Add-Member -NotePropertyName recordPath -NotePropertyValue $resultPath
-        if($ModuleBindingOnly){$result|Add-Member -NotePropertyName nativeResultPath -NotePropertyValue $native.ResultPath}
+        if($ModuleBindingOnly-or$SourceMaterialOnly){$result|Add-Member -NotePropertyName nativeResultPath -NotePropertyValue $native.ResultPath}
     }
     return $result
 }
@@ -379,8 +381,10 @@ function Invoke-ModuleBindingCases {
     $origin=[IO.Path]::GetFullPath($LegacyRuntimeRoot);$target=[IO.Path]::GetFullPath($TargetRuntimeRoot)
     $originComposer=Join-Path $origin 'framework/versions/2.0.0/scripts/ProcessRequirementComposition.psm1'
     $targetComposer=Join-Path $target 'framework/versions/2.0.0/scripts/ProcessRequirementComposition.psm1'
-    Check ($origin-cne$target-and(Id $originComposer)-cne(Id $targetComposer)-and$sourceRoot-cne$target) 'binding-fixture-requires-distinct-origin-target-and-recovery-tool'
+    Check ($origin-cne$target-and($SourceMaterialOnly-or(Id $originComposer)-cne(Id $targetComposer))-and$sourceRoot-cne$target) 'binding-fixture-requires-distinct-origin-target-and-recovery-tool'
     $fixedBefore=@(foreach($root in @($origin,$target)){@{root=$root;manifest=(Id (Join-Path $root 'PACKAGE_MANIFEST.json'));composer=(Id (Join-Path $root 'framework/versions/2.0.0/scripts/ProcessRequirementComposition.psm1'))}})
+    $targetManifest=Get-Content (Join-Path $target 'framework/versions/2.0.0/RELEASE_MANIFEST.json') -Raw|ConvertFrom-Json
+    if(-not$SourceMaterialOnly){
     # A finite, process-local faulty implementation changes only empty-byte
     # hashing. Its real legacy payload enumeration must still disagree with T.
     $emptyOnly=Join-Path $temp 'empty-array-only-counterexample.ps1'
@@ -399,6 +403,7 @@ $module=@(Import-Module (Join-Path $Origin 'framework/versions/2.0.0/scripts/Pro
     $targetManifest=Get-Content (Join-Path $target 'framework/versions/2.0.0/RELEASE_MANIFEST.json') -Raw|ConvertFrom-Json
     Check ($fault.FileCount-gt$targetManifest.fileCount-and$fault.Canonical-cne$targetManifest.canonical) 'empty-array-only-fix-still-uses-wrong-payload-algorithm'
     SaveJson (Join-Path $temp 'empty-array-counterexample-observation.json') @{legacyFacts=$fault;targetPayload=$targetManifest.canonical;targetFileCount=$targetManifest.fileCount;fixedPackagesUnmodified=$true}
+    }
     $cases=if($Layout-ceq'ALL'){@('ORDINARY','MAINTENANCE')}else{@($Layout)}
     foreach($case in $cases){
         Write-Output ('MODULE_BINDING|'+$case+'|REGISTER_ORIGIN')
@@ -416,6 +421,28 @@ $module=@(Import-Module (Join-Path $Origin 'framework/versions/2.0.0/scripts/Pro
         }
         $registered=Run (Join-Path $origin 'scripts/register-project.ps1') $registration
         Check (@($registered)[-1].status-ceq'CREATED') ($case+'-actual-origin-registration')
+        if($SourceMaterialOnly){
+            # Seed one complete local adopted source into the isolated project.
+            # The original caller and routine exclusions deliberately overlap.
+            $configPath=Join-Path $project '.ai-workspace/project.json'
+            $policyPath=Join-Path $project '.ai-workspace/process-policy.json'
+            $sourcePath=Join-Path $project 'rules/material.md'
+            SaveText $sourcePath 'Complete adopted rule for the isolated source-material upgrade.'
+            $config=Get-Content -LiteralPath $configPath -Raw|ConvertFrom-Json -Depth 100
+            $config.routineExcludedPaths=@('private','routine-only')
+            $config.sourceBindings=@([pscustomobject]@{id='material';provider='LOCAL_DIRECTORY';locator=@{root='.'};allowedPaths=@(@{kind='FILE';locator='rules/material.md'});decisionLocator='fixture:source-material'})
+            SaveJson $configPath $config
+            $composer=@(Import-Module $originComposer -PassThru)[0]
+            $content=& $composer {(Get-Command New-AiwContentContext).Module}
+            $document=[pscustomobject]@{sourceId='MATERIAL';bindingId='material';revision=@{kind='CONTENT_IDENTITY';value=(Id $sourcePath)};locator='rules/material.md';identity=(Id $sourcePath);mode='FULL_FILE';sectionStart='NOT_APPLICABLE';sectionEnd='NOT_APPLICABLE';dependencies=@()}
+            $descriptor=[pscustomobject]@{kind='BOUND_SOURCE_ITEM';bindingId='material';itemId='material';revision=@{kind='CONTENT_IDENTITY';value=''};itemIdentity='';rootSourceId='MATERIAL';documents=@($document)}
+            $document.revision=& $content.ExportedCommands['Get-AiwContentRevision'] ([pscustomobject]@{documents=@($document)}) $config.sourceBindings
+            $descriptor.revision=& $content.ExportedCommands['Get-AiwContentRevision'] $descriptor $config.sourceBindings
+            $descriptor.itemIdentity=& $content.ExportedCommands['Get-AiwContentItemIdentity'] $descriptor
+            $policy=Get-Content -LiteralPath $policyPath -Raw|ConvertFrom-Json -Depth 100
+            $policy.rules+=@([pscustomobject]@{ruleId='MATERIAL';requirementReason='Original local source material through actual adoption';decisionLocator='fixture:source-material';source=$descriptor;selectors=@{profiles=@();roles=@();phases=@();actionKinds=@('CONTROL_WRITE');resultKinds=@();pathPrefixes=@();capabilities=@();semanticTerms=@()};preparationRequirements=@();resultRequirements=@()})
+            SaveJson $policyPath $policy
+        }
         $tool=Join-Path $target 'scripts/upgrade-project.ps1'
         $base=@{ProjectId=$projectId;ToVersion='2.0.0';RepositoryPath=$project;ControllerId=$owner;WorkspaceRoot=$target;LocalCandidatePilot=$true;ActorRouteTaskPath=$taskRelative;ExpectedActorRouteTaskIdentity=(Id $task);ActorRouteActor=$owner}
         $preview=Run $tool $base;$paths=@();$pre=@{}
@@ -442,6 +469,29 @@ $module=@(Import-Module (Join-Path $Origin 'framework/versions/2.0.0/scripts/Pro
         $prepareArgs=$base.Clone();$prepareArgs.AdoptionProcessMode='PREPARE';$prepareArgs.CurrentProcessInputPath=$admitInput;$prepareArgs.ExpectedCurrentProcessInputIdentity=Id $admitInput
         $prepared=Run $tool $prepareArgs;$preparedPath=Join-Path $runtime 'prepared.json';SaveJson $preparedPath $prepared
         Check ($prepared.status-ceq'PREPARED'-and$prepared.previousDistribution.runtimeRoot-ceq$origin-and$prepared.targetDistribution.runtimeRoot-ceq$target) ($case+'-real-prepare-binds-origin-and-target')
+        if($SourceMaterialOnly){
+            $transactionModule=@(Import-Module (Join-Path $target 'scripts/ProjectAdoptionTransaction.psm1') -PassThru)[0]
+            $material=& $transactionModule {
+                param($r,$receipt,$oldSources)
+                $old=Get-AiwAdoptionRuntimeModule $receipt.sourceLocators.frameworkRoot 'framework/versions/2.0.0/scripts/ProcessRequirementComposition.psm1' @('Invoke-ProcessRequirementComposition')
+                Get-AiwAdoptionSourceMaterial $old $r $receipt $oldSources (Read-AiwProjectJson (Join-Path $r '.ai-workspace/process-policy.json') 'POLICY') (Read-AiwProjectJson (Join-Path $r '.ai-workspace/project.json') 'PROJECT')
+            } $project $discovered.compactReceipt $prepared.oldSourceBindings
+            Check ($material.Mode-ceq'PUBLIC_COMPLETE_LOCAL'-and$material.Documents.Count-eq1-and$prepared.oldSourceBindings.effectiveSetIdentity-ceq$discovered.compactReceipt.sourceBindings.effectiveSetIdentity-and'private'-cin$material.ForbiddenPaths-and'routine-only'-cin$material.ForbiddenPaths) ($case+'-real-eligible-source-material-retains-original-effective-set-and-combined-read-protection')
+            $managed=@($prepared.projection.objects.path)+@($taskRelative,'rules/material.md','.ai-workspace/controller.json','.ai-workspace/process-policy.json','.ai-workspace/project.json')|Sort-Object -Unique
+            foreach($faultPath in @($configPath,$policyPath,$sourcePath)){
+                $saved=[IO.File]::ReadAllBytes($faultPath)
+                try{
+                    [IO.File]::AppendAllText($faultPath,' ',$utf8)
+                    $beforeFault=@($managed|ForEach-Object{@{path=$_;identity=(Id (Join-Path $project $_))}})
+                    $rejected=InvokeTool $tool $prepareArgs
+                    Check ($rejected.code-ne0-and$rejected.text-match'DRIFT|IDENTITY|SOURCE'-and@($beforeFault|Where-Object{(Id (Join-Path $project $_.path))-cne$_.identity}).Count-eq0) ($case+'-public-prepare-refuses-real-drift-with-zero-write-'+[IO.Path]::GetFileName($faultPath))
+                }finally{[IO.File]::WriteAllBytes($faultPath,$saved)}
+            }
+            $protectedInput=Clone $input;$protectedInput.forbiddenPaths+=@('rules/material.md')
+            $protectedInputPath=Join-Path $runtime 'protected-source-discover.json';SaveJson $protectedInputPath $protectedInput
+            $deniedSource=InvokeTool $resolver @{InputPath=$protectedInputPath;AsJson=$true}
+            Check ($deniedSource.code-ne0-and$deniedSource.text-match'PROTECTED|FORBIDDEN') ($case+'-original-reader-rejects-protected-adopted-source')
+        }
         $boundary.preparationReceipts=@(@($boundary.preparationReceipts)+@($prepared.selectedRuleBlocks.preparationRequirements)|Sort-Object -Unique)+@('ADOPTION_TARGET_RULES_LOADED|'+(Id $preparedPath))
         if($prepared.selectorSemanticJudgmentRequired){$boundary.preparationReceipts+=@('ADOPTION_SELECTOR_SEMANTICS_CONFIRMED|'+(Id $preparedPath))}
         SaveJson $admitInput $boundary
@@ -465,6 +515,13 @@ $module=@(Import-Module (Join-Path $Origin 'framework/versions/2.0.0/scripts/Pro
         $finalArgs=$base.Clone();$finalArgs.AdoptionProcessMode='FINALIZE_OUTPUT';$finalArgs.CurrentProcessInputPath=$finalPath;$finalArgs.ExpectedCurrentProcessInputIdentity=Id $finalPath;$finalArgs.AdmitResultPath=$admittedPath;$finalArgs.ExpectedAdmitResultIdentity=Id $admittedPath;$finalArgs.AuthorizationPackagePath=$rootPath;$finalArgs.ExpectedAuthorizationPackageIdentity=Id $rootPath;$finalArgs.ExpectedAdoptionTransactionIdentity=Id $journal
         $frozenPaths=@($prepared.projection.objects|ForEach-Object{Join-Path $project $_.path})+@($task,$processPath,$rootPath,$receiptPath,$admitInput,$preparedPath,$admittedPath,$finalPath,$journal,(Join-Path $project '.ai-workspace/controller.json'),(Join-Path $project '.ai-workspace/project.json'),(Join-Path $project '.ai-workspace/corrections.json'),(Join-Path $project '.ai-workspace/BOOTSTRAP.md'),(Join-Path $project 'AGENTS.md'))
         $before=@($frozenPaths|Sort-Object -Unique|ForEach-Object{@{path=$_;identity=(Id $_)}})
+        if($SourceMaterialOnly){
+            $closed=Run $tool $finalArgs
+            Check ($closed.status-ceq'PASS'-and$closed.originalAdmitDecisionIdentity-ceq$admitted.decisionIdentity-and$closed.originalDiscoverReceiptIdentity-ceq(Id $receiptPath)) ($case+'-source-material-original-admission-apply-finalize-complete')
+            Check (@($before|Where-Object{(Id $_.path)-cne$_.identity}).Count-eq0) ($case+'-source-material-finalize-preserves-original-evidence-and-object-group')
+            SaveJson (Join-Path $caseRoot 'source-material-observation.json') @{status='PASS';origin=$origin;target=$target;materialMode=$material.Mode;originalEffectiveSet=$prepared.oldSourceBindings.effectiveSetIdentity;originalDecision=$admitted.decisionIdentity;result=$closed;applyCount=1;qualification='SYNTHETIC_TARGET_ONLY';originalRuntime='ACTUAL_UNCHANGED_FIXED_RUNTIME'}
+            continue
+        }
         $oldFailure=InvokeTool $tool $finalArgs
         SaveJson (Join-Path $caseRoot 'unfixed-finalize-result.json') $oldFailure
         Check ($oldFailure.code-ne0-and$oldFailure.text.Contains('Bytes')) ($case+'-unfixed-public-finalizer-reaches-wrong-origin-algorithm')
@@ -483,7 +540,8 @@ $module=@(Import-Module (Join-Path $Origin 'framework/versions/2.0.0/scripts/Pro
         SaveJson (Join-Path $caseRoot 'binding-observation.json') @{status='PASS';origin=$origin;target=$target;tool=$sourceRoot;fixtureOnly=$true;productionQualificationProven=$false;sourceComposer=(Id $originComposer);targetComposer=(Id $targetComposer);originalDecision=$admitted.decisionIdentity;before=$before;after=@($before|ForEach-Object{@{path=$_.path;identity=(Id $_.path)}});result=$closed;applyCount=1;finalizeOnly=$true;legacyFailure=$oldFailure;negativeAdmission=$denied}
     }
     foreach($item in $fixedBefore){Check ((Id (Join-Path $item.root 'PACKAGE_MANIFEST.json'))-ceq$item.manifest-and(Id (Join-Path $item.root 'framework/versions/2.0.0/scripts/ProcessRequirementComposition.psm1'))-ceq$item.composer) 'origin-and-target-fixed-package-bytes-preserved'}
-    Write-Output ('RESULT|major-adoption-module-binding|passed='+$passed+'|failed=0|scope=isolated-heterogeneous-original-finalize')
+    if($SourceMaterialOnly){Write-Output ('RESULT|major-adoption-source-material|passed='+$passed+'|failed=0|scope=actual-old-runtime-isolated-prepare-admit-apply-finalize|target-qualification=SYNTHETIC')}
+    else{Write-Output ('RESULT|major-adoption-module-binding|passed='+$passed+'|failed=0|scope=isolated-heterogeneous-original-finalize')}
 }
 
 function RestoreFixture([string]$Root,$Projection){
@@ -849,6 +907,9 @@ param([string]$InputPath)
 $ErrorActionPreference='Stop'
 try {
     $call=Get-Content -LiteralPath $InputPath -Raw|ConvertFrom-Json -AsHashtable
+    # The child owns redirected protocol/error text; match the raw UTF-8 reader.
+    Import-Module $call.nativeOutputModule -ErrorAction Stop
+    Initialize-AiwTestNativeOutput
     Set-Location -LiteralPath $call.workingDirectory;[Environment]::CurrentDirectory=$call.workingDirectory
     $arguments=$call.parameters;$LASTEXITCODE=0
     $output=@(& $call.tool @arguments)
@@ -911,7 +972,7 @@ throw 'FINAL_STATE_SWITCH_INTERRUPT_NOT_REACHED'
     foreach($name in @('README.md','AGENTS.md')){CopyFile (Join-Path $sourceRoot ('framework/user-package/'+$name)) (Join-Path $workspace $name)}
     if($ProviderSnapshotOnly){foreach($name in @('VERSION.json','LOAD_MANIFEST.json')){$path=Join-Path $workspace ('framework/versions/2.0.0/'+$name);$v=Get-Content $path -Raw|ConvertFrom-Json;$v.lifecycle='STABLE';if($name-ceq'VERSION.json'){$v.consumable=$true;$v.projectPinEligible=$true};SaveJson $path $v};$path=Join-Path $workspace 'framework/versions/2.0.0/RELEASE_MANIFEST.json';$v=Get-Content $path -Raw|ConvertFrom-Json;$v.lifecycle='STABLE';SaveJson $path $v}
     SealFixture (Join-Path $workspace 'framework/versions/2.0.0');NamedFixture $workspace
-    $refreshRuntimes=@(foreach($number in 2..3){
+    $refreshRuntimes=@(if(-not$SourceMaterialOnly){foreach($number in 2..3){
         $next=Join-Path $temp ('runtime-2-refresh-'+$number);Copy-Item -LiteralPath $workspace -Destination $next -Recurse
         if($ProviderSnapshotOnly){foreach($name in @('VERSION.json','LOAD_MANIFEST.json','RELEASE_MANIFEST.json')){CopyFile (Join-Path $sourceRoot ('framework/versions/2.0.0/'+$name)) (Join-Path $next ('framework/versions/2.0.0/'+$name))}}
         foreach($relative in @('framework/versions/2.0.0/project-starter/BOOTSTRAP.md','framework/maintenance-overlay/BOOTSTRAP.md')){
@@ -919,11 +980,15 @@ throw 'FINAL_STATE_SWITCH_INTERRUPT_NOT_REACHED'
             SaveText $path ($text.Replace('<!-- FRAMEWORK-MANAGED:END -->',("<!-- isolated refresh fixture {0} -->`n<!-- FRAMEWORK-MANAGED:END -->"-f$number)))
         }
         SealFixture (Join-Path $next 'framework/versions/2.0.0');NamedFixture $next ('2.0.0-snapshot.'+$number);$next
-    })
+    }})
     }
     foreach($name in @('ProjectAdoptionState','ProjectAdoptionProjection','ProjectAdoptionTransaction')){Import-Module (Join-Path $workspace ('scripts/'+$name+'.psm1')) -Force}
     if($ProviderSnapshotOnly){CurrentProviderCases;return}
     $legacy=Get-AiwDistributionBinding $LegacyRuntimeRoot $LegacyFrameworkVersion -Required
+    if($SourceMaterialOnly){
+        Check ($legacy.distributionId-ceq'2.0.0-snapshot.20') 'source-material-actual-unchanged-original-snapshot20'
+        $TargetRuntimeRoot=$workspace;Invoke-ModuleBindingCases;return
+    }
     $allowedLegacyDistributions=if($LegacyFrameworkVersion-ceq'1.16.0'){@('1.16.0-snapshot.12')}else{@('2.0.0-snapshot.3','2.0.0-snapshot.15')};Check ($legacy.distributionId-cin$allowedLegacyDistributions) ('actual-unchanged-'+$legacy.distributionId+'-runtime')
     $legacyContract=Get-FixtureProcessContract $LegacyRuntimeRoot $LegacyFrameworkVersion
     $registeredOrigin=$legacy.distributionId-ceq'2.0.0-snapshot.15'

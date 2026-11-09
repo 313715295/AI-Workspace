@@ -70,7 +70,7 @@ routing message 须带 host-authenticated task/sender identity+Controller epoch/
 
 先FINALIZE文档/产物动作，再以当前卡单对象CONTROL_WRITE更新任务。普通当前卡与其他对象混合写集仍拒绝；当前卡关闭并物理归档仅允许普通纯CONTROL_WRITE的精确active+同basename archive两对象：active存在时核原包及前像并准入，先完整保存、读回和实际验证闭合archive，再复核原active后删除，原FINALIZE消费已验证的实际archive路径，正文ID及原逻辑准入保持。已有相同archive可复用，不同历史仅按明确原像处理；中断留两张有效卡或完整archive可沿原动作补完，不造归档事务/全局locator。其他合法文档批次、schema1真实责任转换及专用根采用按自身合同；不泛化混合写、missing或第三方豁免。
 
-CLOSED写明SUCCESS、CANCELLED或SUPERSEDED、关闭依据、产物/Git去向和未解义务承接，并释放writer/reviewer/动作授权。SUCCESS满足适用验收；取消/替代保留实际未完成项与决定，等待/阻塞保持active。旧卡按其原兼容检查，不批量伪补成功。任务卡关闭/物理归档、责任释放和宿主会话归档分别核对。有限成果已交付、原结果已被实际消费且会话无后续职责时，由实际收尾责任人在已有权限内调用宿主归档该会话，并核对真实返回；只写CLOSED、释放授权或改标题不算会话已归档。待验收、仍有同项返修或真实长期职责时保留。权限缺失、失败或UNKNOWN如实保留并交实际责任者，不宣称已完成，不批量扫描或操作历史会话。
+CLOSED写明SUCCESS、CANCELLED或SUPERSEDED、关闭依据、产物/Git去向和未解义务承接，并释放writer/reviewer/动作授权。SUCCESS满足适用验收；取消/替代保留实际未完成项与决定，等待/阻塞保持active。当前ACTIVE维护任务移动另一张原已CLOSED卡时，精确active前像必须等于同basename archive实际后像，原正文ID、闭合/释放、当前纯CONTROL移动权限及保护成立；只证明原字节移存，不重新验收后来演进的产品。卡改字、原非CLOSED、未释放、目标冲突或原件不足仍拒绝该分支；当前任务新SUCCESS继续完整验收。旧closure decision/acceptance plan进入原retention，移存不追认真证明有效或令材料到期。旧卡按其原兼容检查，不批量伪补成功。任务卡关闭/物理归档、责任释放和宿主会话归档分别核对。有限成果已交付、原结果已被实际消费且会话无后续职责时，由实际收尾责任人在已有权限内调用宿主归档该会话，并核对真实返回；只写CLOSED、释放授权或改标题不算会话已归档。待验收、仍有同项返修或真实长期职责时保留。权限缺失、失败或UNKNOWN如实保留并交实际责任者，不宣称已完成，不批量扫描或操作历史会话。
 
 原任务自然收尾一次处理正式材料持久归属、有效引用、已知临时集合和未解依赖，生命周期取TOOL_CONTRACT；不按目录大小/年龄/关闭状态推定可删，不另开清理或统计回合。已有请求、工具、加载、协调、返工和用户介入数据可由最后消费者同批提取，缺数据保留限制，不设费用证明门。
 <!-- AIW-REQUIREMENT:PR_TASK_CHANGED_OUTPUT_DISPOSITION:END -->

@@ -104,6 +104,9 @@ PASS|archive-SUCCESS-keeps-success-acceptance
 PASS|archive-CANCELLED-does-not-invent-success-acceptance
 PASS|archive-SUPERSEDED-does-not-invent-success-acceptance
 PASS|archive-legacy-keeps-success-acceptance
+PASS|unchanged-old-closed-card-moves-after-product-evolution-and-retains-plan
+PASS|unchanged-old-card-move-still-rejects-unreleased-writer
+PASS|old-card-move-cannot-change-one-byte
 PASS|archive-delete-needs-explicit-missing-postimage
 PASS|archive-delete-rejects-duplicate-missing-postimage
 PASS|archive-delete-cannot-omit-target-from-exact-scope
@@ -170,6 +173,8 @@ PASS|native-current-accept-DISCOVER-ADMIT-FINALIZE-consumes-history
 CHECKER|current-candidate-drift|{"Code":2,"Text":"FAIL|EVIDENCE_IDENTITY_DRIFT|result.md"}
 PASS|native-checker-history-does-not-exempt-current-candidate
 PASS|typed-stage-declaration-reaches-recursive-history
+PASS|legacy-plan-own-stage-finalizes-reach-recursive-producers-without-rewriting-old-acceptance
+PASS|downstream-acceptance-reference-does-not-produce-self-evidence
 PASS|current-stage-rejects-useless-history-refs
 PASS|DESIGN-cannot-declare-historical-exemption
 PASS|USER_DECISION-cannot-declare-historical-exemption
@@ -238,5 +243,5 @@ PASS|operation-public-historical-success-consumes-rebound-original-after-real-po
 PASS|operation-history-still-needs-original-F
 PASS|operation-history-original-obligation-loop-rejects-stale-external-obligations
 PASS|operation-all-original-success-and-failure-materials-remain-unchanged
-FIXTURE|C:\Users\zheng\AppData\Local\Temp\g-a0843610\aiw-result-evidence-35dc962412974acbb61cace930296901\operation-rebind|scope=operation-rebind-successors|qualification=SYNTHETIC_TEST_FIXTURE_ONLY|providerCalls=0|historicalConsumption=UNKNOWN
-RESULT|240/240 passed|scope=result-acceptance|evidenceCeiling=INSTRUCTION_BOUND
+FIXTURE|C:\Users\zheng\AppData\Local\Temp\g-7183680e\aiw-result-evidence-9afdc506344945b5b8346cf453b31614\operation-rebind|scope=operation-rebind-successors|qualification=SYNTHETIC_TEST_FIXTURE_ONLY|providerCalls=0|historicalConsumption=UNKNOWN
+RESULT|245/245 passed|scope=result-acceptance|evidenceCeiling=INSTRUCTION_BOUND

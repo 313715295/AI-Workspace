@@ -19,9 +19,15 @@ PASS|incomplete-part-body-refused
 PASS|invented-obligation-refused
 PASS|unbound-source-cannot-be-deduplicated
 PASS|external-mode-and-complete-selected-grant-visible-with-no-action-authority
+PASS|local-action-preauthorization-does-not-suggest-direct-execution
 PASS|selected-nongrant-rule-cannot-be-presented-as-project-grant
 PASS|mode-projection-cannot-change-bound-policy
 PASS|explicit-per-action-display-does-not-recommend-direct-execution
+PASS|body-only-complete-text-has-no-current-operation-gates
+PASS|B-only-configured-grant-is-not-a-current-operation-grant
+PASS|renderer-rejects-dropped-B-only-rule
+PASS|renderer-rejects-B-only-obligation-escalation
+PASS|actual-external-selected-grant-displays-direct-tool-instruction
 PASS|same-words-in-different-source-not-deduplicated
 PASS|new-actor-output-still-contains-full-current-set
 PASS|A-once-and-rule-B-A-preserves-own-order
@@ -98,4 +104,4 @@ PASS|display-create-new-refuses-existing-official-copy
 PASS|display-protection-refuses-output-without-writing
 PASS|failure-fixture-is-an-actual-resolver-rejection
 PASS|failure-reason-is-not-hidden-by-projection
-RULE_DISPLAY_TESTS_PASS|checks=100|evidence=OUTPUT_PROJECTION_NOT_MODEL_LOAD
+RULE_DISPLAY_TESTS_PASS|checks=106|evidence=OUTPUT_PROJECTION_NOT_MODEL_LOAD

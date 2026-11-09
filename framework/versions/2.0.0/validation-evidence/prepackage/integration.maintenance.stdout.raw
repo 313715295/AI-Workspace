@@ -1,5 +1,5 @@
 WARNING: The names of some imported commands from the module 'IntegrationFixture' include unapproved verbs that might make them less discoverable. To find the commands with unapproved verbs, run the Import-Module command again with the Verbose parameter. For a list of approved verbs, type Get-Verb.
-OBSERVATION|maintenance-git-reception|inputCP=936|outputCP=65001|pipelineCP=65001
+OBSERVATION|maintenance-git-reception|inputCP=936|outputCP=936|pipelineCP=65001
 PASS|maintenance-git-utf8-unicode202-exact-top-and-single-result
 PASS|maintenance-git-unicode202-child-rejected
 PASS|maintenance-git-utf8-unicode203-exact-top-and-single-result
@@ -22,7 +22,11 @@ PASS|maintenance-register-development-execution-rejected-before-write
 PASS|maintenance-register-complete-native-JSON-fields-arrays-and-transaction
 PASS|maintenance-register-real-fixed-package-producer
 PASS|maintenance-target-rebind-keeps-original-root-checker-and-current-target-scope
-PASS|maintenance-rebound-original-finalize|{"status":"PASS","mode":"FINALIZE_OUTPUT","reason":"STRUCTURAL_REQUIREMENTS_COMPLETE","artifactStorage":"CALLER_MANAGED","selectionIdentity":"79D7C52BD5E2AB4C2A124317D669A4C2CBCEA9F16CBB0E618B6DA1FF390CF570","decisionIdentity":"63D6E4DC321AE70025D3C4F1FE49E8B038DFA09EA24FE5EE0C4EF3DEF2C24FAC","sourceBuildCount":0,"decisionBuildCount":1,"missingPreparation":[],"missingResult":[],"authorityGranted":false,"semanticCorrectnessProven":false,"hostInvocationProven":false,"actionOutcome":"OBSERVED","successorState":"NONE"}
+PASS|maintenance-rebound-original-finalize|{"status":"PASS","mode":"FINALIZE_OUTPUT","reason":"STRUCTURAL_REQUIREMENTS_COMPLETE","artifactStorage":"CALLER_MANAGED","selectionIdentity":"1F205155893A5252A44C7C0C68C61089C776501FF79398FDC005304DC0FE67D5","decisionIdentity":"9A28529B06380A35C7CF3F06E5DFCB125EAD14AC5CF5B7EC2D0504BEF3BD6F9E","sourceBuildCount":0,"decisionBuildCount":1,"missingPreparation":[],"missingResult":[],"authorityGranted":false,"semanticCorrectnessProven":false,"hostInvocationProven":false,"actionOutcome":"OBSERVED","successorState":"NONE"}
+PASS|maintenance-source-to-control-rebind-observes-current-control-root-without-body-load
+PASS|maintenance-control-rebound-original-finalize|{"status":"PASS","mode":"FINALIZE_OUTPUT","reason":"STRUCTURAL_REQUIREMENTS_COMPLETE","artifactStorage":"CALLER_MANAGED","selectionIdentity":"FAE5DBC832F559E5DBF39E63447516B63E7D353ED470E3278EC961EAB7AFB04B","decisionIdentity":"6E2C184FD001DAED072030D9788315278D5B78A4E680A9B76B8AB71301597BA7","sourceBuildCount":0,"decisionBuildCount":1,"missingPreparation":[],"missingResult":[],"authorityGranted":false,"semanticCorrectnessProven":false,"hostInvocationProven":false,"actionOutcome":"OBSERVED","successorState":"NONE"}
+PASS|maintenance-control-to-source-rebind-observes-current-target-root-without-body-load
+PASS|maintenance-source-back-original-finalize|{"status":"PASS","mode":"FINALIZE_OUTPUT","reason":"STRUCTURAL_REQUIREMENTS_COMPLETE","artifactStorage":"CALLER_MANAGED","selectionIdentity":"A7BFCA27A3247E5F8A24AADDE5E46E60F5E4B4FF0CEFD436BA1CD4475F7C81CB","decisionIdentity":"4D151C6AC221536F7138095CBB6D1B0D84DEEEB9116EE87385972A9A9C9A4084","sourceBuildCount":0,"decisionBuildCount":1,"missingPreparation":[],"missingResult":[],"authorityGranted":false,"semanticCorrectnessProven":false,"hostInvocationProven":false,"actionOutcome":"OBSERVED","successorState":"NONE"}
 PASS|maintenance-fixed-runtime-completed-adoption-binding
 PASS|maintenance-fixed-runtime-full-sealed-fixture-installed
 PASS|maintenance-native-preview-complete-array-and-zero-write
@@ -83,10 +87,10 @@ BASELINE|maintenance|after-control-non-git
 OBSERVE|maintenance-stage|case=target|reason=TARGET_ROOT_GIT_TOP_UNAVAILABLE
 PASS|maintenance-resolver-target-non-git-rejected
 BASELINE|maintenance|after-target-non-git
-FIXTURE_RESTORED|maintenance-control-junction|tree=4129|8A101026D8793E7FB6CE1AA32A88BB43398B271FFFB7DBD5A6FF929388AF34EA
+FIXTURE_RESTORED|maintenance-control-junction|tree=4927|91E962D0A8AEBEDDE4C4994FFC88CBBBA126AAD7C92ACC1057127C58DC3E07FC
 PASS|maintenance-resolver-control-intermediate-junction-rejected
 PASS|maintenance-resolver-control-intermediate-junction-backing-unchanged
-FIXTURE_RESTORED|maintenance-runtime-junction|tree=20549|2E90DCBB4DEDE25E6D9F161CC3B6B04D166E2751C19B3C167E9E70BE0E88EA47
+FIXTURE_RESTORED|maintenance-runtime-junction|tree=20549|FBCD24D0E9F31B448543FC8985E8B655EFEF497E64BD6E0F6603493D68DF11CB
 OBSERVE|maintenance-stage|case=runtime-intermediate|reason=PATH_REPARSE|framework/versions/2.0.0/scripts/ContentSources.psm1
 PASS|maintenance-resolver-runtime-intermediate-junction-rejected
 PASS|maintenance-resolver-runtime-intermediate-junction-backing-unchanged
@@ -150,7 +154,10 @@ PASS|maintenance-control-consumes-original-source-review-and-acceptance-after-po
 PASS|historical-source-read-does-not-mutate-current-control-root
 PASS|maintenance-current-protection-still-denies-historical-source-candidate
 PASS|maintenance-unbound-historical-object-root-is-rejected-at-root-check
+PASS|root-existing-archive-new-preimage-rejected-during-discover
+PASS|rejected-existing-archive-actions-preserve-active-and-restored-candidate
+PASS|new-current-closure-reuses-identical-archive-and-preserves-prior-failure
 PASS|maintenance-source-history-control-success-archive-original-F-complete
-FIXTURE|C:\Users\zheng\AppData\Local\Temp\g-3e50c43c\aiw-result-evidence-27f443c7a46c42b496f93a3f549da506\quality|scope=maintenance-root-quality|qualification=SYNTHETIC_TEST_FIXTURE_ONLY
-RESULT|28/28 passed|scope=result-quality|evidenceCeiling=INSTRUCTION_BOUND
-RESULT|93/93 passed|scope=Framework-2.0.0-maintenance|
+FIXTURE|C:\Users\zheng\AppData\Local\Temp\g-99d69969\aiw-result-evidence-a1172262bdfd4e81bf0491346ae0085a\quality|scope=maintenance-root-quality|qualification=SYNTHETIC_TEST_FIXTURE_ONLY
+RESULT|32/32 passed|scope=result-quality|evidenceCeiling=INSTRUCTION_BOUND
+RESULT|97/97 passed|scope=Framework-2.0.0-maintenance|

@@ -1269,7 +1269,7 @@ function Assert-AiwRuntimeAdoptionProjection {
                 if($document.locatorKind-ceq'PROJECT_RELATIVE'-and$document.relativePath-cne'NOT_APPLICABLE'){Write-AiwAtomicBytes (Get-AiwContainedPath $stage $document.relativePath) $document.bytes}
             }
             $composition=Get-AiwAdoptionComposition $stage $ExpectedPreparation.targetDistribution.runtimeRoot $OriginalReceipt -EvaluationOnly -SourceProjectRoot $Root -SourceProjection $Projection
-            Assert-AiwAdoptionSame @($composition.selectedRequirements) @($ExpectedPreparation.selectedRuleBlocks) 'RECOVERY_TARGET_RULE_DRIFT'
+            Assert-AiwPreparedComposition $composition $ExpectedPreparation 'RECOVERY_TARGET_RULE_DRIFT'
             foreach($field in $ExpectedPreparation.projectedSourceBindings.PSObject.Properties){
                 $actual=if($field.Name-ceq'taskIdentity'){Get-AiwCurrentIdentity (Get-AiwContainedPath $stage $OriginalReceipt.sourceLocators.taskRelativePath)}else{[string]$composition.($field.Name)}
                 if($actual-cne[string]$field.Value){throw ('ADOPTION_PROCESS_SOURCE_DRIFT|'+$field.Name)}
@@ -1690,7 +1690,18 @@ function Get-AiwAdoptionComposition([string]$Root,[string]$Runtime,$Receipt,[swi
     }
     # A legacy envelope stays the original envelope. The private prospective
     # observation is unclassified and cannot create a new process admission.
-    $compose={& $composer.ExportedCommands['Invoke-ProcessRequirementComposition'] -ProjectRoot $Root -FrameworkRoot $Runtime -TargetVersion $version -ExpectedProjectConfigIdentity (Get-AiwCurrentIdentity (Get-AiwContainedPath $Root '.ai-workspace/project.json')) -ExpectedCorrectionsIdentity (Get-AiwCurrentIdentity (Get-AiwContainedPath $Root '.ai-workspace/corrections.json')) -Profile $c.profile -Role $role -Phase $c.phase -Actor $c.actor -TaskIdentity $taskIdentity -Capabilities $capabilities -Objective (& $composer.ExportedCommands['Get-AiwProcessSemanticText'] $Receipt.intentEnvelope) -ActionKind 'CONTROL_WRITE' -ResultKind $Receipt.intentEnvelope.requestedResultKind -ExactPaths @($c.exactScope) -ForbiddenPaths @($c.forbiddenScope) -EvaluationOnly:$EvaluationOnly @intentArguments}
+    $compose={
+        $parameters=@{ProjectRoot=$Root;FrameworkRoot=$Runtime;TargetVersion=$version;ExpectedProjectConfigIdentity=(Get-AiwCurrentIdentity (Get-AiwContainedPath $Root '.ai-workspace/project.json'));ExpectedCorrectionsIdentity=(Get-AiwCurrentIdentity (Get-AiwContainedPath $Root '.ai-workspace/corrections.json'));Profile=$c.profile;Role=$role;Phase=$c.phase;Actor=$c.actor;TaskIdentity=$taskIdentity;Capabilities=$capabilities;Objective=(& $composer.ExportedCommands['Get-AiwProcessSemanticText'] $Receipt.intentEnvelope);ActionKind='CONTROL_WRITE';ResultKind=$Receipt.intentEnvelope.requestedResultKind;ExactPaths=@($c.exactScope);ForbiddenPaths=@($c.forbiddenScope);EvaluationOnly=[bool]$EvaluationOnly}
+        foreach($name in $intentArguments.Keys){$parameters[$name]=$intentArguments[$name]}
+        & $composer {
+            param($parameters,$taskVerified)
+            $core=Get-Command Invoke-AiwProcessCompositionCore -ErrorAction SilentlyContinue
+            if($taskVerified-and$null-ne$core-and$core.Parameters.ContainsKey('ObservedContextType')){
+                $parameters.ObservedContextType='TASK'
+                Invoke-AiwProcessCompositionCore @parameters
+            }else{Invoke-ProcessRequirementComposition @parameters}
+        } $parameters ($version-ceq'2.0.0')
+    }
     $statePath=Get-AiwContainedPath $Root ('.ai-workspace/upgrade-recovery/'+$version+'/state.json')
     $registered=(Test-Path -LiteralPath $statePath -PathType Leaf)-and(Read-AiwProjectJson $statePath 'ADOPTION_STATE').Value.schemaVersion-eq7
     if($registered-and$EvaluationOnly-and$SourceProjectRoot){
@@ -1707,6 +1718,17 @@ function Get-AiwAdoptionComposition([string]$Root,[string]$Runtime,$Receipt,[swi
     # Measured bytes are observational; source and adoption proofs remain mandatory.
     $result|Add-Member -NotePropertyName bindingSelectionContext -NotePropertyValue ([pscustomobject]@{profile=$c.profile;role=$role;phase=$c.phase;actor=$c.actor;actionKind='CONTROL_WRITE';resultKind=$Receipt.intentEnvelope.requestedResultKind;exactPaths=@($c.exactScope);capabilities=@($capabilities);intentEnvelope=$Receipt.intentEnvelope})
     return $result
+}
+function Get-AiwAdoptionCompositionObligations($Composition){
+    $explicit=$null-ne$Composition.PSObject.Properties['selectedObligations']
+    $frozen=[pscustomobject]@{schemaVersion=$(if($explicit){2}else{1});selectedRuleBlocks=@($Composition.selectedRequirements)}
+    if($explicit){$frozen|Add-Member selectedObligations @($Composition.selectedObligations)}
+    Get-AiwPreparedRuleObligations $frozen
+}
+function Assert-AiwPreparedComposition($Composition,$Preparation,[string]$Label){
+    Assert-AiwAdoptionSame @($Composition.selectedRequirements) @($Preparation.selectedRuleBlocks) $Label
+    $frozen=@(Get-AiwPreparedRuleObligations $Preparation)
+    Assert-AiwAdoptionSame @(Get-AiwAdoptionCompositionObligations $Composition) $frozen ($Label+'_OBLIGATIONS')
 }
 function Get-AiwMajorAdoptionAdmission($AdmitDocument,[string]$Root,[switch]$VerifyCurrent) {
     $ad=$AdmitDocument.Value
@@ -1730,7 +1752,7 @@ function Get-AiwMajorAdoptionAdmission($AdmitDocument,[string]$Root,[switch]$Ver
     if($null-ne$a.PSObject.Properties['deliveryContext']){$material+=($a.deliveryContext|ConvertTo-Json -Compress)}
     if($null-ne$a.PSObject.Properties['evidenceRefs']){$material+=($a.evidenceRefs|ConvertTo-Json -Depth 30 -Compress)}
         if((Get-AiwByteIdentity ($script:Utf8NoBom.GetBytes($material))).Split('|')[1]-cne$ad.decisionIdentity){throw 'ADOPTION_PROCESS_ORIGINAL_DECISION'}
-    $required=@(@($r.selectedObligations|ForEach-Object{$_.preparationRequirements})+@($p.selectedRuleBlocks|ForEach-Object{$_.preparationRequirements})|Sort-Object -Unique)
+    $required=@(@($r.selectedObligations|ForEach-Object{$_.preparationRequirements})+@((Get-AiwPreparedRuleObligations $p)|ForEach-Object{$_.preparationRequirements})|Sort-Object -Unique)
     if(@($required|Where-Object{$_-cnotin@($a.preparationReceipts)}).Count-or('ADOPTION_TARGET_RULES_LOADED|'+$ad.adoptionPreparationIdentity)-cnotin@($a.preparationReceipts)){throw 'ADOPTION_PROCESS_TARGET_PREPARATION_INCOMPLETE'}
     $pkg=Get-AiwAdoptionProcessPackage $r $c $Root
     if($pkg.Value.issuerRole-cne'PROJECT_CONTROLLER'-or$pkg.Value.profile-cne'CRITICAL'-or$pkg.Value.decisionClass-cne'MAJOR_ARCHITECTURE'-or$pkg.Value.delegatedGitCloser-ne$false){throw 'ADOPTION_PROCESS_MAJOR_AUTHORITY'}
@@ -1931,7 +1953,9 @@ function Get-AiwAdoptionSourceMaterial($Composer,[string]$Root,$Receipt,$OldSour
     if(-not$selection.ContainsKey('SelectionContext')){return Get-AiwAdoptionOriginalSourceMaterial $Composer $Root $PolicyDocument $ConfigDocument $forbidden}
     $s=$selection.SelectionContext;$intent=@{}
     if($Receipt.intentEnvelope.schemaVersion-eq2){$intent.IntentEnvelope=$Receipt.intentEnvelope}
-    $result=& $Composer.ExportedCommands['Invoke-ProcessRequirementComposition'] -ProjectRoot $Root -FrameworkRoot $Receipt.sourceLocators.frameworkRoot -TargetVersion $context.frameworkVersion -ExpectedProjectConfigIdentity $OldSources.projectConfigIdentity -ExpectedCorrectionsIdentity $OldSources.correctionsIdentity -Profile $s.profile -Role $s.role -Phase $s.phase -Actor $s.actor -TaskIdentity $OldSources.taskIdentity -Capabilities @($s.capabilities) -Objective (& $Composer.ExportedCommands['Get-AiwProcessSemanticText'] $s.intentEnvelope) -ActionKind $s.actionKind -ResultKind $s.resultKind -ExactPaths @($s.exactPaths) -ForbiddenPaths $forbidden -ValidateCompleteAdoptedSet @intent
+    # The original composer adds routine exclusions itself. Replay its exact
+    # caller scope; the combined material-read boundary above remains in force.
+    $result=& $Composer.ExportedCommands['Invoke-ProcessRequirementComposition'] -ProjectRoot $Root -FrameworkRoot $Receipt.sourceLocators.frameworkRoot -TargetVersion $context.frameworkVersion -ExpectedProjectConfigIdentity $OldSources.projectConfigIdentity -ExpectedCorrectionsIdentity $OldSources.correctionsIdentity -Profile $s.profile -Role $s.role -Phase $s.phase -Actor $s.actor -TaskIdentity $OldSources.taskIdentity -Capabilities @($s.capabilities) -Objective (& $Composer.ExportedCommands['Get-AiwProcessSemanticText'] $s.intentEnvelope) -ActionKind $s.actionKind -ResultKind $s.resultKind -ExactPaths @($s.exactPaths) -ForbiddenPaths @($context.forbiddenScope) -ValidateCompleteAdoptedSet @intent
     if($result.status-cne'PASS'){throw 'ADOPTION_PROCESS_PUBLIC_COMPLETE_OBSERVATION_UNPROVEN|STATUS'}
     foreach($field in $OldSources.PSObject.Properties){
         if($field.Name-ceq'taskIdentity'){continue}
@@ -2039,6 +2063,7 @@ try {
         [object[]]$differences=@()
         if($null-ne$composition.PSObject.Properties['legacySelectorDifferences']){$differences=@($composition.legacySelectorDifferences)}
         $prepared=[ordered]@{schemaVersion=1;status='PREPARED';discoverReceiptIdentity=$receiptDoc.Identity;previousDistribution=$oldBinding;targetDistribution=$newBinding;projection=$Projection;oldSourceBindings=$oldSources;projectedSourceBindings=$projectedSources;selectedRuleBlocks=@($composition.selectedRequirements);selectedPackCeilingBytes=$composition.selectedRulePackBytes;selectorDifferences=$differences;selectorSemanticJudgmentRequired=($differences.Count-gt0);authorityGranted=$false;evidenceGrade='INSTRUCTION_BOUND'}
+        if($null-ne$composition.PSObject.Properties['selectedObligations']){$prepared.schemaVersion=2;$prepared.selectedObligations=@(Get-AiwAdoptionCompositionObligations $composition)}
         if($null-ne$CorrectionAdoption){$prepared.correctionAdoption=$CorrectionAdoption}
         if($null-ne$script:AdoptionPreparationInvocation){
             $sourceIdentityFields=@{'.ai-workspace/project.json'='projectConfigIdentity';'.ai-workspace/controller.json'='controllerIdentity';'.ai-workspace/corrections.json'='correctionsIdentity';'.ai-workspace/process-policy.json'='policyIdentity';'AGENTS.md'='projectAgentsIdentity'}
@@ -2124,7 +2149,7 @@ function Get-AiwSamePinAdoptionAdmissionCore($AdmitDocument,[string]$Root,$Expec
     }
     $decision=& $oldModule.ExportedFunctions['Get-AiwProcessDecisionIdentity'] $r $a
     if($decision-cne$ad.decisionIdentity){throw 'ADOPTION_PROCESS_ORIGINAL_DECISION'}
-    $required=@(@($r.selectedObligations|ForEach-Object{$_.preparationRequirements})+@($p.selectedRuleBlocks|ForEach-Object{$_.preparationRequirements})|Sort-Object -Unique)
+    $required=@(@($r.selectedObligations|ForEach-Object{$_.preparationRequirements})+@((Get-AiwPreparedRuleObligations $p)|ForEach-Object{$_.preparationRequirements})|Sort-Object -Unique)
     if(@($required|Where-Object{$_-cnotin@($a.preparationReceipts)}).Count-or('ADOPTION_TARGET_RULES_LOADED|'+$ad.adoptionPreparationIdentity)-cnotin@($a.preparationReceipts)){throw 'ADOPTION_PROCESS_TARGET_PREPARATION_INCOMPLETE'}
     if(-not$Recovery){
         $current=New-AiwAdoptionProcessPreparation -RepositoryRoot $Root -TargetRuntimeRoot $TargetDistribution.runtimeRoot -Projection $ExpectedProjection -ObservedActor $ObservedActor -OriginalBoundary $a -CorrectionAdoption (Get-AiwCorrectionAdoptionEvidence $p)
@@ -2281,14 +2306,14 @@ function Invoke-AiwSamePinRefreshFinalize($Root,$InputDoc,$ReceiptDoc,$Context,[
     $delivery=if($null-ne$boundDelivery){$boundDelivery.delivery}else{$null}
     if($null-ne$boundDelivery-and-not$boundDelivery.closureSatisfied){throw 'ADOPTION_PROCESS_DELIVERY_NOT_CONFIRMED'}
     if($null-ne$prepared){
-        Assert-AiwAdoptionSame @($composition.selectedRequirements) @($prepared.selectedRuleBlocks) 'TARGET_RULE_DRIFT'
+        Assert-AiwPreparedComposition $composition $prepared 'TARGET_RULE_DRIFT'
         if($composition.selectedRulePackBytes-ne$prepared.selectedPackCeilingBytes){throw 'ADOPTION_PROCESS_PACK_BUDGET'}
         foreach($field in $prepared.projectedSourceBindings.PSObject.Properties){
             $live=if($field.Name-ceq'taskIdentity'){Get-AiwCurrentIdentity (Get-AiwContainedPath $Root $r.sourceLocators.taskRelativePath)}else{[string]$composition.($field.Name)}
             if($live-cne[string]$field.Value){throw ('ADOPTION_PROCESS_SOURCE_DRIFT|'+$field.Name)}
         }
     }else{
-        $obligations=@($composition.selectedRequirements|ForEach-Object{[ordered]@{requirementId=[string]$_.requirementId;preparationRequirements=@($_.preparationRequirements);resultRequirements=@($_.resultRequirements)}})
+        $obligations=@(Get-AiwAdoptionCompositionObligations $composition)
         Assert-AiwAdoptionSame $obligations @($r.selectedObligations) 'SAME_PIN_UNPREPARED_RULE_DRIFT'
     }
     $targetComposer=Get-AiwAdoptionRuntimeModule $newBinding.runtimeRoot 'framework/versions/2.0.0/scripts/ProcessRequirementComposition.psm1' @('Get-AiwProcessBindingSnapshot')
@@ -2300,7 +2325,7 @@ function Invoke-AiwSamePinRefreshFinalize($Root,$InputDoc,$ReceiptDoc,$Context,[
     }
     $requiredPrep=@($r.selectedObligations|ForEach-Object{$_.preparationRequirements})
     $requiredResult=@($r.selectedObligations|ForEach-Object{$_.resultRequirements})
-    if($null-ne$prepared){$requiredPrep+=@($prepared.selectedRuleBlocks|ForEach-Object{$_.preparationRequirements});$requiredResult+=@($prepared.selectedRuleBlocks|ForEach-Object{$_.resultRequirements})}
+    if($null-ne$prepared){$requiredPrep+=@((Get-AiwPreparedRuleObligations $prepared)|ForEach-Object{$_.preparationRequirements});$requiredResult+=@((Get-AiwPreparedRuleObligations $prepared)|ForEach-Object{$_.resultRequirements})}
     $requiredPrep=@($requiredPrep|Sort-Object -Unique);$requiredResult=@($requiredResult|Sort-Object -Unique)
     if($null-ne$delivery){$requiredResult=@($requiredResult|Where-Object{$_-cne'DELIVERY_RECEIPT'})}
     if(@($requiredPrep|Where-Object{$_-cnotin@($a.preparationReceipts)-or$_-cnotin@($b.preparationReceipts)}).Count-or
@@ -2345,7 +2370,7 @@ try {
             $current=New-AiwAdoptionProcessPreparation $root $InputPath $ExpectedInputIdentity $p.targetDistribution.runtimeRoot $p.projection $ObservedActor -CorrectionAdoption (Get-AiwCorrectionAdoptionEvidence $p)
             Assert-AiwAdoptionSame $current $p 'PREPARATION_DRIFT'
             Assert-AiwAdoptionSelectorJudgment $p $pDoc.Identity $b
-            $required=@($p.selectedRuleBlocks|ForEach-Object{$_.preparationRequirements}|Sort-Object -Unique)
+            $required=@((Get-AiwPreparedRuleObligations $p)|ForEach-Object{$_.preparationRequirements}|Sort-Object -Unique)
             if(@($required|Where-Object{$_-cnotin@($b.preparationReceipts)}).Count-or('ADOPTION_TARGET_RULES_LOADED|'+$pDoc.Identity)-cnotin@($b.preparationReceipts)){throw 'ADOPTION_PROCESS_TARGET_PREPARATION_INCOMPLETE'}
             # Delegate the actual, unmodified admission exactly once. Retain its
             # exact input before the version resolver's normal cleanup.
@@ -2434,7 +2459,7 @@ try {
         $boundDelivery=& $deliveryModule.ExportedFunctions['Get-AiwBoundDelivery'] $r $b
         $delivery=if($null-ne$boundDelivery){$boundDelivery.delivery}else{$null}
         if($null-ne$boundDelivery-and-not$boundDelivery.closureSatisfied){throw 'ADOPTION_PROCESS_DELIVERY_NOT_CONFIRMED'}
-        Assert-AiwAdoptionSame @($composition.selectedRequirements) @($p.selectedRuleBlocks) 'TARGET_RULE_DRIFT'
+        Assert-AiwPreparedComposition $composition $p 'TARGET_RULE_DRIFT'
         if($composition.selectedRulePackBytes-ne$p.selectedPackCeilingBytes){throw 'ADOPTION_PROCESS_PACK_BUDGET'}
         foreach($field in $p.projectedSourceBindings.PSObject.Properties){
             $live=if($field.Name-ceq'taskIdentity'){Get-AiwCurrentIdentity (Get-AiwContainedPath $root $r.sourceLocators.taskRelativePath)}else{[string]$composition.($field.Name)}
@@ -2467,9 +2492,9 @@ try {
             if([string]$field.Value-cne$expected){throw ('ADOPTION_PROCESS_SOURCE_DRIFT|'+$name)}
         }
         foreach($name in $p.oldSourceBindings.PSObject.Properties.Name){if($null-eq$bindings.PSObject.Properties[$name]-and$name-cne'correctionCoverageIdentity'){throw ('ADOPTION_PROCESS_UNSUPPORTED_SOURCE|'+$name)}}
-        $prep=@(@($r.selectedObligations|ForEach-Object{$_.preparationRequirements})+@($p.selectedRuleBlocks|ForEach-Object{$_.preparationRequirements})|Sort-Object -Unique)
+        $prep=@(@($r.selectedObligations|ForEach-Object{$_.preparationRequirements})+@((Get-AiwPreparedRuleObligations $p)|ForEach-Object{$_.preparationRequirements})|Sort-Object -Unique)
         if(@($prep|Where-Object{$_-cnotin@($a.preparationReceipts)-or$_-cnotin@($b.preparationReceipts)}).Count){throw 'ADOPTION_PROCESS_PREPARATION_INCOMPLETE'}
-        $results=@(@($r.selectedObligations|ForEach-Object{$_.resultRequirements})+@($p.selectedRuleBlocks|ForEach-Object{$_.resultRequirements})|Sort-Object -Unique)
+        $results=@(@($r.selectedObligations|ForEach-Object{$_.resultRequirements})+@((Get-AiwPreparedRuleObligations $p)|ForEach-Object{$_.resultRequirements})|Sort-Object -Unique)
         if($null-ne$delivery){$results=@($results|Where-Object{$_-cne'DELIVERY_RECEIPT'})}
         if(@($results|Where-Object{$_-cnotin@($b.resultReceipts)}).Count){throw 'ADOPTION_PROCESS_RESULT_INCOMPLETE'}
         if($null-eq$delivery-and$r.intentEnvelope.requestedResultKind-cin@('USER_RESPONSE','TERMINAL','HANDOFF','REVIEW_VERDICT','OWNER_ACCEPTANCE')-and@($b.deliveryReceipts).Count-eq0){throw 'ADOPTION_PROCESS_DELIVERY_INCOMPLETE'}
@@ -2510,6 +2535,39 @@ Export-ModuleMember -Function New-AiwAdoptionProcessPreparation,Invoke-AiwAdopti
 # Finish one original SOURCE action after one proved O -> T adoption. O owns
 # parsing, composition and evidence; T owns its completed adoption algorithm;
 # this qualified root tool X only connects those existing consumers.
+
+# Compare the actual applicable contract, including rules whose P/R arrays are
+# empty. These facts do not prove model reading or semantic conformance.
+function Get-AiwOriginalSourceRequirementFacts($Composition){
+    $obligations=@(Get-AiwAdoptionCompositionObligations $Composition)
+    $seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $facts=@(foreach($obligation in $obligations){
+        if(-not$seen.Add([string]$obligation.requirementId)){throw 'ORIGINAL_SOURCE_CURRENT_RULE_DUPLICATE'}
+        $rule=@($Composition.selectedRequirements|Where-Object requirementId -CEQ $obligation.requirementId)
+        if($rule.Count-ne1-or@($rule[0].displayParts).Count-eq0-or[string]::IsNullOrWhiteSpace([string]$rule[0].fullText)){throw 'ORIGINAL_SOURCE_CURRENT_RULE_BODY_REQUIRED'}
+        $parts=@(foreach($part in $rule[0].displayParts){
+            if([string]::IsNullOrWhiteSpace([string]$part.fullText)){throw 'ORIGINAL_SOURCE_CURRENT_RULE_BODY_REQUIRED'}
+            [pscustomobject]@{sourceLocator=$part.sourceLocator;unitIdentity=$(if($null-ne$part.PSObject.Properties['unitIdentity']){$part.unitIdentity}else{'NOT_APPLICABLE'});fullText=$part.fullText;orderedDependencies=$(if($null-ne$part.PSObject.Properties['orderedDependencies']){@($part.orderedDependencies)}else{@()})}
+        })
+        [pscustomobject]@{requirementId=$obligation.requirementId;selectorIdentity=$(if($null-ne$rule[0].PSObject.Properties['selectorIdentity']){$rule[0].selectorIdentity}else{'NOT_APPLICABLE'});preparationRequirements=@($obligation.preparationRequirements);resultRequirements=@($obligation.resultRequirements);parts=$parts}
+    })
+    return ,$facts
+}
+function Assert-AiwOriginalSourceCurrentRuleEffect($Original,$Current,[string]$Effect,$OriginComposer){
+    $before=Get-AiwOriginalSourceRequirementFacts $Original
+    $after=Get-AiwOriginalSourceRequirementFacts $Current
+    $oldIdentity=& $OriginComposer {param($value) Get-AiwContentDescriptorIdentity $value} $before
+    $currentIdentity=& $OriginComposer {param($value) Get-AiwContentDescriptorIdentity $value} $after
+    if($Effect-cnotin@('UNCHANGED','CONFORMS')){throw ('ORIGINAL_SOURCE_CURRENT_RULE_EFFECT_'+$Effect)}
+    if($Effect-ceq'UNCHANGED'-and$oldIdentity-cne$currentIdentity){throw 'ORIGINAL_SOURCE_CURRENT_RULE_EFFECT_NOT_UNCHANGED'}
+    # A semantic completion assessment cannot manufacture a new prior gate or
+    # typed acceptance. Added gates need authorized forward work, not relabeling.
+    foreach($name in @('preparationRequirements','resultRequirements')){
+        if(@($after.$name|Where-Object{$_-cnotin@($before.$name)}).Count){throw ('ORIGINAL_SOURCE_CURRENT_RULE_WORK_REQUIRED|'+$name)}
+    }
+    return [pscustomobject]@{assessment=$Effect;originalContractIdentity=$oldIdentity;currentContractIdentity=$currentIdentity;changed=($oldIdentity-cne$currentIdentity);semanticCorrectnessProven=$false;evidenceCeiling='INSTRUCTION_BOUND'}
+}
+
 function Invoke-AiwOriginalSourceFinalize {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$RepositoryRoot,
@@ -2524,16 +2582,26 @@ function Invoke-AiwOriginalSourceFinalize {
         [string]$OriginalAgentsPreimagePath,[string]$ExpectedOriginalAgentsPreimageIdentity,
         [string]$ExpectedCurrentAgentsIdentity,
         [string]$CurrentCompletionDecisionPath,[string]$ExpectedCurrentCompletionDecisionIdentity,
-        [ValidateSet('CURRENT_AND_COVERED','WITHDRAWN','UNKNOWN')][string]$CurrentCompletionPermission='UNKNOWN')
+        [ValidateSet('CURRENT_AND_COVERED','WITHDRAWN','UNKNOWN')][string]$CurrentCompletionPermission='UNKNOWN',
+        [string]$RulePublicationInputPath,[string]$ExpectedRulePublicationInputIdentity,
+        [ValidateSet('UNCHANGED','CONFORMS','WORK_REQUIRED','UNKNOWN')][string]$CurrentRuleEffect='UNKNOWN')
     $executionState=Get-AiwAdoptionRuntimeModule (Split-Path -Parent $PSScriptRoot) 'scripts/ProjectAdoptionState.psm1' @('Enter-AiwRootProjectSourceScope','Exit-AiwRootProjectSourceScope')
     $root=Resolve-AiwRepositoryRoot $RepositoryRoot
     $lease=& $executionState.ExportedCommands['Enter-AiwRootProjectSourceScope'] -ProjectRoot $root -Mode OBSERVE
     try{
         if($ObservedActor-cne[Environment]::GetEnvironmentVariable('CODEX_THREAD_ID','Process')){throw 'ORIGINAL_SOURCE_HOST_ACTOR'}
         if([string]::IsNullOrWhiteSpace($AdmitInputPath)-or[string]::IsNullOrWhiteSpace($ExpectedAdmitInputIdentity)-or[string]::IsNullOrWhiteSpace($AdmitResultPath)-or[string]::IsNullOrWhiteSpace($ExpectedAdmitResultIdentity)){throw 'ORIGINAL_SOURCE_ADMISSION_REQUIRED'}
+        $ruleCompletion=-not[string]::IsNullOrWhiteSpace($RulePublicationInputPath)-or-not[string]::IsNullOrWhiteSpace($ExpectedRulePublicationInputIdentity)
+        $samePinCompletion=$CompleteOriginalSourceAfterAgentsChange-or$ruleCompletion
+        if(-not$ruleCompletion-and$CurrentRuleEffect-cne'UNKNOWN'){throw 'ORIGINAL_SOURCE_RULE_COMPLETION_MODE_REQUIRED'}
         $adoptionValues=@($AdoptionAuthorizationPackagePath,$ExpectedAdoptionAuthorizationIdentity,$AdoptionFinalizeResultPath,$ExpectedAdoptionFinalizeResultIdentity,$ExpectedAdoptionTransactionIdentity)
         $agentsValues=@($OriginalAgentsPreimagePath,$ExpectedOriginalAgentsPreimageIdentity,$ExpectedCurrentAgentsIdentity,$CurrentCompletionDecisionPath,$ExpectedCurrentCompletionDecisionIdentity)
-        if($CompleteOriginalSourceAfterAgentsChange){
+        if($ruleCompletion){
+            if($CompleteOriginalSourceAfterAgentsChange-or@($adoptionValues|Where-Object{-not[string]::IsNullOrWhiteSpace($_)}).Count-or$OriginalAgentsPreimagePath-or$ExpectedOriginalAgentsPreimageIdentity-or$ExpectedCurrentAgentsIdentity){throw 'ORIGINAL_SOURCE_COMPLETION_MODE_CONFLICT'}
+            if([string]::IsNullOrWhiteSpace($RulePublicationInputPath)-or[string]::IsNullOrWhiteSpace($ExpectedRulePublicationInputIdentity)){throw 'ORIGINAL_SOURCE_RULE_PUBLICATION_REFERENCE_REQUIRED'}
+            if([string]::IsNullOrWhiteSpace($CurrentCompletionDecisionPath)-or[string]::IsNullOrWhiteSpace($ExpectedCurrentCompletionDecisionIdentity)){throw 'ORIGINAL_SOURCE_CURRENT_COMPLETION_DECISION_REQUIRED'}
+            if($CurrentRuleEffect-cnotin@('UNCHANGED','CONFORMS')){throw ('ORIGINAL_SOURCE_CURRENT_RULE_EFFECT_'+$CurrentRuleEffect)}
+        }elseif($CompleteOriginalSourceAfterAgentsChange){
             if(@($adoptionValues|Where-Object{-not[string]::IsNullOrWhiteSpace($_)}).Count){throw 'ORIGINAL_SOURCE_COMPLETION_MODE_CONFLICT'}
             if([string]::IsNullOrWhiteSpace($OriginalAgentsPreimagePath)-or[string]::IsNullOrWhiteSpace($ExpectedOriginalAgentsPreimageIdentity)){throw 'ORIGINAL_SOURCE_AGENTS_PREIMAGE_REQUIRED'}
             if([string]::IsNullOrWhiteSpace($ExpectedCurrentAgentsIdentity)){throw 'ORIGINAL_SOURCE_CURRENT_AGENTS_BINDING_REQUIRED'}
@@ -2543,7 +2611,7 @@ function Invoke-AiwOriginalSourceFinalize {
             if(@($adoptionValues|Where-Object{[string]::IsNullOrWhiteSpace($_)}).Count){throw 'ORIGINAL_SOURCE_COMPLETED_ADOPTION_EVIDENCE_REQUIRED'}
         }
         $completionReadRefs=@($InputPath,$AdmitInputPath,$AdmitResultPath)
-        if($CompleteOriginalSourceAfterAgentsChange){$completionReadRefs+=@($OriginalAgentsPreimagePath,$CurrentCompletionDecisionPath,(Join-Path $root 'AGENTS.md'))}else{$completionReadRefs+=@($AdoptionAuthorizationPackagePath,$AdoptionFinalizeResultPath)}
+        if($ruleCompletion){$completionReadRefs+=@($RulePublicationInputPath,$CurrentCompletionDecisionPath)}elseif($CompleteOriginalSourceAfterAgentsChange){$completionReadRefs+=@($OriginalAgentsPreimagePath,$CurrentCompletionDecisionPath,(Join-Path $root 'AGENTS.md'))}else{$completionReadRefs+=@($AdoptionAuthorizationPackagePath,$AdoptionFinalizeResultPath)}
         $forbidden=@($ForbiddenPaths)+@($ProtectedPaths)
         $checkPath={param([string]$path)
             $full=[IO.Path]::GetFullPath($path)
@@ -2573,7 +2641,7 @@ function Invoke-AiwOriginalSourceFinalize {
             $stopOriginalSource=$true
         }
         Assert-AiwAdoptionSame @($b.PSObject.Properties.Name|Sort-Object) @($fields|Sort-Object) 'ORIGINAL_SOURCE_BOUNDARY_FIELDS'
-        if($b.schemaVersion-ne3-or$b.mode-cne'FINALIZE_OUTPUT'-or$b.protectionState-cne'BOUND'){throw 'ORIGINAL_SOURCE_FINALIZE_ONLY'}
+        if($b.schemaVersion-ne3-or$b.mode-cne'FINALIZE_OUTPUT'-or$b.protectionState-cnotin@('BOUND','NOT_APPLICABLE')){throw 'ORIGINAL_SOURCE_FINALIZE_ONLY'}
         & $checkPath $b.discoverReceiptPath
         $rd=Read-AiwAdoptionEvidence $b.discoverReceiptPath $b.expectedDiscoverReceiptIdentity 'SOURCE_DISCOVER';$raw=$rd.Value
         if($raw.schemaVersion-notin@(3,4)-or$raw.binding.frameworkVersion-cne'2.0.0'){throw 'ORIGINAL_SOURCE_CONTRACT_UNSUPPORTED'}
@@ -2661,8 +2729,8 @@ function Invoke-AiwOriginalSourceFinalize {
            $a.protectionState-cne$b.protectionState-or$a.publicDecisionIdentity-cne$b.publicDecisionIdentity-or$ad.status-cne'PASS'-or$ad.mode-cne'ADMIT_ACTION'-or
            $ad.selectionIdentity-cne$r.selectionIdentity-or$ad.authorityGranted-ne$false-or$ad.semanticCorrectnessProven-ne$false-or@($ad.missingPreparation).Count-or@($ad.missingResult).Count-or
            (& $oldComposer.ExportedCommands['Get-AiwProcessDecisionIdentity'] $raw $a)-cne$ad.decisionIdentity){throw 'ORIGINAL_SOURCE_ADMISSION'}
-        $completionDocuments=@();$completionAdoptionDocuments=@()
-        if($CompleteOriginalSourceAfterAgentsChange){
+        $completionDocuments=@();$completionAdoptionDocuments=@();$ruleHistory=$null;$currentRuleComposition=$null;$ruleEffectObservation=$null
+        if($samePinCompletion){
             # This is completion under the original admission, not historical
             # success, a new source action, or an invented adoption transaction.
             $binding=Get-AiwAdoptedDistributionBinding $root '2.0.0'
@@ -2684,26 +2752,45 @@ function Invoke-AiwOriginalSourceFinalize {
                 if([string]::IsNullOrWhiteSpace($text)-or$text.Contains([char]0)){throw ('ORIGINAL_SOURCE_'+$label+'_TEXT')}
                 [pscustomobject]@{Path=[IO.Path]::GetFullPath($path);Identity=$identity;Bytes=$bytes;Text=$text}
             }
-            $agentsPreimage=& $readText $OriginalAgentsPreimagePath $ExpectedOriginalAgentsPreimageIdentity 'AGENTS_PREIMAGE'
-            if($agentsPreimage.Identity-cne$r.sourceBindings.projectAgentsIdentity){throw 'ORIGINAL_SOURCE_AGENTS_PREIMAGE_NOT_ORIGINAL'}
-            $currentAgents=& $readText (Join-Path $root 'AGENTS.md') $ExpectedCurrentAgentsIdentity 'CURRENT_AGENTS'
-            if($currentAgents.Identity-ceq$agentsPreimage.Identity){throw 'ORIGINAL_SOURCE_AGENTS_CHANGE_REQUIRED_USE_ORIGINAL_FINALIZE'}
             $completionDecision=& $readText $CurrentCompletionDecisionPath $ExpectedCurrentCompletionDecisionIdentity 'COMPLETION_DECISION'
             if($CurrentCompletionPermission-cne'CURRENT_AND_COVERED'){throw ('ORIGINAL_SOURCE_COMPLETION_PERMISSION_'+$CurrentCompletionPermission)}
-            # The caller has read both complete AGENTS and the actual decision.
+            if($ruleCompletion){
+                $oldPublication=Get-AiwAdoptionRuntimeModule $oldRuntime 'framework/versions/2.0.0/scripts/ProjectSourcePublication.psm1' @('Get-AiwProjectSourcePublicationEligibility')
+                $historyReader=Get-AiwAdoptionRuntimeModule $toolRoot 'framework/versions/2.0.0/scripts/ProjectSourcePublication.psm1' @('Get-AiwProjectSourcePublicationHistory')
+                $ruleHistory=& $historyReader.ExportedCommands['Get-AiwProjectSourcePublicationHistory'] -ProjectRoot $root -FinalizeInputRef ([pscustomobject]@{path=$RulePublicationInputPath;identity=$ExpectedRulePublicationInputIdentity}) -OriginalRuntimeRoot $oldRuntime -OriginPublication $oldPublication -OriginComposer $oldComposer -OriginState $oldStateModule -OriginDelivery $oldDelivery -ForbiddenPaths $forbidden
+                if(@($r.exactPaths|Where-Object{$_-cin@($ruleHistory.plan.objects.path)}).Count){throw 'ORIGINAL_SOURCE_RULE_PUBLICATION_SCOPE_OVERLAP'}
+                $policyObject=@($ruleHistory.plan.objects|Where-Object path -CEQ '.ai-workspace/process-policy.json')
+                $configObject=@($ruleHistory.plan.objects|Where-Object path -CEQ '.ai-workspace/project.json')
+                if($policyObject.Count-ne1-or$configObject.Count-ne1-or$policyObject[0].preimage.identity-cne$r.sourceBindings.policyIdentity-or$configObject[0].preimage.identity-cne$r.sourceBindings.projectConfigIdentity-or$configObject[0].postimage.identity-cne$currentProject.Identity){throw 'ORIGINAL_SOURCE_RULE_PUBLICATION_NOT_ORIGINAL'}
+                if($configObject[0].preimage.identity-cne$configObject[0].postimage.identity){throw 'ORIGINAL_SOURCE_RULE_PERMISSION_CHANGE_UNSUPPORTED'}
+                $livePolicy=Join-Path $root '.ai-workspace/process-policy.json';& $checkPath $livePolicy
+                if((Get-AiwCurrentIdentity $livePolicy)-cne$policyObject[0].postimage.identity){throw 'ORIGINAL_SOURCE_RULE_PUBLICATION_TARGET_CHANGED'}
+                $completionDocuments=@($completionDecision)+@($ruleHistory.documents)
+            }else{
+                $agentsPreimage=& $readText $OriginalAgentsPreimagePath $ExpectedOriginalAgentsPreimageIdentity 'AGENTS_PREIMAGE'
+                if($agentsPreimage.Identity-cne$r.sourceBindings.projectAgentsIdentity){throw 'ORIGINAL_SOURCE_AGENTS_PREIMAGE_NOT_ORIGINAL'}
+                $currentAgents=& $readText (Join-Path $root 'AGENTS.md') $ExpectedCurrentAgentsIdentity 'CURRENT_AGENTS'
+                if($currentAgents.Identity-ceq$agentsPreimage.Identity){throw 'ORIGINAL_SOURCE_AGENTS_CHANGE_REQUIRED_USE_ORIGINAL_FINALIZE'}
+                $completionDocuments=@($agentsPreimage,$currentAgents,$completionDecision)
+            }
+            # The caller has read the complete applicable rules and decision.
             # This explicit semantic assessment is instruction-bound; hashes
             # cannot infer that a human grant survived or permits completion.
             $selection=[pscustomobject]@{profile=$c.profile;role=$c.role;phase=$c.phase;actor=$c.actor;actionKind=$r.actionKind;resultKind=$r.resultKind;exactPaths=@($r.exactPaths);capabilities=@($c.observedCapabilities);intentEnvelope=$r.intentEnvelope}
-            $live=& $oldComposer.ExportedCommands['Get-AiwProcessBindingSnapshot'] -ProjectRoot $root -FrameworkRoot $oldRuntime -TargetVersion '2.0.0' -TaskRelativePath $r.sourceLocators.taskRelativePath -ForbiddenPaths $forbidden -SelectionContext $selection
+            if($ruleCompletion){
+                $currentRuleComposition=& $oldComposer.ExportedCommands['Invoke-ProcessRequirementComposition'] -ProjectRoot $root -FrameworkRoot $oldRuntime -TargetVersion '2.0.0' -ExpectedProjectConfigIdentity $r.sourceBindings.projectConfigIdentity -ExpectedCorrectionsIdentity $r.sourceBindings.correctionsIdentity -Profile $c.profile -Role $c.role -Phase $c.phase -Actor $c.actor -TaskIdentity $c.taskIdentity -Capabilities @($c.observedCapabilities) -Objective (& $oldComposer.ExportedCommands['Get-AiwProcessSemanticText'] $r.intentEnvelope) -ActionKind 'SOURCE_WRITE' -ResultKind $r.resultKind -ExactPaths @($r.exactPaths) -ForbiddenPaths $forbidden -IntentEnvelope $r.intentEnvelope
+                if($currentRuleComposition.status-cne'PASS'){throw 'ORIGINAL_SOURCE_CURRENT_RULE_COMPOSITION_FAILED'}
+                $currentRuleBindings=& $oldComposer.ExportedCommands['Get-AiwProcessBindingSnapshot'] -ProjectRoot $root -FrameworkRoot $oldRuntime -TargetVersion '2.0.0' -TaskRelativePath $r.sourceLocators.taskRelativePath -ForbiddenPaths $forbidden -SelectionContext $selection -RuleObservation $currentRuleComposition.sourceObservation
+                $live=$currentRuleBindings
+            }else{$live=& $oldComposer.ExportedCommands['Get-AiwProcessBindingSnapshot'] -ProjectRoot $root -FrameworkRoot $oldRuntime -TargetVersion '2.0.0' -TaskRelativePath $r.sourceLocators.taskRelativePath -ForbiddenPaths $forbidden -SelectionContext $selection}
             foreach($field in $r.sourceBindings.PSObject.Properties){
                 # The live read must obey all current restrictions. O includes
                 # its forbidden array in effectiveSetIdentity; the protected
                 # stage composition below separately verifies that exact
                 # original identity using the original array, including order.
-                if($field.Name-cin@('projectAgentsIdentity','effectiveSetIdentity')){continue}
+                if($ruleCompletion){if($field.Name-cin@('policyIdentity','projectStandardsIdentity','contentSnapshotIdentity','effectiveSetIdentity')){continue}}elseif($field.Name-cin@('projectAgentsIdentity','effectiveSetIdentity')){continue}
                 if([string]$live.($field.Name)-cne[string]$field.Value){throw ('ORIGINAL_SOURCE_CURRENT_BINDING_DRIFT|'+$field.Name)}
             }
-            $completionDocuments=@($agentsPreimage,$currentAgents,$completionDecision)
         }else{
         $matches=@(foreach($relative in @('.ai-workspace/runtime/project-adoption/upgrade/state.json','.ai-workspace/runtime/project-adoption/refresh/state.json')){
             $path=Get-AiwContainedPath $root $relative
@@ -2752,7 +2839,8 @@ function Invoke-AiwOriginalSourceFinalize {
         # Current authority and narrowing remain effective. Stage only exact
         # original carriers from the already proved projection; source bodies
         # stay at their original allowed locations via O's content context.
-        $stage=Join-Path ([IO.Path]::GetTempPath()) ('aiw-original-source-'+[guid]::NewGuid().ToString('N'))
+        $completionStagePrefix=if($ruleCompletion){'aiw-publication-'}else{'aiw-original-source-'}
+        $stage=Join-Path ([IO.Path]::GetTempPath()) ($completionStagePrefix+[guid]::NewGuid().ToString('N'))
         $null=[IO.Directory]::CreateDirectory($stage)
         try{
             foreach($relative in @('.ai-workspace/project.json','.ai-workspace/controller.json','.ai-workspace/corrections.json','.ai-workspace/process-policy.json','.ai-workspace/BOOTSTRAP.md','AGENTS.md',$r.sourceLocators.taskRelativePath)){
@@ -2762,7 +2850,11 @@ function Invoke-AiwOriginalSourceFinalize {
                     if($live.Equals($absolute,[StringComparison]::OrdinalIgnoreCase)-or$live.StartsWith($absolute.TrimEnd('/','\')+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)){throw 'ORIGINAL_SOURCE_PROTECTED_CARRIER'}
                 }
                 if($CompleteOriginalSourceAfterAgentsChange-and$relative-ceq'AGENTS.md'){Write-AiwAtomicBytes (Get-AiwContainedPath $stage $relative) $agentsPreimage.Bytes;continue}
-                $projection=@(if(-not$CompleteOriginalSourceAfterAgentsChange){$txn.projection.objects|Where-Object path -CEQ $relative})
+                if($ruleCompletion){
+                    $frozen=@($ruleHistory.plan.objects|Where-Object{$_.ownerMember-ceq'CONTROL'-and$_.path-ceq$relative})
+                    if($frozen.Count-eq1){$doc=$ruleHistory.objects[$relative+'|preimage'];Write-AiwAtomicBytes (Get-AiwContainedPath $stage $relative) $doc.Bytes;continue}
+                }
+                $projection=@(if(-not$samePinCompletion){$txn.projection.objects|Where-Object path -CEQ $relative})
                 if($projection.Count-eq1){if($projection[0].oldExists){Write-AiwAtomicBytes (Get-AiwContainedPath $stage $relative) ([Convert]::FromBase64String($projection[0].oldBase64))}}
                 elseif(Test-Path -LiteralPath $live -PathType Leaf){Write-AiwAtomicBytes (Get-AiwContainedPath $stage $relative) ([IO.File]::ReadAllBytes($live))}
             }
@@ -2777,9 +2869,18 @@ function Invoke-AiwOriginalSourceFinalize {
             # old managed block. Bind that change to its original full preimage
             # and already checked live postimage, rather than comparing layouts.
             # A later withdrawal/narrowing cannot match that saved postimage.
-            $agentsProjection=@(if(-not$CompleteOriginalSourceAfterAgentsChange){$txn.projection.objects|Where-Object path -CEQ 'AGENTS.md'})
+            $agentsProjection=@(if(-not$samePinCompletion){$txn.projection.objects|Where-Object path -CEQ 'AGENTS.md'})
             if($agentsProjection.Count-eq1-and$agentsProjection[0].oldIdentity-cne$r.sourceBindings.projectAgentsIdentity){throw 'ORIGINAL_SOURCE_CURRENT_USER_DECISION_CHANGED'}
-            $context=& $oldComposer.ExportedCommands['New-AiwAdoptionContentContext'] -ProjectRoot $stage -SourceProjectRoot $root -ExpectedProjectConfigIdentity $r.sourceBindings.projectConfigIdentity -ForbiddenPaths $forbidden
+            if($ruleCompletion){
+                $projected=@(foreach($object in $ruleHistory.plan.objects){
+                    if($object.ownerMember-cne'SOURCE'-or$object.preimage.identity-ceq'NEW'){continue}
+                    $doc=$ruleHistory.objects[$object.path+'|preimage']
+                    Write-AiwAtomicBytes (Get-AiwContainedPath $stage $object.path) $doc.Bytes
+                    [pscustomobject]@{kind='FILE';path=$object.path;newExists=$true;newBase64=[Convert]::ToBase64String($doc.Bytes);newIdentity=$doc.Identity}
+                })
+                $oldContent=Get-AiwAdoptionRuntimeModule $oldRuntime 'framework/versions/2.0.0/scripts/ContentSources.psm1' @('New-AiwContentContext')
+                $context=& $oldContent.ExportedCommands['New-AiwContentContext'] -ProjectRoot $stage -SourceProjectRoot $root -ExpectedProjectConfigIdentity $r.sourceBindings.projectConfigIdentity -ForbiddenPaths $forbidden -ProjectedSourceObjects $projected
+            }else{$context=& $oldComposer.ExportedCommands['New-AiwAdoptionContentContext'] -ProjectRoot $stage -SourceProjectRoot $root -ExpectedProjectConfigIdentity $r.sourceBindings.projectConfigIdentity -ForbiddenPaths $forbidden}
             # O16 includes the exact original forbidden array in its effective
             # set identity. Reproduce that original input, including order;
             # current restrictions independently constrain the already checked
@@ -2790,12 +2891,14 @@ function Invoke-AiwOriginalSourceFinalize {
                 $actual=if($field.Name-ceq'taskIdentity'){$c.taskIdentity}else{$composition.($field.Name)}
                 if([string]$actual-cne[string]$field.Value){throw ('ORIGINAL_SOURCE_CONTRACT_NOT_PRESERVED|'+$field.Name)}
             }
-            $obligations=@($composition.selectedRequirements|ForEach-Object{[pscustomobject]@{requirementId=$_.requirementId;preparationRequirements=@($_.preparationRequirements);resultRequirements=@($_.resultRequirements)}})
+            $obligations=@(Get-AiwAdoptionCompositionObligations $composition)
             Assert-AiwAdoptionSame $obligations @($r.selectedObligations) 'ORIGINAL_SOURCE_OBLIGATIONS'
+            if($ruleCompletion){$ruleEffectObservation=Assert-AiwOriginalSourceCurrentRuleEffect $composition $currentRuleComposition $CurrentRuleEffect $oldComposer}
         }finally{
-            $parent=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath([IO.Path]::GetTempPath()))+[IO.Path]::DirectorySeparatorChar
+            $parent=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath([IO.Path]::GetTempPath()))
             $full=[IO.Path]::GetFullPath($stage)
-            if(-not$full.StartsWith($parent,[StringComparison]::OrdinalIgnoreCase)-or-not[IO.Path]::GetFileName($full).StartsWith('aiw-original-source-')){throw 'ORIGINAL_SOURCE_STAGE_CLEANUP_BOUNDARY'}
+            if([IO.Path]::GetDirectoryName($full)-cne$parent-or[IO.Path]::GetFileName($full)-cnotmatch('^'+[regex]::Escape($completionStagePrefix)+'[a-f0-9]{32}$')){throw 'ORIGINAL_SOURCE_STAGE_CLEANUP_BOUNDARY'}
+            if($ruleCompletion){& $oldPublication {param($path) Remove-PubProjectionCache $path} $stage}
             [IO.Directory]::Delete($full,$true)
         }
         # Reuse O's strict postimage and typed evidence consumers, on the actual
@@ -2833,14 +2936,22 @@ function Invoke-AiwOriginalSourceFinalize {
         if($missingPrep.Count-or$missingResult.Count){throw 'ORIGINAL_SOURCE_OBLIGATIONS_INCOMPLETE'}
         if($null-eq$delivery-and$r.resultKind-cin@('USER_RESPONSE','TERMINAL','HANDOFF','REVIEW_VERDICT','RESULT_ACCEPTANCE')-and@($b.deliveryReceipts).Count-eq0){throw 'ORIGINAL_SOURCE_DELIVERY_REQUIRED'}
         foreach($doc in @($inputDoc,$rd,$packageDoc,$admitInput,$admitDoc,$currentProject)+@($completionDocuments)+@($completionAdoptionDocuments)){if((Get-AiwCurrentIdentity $doc.Path)-cne$doc.Identity){throw 'ORIGINAL_SOURCE_EVIDENCE_DRIFT_DURING_CHECK'}}
-        $result=[ordered]@{status='PASS';mode='FINALIZE_OUTPUT';reason=$(if($CompleteOriginalSourceAfterAgentsChange){'ORIGINAL_SOURCE_FINALIZED_AFTER_SAME_PIN_AGENTS_CHANGE'}else{'ORIGINAL_SOURCE_FINALIZED_AFTER_COMPLETED_ADOPTION'});originalDiscoverReceiptIdentity=$rd.Identity;originalAdmitDecisionIdentity=$ad.decisionIdentity;decisionIdentity=(& $oldComposer.ExportedCommands['Get-AiwProcessDecisionIdentity'] $raw $b);originalRuntimeRoot=$oldRuntime;targetRuntimeRoot=$targetBinding.runtimeRoot;executionRuntimeRoot=$toolRoot;actionOutcome='OBSERVED';successorState='NONE';missingPreparation=@();missingResult=@();authorityGranted=$false;semanticCorrectnessProven=$false;hostInvocationProven=$false;evidenceGrade='INSTRUCTION_BOUND'}
+        if($ruleCompletion){
+            $last=& $oldComposer.ExportedCommands['Get-AiwProcessBindingSnapshot'] -ProjectRoot $root -FrameworkRoot $oldRuntime -TargetVersion '2.0.0' -TaskRelativePath $r.sourceLocators.taskRelativePath -ForbiddenPaths $forbidden -SelectionContext $selection -RuleObservation $currentRuleComposition.sourceObservation
+            foreach($field in $r.sourceBindings.PSObject.Properties){if([string]$last.($field.Name)-cne[string]$currentRuleBindings.($field.Name)){throw ('ORIGINAL_SOURCE_CURRENT_RULE_DRIFT_DURING_CHECK|'+$field.Name)}}
+        }
+        $result=[ordered]@{status='PASS';mode='FINALIZE_OUTPUT';reason=$(if($ruleCompletion){'ORIGINAL_SOURCE_FINALIZED_AFTER_RULE_PUBLICATION'}elseif($CompleteOriginalSourceAfterAgentsChange){'ORIGINAL_SOURCE_FINALIZED_AFTER_SAME_PIN_AGENTS_CHANGE'}else{'ORIGINAL_SOURCE_FINALIZED_AFTER_COMPLETED_ADOPTION'});originalDiscoverReceiptIdentity=$rd.Identity;originalAdmitDecisionIdentity=$ad.decisionIdentity;decisionIdentity=(& $oldComposer.ExportedCommands['Get-AiwProcessDecisionIdentity'] $raw $b);originalRuntimeRoot=$oldRuntime;targetRuntimeRoot=$targetBinding.runtimeRoot;executionRuntimeRoot=$toolRoot;actionOutcome='OBSERVED';successorState='NONE';missingPreparation=@();missingResult=@();authorityGranted=$false;semanticCorrectnessProven=$false;hostInvocationProven=$false;evidenceGrade='INSTRUCTION_BOUND'}
         if($stopOriginalSource){
             $result.actionOutcome=$self
             $result.reason='ORIGINAL_SOURCE_STOPPED_AFTER_SAME_PIN_AGENTS_CHANGE'
             $result.successorState='STOPPED'
             if($stopDeliveryPending){$result.status='BLOCKED';$result.reason='ORIGINAL_SOURCE_STOP_DELIVERY_NOT_CONFIRMED';$result.successorState='NONE';$result.missingResult=@('DELIVERY_NOT_CONFIRMED')}
         }
-        if($CompleteOriginalSourceAfterAgentsChange){
+        if($ruleCompletion){
+            $result.rulePublicationInputRef=[ordered]@{path=$RulePublicationInputPath;identity=$ExpectedRulePublicationInputIdentity}
+            $result.currentCompletionDecisionRef=[ordered]@{path=$completionDecision.Path;identity=$completionDecision.Identity};$result.currentCompletionPermission=$CurrentCompletionPermission
+            $result.currentRuleEffect=$ruleEffectObservation
+        }elseif($CompleteOriginalSourceAfterAgentsChange){
             $result.originalAgentsPreimageIdentity=$agentsPreimage.Identity;$result.currentAgentsIdentity=$currentAgents.Identity
             $result.currentCompletionDecisionRef=[ordered]@{path=$completionDecision.Path;identity=$completionDecision.Identity};$result.currentCompletionPermission=$CurrentCompletionPermission
         }else{$result.adoptionTransactionIdentity=$txnDoc.Identity}

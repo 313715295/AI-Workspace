@@ -289,7 +289,13 @@ function Assert-AiwOriginalCompletionReadPaths {
     $denied=@(foreach($path in $ForbiddenPaths){
         if([string]::IsNullOrWhiteSpace($path)){throw 'ORIGINAL_SOURCE_PROTECTION_PATH'}
         if([IO.Path]::IsPathRooted($path)){[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($path))}
-        else{Assert-AiwRelativePath $path;[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Join-Path $root $path)))}
+        else{
+            # A protection scope may name a directory with a trailing slash.
+            # Normalize only this prefix; ordinary file paths stay strict.
+            $prefix=$path.TrimEnd('/')
+            Assert-AiwRelativePath $prefix
+            [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Join-Path $root $prefix)))
+        }
     })
     foreach($path in @($root)+@($Paths|Where-Object{-not[string]::IsNullOrWhiteSpace($_)})){
         $full=[IO.Path]::GetFullPath($path,$root)
@@ -883,7 +889,7 @@ function Assert-AiwOriginalFormatFinalize {
     if($null-ne$a.PSObject.Properties['evidenceRefs']){$material+=($a.evidenceRefs|ConvertTo-Json -Depth 30 -Compress)}
     if((Get-AiwByteIdentity $script:Utf8Strict.GetBytes($material)).Split('|')[1]-cne$admit.decisionIdentity){throw 'ADOPTION_ORIGINAL_ADMIT_DECISION'}
     if(-not(Test-AiwRootJsonSame $p.projection $Transaction.projection)){throw 'ADOPTION_ORIGINAL_FINALIZE_PROJECTION'}
-    $required=@(@($receipt.selectedObligations)+@($p.selectedRuleBlocks))
+    $required=@(@($receipt.selectedObligations)+@(Get-AiwPreparedRuleObligations $p))
     foreach($obligation in $required){
         foreach($name in $obligation.preparationRequirements){if($name-cnotin@($a.preparationReceipts)-or$name-cnotin@($input.preparationReceipts)){throw 'ADOPTION_ORIGINAL_FINALIZE_PREPARATION'}}
         foreach($name in $obligation.resultRequirements){if($name-cne'DELIVERY_RECEIPT'-and$name-cnotin@($input.resultReceipts)){throw 'ADOPTION_ORIGINAL_FINALIZE_RESULT'}}
@@ -1310,7 +1316,7 @@ function Assert-AiwFixedAdmissionShape($Admit){
     Assert-AiwAdoptionMembers $p @('projection','previousDistribution','targetDistribution','oldSourceBindings','selectedRuleBlocks') 'FIXED_ADOPTION_PREPARATION'
     Assert-AiwAdoptionStringFields $p @('discoverReceiptIdentity') 'FIXED_ADOPTION_PREPARATION'
     Assert-AiwAdoptionMembers $p.oldSourceBindings @() 'FIXED_ADOPTION_PREPARATION_SOURCES'
-    Assert-AiwFixedObligationShape $p.selectedRuleBlocks
+    $null=Get-AiwPreparedRuleObligations $p
     Assert-AiwFixedBindingShape $p.previousDistribution;Assert-AiwFixedBindingShape $p.targetDistribution
 }
 function Assert-AiwFixedReceiptShape($Receipt){
@@ -1333,6 +1339,39 @@ function Assert-AiwFixedObligationShape($Obligations){
         if($obligation.preparationRequirements-isnot[array]-or$obligation.resultRequirements-isnot[array]){throw 'FIXED_ADOPTION_OBLIGATION_ARRAY'}
     }
 }
+function Get-AiwPreparedRuleObligations($Preparation){
+    Assert-AiwAdoptionMembers $Preparation @('schemaVersion','selectedRuleBlocks') 'FIXED_ADOPTION_PREPARATION'
+    if(-not(Test-AiwAdoptionInteger $Preparation.schemaVersion)-or$Preparation.schemaVersion-notin@(1,2)){throw 'FIXED_ADOPTION_PREPARATION_SCHEMA'}
+    Assert-AiwFixedObligationShape $Preparation.selectedRuleBlocks
+    $bodies=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal)
+    foreach($row in $Preparation.selectedRuleBlocks){
+        Assert-AiwAdoptionStringFields $row @('requirementId') 'FIXED_ADOPTION_RULE'
+        if(-not$bodies.TryAdd($row.requirementId,$row)){throw 'FIXED_ADOPTION_RULE_DUPLICATE'}
+        foreach($axis in @('preparationRequirements','resultRequirements')){
+            $names=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+            foreach($name in $row.$axis){if($name-isnot[string]-or[string]::IsNullOrWhiteSpace($name)-or-not$names.Add($name)){throw 'FIXED_ADOPTION_OBLIGATION_STRING'}}
+        }
+    }
+    if($Preparation.schemaVersion-eq1){
+        if($null-ne$Preparation.PSObject.Properties['selectedObligations']){throw 'FIXED_ADOPTION_PREPARATION_SCHEMA'}
+        # Legacy rows are the original frozen operation set, never today's policy.
+        foreach($row in $Preparation.selectedRuleBlocks){[pscustomobject]@{requirementId=$row.requirementId;preparationRequirements=@($row.preparationRequirements);resultRequirements=@($row.resultRequirements)}}
+        return
+    }
+    Assert-AiwAdoptionMembers $Preparation @('selectedObligations') 'FIXED_ADOPTION_PREPARATION'
+    Assert-AiwFixedObligationShape $Preparation.selectedObligations
+    $operations=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach($row in $Preparation.selectedObligations){
+        Assert-AiwAdoptionFields $row @('requirementId','preparationRequirements','resultRequirements') 'FIXED_ADOPTION_OPERATION'
+        if($row.requirementId-isnot[string]-or-not$operations.Add($row.requirementId)-or-not$bodies.ContainsKey($row.requirementId)){throw 'FIXED_ADOPTION_OPERATION_SELECTION'}
+        foreach($axis in @('preparationRequirements','resultRequirements')){
+            if(-not(Test-AiwRootJsonSame @($row.$axis) @($bodies[$row.requirementId].$axis))){throw 'FIXED_ADOPTION_OPERATION_OBLIGATIONS'}
+        }
+    }
+    foreach($row in $Preparation.selectedRuleBlocks){if(-not$operations.Contains($row.requirementId)-and(@($row.preparationRequirements).Count-or@($row.resultRequirements).Count)){throw 'FIXED_ADOPTION_BODY_ONLY_OBLIGATIONS'}}
+    $Preparation.selectedObligations
+}
+Export-ModuleMember -Function Get-AiwPreparedRuleObligations
 function Assert-AiwAdoptionFields($Object,[string[]]$Fields,[string]$Label) {
     if($Object-isnot[pscustomobject]-or@($Object.PSObject.Properties).Count-ne$Fields.Count-or
        @($Fields|Where-Object{$_-cnotin$Object.PSObject.Properties.Name}).Count){throw ($Label+'_FIELDS')}

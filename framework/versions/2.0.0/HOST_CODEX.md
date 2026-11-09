@@ -14,7 +14,7 @@
 
 初始可直接选择足够配置，无须较低配置先失败；max不保证优于xhigh，Astra/high不保证强于Sol/max或更低总成本。历史配置、试验和当时费率只支持原事实，不冒充本表实测。
 
-新任务在实际宿主调用中落实已选model/effort，分别记录requested和accepted；省略参数不说成宿主拒绝，prompt不证明物理切档。omitted/rejected/normalized/ignored、接受未知、host移动或能力实变时复查；健康配置不要求peer握手。临时覆盖沿其用途与退出边界处理，不擅改长期责任绑定；不满足能力时报RESOURCE_CAPABILITY_REQUIRED，不静默降质。
+调用前按AUTHORIZATION_MODEL核仍有效的原始人类来源；用户确认的项目工作约定若将批准策略内的具体model/effort决定交给AI，该范围内的已作决定沿约定执行，不再要求最新一句逐次点名。真正更高优先级的宿主限制仍保留，只补实际缺件，NOT_SUBMITTED不称宿主拒绝。新任务在实际宿主调用中落实已选model/effort，分别记录requested和accepted；省略参数不说成宿主拒绝，prompt不证明物理切档。omitted/rejected/normalized/ignored、接受未知、host移动或能力实变时复查；健康配置不要求peer握手。临时覆盖沿其用途与退出边界处理，不擅改长期责任绑定；不满足能力时报RESOURCE_CAPABILITY_REQUIRED，不静默降质。
 
 计量复用原日志、实际运行和交付验收记录，由最后消费者在自然收尾提取必要配置、首交/返工、耗时及费用覆盖。未知不填零，不为补齐数据另开模型回合；pack bytes或resolver延迟不替代模型收益。
 <!-- AIW-REQUIREMENT:PR_CODEX_RESOURCE_ROUTE:END -->
@@ -27,8 +27,6 @@
 实际发送后在同一工具编排保存完整原始返回并OBSERVE：非错误MCP text JSON中唯一匹配threadId表示宿主受理；明确拒绝为FAILURE，无可确定结果为UNKNOWN。按TOOL_CONTRACT同时核对当前消费者与返回原字节；未知/失败停止依赖发送，不制造未来回执、ACK或额外登记回合，重试资格只取真实宿主明确有界信号。发送受理不等于对方执行、审核或接受。
 普通USER答复能否省机械收口，取当前同时必选的RECOVERY_CORE / PR_PROCESS_REQUIREMENTS_PROGRESSIVE_BOUNDARIES完整条件。
 
-该普通USER例外不改变真实跨任务PREPARE/发送/OBSERVE、人类来源、精确消费者或拒绝/未知规则，也不为Review、接受或责任终态制造成功。
-
 <!-- AIW-REQUIREMENT:PR_COMPACT_NON_INTERRUPT_DELIVERY:END -->
 
 <!-- AIW-REQUIREMENT:PR_CODEX_TOOL_OPERATION_RESOLUTION:BEGIN -->
@@ -36,9 +34,9 @@
 
 新有限成果、新独审按TASK默认新建可见会话；同一原成果或同审有界修复复审可续仍健康、合格的原会话。创建时同一次实际调用落实选定model、effort、环境和宿主支持的精确起点，使用标题参数，并核对真实thread ID、配置及读取基线。clientThreadId不作正式主体。当前未提交材料、隔离需要和用户指定影响起点，不因“独审”或Git名称自动强制worktree；宿主不支持与用户没授权分别报告，不静默换环境。明确controlRoot及executionTarget的初始指令优先于执行目录内历史复制入口，实际authority/保护仍由当前工具核对。
 
-已知接收者直接使用真实ID。新建未知ID时，创建提示一次交齐完整工作/验收/候选/消费者、可核对的原始人类来源和待绑定原件路径、identity、delegationId；原件不可执行。接收者从自己的真实初始委派核对原件，AUTHORIZATION_RECEIVER_BIND读取宿主CODEX_THREAD_ID，仅按原模板绑定自身，不能改Owner/issuer/范围/动作/候选。该关系为INSTRUCTION_BOUND，不声称工具能认证初始提示；缺失/不符只读停止。具体assignment/receiverBinding字段唯一TOOL_CONTRACT；健康续作复用有效绑定，不默认创建后补包。
+已知接收者直接使用真实ID。新建未知临时actor时，创建提示一次交齐完整工作/验收/候选/消费者、原始人类来源及不可执行待绑定原件路径、identity、delegationId。接收者核自己的真实初始委派后，AUTHORIZATION_RECEIVER_BIND仅从CODEX_THREAD_ID绑定grantee；不能改Owner/issuer/范围/动作/候选。新有限任务的Owner登记是另一情形：创建前备齐非执行登记模板和完整简报，返回真实threadId后由发起方连续登记真实Owner/route及当前精确包并完成原F。创建提示如实说明登记待完成并一次交齐可预备引用；执行资格唯一取TASK_AND_SCOPE的PR_TASK_LAUNCH_AND_ROUTE，以接收者实际读取时事实为准。确因缺项停止需恢复或初始引用不全时，登记方补必要材料。receiverBinding不能登记新Owner。关系保持INSTRUCTION_BOUND，不声称工具认证提示；具体字段唯一TOOL_CONTRACT，健康续作不重复绑定。
 
-宿主明确要求创建后首次进度观察时，在取得真实可用ID后仅做一次立即快照，未就绪结束本轮；超时/commentary不触发继续等待。当前命令必要等待与peer等待分开，后者遵循TASK。显示标题仅在主题/职责实变时按真实ID更新，不发送指令，不改变Owner、范围、权限或贡献历史；不靠恢复改名让已关闭/归档有限会话默认接新成果。有限成果已交付、原结果已消费且无后续职责时，实际收尾责任人在已有权限内用宿主归档并核对真实结果；待验收、返修及真实长期职责保留，任务卡与会话归档分别确认。实际交审依赖顺序唯一取REVIEW_AND_EVIDENCE。
+宿主明确要求创建后首次进度观察时，在取得真实可用ID后仅做一次立即快照，未就绪结束本轮；超时/commentary不触发继续等待。当前命令必要等待与peer等待分开，后者遵循TASK。会话继续、释放与应归档条件取TASK；落实时用真实ID调用标题/归档工具并核对宿主返回，标题不发送工作指令，任务卡归档不替代会话归档。实际交审依赖顺序唯一取REVIEW_AND_EVIDENCE。
 <!-- AIW-REQUIREMENT:PR_CODEX_TOOL_OPERATION_RESOLUTION:END -->
 
 <!-- AIW-REQUIREMENT:PR_CODEX_ROUTER_REACTIVATION:BEGIN -->

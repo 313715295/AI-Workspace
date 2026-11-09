@@ -57,7 +57,24 @@ PASS|selector-same-information-different-representation-docs/interface.md
 PASS|selector-same-information-different-representation-docs/interface.pdf
 PASS|selector-same-information-different-representation-docs/interface.json
 PASS|selector-keyframe-three-uses-cannot-choose-first-alias|FACET_ALIAS_AMBIGUOUS|deliverableType|关键帧
-PASS|selector-facets-selection|assertions=58
+PASS|selector-activity-bodies-retained-without-future-operation-obligations
+PASS|selector-loaded-delivery-reenters-operation-without-new-body
+PASS|selector-readonly-context-does-not-match-task-only-body-selector
+PASS|selector-unknown-private-context-retains-body-conservatively
+PASS|selector-body-selector-rejects-operation-axis-phases|BODY_TEST_FIELDS
+PASS|selector-body-selector-rejects-operation-axis-actionKinds|BODY_TEST_FIELDS
+PASS|selector-body-selector-rejects-operation-axis-resultKinds|BODY_TEST_FIELDS
+PASS|selector-body-selector-rejects-operation-axis-pathPrefixes|BODY_TEST_FIELDS
+PASS|selector-body-selector-rejects-operation-axis-capabilities|BODY_TEST_FIELDS
+PASS|selector-body-selector-rejects-operation-axis-semanticTerms|BODY_TEST_FIELDS
+PASS|selector-body-selector-rejects-deliverable-axis|BODY_TEST_FACET_DIMENSION
+PASS|selector-body-selector-wildcard-cannot-mix-contexts|BODY_TEST_BOUNDARY
+PASS|selector-prepared2-explicit-empty-gate-row-is-not-lost-or-expanded-to-B
+PASS|selector-prepared2-missing-O-is-not-empty|FIXED_ADOPTION_PREPARATION_FIELD|selectedObligations
+PASS|selector-prepared2-body-only-row-cannot-impose-current-gate|FIXED_ADOPTION_BODY_ONLY_OBLIGATIONS
+PASS|selector-prepared2-O-must-be-subset-of-B|FIXED_ADOPTION_OPERATION_SELECTION
+PASS|selector-prepared1-keeps-original-frozen-obligations
+PASS|selector-facets-selection|assertions=75
 PASS|selector-invalid-wildcard
 PASS|selector-invalid-none
 PASS|selector-invalid-outside
@@ -530,13 +547,13 @@ PASS|correction-adoption-identities-and-tests-do-not-prove-semantic-coverage
 PASS|correction-adoption-project-analysis-atomic-migration-history-and-independent-review-without-registry
 PASS|post-release-project-observation-nonblocking-no-synthetic-work
 PASS|process-catalog-generic-no-consumer-paths
-TIMING|START|group=workflowFocused|entry=C:\Users\zheng\AppData\Local\Temp\aiw-next-s1-01a19eb3-r4\framework\versions\2.0.0\tests\workflow-route-tests.ps1|arguments=|utc=2026-11-04T18:12:04.0405293Z
-TIMING|END|group=workflowFocused|elapsedMs=35031|exitCode=0|utc=2026-11-04T18:12:39.0735424Z
-PASS|workflow-live-entry-delegates-exact-contract|C:\Users\zheng\AppData\Local\Temp\aiw-next-s1-01a19eb3-r4\framework\versions\2.0.0\TASK_AND_SCOPE.md
-PASS|workflow-live-entry-delegates-exact-contract|C:\Users\zheng\AppData\Local\Temp\aiw-next-s1-01a19eb3-r4\framework\versions\2.0.0\HOST_CODEX.md
-PASS|workflow-live-entry-delegates-exact-contract|C:\Users\zheng\AppData\Local\Temp\aiw-next-s1-01a19eb3-r4\framework\versions\2.0.0\PROMPTS.md
-PASS|workflow-live-entry-delegates-exact-contract|C:\Users\zheng\AppData\Local\Temp\aiw-next-s1-01a19eb3-r4\framework\versions\2.0.0\project-starter\BOOTSTRAP.md
-PASS|workflow-live-entry-delegates-exact-contract|C:\Users\zheng\AppData\Local\Temp\aiw-next-s1-01a19eb3-r4\framework\maintenance-overlay\BOOTSTRAP.md
+TIMING|START|group=workflowFocused|entry=C:\Users\zheng\AppData\Local\Temp\aiw-v8-s8\framework\versions\2.0.0\tests\workflow-route-tests.ps1|arguments=|utc=2026-11-06T02:36:34.3726906Z
+TIMING|END|group=workflowFocused|elapsedMs=37665|exitCode=0|utc=2026-11-06T02:37:12.0401126Z
+PASS|workflow-live-entry-delegates-exact-contract|C:\Users\zheng\AppData\Local\Temp\aiw-v8-s8\framework\versions\2.0.0\TASK_AND_SCOPE.md
+PASS|workflow-live-entry-delegates-exact-contract|C:\Users\zheng\AppData\Local\Temp\aiw-v8-s8\framework\versions\2.0.0\HOST_CODEX.md
+PASS|workflow-live-entry-delegates-exact-contract|C:\Users\zheng\AppData\Local\Temp\aiw-v8-s8\framework\versions\2.0.0\PROMPTS.md
+PASS|workflow-live-entry-delegates-exact-contract|C:\Users\zheng\AppData\Local\Temp\aiw-v8-s8\framework\versions\2.0.0\project-starter\BOOTSTRAP.md
+PASS|workflow-live-entry-delegates-exact-contract|C:\Users\zheng\AppData\Local\Temp\aiw-v8-s8\framework\maintenance-overlay\BOOTSTRAP.md
 PASS|workflow-owning-contract-keeps-strict-json-and-temporary-input-boundary
 PASS|workflow-asjson-native-success-is-one-strict-json-with-empty-stderr
 PASS|workflow-asjson-native-malformed-preserves-real-reason-without-pretty-stderr
@@ -603,4 +620,4 @@ NOT_RUN|historical-baseline-executable-regression|reason=retired-executable-suit
 PASS|release-manifest-canonical
 PASS|result-lifecycle-and-manifest-bytes-preserved
 FIXTURE_CLEAN|integration-private-root
-RESULT|599/599 passed|scope=Framework-2.0.0-surface|
+RESULT|616/616 passed|scope=Framework-2.0.0-surface|

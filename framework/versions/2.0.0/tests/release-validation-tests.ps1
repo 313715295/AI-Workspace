@@ -356,6 +356,7 @@ __SUMMARY__
   @{name='wrong-group-completion';group='PackageIntegrity';fault='none';mutation='completion';expect=@('actual-zip-members-match-package-manifest','actual-source-qualification-is-preserved','postbuild-leaves-original-zip-and-runtime-bytes-frozen')}
  )){
   $caseRoot=Join-Path $evidence $case.name;$null=[IO.Directory]::CreateDirectory($caseRoot)
+  Copy-AiwTestAllowlist $PSScriptRoot $caseRoot @('TestNativeOutput.psm1')
   $childTemp=Assert-AiwTestPath (Join-Path ([IO.Path]::GetTempPath()) ('rv-'+[guid]::NewGuid().ToString('N').Substring(0,8)))
   $configPath=Join-Path $caseRoot 'config.json';Write-AiwTestJson $configPath @{temp=$childTemp;raw=(Join-Path $caseRoot 'native-calls');fault=$case.fault;scope='PRIVATE_SYNTHETIC_PARTIAL'}
   $body=if($case.group-ceq'Mechanism'){$mechanism.Extent.Text}else{$post};$fn=$functions.Values -join"`n";$end=$summary

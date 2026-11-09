@@ -110,4 +110,49 @@ $ambiguous=@(foreach($id in @('media:animation-pose','media:encoded-frame','medi
 $ambiguousVocabulary=Get-AiwFacetVocabulary -NativeVocabulary $catalog.facetVocabulary -ProjectVocabulary $ambiguous
 $keyframe=Facets;$keyframe.deliverableType.values=@('关键帧')
 Reject {ConvertTo-AiwIntentFacets $keyframe $ambiguousVocabulary} 'FACET_ALIAS_AMBIGUOUS' 'keyframe-three-uses-cannot-choose-first-alias'
+$body=@($catalog.requirements|Where-Object requirementId -CEQ 'PR_TASK_SCOPE_AND_FORBIDDEN')[0].bodySelectors
+& $composer {param($body,$vocabulary) Assert-AiwBodySelectorContract $body 'BODY_TEST' $vocabulary} $body $native
+function BodyPlan([string]$Action='SOURCE_WRITE',[string]$Result='IMPLEMENTATION_RESULT',[string]$Context='TASK'){
+ & $composer {param($catalog,$facets,$action,$result,$context)
+  $custom=[pscustomobject]@{HasNormativeContent=$false}
+  $plan=Get-AiwRuleSelectionPlan $catalog @() @() $custom 'body-fixture' STANDARD EXECUTOR IMPLEMENT $action $result @('src/current.js') @() '' $false $facets $context
+  [pscustomobject]@{plan=$plan;obligations=@(Get-AiwSelectedObligations $catalog @() @() @() $custom 'body-fixture' $plan)}
+ } $catalog $intent $Action $Result $Context
+}
+$production=BodyPlan
+$finalId='framework:PR_FINAL_OUTPUT_CURRENT_RESULT';$deliveryId='framework:PR_COMPACT_NON_INTERRUPT_DELIVERY'
+Check ($finalId-cin$production.plan.ruleIds-and$deliveryId-cin$production.plan.ruleIds-and$finalId-cnotin@($production.obligations.requirementId)-and$deliveryId-cnotin@($production.obligations.requirementId)) 'activity-bodies-retained-without-future-operation-obligations'
+$handoff=BodyPlan NONE HANDOFF
+Check ($finalId-cin@($handoff.obligations.requirementId)-and$deliveryId-cin@($handoff.obligations.requirementId)-and@($handoff.plan.ruleIds|Where-Object{$_-cnotin$production.plan.ruleIds}).Count-eq0) 'loaded-delivery-reenters-operation-without-new-body'
+$readOnlyBody=& $composer {param($body,$facets)
+ $selector=ConvertTo-AiwBodySelector $body
+ Test-AiwRuleMatch $selector STANDARD EXECUTOR IMPLEMENT NONE PLAN @('src/current.js') @() '' $false $facets PROJECT_READ_ONLY
+} $body $intent
+Check (-not$readOnlyBody.Match) 'readonly-context-does-not-match-task-only-body-selector'
+$unknownBody=BodyPlan SOURCE_WRITE IMPLEMENTATION_RESULT UNKNOWN
+Check ($unknownBody.plan.matches[$finalId].Semantic-ceq'BODY_CONTEXT_UNKNOWN') 'unknown-private-context-retains-body-conservatively'
+foreach($axis in @('phases','actionKinds','resultKinds','pathPrefixes','capabilities','semanticTerms')){
+ $bad=Clone $body;$bad|Add-Member $axis @('*')
+ Reject {& $composer {param($value)Assert-AiwBodySelectorContract $value 'BODY_TEST'} $bad} 'BODY_TEST' ('body-selector-rejects-operation-axis-'+$axis)
+}
+$bad=Clone $body;$bad.facets|Add-Member deliverableType @('aiw:code')
+Reject {& $composer {param($value)Assert-AiwBodySelectorContract $value 'BODY_TEST'} $bad} 'BODY_TEST_FACET_DIMENSION' 'body-selector-rejects-deliverable-axis'
+$bad=Clone $body;$bad.contextTypes=@('TASK','*')
+Reject {& $composer {param($value)Assert-AiwBodySelectorContract $value 'BODY_TEST'} $bad} 'BODY_TEST_BOUNDARY' 'body-selector-wildcard-cannot-mix-contexts'
+# The root consumers use the frozen old rows or explicit current O, including
+# rows with no mechanical gates. Missing O never means an empty new format.
+$operation=[pscustomobject]@{requirementId='project:fixture:EMPTY';preparationRequirements=@();resultRequirements=@()}
+$bodyOnly=[pscustomobject]@{requirementId='project:fixture:BODY';preparationRequirements=@();resultRequirements=@()}
+$prepared=[pscustomobject]@{schemaVersion=2;selectedRuleBlocks=@($operation,$bodyOnly);selectedObligations=@($operation)}
+$read=@(Get-AiwPreparedRuleObligations $prepared)
+Check ($read.Count-eq1-and$read[0].requirementId-ceq$operation.requirementId) 'prepared2-explicit-empty-gate-row-is-not-lost-or-expanded-to-B'
+$bad=Clone $prepared;$bad.PSObject.Properties.Remove('selectedObligations')
+Reject {Get-AiwPreparedRuleObligations $bad} 'FIXED_ADOPTION_PREPARATION' 'prepared2-missing-O-is-not-empty'
+$bad=Clone $prepared;$bad.selectedRuleBlocks[1].resultRequirements=@('FUTURE_RESULT')
+Reject {Get-AiwPreparedRuleObligations $bad} 'FIXED_ADOPTION_BODY_ONLY_OBLIGATIONS' 'prepared2-body-only-row-cannot-impose-current-gate'
+$bad=Clone $prepared;$bad.selectedObligations[0].requirementId='project:fixture:MISSING'
+Reject {Get-AiwPreparedRuleObligations $bad} 'FIXED_ADOPTION_OPERATION_SELECTION' 'prepared2-O-must-be-subset-of-B'
+$legacy=[pscustomobject]@{schemaVersion=1;selectedRuleBlocks=@([pscustomobject]@{requirementId='project:fixture:OLD';preparationRequirements=@('ORIGINAL_P');resultRequirements=@('ORIGINAL_R')})}
+$old=@(Get-AiwPreparedRuleObligations $legacy)
+Check ($old.Count-eq1-and$old[0].preparationRequirements[0]-ceq'ORIGINAL_P'-and$old[0].resultRequirements[0]-ceq'ORIGINAL_R') 'prepared1-keeps-original-frozen-obligations'
 Write-Output ('PASS|facets-selection|assertions='+$passed)

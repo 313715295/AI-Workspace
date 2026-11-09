@@ -113,7 +113,9 @@ $values=[ordered]@{}
 foreach($name in @('Group','PackagePath','ExtractedPackagePath','BuildCommandPath')){$values[$name]=$PSBoundParameters[$name]}
 $values|ConvertTo-Json -Compress
 '@
-  Put $binderEntry ($binding[0].Extent.Text+"`n"+$releaseAst.ParamBlock.Extent.Text+"`n"+$binderBody)
+  $nativeOutputPath=(Join-Path $PSScriptRoot 'TestNativeOutput.psm1').Replace("'","''")
+  $nativeOutput="Import-Module '$nativeOutputPath';Initialize-AiwTestNativeOutput"
+  Put $binderEntry ($binding[0].Extent.Text+"`n"+$releaseAst.ParamBlock.Extent.Text+"`n"+$nativeOutput+"`n"+$binderBody)
   $binderAst=[Management.Automation.Language.Parser]::ParseFile($binderEntry,[ref]$tokens,[ref]$errors)
   Check ($errors.Count-eq0-and$binderAst.ParamBlock.Extent.Text-ceq$releaseAst.ParamBlock.Extent.Text-and@($binderAst.ParamBlock.Attributes|Where-Object{$_.TypeName.Name-ceq'CmdletBinding'}).Count-eq1) 'consumer-postbuild-private-binder-same-declaration-once'
   for($caseIndex=0;$caseIndex-lt$postSpecs.Count;$caseIndex++){

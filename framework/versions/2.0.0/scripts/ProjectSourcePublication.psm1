@@ -507,30 +507,59 @@ function Get-AiwProjectSourcePublicationMembers {
   return [pscustomobject]@{SOURCE=$eligibilities.SOURCE;CONTROL=$eligibilities.CONTROL;plan=$eligibilities.CONTROL.eligibility.plan;planRef=$PlanRef;root=$root}
  }finally{Exit-AiwProjectSourceScope $aiwPublicationScopeLease}
 }
-function Get-PubRecoveryOriginalFacts([string]$ProjectRoot,$Recovery){
+# Immutable admission facts are shared by live recovery and read-only history.
+# Neither this private reader nor its return value authorizes Apply/recovery.
+function Get-PubOriginalAdmissionFacts([string]$ProjectRoot,$Recovery,[string[]]$CurrentForbidden=@(),$OriginComposer=$null,$OriginState=$null){
  $root=Get-PubRoot $ProjectRoot
  Assert-PubFields $Recovery @('schemaVersion','kind','projectRoot','planRef','candidateRef','members') RECOVERY
  Assert-PubInteger $Recovery.schemaVersion RECOVERY_SCHEMA
  if($Recovery.schemaVersion-ne3-or$Recovery.kind-cne'PROJECT_SOURCE_PUBLICATION_RECOVERY'-or(Get-PubRoot $Recovery.projectRoot)-cne$root){throw 'SOURCE_PUBLICATION_RECOVERY_ROOT'}
  Assert-PubArray $Recovery.members RECOVERY_MEMBERS -Nonempty
  if($Recovery.members.Count-ne2-or[string]::Join('|',@($Recovery.members.member))-cne'SOURCE|CONTROL'){throw 'SOURCE_PUBLICATION_RECOVERY_TWO_ADMISSIONS'}
- $candidate=(Read-PubEvidence $Recovery.candidateRef $root -Json).Value
+ $observed=[Collections.Generic.List[object]]::new()
+ function Read-OriginalPublicationRef($Reference,[string[]]$Denied){
+  $doc=Read-PubEvidence $Reference $root $Denied -Json
+  $observed.Add($doc)
+  return $doc
+ }
+ $currentDenied=Get-PubForbidden $root $CurrentForbidden
+ $candidate=(Read-OriginalPublicationRef $Recovery.candidateRef $currentDenied).Value
+ Assert-PubFields $candidate @('schemaVersion','kind','planRef','userDecision','decisionRef','members','objects','writeOrder','permissionChanges','rootToolDependencies','targets') CANDIDATE
+ Assert-PubInteger $candidate.schemaVersion CANDIDATE_SCHEMA
+ foreach($name in @('members','targets')){Assert-PubArray $candidate.$name CANDIDATE_MEMBERS -Nonempty;if($candidate.$name.Count-ne2-or[string]::Join('|',@($candidate.$name.member))-cne'SOURCE|CONTROL'){throw 'SOURCE_PUBLICATION_HISTORY_CANDIDATE_MEMBERS'}}
  if($candidate.schemaVersion-ne2-or$candidate.kind-cne'PROJECT_SOURCE_PUBLICATION'-or(Get-PubCanonical $candidate.planRef)-cne(Get-PubCanonical $Recovery.planRef)){throw 'SOURCE_PUBLICATION_RECOVERY_CANDIDATE'}
- $plan=(Read-PubEvidence $Recovery.planRef $root -Json).Value
- $admissions=@{};$receipts=@{};$allForbidden=@()
- Import-Module (Join-Path $PSScriptRoot 'ProcessRequirementComposition.psm1')
- Import-Module (Join-Path $PSScriptRoot 'ContentSources.psm1')
+ $plan=(Read-OriginalPublicationRef $Recovery.planRef $currentDenied).Value
+ $planFields=@('schemaVersion','kind','projectRoot','repositoryId','frameworkRoot','taskPath','taskId','taskIdentity','owner','actor','controllerIdentity','projectConfigIdentity','userDecision','decisionRef','assuranceEvidence','objects','writeOrder','permissionChanges','selectorChanges','sourceClosure','rootToolDependencies')
+ if($null-ne$plan.PSObject.Properties['reviewScope']){$planFields+='reviewScope'}
+ if($null-ne$plan.PSObject.Properties['assuranceConsumption']){$planFields+='assuranceConsumption'}
+ Assert-PubFields $plan $planFields PLAN
+ Assert-PubInteger $plan.schemaVersion PLAN_SCHEMA
+ if($plan.schemaVersion-ne1-or$plan.kind-cne'PROJECT_SOURCE_PUBLICATION_PLAN'-or(Get-PubRoot $plan.projectRoot)-cne$root-or$plan.repositoryId-cnotin@('REPO_LOCAL','CONTROL')){throw 'SOURCE_PUBLICATION_HISTORY_PLAN'}
+ foreach($name in @('objects','writeOrder','permissionChanges','rootToolDependencies','decisionRef','userDecision')){
+  if((Get-PubCanonical $candidate.$name)-cne(Get-PubCanonical $plan.$name)){throw ('SOURCE_PUBLICATION_HISTORY_PLAN_CANDIDATE_DRIFT|'+$name)}
+ }
+ $admissions=@{};$receipts=@{};$allForbidden=@($currentDenied)
+ if($null-eq$OriginComposer){$OriginComposer=@(Import-Module (Join-Path $PSScriptRoot 'ProcessRequirementComposition.psm1') -PassThru -ErrorAction Stop)[0];Import-Module (Join-Path $PSScriptRoot 'ContentSources.psm1')}
+
  foreach($member in $Recovery.members){
   Assert-PubFields $member @('member','discoverReceiptRef','admitInputRef','admitResultRef','finalizeInputRef') RECOVERY_MEMBER
-  $r=(Read-PubEvidence $member.discoverReceiptRef $root -Json).Value
+  $r=(Read-OriginalPublicationRef $member.discoverReceiptRef $currentDenied).Value
+  if($null-ne$OriginState){& $OriginState {param($value) Assert-AiwFixedReceiptShape $value} $r}
   $b=if($null-ne$r.PSObject.Properties['binding']){$r.binding}else{$r.authorityContext}
-  $forbidden=Get-PubForbidden $root @(@($b.forbiddenScope)+@($b.protectedScope))
+  $forbidden=Get-PubForbidden $root @($currentDenied+@($b.forbiddenScope)+@($b.protectedScope))
   $allForbidden+=@($forbidden)
-  $a=(Read-PubEvidence $member.admitInputRef $root $forbidden -Json).Value
-  $result=(Read-PubEvidence $member.admitResultRef $root $forbidden -Json).Value
-  $final=(Read-PubEvidence $member.finalizeInputRef $root $forbidden -Json).Value
-  if($r.schemaVersion-notin@(3,4)-or$r.mode-cne'DISCOVER'-or$r.status-cne'PASS'-or$r.intentEnvelope.requestedActionKind-cne$(if($member.member-ceq'SOURCE'){'SOURCE_WRITE'}else{'CONTROL_WRITE'})-or(Get-PubRoot $b.projectRoot)-cne$root-or$a.schemaVersion-ne3-or$a.mode-cne'ADMIT_ACTION'-or$result.mode-cne'ADMIT_ACTION'-or$result.status-cne'PASS'-or$result.selectionIdentity-cne$r.selectionIdentity-or@($result.missingPreparation).Count-or@($result.missingResult).Count-or$result.decisionIdentity-cne(Get-AiwProcessDecisionIdentity $r $a)){throw 'SOURCE_PUBLICATION_ORIGINAL_ADMISSION_REQUIRED'}
+  $a=(Read-OriginalPublicationRef $member.admitInputRef $forbidden).Value
+  $result=(Read-OriginalPublicationRef $member.admitResultRef $forbidden).Value
+  $final=(Read-OriginalPublicationRef $member.finalizeInputRef $forbidden).Value
+  if($r.schemaVersion-notin@(3,4)-or$r.mode-cne'DISCOVER'-or$r.status-cne'PASS'-or$r.intentEnvelope.requestedActionKind-cne$(if($member.member-ceq'SOURCE'){'SOURCE_WRITE'}else{'CONTROL_WRITE'})-or(Get-PubRoot $b.projectRoot)-cne$root-or$a.schemaVersion-ne3-or$a.mode-cne'ADMIT_ACTION'-or$result.mode-cne'ADMIT_ACTION'-or$result.status-cne'PASS'-or$result.selectionIdentity-cne$r.selectionIdentity-or@($result.missingPreparation).Count-or@($result.missingResult).Count-or$result.decisionIdentity-cne(& $OriginComposer.ExportedCommands['Get-AiwProcessDecisionIdentity'] $r $a)){throw 'SOURCE_PUBLICATION_ORIGINAL_ADMISSION_REQUIRED'}
+  if($r.authorityGranted-ne$false-or$r.semanticCorrectnessProven-ne$false-or$result.authorityGranted-ne$false-or$result.semanticCorrectnessProven-ne$false){throw 'SOURCE_PUBLICATION_ORIGINAL_PROOF_FLAGS'}
   foreach($input in @($a,$final)){
+   $fields=@('schemaVersion','mode','discoverReceiptPath','expectedDiscoverReceiptIdentity','preparationReceipts','resultReceipts','deliveryReceipts','publicDecisionIdentity','protectionState')
+   foreach($optional in @('evidenceRefs','deliveryContext')){if($null-ne$input.PSObject.Properties[$optional]){$fields+=$optional}}
+   Assert-PubFields $input $fields ORIGINAL_BOUNDARY
+   Assert-PubInteger $input.schemaVersion ORIGINAL_BOUNDARY_SCHEMA
+   foreach($name in @('preparationReceipts','resultReceipts','deliveryReceipts')){Assert-PubArray $input.$name ORIGINAL_BOUNDARY_ARRAY;if(@($input.$name|Where-Object{$_-isnot[string]-or[string]::IsNullOrWhiteSpace($_)}).Count){throw 'SOURCE_PUBLICATION_ORIGINAL_BOUNDARY_ARRAY'}}
+   if($input.protectionState-cnotin@('BOUND','NOT_APPLICABLE')){throw 'SOURCE_PUBLICATION_ORIGINAL_PROTECTION_STATE'}
    if($input.expectedDiscoverReceiptIdentity-cne$member.discoverReceiptRef.identity-or[IO.Path]::GetFullPath($input.discoverReceiptPath)-cne[IO.Path]::GetFullPath($member.discoverReceiptRef.path)-or$input.publicDecisionIdentity-cne$a.publicDecisionIdentity-or$input.protectionState-cne$a.protectionState){throw 'SOURCE_PUBLICATION_ORIGINAL_DECISION_OR_PROTECTION'}
    $tokens=@($input.preparationReceipts|Where-Object{$_-clike'PROJECT_SOURCE_CHANGE|*'})
    if($tokens.Count-ne1-or$tokens[0]-cne('PROJECT_SOURCE_CHANGE|'+$Recovery.candidateRef.path+'|'+$Recovery.candidateRef.identity)){throw 'SOURCE_PUBLICATION_ORIGINAL_COMMON_PREPARATION'}
@@ -538,9 +567,23 @@ function Get-PubRecoveryOriginalFacts([string]$ProjectRoot,$Recovery){
   if($final.schemaVersion-ne3-or$final.mode-cne'FINALIZE_OUTPUT'){throw 'SOURCE_PUBLICATION_ORIGINAL_FINALIZATION_INPUT'}
   $target=@($candidate.targets|Where-Object member -CEQ $member.member)
   $frozenMember=@($candidate.members|Where-Object member -CEQ $member.member)
-  if($target.Count-ne1-or$frozenMember.Count-ne1-or(Get-PubCanonical $frozenMember[0].discoverReceiptRef)-cne(Get-PubCanonical $member.discoverReceiptRef)-or$result.projectSourcePreparation.outcome-cne'PREPARED'-or$result.projectSourcePreparation.candidateIdentity-cne$Recovery.candidateRef.identity-or$result.projectSourcePreparation.targetIdentity-cne(Get-AiwContentDescriptorIdentity $target[0].binding)){throw 'SOURCE_PUBLICATION_ORIGINAL_ADMISSION_TARGET'}
-  if($b.taskIdentity-cne$plan.taskIdentity-or$b.taskOwner-cne$plan.owner-or$b.actor-cne$plan.actor-or$b.taskId-cne$plan.taskId-or$b.userDecision-cne$plan.userDecision){throw 'SOURCE_PUBLICATION_RECOVERY_AUTHORITY_DRIFT'}
-  $receipts[$member.member]=$r;$admissions[$member.member]=[pscustomobject]@{input=$a;result=$result;finalize=$final;refs=$member}
+  if($target.Count-ne1-or$frozenMember.Count-ne1-or(Get-PubCanonical $frozenMember[0].discoverReceiptRef)-cne(Get-PubCanonical $member.discoverReceiptRef)-or$result.projectSourcePreparation.outcome-cne'PREPARED'-or$result.projectSourcePreparation.candidateIdentity-cne$Recovery.candidateRef.identity-or$result.projectSourcePreparation.targetIdentity-cne(& $OriginComposer {param($value) Get-AiwContentDescriptorIdentity $value} $target[0].binding)){throw 'SOURCE_PUBLICATION_ORIGINAL_ADMISSION_TARGET'}
+  if($b.taskIdentity-cne$plan.taskIdentity-or$b.taskOwner-cne$plan.owner-or$b.actor-cne$plan.actor-or$b.taskId-cne$plan.taskId-or$b.userDecision-cne$plan.userDecision-or$b.controllerIdentity-cne$plan.controllerIdentity-or$b.projectConfigIdentity-cne$plan.projectConfigIdentity-or$r.sourceLocators.taskRelativePath-cne$plan.taskPath){throw 'SOURCE_PUBLICATION_RECOVERY_AUTHORITY_DRIFT'}
+  $packageRef=[pscustomobject]@{path=$r.sourceLocators.authorizationPackagePath;identity=$b.authorizationIdentity}
+  $package=(Read-OriginalPublicationRef $packageRef $forbidden).Value
+  if($package.schemaVersion-notin@(1,2)-or$package.taskId-cne$b.taskId-or$package.taskIdentity-cne$b.taskIdentity-or$package.owner-cne$b.taskOwner-or$package.grantee-cne$b.actor-or$package.projectConfigIdentity-cne$b.projectConfigIdentity-or$package.userConfirmation-cne$b.userDecision-or@($package.actions).Count-ne1-or$package.actions[0]-cne$r.intentEnvelope.requestedActionKind){throw 'SOURCE_PUBLICATION_ORIGINAL_PACKAGE'}
+  foreach($field in @('continuationPlan','repairReviewPlan','repairReviewBinding','selfCheckRepairLimit','transitionPlan','postObjectIdentities','targetFrameworkSnapshot','acceptanceBinding','externalBinding','gitPushBinding')){if($null-ne$package.PSObject.Properties[$field]){throw 'SOURCE_PUBLICATION_MIXED_PACKAGE'}}
+  if($package.schemaVersion-eq2-and$package.repositoryId-cne'CONTROL'){throw 'SOURCE_PUBLICATION_PROJECT_OWNERSHIP_REQUIRED'}
+  if($package.issuerRole-ceq'TASK_OWNER'){if($package.issuer-cne$package.owner){throw 'SOURCE_PUBLICATION_ORIGINAL_ISSUER'}}
+  elseif($package.issuerRole-ceq'PROJECT_CONTROLLER'){if($package.issuer-cne$package.issuerControllerId-or$package.controllerControlIdentity-cne$b.controllerIdentity-or$package.issuerControllerEpoch-lt1){throw 'SOURCE_PUBLICATION_ORIGINAL_ISSUER'}}
+  else{throw 'SOURCE_PUBLICATION_ORIGINAL_ISSUER'}
+  Assert-PubFields $package.sourcePublicationBinding @('planRef','member') BINDING
+  if($package.sourcePublicationBinding.member-cne$member.member-or(Get-PubCanonical $package.sourcePublicationBinding.planRef)-cne(Get-PubCanonical $Recovery.planRef)-or(Get-PubCanonical $frozenMember[0].authorizationRef)-cne(Get-PubCanonical $packageRef)){throw 'SOURCE_PUBLICATION_ORIGINAL_PACKAGE_BINDING'}
+  $memberObjects=@($plan.objects|Where-Object{$_.ownerMember-ceq$member.member-and$_.preimage.identity-cne$_.postimage.identity})
+  if((Get-PubCanonical @($package.exactPaths|Sort-Object -CaseSensitive))-cne(Get-PubCanonical @($b.exactScope|Sort-Object -CaseSensitive))-or(Get-PubCanonical @($package.exactPaths|Sort-Object -CaseSensitive))-cne(Get-PubCanonical @($memberObjects.path|Sort-Object -CaseSensitive))-or@($package.objectIdentities).Count-ne$memberObjects.Count){throw 'SOURCE_PUBLICATION_ORIGINAL_PACKAGE_SCOPE'}
+  foreach($object in $memberObjects){$entry=@($package.objectIdentities|Where-Object path -CEQ $object.path);if($entry.Count-ne1-or$entry[0].identity-cne$object.preimage.identity){throw 'SOURCE_PUBLICATION_MEMBER_PREIMAGE'}}
+  $receipts[$member.member]=$r;$admissions[$member.member]=[pscustomobject]@{input=$a;result=$result;finalize=$final;refs=$member;package=$package}
+
  }
  # A recovery handle is activated only after two real, original decision
  # identities and the exact whole group are verified. This provisional value
@@ -549,23 +592,50 @@ function Get-PubRecoveryOriginalFacts([string]$ProjectRoot,$Recovery){
  $configObject=@($plan.objects|Where-Object path -CEQ '.ai-workspace/project.json')
  if($configObject.Count-ne1-or$configObject[0].ownerMember-cne'CONTROL'){throw 'SOURCE_PUBLICATION_CONFIG_OBJECT_REQUIRED'}
  foreach($side in @('preimage','postimage')){
-  $config=(Read-PubEvidence $configObject[0].$side $root $forbidden -Json).Value
+  $config=(Read-OriginalPublicationRef $configObject[0].$side $forbidden).Value
   $forbidden=@($forbidden)+@(Get-PubForbidden $root @($config.routineExcludedPaths))
  }
- $objects=Get-PubObjectDocuments $plan $root $forbidden
- $reachable=Get-PubReachability $root $plan $forbidden
- if((Get-PubIdentity (Get-PubChild $root $plan.taskPath $forbidden))-cne$plan.taskIdentity-or(Get-PubIdentity (Get-PubChild $root '.ai-workspace/controller.json' $forbidden))-cne$plan.controllerIdentity){throw 'SOURCE_PUBLICATION_RECOVERY_AUTHORITY_DRIFT'}
- $proof=[pscustomobject]@{planRef=$Recovery.planRef;candidateRef=$Recovery.candidateRef;recovery=$Recovery;admissions=$admissions;reachable=$reachable}
- return [pscustomobject]@{proof=$proof;plan=$plan;admissions=$admissions;receipts=$receipts}
+ $objectFacts=Get-PubObjectDocuments $plan $root $forbidden
+ $objects=$objectFacts.documents
+ foreach($doc in $objects.Values){if($null-ne$doc){$observed.Add($doc)}}
+ # Read the immutable admitted decision and assurance records. Their
+ # successful original use is bound by both original admissions/finalizations;
+ # this reader does not reopen a producer's now-archived current-task gate.
+ $decision=(Read-OriginalPublicationRef $plan.decisionRef $forbidden).Value
+ Assert-PubFields $decision @('schemaVersion','kind','projectRoot','taskId','owner','actor','userDecision','documents','forwardRecovery','inverseRecoveryBeforeCommit') DECISION
+ if($decision.schemaVersion-ne1-or$decision.kind-cne'PROJECT_SOURCE_PUBLICATION_DECISION'-or(Get-PubRoot $decision.projectRoot)-cne$root-or$decision.taskId-cne$plan.taskId-or$decision.owner-cne$plan.owner-or$decision.actor-cne$plan.actor-or$decision.userDecision-cne$plan.userDecision-or$decision.forwardRecovery-isnot[bool]-or-not$decision.forwardRecovery-or$decision.inverseRecoveryBeforeCommit-isnot[bool]-or-not$decision.inverseRecoveryBeforeCommit){throw 'SOURCE_PUBLICATION_ORIGINAL_DECISION_REQUIRED'}
+ if((Get-PubCanonical @($decision.documents.path|Sort-Object -CaseSensitive))-cne(Get-PubCanonical @($objectFacts.sourcePaths|Sort-Object -CaseSensitive))){throw 'SOURCE_PUBLICATION_DECISION_DOC_SCOPE'}
+ Assert-PubArray $plan.assuranceEvidence ASSURANCE
+ foreach($ref in $plan.assuranceEvidence){
+  Assert-PubFields $ref @('kind','path','identity') ASSURANCE_REF
+  if($ref.kind-cnotin@('SELF_CHECK','REVIEW_VERDICT','RESULT_ACCEPTANCE')){throw 'SOURCE_PUBLICATION_HISTORY_ASSURANCE_KIND'}
+  $path=if([IO.Path]::IsPathFullyQualified($ref.path)){$ref.path}else{Join-Path $root $ref.path}
+  $record=(Read-OriginalPublicationRef ([pscustomobject]@{path=$path;identity=$ref.identity}) $forbidden).Value
+  $success=@{SELF_CHECK='PASS';REVIEW_VERDICT='APPROVED';RESULT_ACCEPTANCE='ACCEPTED'}
+  if($record.taskId-cne$plan.taskId-or$record.outcome-cne$success[$ref.kind]){throw 'SOURCE_PUBLICATION_HISTORY_ASSURANCE_DRIFT'}
+ }
+ $proof=[pscustomobject]@{planRef=$Recovery.planRef;candidateRef=$Recovery.candidateRef;recovery=$Recovery;admissions=$admissions;reachable=$null}
+ return [pscustomobject]@{proof=$proof;plan=$plan;admissions=$admissions;receipts=$receipts;objects=$objects;forbidden=$forbidden;documents=$observed.ToArray()}
 }
-function Test-PubOriginalFinalization([string]$Root,$Original,[string]$Member,[string]$InputPath,[string]$OutputPath,[string]$Direction){
- $input=(Read-PubEvidence ([pscustomobject]@{path=$InputPath;identity=(Get-PubIdentity $InputPath)}) $Root -Json).Value
- $result=(Read-PubEvidence ([pscustomobject]@{path=$OutputPath;identity=(Get-PubIdentity $OutputPath)}) $Root -Json).Value
+function Get-PubRecoveryOriginalFacts([string]$ProjectRoot,$Recovery){
+ $root=Get-PubRoot $ProjectRoot
+ $original=Get-PubOriginalAdmissionFacts $root $Recovery
+ $plan=$original.plan;$forbidden=$original.forbidden
+ # These live gates belong exclusively to continuing Apply/recovery.
+ $original.proof.reachable=Get-PubReachability $root $plan $forbidden
+ if((Get-PubIdentity (Get-PubChild $root $plan.taskPath $forbidden))-cne$plan.taskIdentity-or(Get-PubIdentity (Get-PubChild $root '.ai-workspace/controller.json' $forbidden))-cne$plan.controllerIdentity){throw 'SOURCE_PUBLICATION_RECOVERY_AUTHORITY_DRIFT'}
+ return $original
+}
+
+function Test-PubOriginalFinalization([string]$Root,$Original,[string]$Member,[string]$InputPath,[string]$OutputPath,[string]$Direction,[string[]]$ForbiddenPaths=@(),$OriginComposer=$null){
+ foreach($path in @($InputPath,$OutputPath)){$null=Get-PubChild $Root ([IO.Path]::GetRelativePath($Root,$path).Replace('\','/')) $ForbiddenPaths}
+ $input=(Read-PubEvidence ([pscustomobject]@{path=$InputPath;identity=(Get-PubIdentity $InputPath)}) $Root $ForbiddenPaths -Json).Value
+ $result=(Read-PubEvidence ([pscustomobject]@{path=$OutputPath;identity=(Get-PubIdentity $OutputPath)}) $Root $ForbiddenPaths -Json).Value
  $r=$Original.receipts[$Member];$a=$Original.admissions[$Member];$expected=if($Direction-ceq'COMPLETE'){'COMPLETED'}else{'ROLLED_BACK'}
  $base=$a.finalize|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100
  $tokens=@($input.preparationReceipts|Where-Object{$_-clike'PROJECT_SOURCE_PUBLICATION_ADMISSIONS|*'})
  if($tokens.Count-ne1-or$tokens[0]-cnotmatch'^PROJECT_SOURCE_PUBLICATION_ADMISSIONS\|([^|]+)\|(\d+\|[A-F0-9]{64})$'){throw 'SOURCE_PUBLICATION_SAVED_PAIR_REQUIRED'}
- $pair=(Read-PubEvidence ([pscustomobject]@{path=$Matches[1];identity=$Matches[2]}) $Root -Json).Value
+ $pair=(Read-PubEvidence ([pscustomobject]@{path=$Matches[1];identity=$Matches[2]}) $Root $ForbiddenPaths -Json).Value
  if((Get-PubCanonical $pair)-cne(Get-PubCanonical $Original.proof.recovery)){throw 'SOURCE_PUBLICATION_SAVED_PAIR_DRIFT'}
  $base.preparationReceipts=@($base.preparationReceipts)+@($tokens[0])
  if($Direction-ceq'ROLLBACK'){
@@ -576,7 +646,8 @@ function Test-PubOriginalFinalization([string]$Root,$Original,[string]$Member,[s
  if((Get-PubCanonical $input)-cne(Get-PubCanonical $base)){throw 'SOURCE_PUBLICATION_SAVED_FINAL_INPUT_DRIFT'}
  $post='NO_SOURCE_POSTIMAGE_TRANSITION';$changed=@()
  if($null-ne$result.PSObject.Properties['sourcePostimageTransition']){$post=$result.sourcePostimageTransition.currentSourceCompositionIdentity;$changed=@($result.sourcePostimageTransition.changedBindings)}
- if($result.mode-cne'FINALIZE_OUTPUT'-or$result.status-cne'PASS'-or$result.actionOutcome-cne'OBSERVED'-or$result.selectionIdentity-cne$r.selectionIdentity-or$result.decisionIdentity-cne(Get-AiwProcessDecisionIdentity $r $input $post $changed)-or$result.projectSourcePreparation.candidateIdentity-cne$Original.proof.candidateRef.identity-or$result.projectSourcePreparation.outcome-cne$expected){throw 'SOURCE_PUBLICATION_SAVED_FINAL_RESULT_DRIFT'}
+ $decision=if($null-ne$OriginComposer){& $OriginComposer.ExportedCommands['Get-AiwProcessDecisionIdentity'] $r $input $post $changed}else{Get-AiwProcessDecisionIdentity $r $input $post $changed}
+ if($result.mode-cne'FINALIZE_OUTPUT'-or$result.status-cne'PASS'-or$result.actionOutcome-cne'OBSERVED'-or$result.selectionIdentity-cne$r.selectionIdentity-or$result.decisionIdentity-cne$decision-or$result.projectSourcePreparation.candidateIdentity-cne$Original.proof.candidateRef.identity-or$result.projectSourcePreparation.targetIdentity-cne$a.result.projectSourcePreparation.targetIdentity-or$result.projectSourcePreparation.outcome-cne$expected){throw 'SOURCE_PUBLICATION_SAVED_FINAL_RESULT_DRIFT'}
  return $true
 }
 
@@ -937,3 +1008,92 @@ function Set-AiwProjectSourcePublicationContext {
 }
 
 Export-ModuleMember -Function Enter-AiwProjectSourceScope,Exit-AiwProjectSourceScope,Get-AiwProjectSourcePublicationContext,Set-AiwProjectSourcePublicationContext,Get-AiwPublicationInputProjectRoot,Get-AiwProjectSourcePublicationEligibility,Get-AiwProjectSourcePublicationReachability,Get-AiwProjectSourcePublicationMembers,Read-AiwProjectSourcePublicationJournal
+
+# This is an internal module API for the qualified original-action completion
+# entry. It returns immutable source material, never a recovery lease or grant.
+function Get-AiwProjectSourcePublicationHistory {
+ [CmdletBinding()]param(
+  [Parameter(Mandatory)][string]$ProjectRoot,
+  [Parameter(Mandatory)]$FinalizeInputRef,
+  [Parameter(Mandatory)][string]$OriginalRuntimeRoot,
+  [Parameter(Mandatory)][System.Management.Automation.PSModuleInfo]$OriginPublication,
+  [Parameter(Mandatory)][System.Management.Automation.PSModuleInfo]$OriginComposer,
+  [Parameter(Mandatory)][System.Management.Automation.PSModuleInfo]$OriginState,
+  [Parameter(Mandatory)][System.Management.Automation.PSModuleInfo]$OriginDelivery,
+  [string[]]$ForbiddenPaths=@())
+ $root=Get-PubRoot $ProjectRoot;$denied=Get-PubForbidden $root $ForbiddenPaths
+ $runtime=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($OriginalRuntimeRoot))
+ foreach($pair in @(@($OriginPublication,'framework/versions/2.0.0/scripts/ProjectSourcePublication.psm1'),@($OriginComposer,'framework/versions/2.0.0/scripts/ProcessRequirementComposition.psm1'),@($OriginState,'scripts/ProjectAdoptionState.psm1'),@($OriginDelivery,'framework/versions/2.0.0/scripts/WorkflowDelivery.psm1'))){
+  if(-not[IO.Path]::GetFullPath($pair[0].Path).Equals([IO.Path]::GetFullPath((Join-Path $runtime $pair[1])),[StringComparison]::OrdinalIgnoreCase)){throw 'SOURCE_PUBLICATION_HISTORY_READER_OWNER'}
+ }
+ $first=Read-PubEvidence $FinalizeInputRef $root $denied -Json
+ $tokens=@($first.Value.preparationReceipts|Where-Object{$_-is[string]-and$_-clike'PROJECT_SOURCE_PUBLICATION_ADMISSIONS|*'})
+ if($tokens.Count-ne1-or$tokens[0]-cnotmatch'^PROJECT_SOURCE_PUBLICATION_ADMISSIONS\|([^|]+)\|(\d+\|[A-F0-9]{64})$'){throw 'SOURCE_PUBLICATION_HISTORY_ADMISSIONS_REQUIRED'}
+ $recoveryRef=[pscustomobject]@{path=$Matches[1];identity=$Matches[2]}
+ $recoveryDoc=Read-PubEvidence $recoveryRef $root $denied -Json
+ $original=Get-PubOriginalAdmissionFacts $root $recoveryDoc.Value $denied $OriginComposer $OriginState
+ if(-not[IO.Path]::GetFullPath($original.plan.frameworkRoot).Equals($runtime,[StringComparison]::OrdinalIgnoreCase)){throw 'SOURCE_PUBLICATION_HISTORY_RUNTIME'}
+ $documents=[Collections.Generic.List[object]]::new()
+ foreach($doc in @($first,$recoveryDoc)+@($original.documents)){$documents.Add($doc)}
+ $matched=0;$finals=@{}
+ foreach($member in @('SOURCE','CONTROL')){
+  $receipt=$original.receipts[$member]
+  if(-not[IO.Path]::GetFullPath($receipt.sourceLocators.frameworkRoot).Equals($runtime,[StringComparison]::OrdinalIgnoreCase)){throw 'SOURCE_PUBLICATION_HISTORY_RUNTIME'}
+  # Same finite names as the existing public publication completion writer.
+  # No directory search, journal lookup, or caller-supplied expansion follows.
+  $inputPath=$original.admissions[$member].refs.finalizeInputRef.path+'.publication-complete-input.json'
+  $outputPath=$inputPath+'.result.json'
+  foreach($path in @($inputPath,$outputPath)){
+   $null=Get-PubChild $root ([IO.Path]::GetRelativePath($root,$path).Replace('\','/')) $original.forbidden
+  }
+  $inputRef=[pscustomobject]@{path=$inputPath;identity=(Get-PubIdentity $inputPath)}
+  $outputRef=[pscustomobject]@{path=$outputPath;identity=(Get-PubIdentity $outputPath)}
+  $inputDoc=Read-PubEvidence $inputRef $root $original.forbidden -Json
+  $outputDoc=Read-PubEvidence $outputRef $root $original.forbidden -Json
+  if([IO.Path]::GetFullPath($inputPath).Equals([IO.Path]::GetFullPath($first.Path),[StringComparison]::OrdinalIgnoreCase)){
+   if($inputDoc.Identity-cne$first.Identity){throw 'SOURCE_PUBLICATION_HISTORY_ENTRY_DRIFT'};$matched++
+  }
+  $documents.Add($inputDoc);$documents.Add($outputDoc)
+  # The existing saved-finalization checks use O's exact decision algorithm;
+  # X supplies current read guards, never a current-policy replacement for O.
+  $valid=Test-PubOriginalFinalization $root $original $member $inputPath $outputPath COMPLETE $original.forbidden $OriginComposer
+  $result=$outputDoc.Value
+  if(-not$valid-or@($result.missingPreparation).Count-or@($result.missingResult).Count-or$result.authorityGranted-ne$false-or$result.semanticCorrectnessProven-ne$false){throw 'SOURCE_PUBLICATION_HISTORY_FINAL_RESULT'}
+  # This finite publication-history branch consumes the literal original
+  # boundary gates. Typed assurance remains the separately pinned plan input.
+  # Do not accept a typed gate merely because somebody supplied its string.
+  $admission=$original.admissions[$member].input;$final=$inputDoc.Value
+  foreach($boundary in @($admission,$final)){
+   if($null-ne$boundary.PSObject.Properties['evidenceRefs']-and@($boundary.evidenceRefs).Count){throw 'SOURCE_PUBLICATION_HISTORY_TYPED_BOUNDARY_UNSUPPORTED'}
+  }
+  $reserved=@('SELF_CHECK_BOUND','REVIEW_VERDICT_BOUND','RESULT_ACCEPT_RECORDED')
+  $originalPrepared=@($admission.preparationReceipts|Where-Object{$_-cnotin$reserved})
+  $finalPrepared=@($final.preparationReceipts|Where-Object{$_-cnotin$reserved})
+  $finalResults=@($final.resultReceipts|Where-Object{$_-cnotin@($reserved+@('DELIVERY_RECEIPT'))})
+  if($null-ne$final.PSObject.Properties['deliveryContext']){
+   $observation=& $OriginDelivery.ExportedCommands['Get-AiwDeliveryObservation'] $final.deliveryContext
+   if((Get-PubCanonical $result.delivery)-cne(Get-PubCanonical $observation)){throw 'SOURCE_PUBLICATION_HISTORY_DELIVERY_DRIFT'}
+   if($final.deliveryContext.channel-ceq'TASK_MESSAGE'){
+    if(-not$observation.delivered-or$final.deliveryContext.evidence-cnotmatch'^(.+)#(\d+\|[A-F0-9]{64})$'){throw 'SOURCE_PUBLICATION_HISTORY_DELIVERY_UNPROVEN'}
+    $hostDoc=Read-PubEvidence ([pscustomobject]@{path=$Matches[1];identity=$Matches[2]}) $root $original.forbidden -Json
+    $documents.Add($hostDoc)
+    $delivery=& $OriginDelivery.ExportedCommands['Get-AiwCodexSendOutcome'] $hostDoc.Value $final.deliveryContext.expectedRecipient
+    if($delivery.outcome-cne'SUCCESS'){throw 'SOURCE_PUBLICATION_HISTORY_DELIVERY_UNPROVEN'}
+   }elseif($final.deliveryContext.channel-cne'NATIVE_RESPONSE'-or$final.deliveryContext.expectedRecipient-cne'USER'){throw 'SOURCE_PUBLICATION_HISTORY_DELIVERY_UNSUPPORTED'}
+   # Native USER PREPARE preserves only the original pre-send evidence ceiling.
+   $finalResults+='DELIVERY_RECEIPT'
+  }elseif(@($final.deliveryReceipts).Count){$finalResults+='DELIVERY_RECEIPT'}
+  foreach($obligation in $receipt.selectedObligations){
+   if(@($obligation.preparationRequirements|Where-Object{$_-cnotin$originalPrepared-or$_-cnotin$finalPrepared}).Count-or@($obligation.resultRequirements|Where-Object{$_-cnotin$finalResults}).Count){throw 'SOURCE_PUBLICATION_HISTORY_ORIGINAL_OBLIGATIONS'}
+  }
+  foreach($object in @($original.plan.objects|Where-Object{$_.ownerMember-ceq$member-and$_.preimage.identity-cne$_.postimage.identity})){
+   $token='OBJECT_POSTIMAGE|'+$object.path+'|'+$object.postimage.identity
+   if(@($inputDoc.Value.resultReceipts|Where-Object{$_-ceq$token}).Count-ne1){throw 'SOURCE_PUBLICATION_HISTORY_POSTIMAGE_BINDING'}
+  }
+  $finals[$member]=[pscustomobject]@{input=$inputDoc;result=$outputDoc}
+ }
+ if($matched-ne1){throw 'SOURCE_PUBLICATION_HISTORY_ENTRY_NOT_ORIGINAL_FINALIZE'}
+ foreach($doc in $documents){$null=Read-PubEvidence ([pscustomobject]@{path=$doc.Path;identity=$doc.Identity}) $root $original.forbidden}
+ return [pscustomobject]@{plan=$original.plan;objects=$original.objects;finals=$finals;documents=$documents.ToArray();forbidden=$original.forbidden;recoveryRef=$recoveryRef;candidateRef=$recoveryDoc.Value.candidateRef;evidenceCeiling='INSTRUCTION_BOUND';authorityGranted=$false}
+}
+Export-ModuleMember -Function Get-AiwProjectSourcePublicationHistory

@@ -243,7 +243,7 @@ function Test-IntegrationMaintenanceFrontdoor {
   New-AuthorizationPackage $authPath 2 'ai-workspace-framework' $configIdentity @('SOURCE_WRITE') $targetObject (Get-Identity (Join-Path $target $targetObject)) -DomainOwner
   $package=Get-Content $authPath -Raw|ConvertFrom-Json -Depth 100
   $directory=Join-Path $control '.ai-workspace/runtime/FIXTURE-OWNER-001/owner-fixture';$null=[IO.Directory]::CreateDirectory($directory)
-  $facets=@{};foreach($axis in @('domain','workType','deliverableType','stage')){$facets[$axis]=@{state='UNKNOWN';values=@()}}
+  $facets=@{domain=@{state='KNOWN';values=@('aiw:software','aiw:governance')};workType=@{state='KNOWN';values=@('aiw:implementation')};deliverableType=@{state='KNOWN';values=@('aiw:code')};stage=@{state='KNOWN';values=@('aiw:implementation')}}
   $di=@{schemaVersion=5;mode='DISCOVER';contextType='TASK';readOnlyContext='NOT_APPLICABLE';ruleLoad=@{mode='FULL'};projectRoot=$control;frameworkRoot=$fixedRuntime;taskPath=(Join-Path $control '.ai-workspace/tasks/active/FIXTURE-OWNER-001.md');expectedProjectConfigIdentity=$configIdentity;expectedCorrectionsIdentity=(Get-Identity (Join-Path $controlPlane 'corrections.json'));expectedTaskIdentity=$package.taskIdentity;observedActor='owner-fixture';capabilities=@();exactPaths=@($targetObject);forbiddenPaths=@();protectedPaths=@('.ai-workspace/');authorizationPackagePath=$authPath;expectedAuthorizationIdentity=Get-Identity $authPath;userDecision='NOT_REQUIRED';recoveryState='CURRENT';hostEnforcementGrade='INSTRUCTION_BOUND';invocationState='PROVEN_EXPLICIT';evaluationOnly=$false;intentEnvelope=@{schemaVersion=2;objective='Implement the ordinary target fixture change';requestedActionKind='SOURCE_WRITE';requestedResultKind='IMPLEMENTATION_RESULT';semanticHints=@();pathHints=@();capabilityHints=@();mutationHints=@('source');externalHints=@();ambiguityState='CLEAR';facets=$facets}}
   $processEntry=Join-Path $fixedRuntime 'scripts/resolve-framework-maintenance-process-requirements.ps1'
   $ip=Join-Path $directory 'discover.json';$rp=Join-Path $directory 'compact.json';Write-Utf8 $ip ($di|ConvertTo-Json -Depth 100)
@@ -260,6 +260,47 @@ function Test-IntegrationMaintenanceFrontdoor {
   Write-Utf8 (Join-Path $target $targetObject) 'current source postimage';Write-Utf8 (Join-Path $target 'ordinary-added.txt') 'new ordinary target file'
   $bi.Remove('actionRebind');$bi.mode='FINALIZE_OUTPUT';$bi.discoverReceiptPath=$np;$bi.expectedDiscoverReceiptIdentity=Get-Identity $np;$bi.resultReceipts=@($bound.selectedObligations|ForEach-Object resultRequirements|Sort-Object -Unique)+@($package.exactPaths|ForEach-Object{'OBJECT_POSTIMAGE|'+$_+'|'+(Get-Identity (Join-Path $target $_))})
   Write-Utf8 $bp ($bi|ConvertTo-Json -Depth 100);$done=Invoke-Ps $processEntry @('-InputPath',$bp,'-AsJson');Assert-True ($done.Code-eq0) ('maintenance-rebound-original-finalize|'+$done.Text)
+  # The actual maintenance frontdoor must rebind both repositories while
+  # keeping the one control root, current checker and previously loaded bodies.
+  $controlRelative='records/rule-loading.txt'
+  $controlPackage=$package|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100
+  $controlPackage.repositoryId='CONTROL';$controlPackage.actions=@('CONTROL_WRITE')
+  $controlPackage.exactPaths=@($controlRelative);$controlPackage.objectIdentities=@([pscustomobject]@{path=$controlRelative;identity='NEW'})
+  $controlAuth=Join-Path $controlPlane 'rule-loading-control-auth.json';Write-Utf8 $controlAuth ($controlPackage|ConvertTo-Json -Depth 100)
+  $controlIntent=$di.intentEnvelope|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100
+  $controlIntent.objective='Record the bounded implementation result in the control repository';$controlIntent.requestedActionKind='CONTROL_WRITE';$controlIntent.mutationHints=@('control')
+  $bi.mode='ADMIT_ACTION';$bi.resultReceipts=@()
+  $bi.actionRebind=@{authorizationRef=@{path=$controlAuth;identity=Get-Identity $controlAuth};intentEnvelope=$controlIntent;recoveryState='CURRENT'}
+  $controlInput=Join-Path $directory 'control-rebind.json';$controlCompact=Join-Path $directory 'control-rebound.json'
+  Write-Utf8 $controlInput ($bi|ConvertTo-Json -Depth 100)
+  try{$env:CODEX_THREAD_ID='owner-fixture';$actual=Invoke-Ps $processEntry @('-InputPath',$controlInput,'-CompactReceiptPath',$controlCompact,'-AsJson')}
+  finally{$env:CODEX_THREAD_ID=$savedActor}
+  if($actual.Code-ne0){throw ('MAINTENANCE_SOURCE_TO_CONTROL|'+$actual.Text)}
+  $reply=$actual.Stdout|ConvertFrom-Json -Depth 100;$controlBound=Get-Content $controlCompact -Raw|ConvertFrom-Json -Depth 100
+  Assert-True ($reply.status-ceq'PASS'-and-not$reply.ruleBodyLoaded-and$reply.sourceBuildCount-eq0-and$controlBound.binding.repositoryId-ceq'CONTROL'-and$controlBound.binding.objectRoot-ceq$control-and$controlBound.binding.repositoryGitTop-ceq'NOT_APPLICABLE'-and$controlBound.binding.executionContext.executionRoot-ceq$control-and$controlBound.sourceCompositionIdentity-ceq$bound.sourceCompositionIdentity) 'maintenance-source-to-control-rebind-observes-current-control-root-without-body-load'
+  Write-Utf8 (Join-Path $control $controlRelative) 'bounded implementation record'
+  $bi.Remove('actionRebind');$bi.mode='FINALIZE_OUTPUT';$bi.discoverReceiptPath=$controlCompact;$bi.expectedDiscoverReceiptIdentity=Get-Identity $controlCompact
+  $bi.resultReceipts=@($controlBound.selectedObligations|ForEach-Object resultRequirements|Sort-Object -Unique)+@('OBJECT_POSTIMAGE|'+$controlRelative+'|'+(Get-Identity (Join-Path $control $controlRelative)))
+  Write-Utf8 $controlInput ($bi|ConvertTo-Json -Depth 100)
+  $done=Invoke-Ps $processEntry @('-InputPath',$controlInput,'-AsJson')
+  Assert-True ($done.Code-eq0) ('maintenance-control-rebound-original-finalize|'+$done.Text)
+  $backPackage=$package|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100
+  $backPackage.exactPaths=@($targetObject);$backPackage.objectIdentities=@([pscustomobject]@{path=$targetObject;identity=Get-Identity (Join-Path $target $targetObject)})
+  $backAuth=Join-Path $controlPlane 'rule-loading-source-back-auth.json';Write-Utf8 $backAuth ($backPackage|ConvertTo-Json -Depth 100)
+  $bi.mode='ADMIT_ACTION';$bi.resultReceipts=@()
+  $bi.actionRebind=@{authorizationRef=@{path=$backAuth;identity=Get-Identity $backAuth};intentEnvelope=$di.intentEnvelope;recoveryState='CURRENT'}
+  $backInput=Join-Path $directory 'source-back-rebind.json';$backCompact=Join-Path $directory 'source-back-rebound.json'
+  Write-Utf8 $backInput ($bi|ConvertTo-Json -Depth 100)
+  try{$env:CODEX_THREAD_ID='owner-fixture';$actual=Invoke-Ps $processEntry @('-InputPath',$backInput,'-CompactReceiptPath',$backCompact,'-AsJson')}
+  finally{$env:CODEX_THREAD_ID=$savedActor}
+  if($actual.Code-ne0){throw ('MAINTENANCE_CONTROL_TO_SOURCE|'+$actual.Text)}
+  $reply=$actual.Stdout|ConvertFrom-Json -Depth 100;$backBound=Get-Content $backCompact -Raw|ConvertFrom-Json -Depth 100
+  Assert-True ($reply.status-ceq'PASS'-and-not$reply.ruleBodyLoaded-and$reply.sourceBuildCount-eq0-and$backBound.binding.repositoryId-ceq'ai-workspace-framework'-and$backBound.binding.objectRoot-ceq$target-and$backBound.binding.repositoryGitTop-ceq$target-and$backBound.binding.executionContext.executionRoot-ceq$control-and$backBound.sourceCompositionIdentity-ceq$bound.sourceCompositionIdentity) 'maintenance-control-to-source-rebind-observes-current-target-root-without-body-load'
+  Write-Utf8 (Join-Path $target $targetObject) 'source postimage after control record'
+  $bi.Remove('actionRebind');$bi.mode='FINALIZE_OUTPUT';$bi.discoverReceiptPath=$backCompact;$bi.expectedDiscoverReceiptIdentity=Get-Identity $backCompact
+  $bi.resultReceipts=@($backBound.selectedObligations|ForEach-Object resultRequirements|Sort-Object -Unique)+@('OBJECT_POSTIMAGE|'+$targetObject+'|'+(Get-Identity (Join-Path $target $targetObject)))
+  Write-Utf8 $backInput ($bi|ConvertTo-Json -Depth 100);$done=Invoke-Ps $processEntry @('-InputPath',$backInput,'-AsJson')
+  Assert-True ($done.Code-eq0) ('maintenance-source-back-original-finalize|'+$done.Text)
   [IO.File]::WriteAllBytes((Join-Path $target $targetObject),$oldTargetBytes)
   $added=Get-PrivateFixtureCleanupPath (Join-Path $target 'ordinary-added.txt') $target '^ordinary-added\.txt$' 'REBIND_ADDED_OBJECT'
   [IO.File]::Delete($added)

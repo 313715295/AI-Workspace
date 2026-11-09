@@ -849,7 +849,19 @@
       ],
       "resultRequirements": [
         "DELIVERY_RECEIPT"
-      ]
+      ],
+      "bodySelectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "contextTypes": [
+          "TASK"
+        ],
+        "facets": {}
+      }
     },
     {
       "requirementId": "PR_CONTROLLER_HANDOFF_DIRECTIONAL",
@@ -1203,7 +1215,19 @@
         "REQUEST_COVERAGE_READBACK",
         "EVIDENCE_CEILING_STATED",
         "UNIQUE_NEXT_ACTION_STATED"
-      ]
+      ],
+      "bodySelectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "contextTypes": [
+          "TASK"
+        ],
+        "facets": {}
+      }
     },
     {
       "requirementId": "PR_FRAMEWORK_BACKEND_SELECTION",
@@ -2380,7 +2404,20 @@
       ],
       "resultRequirements": [
         "SCOPE_READBACK_COMPLETE"
-      ]
+      ],
+      "bodySelectors": {
+        "profiles": [
+          "STANDARD",
+          "CRITICAL"
+        ],
+        "roles": [
+          "*"
+        ],
+        "contextTypes": [
+          "TASK"
+        ],
+        "facets": {}
+      }
     },
     {
       "requirementId": "PR_USER_DECISION_DRIFT",

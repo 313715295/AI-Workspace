@@ -16,7 +16,8 @@ function Check([bool]$Value,[string]$Name){if(-not$Value){throw "ASSERT_FAIL|$Na
 function Reject([scriptblock]$Action,[string]$Name){$failed=$false;try{& $Action|Out-Null}catch{$failed=$true};Check $failed $Name}
 function Discover {
  SaveJson $inputPath $inputValue
- $directory=Join-Path $temp ('.ai-workspace/runtime/display-fixture/'+$inputValue.observedActor)
+ $requestId=if($inputValue.contextType-ceq'PROJECT_EXTERNAL'){$inputValue.requestContext.requestId}else{$inputValue.readOnlyContext.requestId}
+ $directory=Join-Path $temp ('.ai-workspace/runtime/'+$requestId+'/'+$inputValue.observedActor)
  $null=[IO.Directory]::CreateDirectory($directory)
  $script:LastDisplayPath=Join-Path $directory ([guid]::NewGuid().ToString('N')+'.txt')
  $global:DisplayComposerCalls=0
@@ -99,6 +100,7 @@ try{
  $policy['externalAuthorization']=[ordered]@{schemaVersion=1;mode='PROJECT_PREAUTHORIZED';grantRuleIds=@('INLINE_A')}
  SaveJson $policyPath $policy;$externalResult=Discover;$externalDisplay=Get-AiwProcessDisplay $externalResult
  Check ($externalResult.projectExternalAuthorization.mode-ceq'PROJECT_PREAUTHORIZED'-and$externalDisplay.text.Contains('Project external authorization: PROJECT_PREAUTHORIZED')-and$externalDisplay.text.Contains('INLINE_A')-and$externalDisplay.text.Contains($longBody)-and-not$externalResult.projectExternalAuthorization.perCallAuthorityGranted) 'external-mode-and-complete-selected-grant-visible-with-no-action-authority'
+ Check (-not$externalDisplay.text.Contains('use the original tool directly')) 'local-action-preauthorization-does-not-suggest-direct-execution'
  $bad=$externalResult|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100;$bad.projectExternalAuthorization.selectedGrantRuleIds=@('SOURCE_A')
  Reject {Get-AiwProcessDisplay $bad} 'selected-nongrant-rule-cannot-be-presented-as-project-grant'
  $bad=$externalResult|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100;$bad.projectExternalAuthorization.policyIdentity='1|'+('A'*64)
@@ -106,6 +108,30 @@ try{
  $policy.externalAuthorization=[ordered]@{schemaVersion=1;mode='PER_ACTION'};SaveJson $policyPath $policy
  $perActionDisplay=Get-AiwProcessDisplay (Discover)
  Check ($perActionDisplay.text.Contains('Project external authorization: PER_ACTION')-and-not$perActionDisplay.text.Contains('Do not create a per-call task/package')) 'explicit-per-action-display-does-not-recommend-direct-execution'
+ $bodySelector=[ordered]@{profiles=@('*');roles=@('*');contextTypes=@('PROJECT_READ_ONLY');facets=[ordered]@{}}
+ $operationSelector=$selector|ConvertTo-Json -Depth 20|ConvertFrom-Json -Depth 20
+ $operationSelector.actionKinds=@('SOURCE_WRITE')
+ $policy.rules+=@([ordered]@{ruleId='ACTIVITY_BODY';requirementReason='Read current activity body without activating its production gates';effectiveRule='COMPLETE_ACTIVITY_ONLY_BODY';selectors=$operationSelector;bodySelectors=$bodySelector;preparationRequirements=@('BODY_PRODUCTION_PREP');resultRequirements=@('BODY_PRODUCTION_RESULT');decisionLocator='fixture:explicit'})
+ $policy.externalAuthorization=[ordered]@{schemaVersion=1;mode='PROJECT_PREAUTHORIZED';grantRuleIds=@('ACTIVITY_BODY')}
+ SaveJson $policyPath $policy;$bodyResult=Discover;$bodyDisplay=Get-AiwProcessDisplay $bodyResult
+ $only=@($bodyResult.selectedRuleBlocks|Where-Object requirementId -CEQ 'project:display-fixture:ACTIVITY_BODY')
+ Check ($only.Count-eq1-and-not@($only[0].preparationRequirements).Count-and-not@($only[0].resultRequirements).Count-and'project:display-fixture:ACTIVITY_BODY'-cnotin@($bodyResult.compactReceipt.selectedObligations.requirementId)-and$bodyDisplay.text.Contains('COMPLETE_ACTIVITY_ONLY_BODY')) 'body-only-complete-text-has-no-current-operation-gates'
+ Check ($bodyResult.projectExternalAuthorization.selectedGrantRuleIds.Count-eq0-and-not$bodyDisplay.text.Contains('use the original tool directly')) 'B-only-configured-grant-is-not-a-current-operation-grant'
+ $bad=$bodyResult|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100
+ $bad.selectedRuleBlocks=@($bad.selectedRuleBlocks|Where-Object requirementId -CNE 'project:display-fixture:ACTIVITY_BODY')
+ Reject {Get-AiwProcessDisplay $bad} 'renderer-rejects-dropped-B-only-rule'
+ $bad=$bodyResult|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100
+ @($bad.selectedRuleBlocks|Where-Object requirementId -CEQ 'project:display-fixture:ACTIVITY_BODY')[0].preparationRequirements=@('BODY_PRODUCTION_PREP')
+ Reject {Get-AiwProcessDisplay $bad} 'renderer-rejects-B-only-obligation-escalation'
+ $policy.rules=@($policy.rules|Where-Object ruleId -CNE 'ACTIVITY_BODY')
+ $savedReadOnly=$inputValue|ConvertTo-Json -Depth 100
+ $policy.externalAuthorization.grantRuleIds=@('INLINE_A');SaveJson $policyPath $policy
+ $inputValue.contextType='PROJECT_EXTERNAL';$inputValue.Remove('readOnlyContext');$inputValue.taskPath='NOT_APPLICABLE';$inputValue.expectedTaskIdentity='NOT_APPLICABLE'
+ $inputValue.requestContext=[ordered]@{sessionId=$inputValue.observedActor;requestId='direct-display';role='EXECUTOR';phase='EXTERNAL';profile='STANDARD'}
+ $inputValue.intentEnvelope.requestedActionKind='EXTERNAL';$inputValue.intentEnvelope.requestedResultKind='EXTERNAL_RESULT'
+ $direct=Discover;$directDisplay=Get-AiwProcessDisplay $direct
+ Check ($direct.projectExternalAuthorization.selectedGrantRuleIds.Count-gt0-and$directDisplay.text.Contains('use the original tool directly')) 'actual-external-selected-grant-displays-direct-tool-instruction'
+ $inputValue=$savedReadOnly|ConvertFrom-Json -Depth 100 -AsHashtable
  $policy.Remove('externalAuthorization');SaveJson $policyPath $policy
  $inputValue=$savedInput|ConvertFrom-Json -Depth 100 -AsHashtable
  # Same words from another file remain a distinct source, even with the same

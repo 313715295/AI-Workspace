@@ -52,4 +52,4 @@ PASS|entry-cannot-expand-explicit-source-range|KNOWLEDGE_FACET_ENTRY_OUTSIDE_SOU
 PASS|facets-are-not-an-implicit-discovery-action|KNOWLEDGE_FACET_QUERY_EXPLICIT_SOURCES_REQUIRED
 PASS|nonfacet-explicit-query-parameter-exclusion-preserved|KNOWLEDGE_QUERY_QUALIFIED_IDS_REQUIRED
 PASS|next-follow-query-gets-new-snapshot-without-rewriting-prior-query
-PASS|source-snapshot-boundary|assertions=54|fixture=C:\Users\zheng\AppData\Local\Temp\g-0ee148ba\aiw-w2-w3-snapshot-9626f1b4372b4c56b92a47420ddcea45
+PASS|source-snapshot-boundary|assertions=54|fixture=C:\Users\zheng\AppData\Local\Temp\g-cf691039\aiw-w2-w3-snapshot-b1f15b5b81d64085904dcafaf48fb105

@@ -211,7 +211,8 @@ try{
     $rp=Get-Content $policyPath -Raw|ConvertFrom-Json -Depth 100
     foreach($axis in @('roles','phases','actionKinds','resultKinds')){$rp.rules[0].selectors.$axis=@('*')}
     $rp.rules[0].selectors.semanticTerms=@()
-    $rp.rules+=@([pscustomobject]@{ruleId='MIGRATION_ONLY';requirementReason='Additional rule when migration files enter scope';effectiveRule='MIGRATION_COMPLETE_CONDITION_AND_DEPENDENCY';selectors=@{profiles=@('*');roles=@('*');phases=@('*');actionKinds=@('*');resultKinds=@('*');pathPrefixes=@('migrations/');capabilities=@();semanticTerms=@()};preparationRequirements=@('MIGRATION_PREP');resultRequirements=@('MIGRATION_RESULT');decisionLocator='fixture:migration'})
+    $rp.rules+=@([pscustomobject]@{ruleId='MIGRATION_ONLY';requirementReason='Additional complete method with no mechanical gates when migration files enter scope';effectiveRule='MIGRATION_COMPLETE_CONDITION_AND_DEPENDENCY';selectors=@{profiles=@('*');roles=@('*');phases=@('*');actionKinds=@('*');resultKinds=@('*');pathPrefixes=@('migrations/');capabilities=@();semanticTerms=@()};preparationRequirements=@();resultRequirements=@();decisionLocator='fixture:migration'})
+    $rp|Add-Member externalAuthorization ([pscustomobject]@{schemaVersion=1;mode='PROJECT_PREAUTHORIZED';grantRuleIds=@('MIGRATION_ONLY')})
     Write-Json $policyPath $rp
     Write-Utf8 (Join-Path $temp 'src/base.txt') 'before'
     $pkg=[ordered]@{schemaVersion=1;frameworkVersion='2.0.0';taskId='PROCESS-V2-001';profile='STANDARD';lifecycle='ACTIVE';owner='owner-fixture';issuer='owner-fixture';issuerRole='TASK_OWNER';grantee='owner-fixture';bundle='ordinary-scope';decisionClass='ROUTINE_LOCAL';userConfirmation='NOT_REQUIRED';reviewIndependence='NOT_APPLICABLE';delegatedGitCloser=$false;taskIdentity=Get-Identity $taskPath;projectConfigIdentity=Get-Identity (Join-Path $control 'project.json');actions=@('SOURCE_WRITE');exactPaths=@('src/base.txt');objectIdentities=@(@{path='src/base.txt';identity=Get-Identity (Join-Path $temp 'src/base.txt')});invalidatesOn=@('TASK_CHANGE','OWNER_CHANGE','GRANTEE_CHANGE','ACTION_CHANGE','PATHSET_CHANGE','OBJECT_DRIFT','USER_DECISION_CHANGE','PROJECT_CONFIG_DRIFT')}
@@ -222,8 +223,11 @@ try{
     $ri.intentEnvelope.requestedActionKind='SOURCE_WRITE';$ri.intentEnvelope.requestedResultKind='IMPLEMENTATION_RESULT';$ri.intentEnvelope.objective='Implement the current ordinary source change';$ri.intentEnvelope.semanticHints=@();$ri.intentEnvelope.mutationHints=@('source')
     foreach($axis in @('domain','workType','deliverableType','stage')){$ri.intentEnvelope.facets.$axis=[pscustomobject]@{state='UNKNOWN';values=@()}}
     Write-Json $loadPath $ri;$initial=Invoke-Resolver $resolver $loadPath;Assert-ResolverSuccess $initial 'ordinary-scope-initial-full'
+    $displayOwner=Import-Module (Join-Path $fixtureVersion 'scripts/ProcessRequirementDisplay.psm1') -PassThru
+    $sourceDisplay=& $displayOwner.ExportedCommands['Get-AiwProcessDisplay'] $initial.Value
+    Assert-True ($initial.Value.compactReceipt.intentEnvelope.requestedActionKind-ceq'SOURCE_WRITE'-and$initial.Value.projectExternalAuthorization.selectedGrantRuleIds.Count-eq0-and-not$sourceDisplay.text.Contains('use the original tool directly')) 'actual-SOURCE-empty-grant-keeps-per-action-contract'
     $observed=$initial.Value.compactReceipt.sourceObservation
-    Assert-True ($observed.schemaVersion-eq2-and$observed.workRoute.actor-ceq'owner-fixture'-and$observed.workRoute.role-ceq'TASK_OWNER'-and$observed.workRoute.phase-ceq'IMPLEMENT'-and($observed.loadedRuleIds-join'|')-ceq(@($initial.Value.compactReceipt.selectedObligations.requirementId)-join'|')) 'current-full-observes-real-work-route-and-all-loaded-rule-ids'
+    Assert-True ($observed.schemaVersion-eq2-and$observed.workRoute.actor-ceq'owner-fixture'-and$observed.workRoute.role-ceq'TASK_OWNER'-and$observed.workRoute.phase-ceq'IMPLEMENT'-and($observed.loadedRuleIds-join'|')-ceq(@($initial.Value.selectedRuleBlocks.requirementId)-join'|')-and@($initial.Value.selectedRuleBlocks).Count-gt@($initial.Value.compactReceipt.selectedObligations).Count) 'current-full-observes-real-work-route-and-all-loaded-rule-ids'
     $rr=Join-Path $rd 'scope-receipt.json';Write-Json $rr $initial.Value.compactReceipt
     $rb=[ordered]@{schemaVersion=3;mode='ADMIT_ACTION';discoverReceiptPath=$rr;expectedDiscoverReceiptIdentity=Get-Identity $rr;preparationReceipts=@($initial.Value.compactReceipt.selectedObligations|ForEach-Object preparationRequirements|Sort-Object -Unique);resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='BOUND';evidenceRefs=@()}
     $bp=Join-Path $rd 'scope-boundary.json';Write-Json $bp $rb;Assert-ResolverSuccess (Invoke-Resolver $resolver $bp) 'ordinary-scope-initial-admit'
@@ -262,6 +266,32 @@ try{
     $testFinal=$testBoundary|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100;$testFinal.PSObject.Properties.Remove('actionRebind');$testFinal.mode='FINALIZE_OUTPUT';$testFinal.discoverReceiptPath=$testCompact;$testFinal.expectedDiscoverReceiptIdentity=Get-Identity $testCompact
     $testFinal.resultReceipts=@($testReceipt.selectedObligations|ForEach-Object resultRequirements|Sort-Object -Unique)+@('OBJECT_POSTIMAGE|tests/companion.ps1|'+(Get-Identity (Join-Path $temp 'tests/companion.ps1')))
     Write-Json $testBoundaryPath $testFinal;Assert-ResolverSuccess (Invoke-Resolver $resolver $testBoundaryPath) 'companion-code-original-F-uses-saved-current-compact'
+    # Exercise O entering, leaving and reentering within the same actually read
+    # B, through public admission, actual output writes and original finalization.
+    $previousCompact=$testCompact
+    foreach($step in @(@('HANDOFF','first-handoff'),@('IMPLEMENTATION_RESULT','local-record'),@('HANDOFF','second-handoff'))){
+      $report='src/activity-report.md';$reportPath=Join-Path $temp $report
+      $operationPackage=$pkg|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100
+      $operationPackage.actions=@('SOURCE_WRITE');$operationPackage.exactPaths=@($report)
+      $operationPackage.objectIdentities=@([pscustomobject]@{path=$report;identity=$(if([IO.File]::Exists($reportPath)){Get-Identity $reportPath}else{'NEW'})})
+      $operationPackagePath=Join-Path $rd ($step[1]+'-package.json');Write-Json $operationPackagePath $operationPackage
+      $operationIntent=$ri.intentEnvelope|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100
+      $operationIntent.requestedResultKind=$step[0];$operationIntent.pathHints=@($report);$operationIntent.objective='Update the same implementation activity report and deliver the current result'
+      $operationBoundary=[ordered]@{schemaVersion=3;mode='ADMIT_ACTION';discoverReceiptPath=$previousCompact;expectedDiscoverReceiptIdentity=Get-Identity $previousCompact;preparationReceipts=@($rb.preparationReceipts)+@('AUTHENTICATED_DELIVERY_ROUTE_BOUND');resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='BOUND';evidenceRefs=@();actionRebind=[pscustomobject]@{authorizationRef=[pscustomobject]@{path=$operationPackagePath;identity=Get-Identity $operationPackagePath};intentEnvelope=$operationIntent;recoveryState='CURRENT'}}
+      $operationPath=Join-Path $rd ($step[1]+'-boundary.json');Write-Json $operationPath $operationBoundary
+      $operationCompact=Join-Path $rd ($step[1]+'-compact.json');$global:RuleBodyCalls=0;$global:RuleDisplayCalls=0
+      $probes=@(Set-PSBreakpoint -Command Get-AiwScopedProjectContent -Action {$global:RuleBodyCalls++};Set-PSBreakpoint -Command Get-AiwProcessDisplay -Action {$global:RuleDisplayCalls++})
+      try{$global:LASTEXITCODE=0;$output=@(& $resolver -InputPath $operationPath -CompactReceiptPath $operationCompact -AsJson);$code=$global:LASTEXITCODE;$admission=($output-join"`n")|ConvertFrom-Json -Depth 100}finally{$probes|Remove-PSBreakpoint}
+      Assert-True ($code-eq0-and$admission.status-ceq'PASS'-and$global:RuleBodyCalls-eq0-and$global:RuleDisplayCalls-eq0-and-not$admission.ruleBodyLoaded) ('loaded-operation-zero-assembly-'+$step[1]+'|'+($output-join''))
+      $current=Get-Content -LiteralPath $operationCompact -Raw|ConvertFrom-Json -Depth 100
+      $deliverySelected='framework:PR_COMPACT_NON_INTERRUPT_DELIVERY'-cin@($current.selectedObligations.requirementId)
+      Assert-True ($deliverySelected-eq($step[0]-ceq'HANDOFF')-and$current.sourceCompositionIdentity-ceq$initial.Value.compactReceipt.sourceCompositionIdentity-and($current.sourceObservation.loadedRuleIds-join'|')-ceq($observed.loadedRuleIds-join'|')) ('operation-obligations-and-static-body-source-'+$step[1])
+      Write-Utf8 $reportPath ('Actual report '+$step[1])
+      $operationBoundary.Remove('actionRebind');$operationBoundary.mode='FINALIZE_OUTPUT';$operationBoundary.discoverReceiptPath=$operationCompact;$operationBoundary.expectedDiscoverReceiptIdentity=Get-Identity $operationCompact
+      $operationBoundary.resultReceipts=@($current.selectedObligations|ForEach-Object resultRequirements|Sort-Object -Unique)+@('OBJECT_POSTIMAGE|'+$report+'|'+(Get-Identity $reportPath));$operationBoundary.deliveryReceipts=@('FIXTURE_DELIVERY')
+      Write-Json $operationPath $operationBoundary;Assert-ResolverSuccess (Invoke-Resolver $resolver $operationPath) ('current-original-finalize-'+$step[1])
+      $previousCompact=$operationCompact
+    }
     # Old permission never expands just because the caller supplies a new path.
     $rb.actionRebind.authorizationRef=@{path=$pa;identity=Get-Identity $pa};$rb.actionRebind.intentEnvelope=$ri.intentEnvelope|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100;$rb.actionRebind.intentEnvelope.pathHints=@('src/extra.txt')
     function Invoke-RebindFailure([string]$Name,[string]$Reason){Write-Json $bp $rb;$global:LASTEXITCODE=0;$lines=@(& $resolver -InputPath $bp -CompactReceiptPath (Join-Path $rd ($Name+'.json')) -AsJson);Assert-True ($global:LASTEXITCODE-ne0-and($lines-join'').Contains($Reason)) $Name}
@@ -275,7 +305,13 @@ try{
     Assert-True ($expanded.Value.modelView.loadDecision.effectiveMode-ceq'FULL'-and(@($expanded.Value.modelView.uniqueUnits.fullText)-join'').Contains('MIGRATION_COMPLETE_CONDITION_AND_DEPENDENCY')-and$expanded.Value.modelView.uniqueUnits.Count-gt$initial.Value.modelView.uniqueUnits.Count) 'additional-rule-load-returns-whole-current-closure'
     # The real source reader refuses changed adopted bytes; no reuse fallback.
     $bytes=[IO.File]::ReadAllBytes((Join-Path $temp 'docs/base.md'))
-    try{Write-Utf8 (Join-Path $temp 'docs/base.md') 'unadopted bytes';$ri.exactPaths=@('src/base.txt');$rb.actionRebind.authorizationRef=@{path=$pa;identity=Get-Identity $pa};Invoke-RebindFailure 'current-source-byte-drift-refused' 'CONTENT_IDENTITY_DRIFT'}finally{[IO.File]::WriteAllBytes((Join-Path $temp 'docs/base.md'),$bytes)}
+    try{
+      $expandedCompact=Join-Path $rd 'expanded-source-compact.json';Write-Json $expandedCompact $expanded.Value.compactReceipt
+      $rb.discoverReceiptPath=$expandedCompact;$rb.expectedDiscoverReceiptIdentity=Get-Identity $expandedCompact
+      $rb.actionRebind.authorizationRef=@{path=$pb;identity=Get-Identity $pb};$rb.actionRebind.intentEnvelope=$ri.intentEnvelope
+      Write-Utf8 (Join-Path $temp 'docs/base.md') 'unadopted bytes'
+      Invoke-RebindFailure 'current-source-byte-drift-refused' 'CONTENT_IDENTITY_DRIFT'
+    }finally{[IO.File]::WriteAllBytes((Join-Path $temp 'docs/base.md'),$bytes)}
   }finally{[IO.File]::WriteAllBytes($taskPath,$savedTask);[IO.File]::WriteAllBytes($policyPath,$savedPolicy);$env:CODEX_THREAD_ID=$savedActor}
   # Exercise both real loading contexts through the public boundary. This
   # is not a provider call or a machine proof of semantic grant coverage.
@@ -914,8 +950,10 @@ try{
   $phaseDiscover=$actorDiscover|ConvertTo-Json -Depth 100|ConvertFrom-Json;$phaseDiscover.expectedTaskIdentity=Get-Identity $taskPath;$phaseDiscover.authorizationPackagePath=$phasePackagePath;$phaseDiscover.expectedAuthorizationIdentity=Get-Identity $phasePackagePath
   Write-Json $discoverPath $phaseDiscover;$phaseRun=Invoke-Resolver $resolver $discoverPath;Assert-ResolverSuccess $phaseRun 'phaseRun'
   $staleTaskPhaseRejected=$stalePhaseBoundary.Code-ne0-and$stalePhaseBoundary.Text.Contains('DISCOVER_SOURCE_DRIFT|taskIdentity')
-  $temporaryTaskPhaseRebound=$phaseRun.Code-eq0-and[string]$phaseRun.Value.compactReceipt.binding.taskActor-ceq'owner-fixture'-and[string]$phaseRun.Value.compactReceipt.binding.actor-ceq'executor-fixture'-and[string]$phaseRun.Value.compactReceipt.binding.role-ceq'EXECUTOR'-and[string]$phaseRun.Value.compactReceipt.binding.phase-ceq'IMPLEMENT'-and[string]$phaseRun.Value.compactReceipt.binding.taskIdentity-cne[string]$actorRun.Value.compactReceipt.binding.taskIdentity-and[string]$phaseRun.Value.compactReceipt.sourceCompositionIdentity-cne[string]$actorRun.Value.compactReceipt.sourceCompositionIdentity-and[string]$phaseRun.Value.compactReceipt.selectionIdentity-cne[string]$actorRun.Value.compactReceipt.selectionIdentity-and[string]$phaseRun.Value.compactReceipt.contextIdentity-cne[string]$actorRun.Value.compactReceipt.contextIdentity
-  $ownerTaskPhaseRebound=$ownerPhaseBefore.Code-eq0-and$ownerPhaseAfter.Code-eq0-and[string]$ownerPhaseBefore.Value.compactReceipt.binding.phase-ceq'IMPLEMENT'-and[string]$ownerPhaseAfter.Value.compactReceipt.binding.phase-ceq'VERIFY'-and[string]$ownerPhaseAfter.Value.compactReceipt.binding.taskIdentity-cne[string]$ownerPhaseBefore.Value.compactReceipt.binding.taskIdentity-and[string]$ownerPhaseAfter.Value.compactReceipt.sourceCompositionIdentity-cne[string]$ownerPhaseBefore.Value.compactReceipt.sourceCompositionIdentity-and[string]$ownerPhaseAfter.Value.compactReceipt.selectionIdentity-cne[string]$ownerPhaseBefore.Value.compactReceipt.selectionIdentity-and[string]$ownerPhaseAfter.Value.compactReceipt.contextIdentity-cne[string]$ownerPhaseBefore.Value.compactReceipt.contextIdentity
+  # Only task authority changes here; the selected rule content and obligations
+  # stay the same. Exact task/context rebinding must not churn their identities.
+  $temporaryTaskPhaseRebound=$phaseRun.Code-eq0-and[string]$phaseRun.Value.compactReceipt.binding.taskActor-ceq'owner-fixture'-and[string]$phaseRun.Value.compactReceipt.binding.actor-ceq'executor-fixture'-and[string]$phaseRun.Value.compactReceipt.binding.role-ceq'EXECUTOR'-and[string]$phaseRun.Value.compactReceipt.binding.phase-ceq'IMPLEMENT'-and[string]$phaseRun.Value.compactReceipt.binding.taskIdentity-cne[string]$actorRun.Value.compactReceipt.binding.taskIdentity-and[string]$phaseRun.Value.compactReceipt.binding.taskIdentity-ceq(Get-Identity $taskPath)-and[string]$phaseRun.Value.compactReceipt.sourceCompositionIdentity-ceq[string]$actorRun.Value.compactReceipt.sourceCompositionIdentity-and[string]$phaseRun.Value.compactReceipt.selectionIdentity-ceq[string]$actorRun.Value.compactReceipt.selectionIdentity-and[string]$phaseRun.Value.compactReceipt.contextIdentity-cne[string]$actorRun.Value.compactReceipt.contextIdentity
+  $ownerTaskPhaseRebound=$ownerPhaseBefore.Code-eq0-and$ownerPhaseAfter.Code-eq0-and[string]$ownerPhaseBefore.Value.compactReceipt.binding.phase-ceq'IMPLEMENT'-and[string]$ownerPhaseAfter.Value.compactReceipt.binding.phase-ceq'VERIFY'-and[string]$ownerPhaseAfter.Value.compactReceipt.binding.taskIdentity-cne[string]$ownerPhaseBefore.Value.compactReceipt.binding.taskIdentity-and[string]$ownerPhaseAfter.Value.compactReceipt.binding.taskIdentity-ceq(Get-Identity $taskPath)-and[string]$ownerPhaseAfter.Value.compactReceipt.sourceCompositionIdentity-ceq[string]$ownerPhaseBefore.Value.compactReceipt.sourceCompositionIdentity-and[string]$ownerPhaseAfter.Value.compactReceipt.selectionIdentity-ceq[string]$ownerPhaseBefore.Value.compactReceipt.selectionIdentity-and[string]$ownerPhaseAfter.Value.compactReceipt.contextIdentity-cne[string]$ownerPhaseBefore.Value.compactReceipt.contextIdentity
   if(-not($staleTaskPhaseRejected-and$temporaryTaskPhaseRebound-and$ownerTaskPhaseRebound)){
     $phaseBeforeBinding=if($actorRun.Code-eq0){$actorRun.Value.compactReceipt.binding}else{$null};$phaseAfterBinding=if($phaseRun.Code-eq0){$phaseRun.Value.compactReceipt.binding}else{$null}
     $beforeTask=if($null-ne$phaseBeforeBinding){[string]$phaseBeforeBinding.taskIdentity}else{'UNAVAILABLE'};$afterTask=if($null-ne$phaseAfterBinding){[string]$phaseAfterBinding.taskIdentity}else{'UNAVAILABLE'}
@@ -926,7 +964,7 @@ try{
   }
   Assert-True $staleTaskPhaseRejected 'actual-task-phase-drift-rejects-old-receipt'
   Assert-True $temporaryTaskPhaseRebound 'fresh-temporary-action-keeps-action-phase-and-rebinds-task-identities'
-  Assert-True $ownerTaskPhaseRebound 'fresh-task-actor-phase-change-rebinds-source-selection-and-context'
+  Assert-True $ownerTaskPhaseRebound 'fresh-task-actor-phase-change-rebinds-authority-context-with-stable-body-and-selection'
 
   $taskRelative='.ai-workspace/tasks/active/PROCESS-V2-001.md'
   Write-Utf8 $taskPath "# PROCESS-V2-001 — runtime contract fixture`n`n- Task schema: 2.0.0`n- Owner: owner-fixture`n- Work route: actor=owner-fixture; role=TASK_OWNER; phase=IMPLEMENT`n- Range summary: profile=STANDARD; lifecycle=ACTIVE; expected_paths=[$taskRelative]; actual_paths=[$taskRelative]`n"

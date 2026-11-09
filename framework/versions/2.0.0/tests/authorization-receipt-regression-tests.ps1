@@ -2035,8 +2035,19 @@ try{$f=[scriptblock]::Create([IO.File]::ReadAllText($Candidate));$value=& $f;Wri
   $reviewed=Run-Process $reviewBoundary 'lifecycle-reviewed'
   Assert-True ($reviewed.status-ceq'PASS'-and$reviewed.delivery.delivered) 'lifecycle-original-review-observes-simulated-host-result'
   $reviewRef=$reviewBoundary.evidenceRefs[0];$reviewRecord=Get-Content -LiteralPath $reviewRef.path -Raw|ConvertFrom-Json -Depth 100
+  # Prepare this lifecycle's full dependency plan before acceptance. The SELF
+  # and review retain their own actual requirement refs; neither is substituted.
+  $lifecycleTaskBeforePlan=[IO.File]::ReadAllBytes($taskPath)
+  $closeCandidates=@($reviewRecord.candidateObjects)
+  $closePlan=[ordered]@{schemaVersion=1;stages=@(
+    [ordered]@{id='self';kind='SELF_CHECK';requiredBy=$selfRequirements;dependsOn=@();candidateRef=$closeCandidates;evidenceRefs=@($success)},
+    [ordered]@{id='review';kind='RESULT_REVIEW';requiredBy=$reviewRecord.requirementsRef;dependsOn=@('self');candidateRef=$closeCandidates;evidenceRefs=@($reviewRef)},
+    [ordered]@{id='accept';kind='RESULT_ACCEPT';requiredBy=$reviewRecord.requirementsRef;dependsOn=@('review');candidateRef=$closeCandidates;evidenceRefs=@()})}
+  $fence=[string]::new([char]96,3)
+  $lifecyclePlanText=$fence+'aiw-acceptance-plan'+"`n"+($closePlan|ConvertTo-Json -Depth 100 -Compress)+"`n"+$fence+"`n"
+  Write-Utf8 $taskPath ([Text.UTF8Encoding]::new($false,$true).GetString($lifecycleTaskBeforePlan)+"`n"+$lifecyclePlanText)
   $acceptPackage=New-Package STANDARD TASK_OWNER owner-fixture RESULT_ACCEPT ROUTINE_LOCAL
-  $acceptPackage['acceptanceBinding']=[ordered]@{candidateObjects=@($acceptPackage.objectIdentities);requirementsRef=$reviewRecord.requirementsRef;prerequisiteEvidenceRefs=@($reviewRef);reservedUserDecisionRefs=@()}
+  $acceptPackage['acceptanceBinding']=[ordered]@{candidateObjects=@($acceptPackage.objectIdentities);requirementsRef=$reviewRecord.requirementsRef;prerequisiteEvidenceRefs=@($success,$reviewRef);reservedUserDecisionRefs=@()}
   $acceptGrant=[pscustomobject]@{Path=(Join-Path $control 'lifecycle-accept-package.json');Package=$acceptPackage};Write-Json $acceptGrant.Path $acceptPackage
   Assert-True ((Invoke-Check $acceptPackage owner-fixture RESULT_ACCEPT).Code-eq0) 'lifecycle-owner-accept-independent-checker'
   $acceptStep=Enter-SelfStep $acceptGrant RESULT_ACCEPT 'lifecycle-accept'
@@ -2068,15 +2079,11 @@ try{$f=[scriptblock]::Create([IO.File]::ReadAllText($Candidate));$value=& $f;Wri
     Assert-True ((Invoke-Check $closePackage owner-fixture CONTROL_WRITE $closePackage.exactPaths).Code-eq0) 'lifecycle-close-archive-independent-checker'
     $closeStep=Enter-SelfStep $closeGrant CONTROL_WRITE 'lifecycle-close' -Scope $closePackage.exactPaths
     # Close from the actual completed stages, without bypassing the original gate.
-    $closeCandidates=@($acceptPackage.objectIdentities)
-    $closePlan=[ordered]@{schemaVersion=1;stages=@(
-      [ordered]@{id='self';kind='SELF_CHECK';requiredBy=$selfRequirements;dependsOn=@();candidateRef=$closeCandidates;evidenceRefs=@($success)},
-      [ordered]@{id='review';kind='RESULT_REVIEW';requiredBy=$reviewRecord.requirementsRef;dependsOn=@('self');candidateRef=$closeCandidates;evidenceRefs=@($reviewRef)},
-      [ordered]@{id='accept';kind='RESULT_ACCEPT';requiredBy=$reviewRecord.requirementsRef;dependsOn=@('review');candidateRef=$closeCandidates;evidenceRefs=@($acceptedRef)})}
+    $closePlan.stages[2].evidenceRefs=@($acceptedRef)
     if($LifecycleOnly){$closePlan.stages+=@([ordered]@{id='producer';kind='DESIGN';requiredBy=$selfRequirements;dependsOn=@();candidateRef=@([ordered]@{path=$recoveryReport;identity=(Get-Identity $recoveryReport)});evidenceRefs=@()})}
     $fence=[string]::new([char]96,3)
     $closePlanText=$fence+'aiw-acceptance-plan'+"`n"+($closePlan|ConvertTo-Json -Depth 100 -Compress)+"`n"+$fence+"`n"
-    $closed=[Text.UTF8Encoding]::new($false,$true).GetString($taskBeforeClose).Replace('lifecycle=ACTIVE;','lifecycle=CLOSED;')+"`n"+$closePlanText+"- Closure outcome: SUCCESS`n- Closure basis: $acceptedPath#$(Get-Identity $acceptedPath)`n- Output disposition: Real fixture candidate, command failure/success, independent protocol review and Owner acceptance retained.`n- Git disposition: EXCLUDED; isolated fixture.`n- Unresolved obligations: NONE`n- Writer: RELEASED`n- Reviewer: RELEASED`n- Authorization: RELEASED`n"
+    $closed=[Text.UTF8Encoding]::new($false,$true).GetString($taskBeforeClose).Replace($lifecyclePlanText,$closePlanText).Replace('lifecycle=ACTIVE;','lifecycle=CLOSED;')+"- Closure outcome: SUCCESS`n- Closure basis: $acceptedPath#$(Get-Identity $acceptedPath)`n- Output disposition: Real fixture candidate, command failure/success, independent protocol review and Owner acceptance retained.`n- Git disposition: EXCLUDED; isolated fixture.`n- Unresolved obligations: NONE`n- Writer: RELEASED`n- Reviewer: RELEASED`n- Authorization: RELEASED`n"
     Write-Utf8 $archivePath $closed
     $ev=@(Import-Module (Join-Path $fixtureVersion 'scripts/ResultEvidence.psm1') -PassThru)[0]
     $evContext=& $ev.ExportedCommands['New-AiwPackageEvidenceContext'] $temp $closePackage $frameworkRoot @('private/') -TaskPath $taskRelative
@@ -2093,7 +2100,7 @@ try{$f=[scriptblock]::Create([IO.File]::ReadAllText($Candidate));$value=& $f;Wri
       $inputFilesReleased=@($script:LifecycleInputCleanup|ForEach-Object{$_.removed}).Count
       Write-Output ('OBSERVE|lifecycle|'+([ordered]@{inputFilesReleased=$inputFilesReleased;inputBytesReleased=($script:LifecycleInputCleanup|Measure-Object -Property removedBytes -Sum).Sum;finalConsumerFilesReleased=$finished.runtimeCleanup.removed.Count;finalConsumerBytesReleased=$finished.runtimeCleanup.removedBytes;closeWallMs=$closeWatch.Elapsed.TotalMilliseconds;cleanupMs=$finished.runtimeCleanup.elapsedMs;inputCleanupMs=($script:LifecycleInputCleanup|Measure-Object -Property elapsedMs -Sum).Sum;additionalModelRequests=0;commandsAndBoundaries='ACTUAL';hostAndJudgments='SIMULATED';naturalTwoTasks='UNKNOWN'}|ConvertTo-Json -Compress))
     }
-  }finally{$closeWatch.Stop();[IO.File]::WriteAllBytes($taskPath,$taskBeforeClose)}
+  }finally{$closeWatch.Stop();[IO.File]::WriteAllBytes($taskPath,$lifecycleTaskBeforePlan)}
   if($LifecycleOnly){Write-GroupCompletion;return}
   $badSuccess=Finish-SelfStep $repairedTest 'bounded-pass-cannot-repair' @($success) REPAIR -AllowFailure
   Assert-True ($badSuccess.Result.status-cne'PASS') 'self-repair-cannot-branch-from-pass'

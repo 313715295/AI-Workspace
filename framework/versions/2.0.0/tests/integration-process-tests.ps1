@@ -83,6 +83,9 @@ function Test-IntegrationOriginalExternalCompletion([string]$OriginalRuntimeRoot
   $package=[ordered]@{schemaVersion=1;frameworkVersion='2.0.0';taskId=$taskId;profile='STANDARD';lifecycle='ACTIVE';owner=$actor;issuer=$actor;issuerRole='TASK_OWNER';grantee=$actor;bundle='EXTERNAL_LOCAL_FIXTURE';decisionClass='EXTERNAL_ACTION';userConfirmation='SIMULATED_ORIGINAL_RESOURCE_GRANT';reviewIndependence='NOT_APPLICABLE';delegatedGitCloser=$false;taskIdentity=Get-Identity $taskPath;actions=@('EXTERNAL');exactPaths=@('request.txt');objectIdentities=@([ordered]@{path='request.txt';identity=Get-Identity $request});invalidatesOn=@('TASK_CHANGE','OWNER_CHANGE','GRANTEE_CHANGE','ACTION_CHANGE','PATHSET_CHANGE','OBJECT_DRIFT','USER_DECISION_CHANGE','PROJECT_CONFIG_DRIFT');projectConfigIdentity=Get-Identity $configPath;externalBinding=[ordered]@{schemaVersion=2;route='TASK_OWNER_DIRECT_DOMAIN_EXTERNAL';provider='isolated-local-tool';orderedOperations=@([ordered]@{operationId='LOCAL-1';operationKind='LOCAL_COUNTER';declaredInputClass='EXACT_PAYLOADS';payloads=@([ordered]@{payloadKind='normalized-text';normalizedIdentity=Get-Identity $request;canonicalizationVersion='UTF8_LF_V1'})});outputUse='isolated local result';perOperationRetryCeiling=0;totalRetryCeiling=0;stopConditions=@('stop after this call','stop on unknown consumption');batchExecutionMode='ONE_LOGICAL_ATOMIC_EXECUTION';reissuable=$false;ambiguousConsumptionPolicy='BLOCK';escalationFlags=$flags;grantRefs=@((External-Ref $grant));grantAssessment=[ordered]@{status='CURRENT_AND_COVERED';withdrawalOrReplacementObserved=$false;provider='isolated-local-tool';operationIds=@('LOCAL-1');outputUse='isolated local result';paidResourceUse=$false;sharedResourceUse=$false}}}
   $packagePath=Join-Path $rd 'original-package.json';External-SaveJson $packagePath $package
   $inputValue=[ordered]@{schemaVersion=5;mode='DISCOVER';contextType='TASK';readOnlyContext='NOT_APPLICABLE';ruleLoad=[ordered]@{mode='FULL'};projectRoot=$root;frameworkRoot=$originalRoot;taskPath=$taskPath;expectedProjectConfigIdentity=Get-Identity $configPath;expectedCorrectionsIdentity=Get-Identity (Join-Path $cp 'corrections.json');expectedTaskIdentity=Get-Identity $taskPath;observedActor=$actor;capabilities=@();exactPaths=@('request.txt');forbiddenPaths=@();protectedPaths=@();authorizationPackagePath=$packagePath;expectedAuthorizationIdentity=Get-Identity $packagePath;userDecision=$package.userConfirmation;recoveryState='CURRENT';hostEnforcementGrade='INSTRUCTION_BOUND';invocationState='PROVEN_EXPLICIT';evaluationOnly=$false;intentEnvelope=[ordered]@{schemaVersion=2;objective='Observe one original local fixture call and preserve its actual result';requestedActionKind='EXTERNAL';requestedResultKind='EXTERNAL_RESULT';semanticHints=@();pathHints=@('request.txt');capabilityHints=@();mutationHints=@();externalHints=@();ambiguityState='CLEAR';facets=[ordered]@{domain=[ordered]@{state='KNOWN';values=@('aiw:software')};workType=[ordered]@{state='KNOWN';values=@('aiw:implementation')};deliverableType=[ordered]@{state='KNOWN';values=@('aiw:code')};stage=[ordered]@{state='KNOWN';values=@('aiw:implementation')}}}}
+  # Valid directory scopes belong to the original real DISCOVER, not a
+  # subsequently edited compact. No protected target is created or inspected.
+  $inputValue.forbiddenPaths=@('protected-output/','private-evidence/')
   $discoverPath=Join-Path $rd 'original-discover.json';External-SaveJson $discoverPath $inputValue
   $discovered=External-RunJson $originalResolver @('-InputPath',$discoverPath,'-AsJson') (Join-Path $rd 'original-discover-result.json')
   Assert-True ($discovered.Run.Code-eq0-and$discovered.Value.status-ceq'PASS') ('original-external-discover|'+$discovered.Run.Text)
@@ -126,8 +129,26 @@ $value|ConvertTo-Json -Compress
   $upgrader=Join-Path $toolRoot 'scripts/upgrade-project.ps1'
   function External-Complete([string]$Path,[string]$Name){External-RunJson $upgrader @('-ProjectId',$projectId,'-ToVersion','2.0.0','-RepositoryPath',$root,'-ActorRouteActor',$actor,'-CompleteOriginalExternalResult','-OriginalExternalCompletionInputPath',$Path,'-ExpectedOriginalExternalCompletionIdentity',(Get-Identity $Path)) (Join-Path $rd ($Name+'-result.json'))}
   $completed=External-Complete $completionPath 'completion'
+  $originalCompactIdentity=Get-Identity $compactPath
   Assert-True ($completed.Run.Code-eq0-and$completed.Value.status-ceq'PASS'-and$completed.Value.actionOutcome-ceq'SUCCESS'-and$completed.Value.configChange-ceq'SOURCE_ALLOWED_PATHS_ADDED_ONLY'-and$completed.Value.originalPolicyIdentity-cne$completed.Value.currentPolicyIdentity) ('historical-completion-after-unrelated-config-addition-closed-task-and-later-policy|'+$completed.Run.Text)
   Assert-True ($completed.Value.successorState-ceq'NONE'-and-not$completed.Value.authorityGranted-and$completed.Value.futureExecution-ceq'NOT_GRANTED'-and-not$completed.Value.taskExecutionReopened-and$null-eq$completed.Value.PSObject.Properties['decisionIdentity']-and(Get-Identity $observation)-ceq$originalObservationIdentity-and(Get-Identity $failed.Ref.path)-ceq$failed.Ref.identity) 'historical-result-preserves-failure-and-native-fact-with-no-replay-or-successor-receipt'
+  # Both completion frontdoors share this pre-read guard. An absent carrier
+  # beneath a protected prefix must fail here, before any attempted open.
+  $blockedCarrier=Join-Path $root 'private-evidence/never-open.json'
+  $placeholderIdentity='1|'+('A'*64)
+  $protectedExternal=External-RunJson $upgrader @('-ProjectId',$projectId,'-ToVersion','2.0.0','-RepositoryPath',$root,'-ActorRouteActor',$actor,'-CompleteOriginalExternalResult','-OriginalExternalCompletionInputPath',$blockedCarrier,'-ExpectedOriginalExternalCompletionIdentity',$placeholderIdentity,'-OriginalExternalForbiddenPath','private-evidence/') (Join-Path $rd 'protected-external-carrier-result.json')
+  Assert-True ($protectedExternal.Run.Code-ne0-and$protectedExternal.Run.Text.Contains('ORIGINAL_SOURCE_PROTECTED_PATH')) 'external-completion-trailing-directory-scope-denies-carrier-before-read'
+  $protectedSource=Invoke-Ps $upgrader @('-ProjectId',$projectId,'-ToVersion','2.0.0','-RepositoryPath',$root,'-ActorRouteActor',$actor,'-AdoptionProcessMode','FINALIZE_OUTPUT','-CurrentProcessInputPath',$blockedCarrier,'-ExpectedCurrentProcessInputIdentity',$placeholderIdentity,'-OriginalSourceForbiddenPath','private-evidence/') $root
+  Assert-True ($protectedSource.Code-ne0-and$protectedSource.Text.Contains('ORIGINAL_SOURCE_PROTECTED_PATH')) 'source-completion-shares-directory-prefix-pre-read-protection'
+  $stateModule=@(Import-Module (Join-Path $toolRoot 'scripts/ProjectAdoptionState.psm1') -PassThru)[0]
+  & $stateModule {param($r) Assert-AiwOriginalCompletionReadPaths $r @('private-evidence-peer/input.json') @('private-evidence/')} $root
+  Assert-True $true 'directory-protection-retains-segment-boundary-for-sibling-prefix'
+  foreach($badPrefix in @('private//evidence/','private/../evidence/','private\evidence/')){
+   $reason='';try{& $stateModule {param($r,$p) Assert-AiwOriginalCompletionReadPaths $r @() @($p)} $root $badPrefix}catch{$reason=$_.Exception.Message}
+   Assert-True ($reason-ceq'RELATIVE_PATH_INVALID') ('directory-scope-still-refuses-malformed-relative-prefix|'+$badPrefix)
+  }
+  $reason='';try{& $stateModule {Assert-AiwRelativePath 'ordinary-file/'}}catch{$reason=$_.Exception.Message}
+  Assert-True ($reason-ceq'RELATIVE_PATH_INVALID') 'directory-prefix-normalization-does-not-relax-ordinary-file-paths'
   # Negative consumer inputs are new counterexamples, never rewritten history.
   foreach($case in @('MISSING_ADMISSION','MISSING_ORIGINAL_OBLIGATION','WITHDRAWN_BEFORE','UNKNOWN_TIMING','UNKNOWN_OBSERVATION','FAILURE_OBSERVATION')){
    $bad=$completion|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100
@@ -153,7 +174,7 @@ $value|ConvertTo-Json -Compress
    elseif($case-ceq'FAILURE_OBSERVATION'){Assert-True ($rejected.Run.Code-eq0-and$rejected.Value.status-ceq'PASS'-and$rejected.Value.actionOutcome-ceq'FAILURE'-and$rejected.Value.futureExecution-ceq'NOT_GRANTED') 'historical-completion-status-does-not-relabel-tool-failure-as-success'}
    else{Assert-True ($rejected.Run.Code-ne0-and$rejected.Value.status-ceq'FAIL') ('historical-'+$case+'-refused')}
   }
-  Assert-True ((Get-Identity $observation)-ceq$originalObservationIdentity-and(Get-Identity $failed.Ref.path)-ceq$failed.Ref.identity) 'all-historical-counterexamples-leave-original-tool-result-and-failure-unchanged'
+  Assert-True ((Get-Identity $observation)-ceq$originalObservationIdentity-and(Get-Identity $failed.Ref.path)-ceq$failed.Ref.identity-and(Get-Identity $compactPath)-ceq$originalCompactIdentity) 'all-historical-counterexamples-leave-original-tool-result-failure-and-directory-scopes-unchanged'
   Write-Output ('EVIDENCE_CEILING|historical-external-read-only|original='+$(if($OriginalRuntimeRoot){'ACTUAL_UNCHANGED_FIXED_RUNTIME'}else{'ISOLATED_COMPATIBLE_RUNTIME'})+'|new-tool=SYNTHETIC_QUALIFICATION|host-actor=SIMULATED|paid-provider=NOT_CALLED')
  }finally{$env:CODEX_THREAD_ID=$savedHostActor}
 }

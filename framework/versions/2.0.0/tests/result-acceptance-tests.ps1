@@ -134,6 +134,8 @@ function Test-QualityAssuranceConsumers([string]$Root,[switch]$Maintenance,[swit
             $pathsJson=Json ($runtime+'archive-card-paths.json') $Plan.qualityBinding.subject.exactPaths
             $checked=QNative $checkerWrapper @('-Entry',(Join-Path $fixtureVersion 'scripts/check-task-card.ps1'),'-Task',$archivePath,'-PathsJson',$pathsJson) 'archive-card-check'
             if($checked.Code-ne0){throw ('QUALITY_ARCHIVE_CARD|'+($checked.Output-join"`n"))}
+            $archiveContext=if($Maintenance){New-AiwPackageEvidenceContext $temp ([pscustomobject]@{schemaVersion=2;repositoryId='CONTROL'}) $framework -TaskPath $taskRelative}else{$ctx}
+            Assert-AiwTaskClosure $archiveContext ([IO.File]::ReadAllText($archivePath)) 'EVIDENCE-001' $a.boundary -RequireExplicitClosure
             $original=@($a.package.objectIdentities|Where-Object path -CEQ $taskRelative)[0]
             if((Id $taskPath)-cne$original.identity){throw 'QUALITY_ARCHIVE_ACTIVE_DRIFT'}
             [IO.File]::Delete($taskPath)
@@ -469,10 +471,11 @@ Write-Output 'Observed current isolated stop record and retained unknown histori
         $closureAction=QStart $closureAccept 'root-source-reviewed-acceptance';$null=QProcess $closureAction.boundary 'root-source-reviewed-acceptance-admit'
         $closureRecord=Record owner ACCEPTED;$closureRecord|Add-Member authorizationRef ([pscustomobject]@{path=$closureAction.packagePath;identity=(Id $closureAction.packagePath)})
         $closureAccepted=Typed $closureRecord RESULT_ACCEPTANCE
-        $closureF=QFinish $closureAction @($closureAccepted) @() @() $nativeDelivery
+        # The actual acceptance F also carries the evidence it consumed.
+        $closureF=QFinish $closureAction @($self,$reviewRef,$closureAccepted) @() @() $nativeDelivery
         $allOriginal=@($produced.pair,$reviewF.pair,$closureF.pair)
         $closureStage=@($closurePlan.stages|Where-Object kind -CEQ 'RESULT_ACCEPT')[0]
-        $closureStage.evidenceRefs=@($closureAccepted);$closureStage|Add-Member evidenceConsumption ([pscustomobject]@{purpose='HISTORICAL_SUCCESS';originalFinalize=$allOriginal})
+        $closureStage.evidenceRefs=@($closureAccepted);$closureStage|Add-Member evidenceConsumption ([pscustomobject]@{purpose='HISTORICAL_SUCCESS';originalFinalize=@($closureF.pair)})
         QCard $closurePlan 'root-bind-source-acceptance'
         $controlContext=New-AiwPackageEvidenceContext $temp ([pscustomobject]@{schemaVersion=2;repositoryId='CONTROL'}) $framework -TaskPath $taskRelative
         Good {Read-AiwResultEvidence $controlContext $closureAccepted EVIDENCE-001 @($candidate) $requirements -RequireSuccess -EvidencePurpose HISTORICAL_SUCCESS -OriginalFinalize $allOriginal} 'maintenance-control-consumes-original-source-review-and-acceptance-after-policy-evolution'
@@ -491,7 +494,23 @@ Write-Output 'Observed current isolated stop record and retained unknown histori
         Bad {Read-AiwResultEvidence $controlContext $self EVIDENCE-001 @($candidate) $requirements -EvidencePurpose HISTORICAL_SUCCESS -OriginalFinalize @($badPair)} 'EVIDENCE_HISTORICAL_ROOT_DRIFT' 'maintenance-unbound-historical-object-root-is-rejected-at-root-check'
         $closed=$baseCard.Replace('lifecycle=ACTIVE;','lifecycle=CLOSED;').Replace('- Status: ACTIVE','- Status: CLOSED')+"- Writer / reviewer / authorization: NONE / NONE / NONE`n- Closure outcome: SUCCESS`n- Closure evidence: Original SOURCE production, review and acceptance; current CONTROL archive.`n- Remaining obligations: NONE`n- Artifact disposition: Isolated SOURCE result retained; Git DEFERRED.`n"
         $closed+="- Closure basis: Actual original successful SOURCE evidence.`n- Output disposition: result.md retained in fixture.`n- Git disposition: DEFERRED; fixture only.`n- Unresolved obligations: NONE`n- Writer: RELEASED`n- Reviewer: RELEASED`n- Authorization: RELEASED`n"
+        # A stopped earlier attempt left an unvalidated archive beside active.
+        # The new ordinary action must bind its existing bytes, never NEW.
+        $archiveRelative='.ai-workspace/tasks/archive/EVIDENCE-001.md'
+        $priorArchive=Put $archiveRelative (With-Plan $closed $closurePlan)
+        $priorArchiveIdentity=Id $priorArchive;$activeBefore=Id $taskPath
+        $priorFailure=Json ($runtime+'prior-archive-failure.json') ([pscustomobject]@{status='FAIL';reason='ISOLATED_PRIOR_CLOSURE_STOP';finalizeExecuted=$false;activeIdentity=$activeBefore;archiveIdentity=$priorArchiveIdentity})
+        $priorFailureIdentity=Id $priorFailure
+        $staleNew=QPackage CONTROL_WRITE @($taskRelative,$archiveRelative)
+        @($staleNew.objectIdentities|Where-Object path -CEQ $archiveRelative)[0].identity='NEW'
+        Bad {QStart $staleNew 'root-existing-archive-is-not-new'} 'AUTHORIZATION_CHECK_FAILED|FAIL|NEW_OBJECT_EXISTS' 'root-existing-archive-new-preimage-rejected-during-discover'
+        $driftAction=QStart (QPackage CONTROL_WRITE @($taskRelative,$archiveRelative)) 'root-existing-archive-drift'
+        $null=Put $archiveRelative (([IO.File]::ReadAllText($priorArchive))+"`nConcurrent fixture change.")
+        $null=QProcess $driftAction.boundary 'root-existing-archive-drift-admit' 'OBJECT_DRIFT'
+        $null=Put $archiveRelative (With-Plan $closed $closurePlan)
+        True ((Id $taskPath)-ceq$activeBefore-and(Id $priorArchive)-ceq$priorArchiveIdentity) 'rejected-existing-archive-actions-preserve-active-and-restored-candidate'
         QCard $closurePlan 'root-source-history-control-archive' $closed -Archive
+        True ((Id $priorArchive)-ceq$priorArchiveIdentity-and(Id $priorFailure)-ceq$priorFailureIdentity) 'new-current-closure-reuses-identical-archive-and-preserves-prior-failure'
         True (-not[IO.File]::Exists($taskPath)-and[IO.File]::ReadAllText((Join-Path $temp '.ai-workspace/tasks/archive/EVIDENCE-001.md')).Contains('lifecycle=CLOSED;')) 'maintenance-source-history-control-success-archive-original-F-complete'
         Write-Output ('FIXTURE|'+$Root+'|scope=maintenance-root-quality|qualification=SYNTHETIC_TEST_FIXTURE_ONLY');return
     }
@@ -1113,6 +1132,37 @@ try{
     }
     $archivePackage.objectIdentities[0].identity=$originalActiveIdentity;$null=Json $archiveAuthRelative $archivePackage
     $null=Put $archiveRelative $closedText;Set-ArchivePostimages;$archiveBoundary.publicDecisionIdentity=$user.identity
+    # A real active maintenance task moves another already closed card. The
+    # old plan stays retained; today's mutable product is not accepted again.
+    $movePackage=Clone $archivePackage;$moveReceipt=Clone $archiveReceipt
+    $moveParent=$taskText.Replace('EVIDENCE-001','PARENT-001')
+    $null=Put '.ai-workspace/tasks/active/PARENT-001.md' $moveParent
+    $moveText=$closedText+"- Writer / reviewer / authorization: NONE / NONE / NONE`n"
+    $null=Put $archiveRelative $moveText
+    $movePackage.taskId='PARENT-001';$movePackage.taskIdentity=Id (Join-Path $temp '.ai-workspace/tasks/active/PARENT-001.md')
+    $movePackage.actions=@('CONTROL_WRITE');$movePackage.PSObject.Properties.Remove('acceptanceBinding')
+    $movePackage.objectIdentities[0].identity=Id (Join-Path $temp $archiveRelative)
+    $null=Json $archiveAuthRelative $movePackage;Set-ArchivePostimages
+    $productBytes=[IO.File]::ReadAllBytes((Join-Path $temp $candidate.path))
+    try{
+        $null=Put $candidate.path 'A later, legitimately evolved product.'
+        $archiveBoundary.publicDecisionIdentity='NOT_REQUIRED'
+        $moved=Get-AiwBoundaryEvidence $moveReceipt $archiveBoundary
+        True (@($moved.retentionValues|Where-Object{$null-ne$_.PSObject.Properties['stages']}).Count-gt0) 'unchanged-old-closed-card-moves-after-product-evolution-and-retains-plan'
+        $unreleased=$moveText.Replace('NONE / NONE / NONE','writer / NONE / NONE')
+        $null=Put $archiveRelative $unreleased;$movePackage.objectIdentities[0].identity=Id (Join-Path $temp $archiveRelative)
+        $null=Json $archiveAuthRelative $movePackage;Set-ArchivePostimages
+        Bad {Get-AiwBoundaryEvidence $moveReceipt $archiveBoundary} 'ACCEPTANCE_CLOSE_LEASE_RELEASE' 'unchanged-old-card-move-still-rejects-unreleased-writer'
+        $null=Put $archiveRelative $moveText;$movePackage.objectIdentities[0].identity=Id (Join-Path $temp $archiveRelative)
+        $null=Json $archiveAuthRelative $movePackage;Set-ArchivePostimages
+        $null=Put $archiveRelative ($moveText+'changed-after-copy');Set-ArchivePostimages
+        Bad {Get-AiwBoundaryEvidence $moveReceipt $archiveBoundary} 'ACCEPTANCE_ARCHIVE_PREIMAGE_DRIFT' 'old-card-move-cannot-change-one-byte'
+    }finally{
+        [IO.File]::WriteAllBytes((Join-Path $temp $candidate.path),$productBytes)
+        $null=Put '.ai-workspace/tasks/active/PARENT-001.md' $parentText
+        $null=Put $archiveRelative $closedText;$null=Json $archiveAuthRelative $archivePackage
+        Set-ArchivePostimages;$archiveBoundary.publicDecisionIdentity=$user.identity
+    }
     $missingPost=Clone $archiveBoundary;$missingPost.resultReceipts=@($missingPost.resultReceipts|Where-Object{$_-cnotlike('OBJECT_POSTIMAGE|'+$activeRelative+'|*')})
     Bad {Get-AiwBoundaryEvidence $archiveReceipt $missingPost} 'ACCEPTANCE_ARCHIVE_DELETE_POSTIMAGE' 'archive-delete-needs-explicit-missing-postimage'
     $duplicatePost=Clone $archiveBoundary;$duplicatePost.resultReceipts+=('OBJECT_POSTIMAGE|'+$activeRelative+'|MISSING')
@@ -1264,7 +1314,7 @@ try{
         $null=Json ('.ai-workspace/runtime/EVIDENCE-001/owner/history-'+$Name+'-result.json') $value
         return $value
     }
-    function History-Finalize($Package,$Record,[string]$Kind,[string]$Name,[scriptblock]$BeforeFinalize=$null){
+    function History-Finalize($Package,$Record,[string]$Kind,[string]$Name,[scriptblock]$BeforeFinalize=$null,[object[]]$AdditionalFinalizeEvidence=@()){
         if($Kind-ceq'SELF_CHECK'-and$Package.actions.Count-eq1-and$Package.actions[0]-ceq'TEST_RUN'){$Record.checks+=@(Clone $observedCommandCheck)}
         $relative='.ai-workspace/runtime/EVIDENCE-001/owner/history-'+$Name+'-package.json'
         $packagePath=Json $relative $Package
@@ -1280,7 +1330,7 @@ try{
         $null=History-Process $boundary ($Name+'-admit')
         if($null-ne$BeforeFinalize){$null=& $BeforeFinalize $Record}
         $typed=Typed $Record $Kind
-        $boundary.mode='FINALIZE_OUTPUT';$boundary.evidenceRefs=@($typed)
+        $boundary.mode='FINALIZE_OUTPUT';$boundary.evidenceRefs=@($typed)+@($AdditionalFinalizeEvidence)
         $boundary.resultReceipts=@($resolved.compactReceipt.selectedObligations|ForEach-Object{$_.resultRequirements}|Sort-Object -Unique)+@($Record.candidateObjects|ForEach-Object{'OBJECT_POSTIMAGE|'+$_.path+'|'+$_.identity})
         $actual=History-Process $boundary ($Name+'-finalize')
         return [pscustomobject]@{typed=$typed;record=$Record;package=$Package;pair=[pscustomobject]@{inputRef=(Ref ('.ai-workspace/runtime/EVIDENCE-001/owner/history-'+$Name+'-finalize.json'));resultRef=(Ref ('.ai-workspace/runtime/EVIDENCE-001/owner/history-'+$Name+'-finalize-result.json'))};result=$actual}
@@ -1289,7 +1339,9 @@ try{
     $historyRecord=Record;$historyRecord.evidenceLocators+=@($candidate);$historyRecord.checks[0].evidenceLocators+=@($absoluteCandidate)
     $historicalSelf=History-Finalize $historyPackage $historyRecord SELF_CHECK 'self'
     $historyAcceptPackage=Package;Binding $historyAcceptPackage;$historyAcceptPackage.acceptanceBinding.prerequisiteEvidenceRefs=@($historicalSelf.typed)
-    $historicalAccept=History-Finalize $historyAcceptPackage (Record owner ACCEPTED) RESULT_ACCEPTANCE 'accept'
+    # This same-candidate acceptance also references SELF; later current-candidate
+    # acceptance consumes the old SELF only through prerequisiteConsumption.
+    $historicalAccept=History-Finalize $historyAcceptPackage (Record owner ACCEPTED) RESULT_ACCEPTANCE 'accept' -AdditionalFinalizeEvidence @($historicalSelf.typed)
     $originalFinalizes=@($historicalSelf.pair,$historicalAccept.pair)
     $historicalPlan=Plan @((Stage accepted RESULT_ACCEPT @() @($candidate) @($historicalAccept.typed)))
     $null=Put 'result.md' 'A later legally changed product.';$null=Put 'AGENTS.md' 'Later legally changed instructions.'
@@ -1328,6 +1380,16 @@ try{
     $declaredPlan.stages[0]|Add-Member evidenceConsumption ([pscustomobject]@{purpose='HISTORICAL_SUCCESS';originalFinalize=$originalFinalizes})
     $declaredPlan=Plan $declaredPlan.stages
     Good {Assert-AiwAcceptanceStages $historyContext $declaredPlan EVIDENCE-001} 'typed-stage-declaration-reaches-recursive-history'
+    # Each stage supplies only its own producer. The older acceptance package
+    # has no prerequisiteConsumption; recursive reads need this finite plan.
+    $localSelfStage=Stage source-self SELF_CHECK @() @($candidate) @($historicalSelf.typed)
+    $localSelfStage|Add-Member evidenceConsumption ([pscustomobject]@{purpose='HISTORICAL_SUCCESS';originalFinalize=@($historicalSelf.pair)})
+    $localAcceptStage=Stage source-accept RESULT_ACCEPT @('source-self') @($candidate) @($historicalAccept.typed)
+    $localAcceptStage|Add-Member evidenceConsumption ([pscustomobject]@{purpose='HISTORICAL_SUCCESS';originalFinalize=@($historicalAccept.pair)})
+    $stageLocalPlan=Plan @($localSelfStage,$localAcceptStage)
+    Good {Assert-AiwAcceptanceStages $historyContext $stageLocalPlan EVIDENCE-001} 'legacy-plan-own-stage-finalizes-reach-recursive-producers-without-rewriting-old-acceptance'
+    $missingProducerPlan=Clone $stageLocalPlan;$missingProducerPlan.stages[0].evidenceConsumption.originalFinalize=@($historicalAccept.pair)
+    Bad {Assert-AiwAcceptanceStages $historyContext $missingProducerPlan EVIDENCE-001} 'EVIDENCE_HISTORICAL_FINALIZE_UNBOUND' 'downstream-acceptance-reference-does-not-produce-self-evidence'
     $badPlan=Clone $declaredPlan;$badPlan.stages[0].evidenceConsumption.purpose='CURRENT_CANDIDATE'
     Bad {Plan $badPlan.stages} 'EVIDENCE_CURRENT_HISTORY_REFS' 'current-stage-rejects-useless-history-refs'
     foreach($kind in @('DESIGN','USER_DECISION')){
@@ -1359,7 +1421,7 @@ try{
     $null=History-Process $closeBoundary 'close-admit'
     try{
         $closedTaskText=$taskText.Replace('lifecycle=ACTIVE;','lifecycle=CLOSED;')+"`n- Closure outcome: SUCCESS`n- Closure basis: Original completed acceptance consumed by its declared historical purpose.`n- Output disposition: READY; isolated fixture only.`n- Git disposition: DEFERRED; fixture only.`n- Unresolved obligations: NONE`n- Writer: RELEASED`n- Reviewer: RELEASED`n- Authorization: RELEASED`n"
-        $null=Put '.ai-workspace/tasks/active/EVIDENCE-001.md' (With-Plan $closedTaskText $declaredPlan)
+        $null=Put '.ai-workspace/tasks/active/EVIDENCE-001.md' (With-Plan $closedTaskText $stageLocalPlan)
         $closeBoundary.mode='FINALIZE_OUTPUT';$closeBoundary.resultReceipts=@($closureDiscoveryResult.compactReceipt.selectedObligations.resultRequirements|Sort-Object -Unique)+@('OBJECT_POSTIMAGE|'+$closePackage.exactPaths[0]+'|'+(Id $taskPath))
         $closedResult=History-Process $closeBoundary 'close-finalize'
         True ($closedResult.status-ceq'PASS') 'native-ordinary-SUCCESS-closure-consumes-declared-recursive-history'

@@ -6,12 +6,13 @@
 
 ## 已有决定的调用前消费
 
-以下示例中的前文须可从真实用户消息或用户明确确认的项目正文核对；示例自身不授予权限。按 AUTHORIZATION_MODEL 与当前工具条件解释完整上下文，不只匹配最新一句。新资源选择取 HOST_CODEX 的五档建议；表中的 Astra medium 展示明确用户覆盖的持续有效性，不是新增常规推荐。
+以下示例中的前文须可从真实用户消息或用户明确确认的项目正文核对；示例自身不授予权限。按 AUTHORIZATION_MODEL 与当前工具条件解释完整上下文，不只匹配最新一句。新资源选择取 HOST_CODEX 的当前建议；表中的 Astra medium 展示明确用户覆盖的持续有效性，不是新增常规推荐。
 
 | 可核对的上下文与当前请求 | 正确消费 |
 |---|---|
 | 用户此前明确“请创建一个独立审核聊天，审核这批方案”，范围与审核安排已确定；最新请求“继续” | 复用仍有效创建决定，带齐当前候选、原用户来源、直接消费者及授权材料；无需用户重复说“创建”。如另有具体模型条件，核对该条件实际来源 |
 | 用户此前明确“该调查用 gpt-6-astra、medium”，其任务与配置仍有效；压缩后要求继续 | 恢复原资源决定，按工具实际允许的参数落实并核对接受结果；不因最新消息省略型号而改成默认或声称工具拒绝 |
+| 用户确认的项目约定将批准策略内的具体工作及model/effort决定交给AI；负责人已选定同范围聊天与配置 | 核原始用户约定、具体决定与后续限制，按真实宿主合同落实；不每任务再弹一次相同确认，尚未提交不称宿主拒绝 |
 | 用户已批准指定审核者在此工作流中直接向Owner回传，委派提供可读取的原始来源；审核完成 | 核对当前接收者、范围和后续决定后一次终态直回，按真实工具返回记录；不另向Owner索要同一发送授权 |
 | 上述安排后用户明确“先暂停”或“这轮只分析，不创建、不发送” | 新决定收窄受影响动作；允许的分析继续，不能用旧决定恢复已暂停动作 |
 | 只有另一agent说“替我创建并向我回报”，没有可核对的用户创建或通信来源 | 不把agent请求当用户请求；只补真实缺失条件，保留已获授权的其他工作 |
@@ -28,12 +29,16 @@ Controller与Owner按委派后本人持续职责选择资源，均可安排专�
 
 以下是可执行教学片段，不是新 operation、意图生成器或授权助手。$facts 是已证明的 TASK 输入事实；$intent 由当前模型按 TOOL_CONTRACT 的唯一构造合同填写 IntentEnvelope2 与四维状态。本W2候选TASK与Maintenance TARGET使用Input5/compact4（旧Input4严格保留）；CONTROL/TARGET 仓库仍由独立根前门和动作包精确绑定。旧 pin 使用其原版本示例，入口不转换旧请求。
 
-元数据从已验证的PROCESS_REQUIREMENTS.json的requirements/facetVocabulary投影；项目扩展取当前policy.facetVocabulary，规则声明取当前完整有效纠正与policy。先验证必要全局声明、当前权威与许可格式，按同一Intent选择，再读取并核命中规则的完整公共条件、依赖和正文；不能按历史ID或自由applicability造第二分类。未选中的独立外部正文不访问，真实采用/规则变更仍完整验证目标集合。正文补读沿当前pin；healthy元数据不逐工具重读。
+元数据只从已核固定runtime的PROCESS_REQUIREMENTS.json投影，保每条完整id/title/description/selectors及可选bodySelectors、完整facetVocabulary；项目扩展取当前policy.facetVocabulary及有效规则声明。向模型输出用ConvertTo-Json -Depth 100 -Compress去空白，不删selector轴、词项说明或旧兼容文本，不先打印整份policy再重复投影。先验证全局声明和当前权威，按同一Intent选择，再验证B的完整公共条件、依赖和正文。未命中的独立外部正文不访问，真实采用/规则变更仍完整验证目标集合；健康元数据不逐工具重读。
 
 <!-- AIW-EXAMPLE:PROCESS_INPUTS:BEGIN -->
 ```powershell
 function Get-ExampleIntentMetadata($Catalog) {
-    @($Catalog.requirements | Select-Object requirementId,title,description,selectors)
+    foreach($rule in $Catalog.requirements){
+        $row=[ordered]@{requirementId=$rule.requirementId;title=$rule.title;description=$rule.description;selectors=$rule.selectors}
+        if($null-ne$rule.PSObject.Properties['bodySelectors']){$row.bodySelectors=$rule.bodySelectors}
+        [pscustomobject]$row
+    }
 }
 function New-ExampleDiscover($Facts, $Intent, $RuleLoad=$null) {
     $value = [ordered]@{schemaVersion=5;mode='DISCOVER';contextType='TASK';readOnlyContext='NOT_APPLICABLE';ruleLoad=$(if($null-ne$RuleLoad){$RuleLoad}else{@{mode='FULL'}})}
@@ -74,14 +79,35 @@ function New-ExampleBoundary($ReceiptPath, $ReceiptIdentity, $Mode,
 function ConvertTo-ExampleInputJson($Value) {
     ($Value | ConvertTo-Json -Depth 100 -Compress) + "`n"
 }
+function Write-ExampleNewInputJson([string]$Path,$Value){
+    $bytes=[Text.UTF8Encoding]::new($false).GetBytes((ConvertTo-ExampleInputJson $Value))
+    $stream=[IO.File]::Open($Path,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+    try{$stream.Write($bytes);$stream.Flush($true)}finally{$stream.Dispose()}
+}
 ```
 <!-- AIW-EXAMPLE:PROCESS_INPUTS:END -->
 
-将返回JSON用 `[IO.File]::WriteAllText($inputPath, $json, [Text.UTF8Encoding]::new($false))` 写入已绑定ephemeral目录，调用解析出的process入口 `-InputPath $inputPath -DeleteInputOnExit -AsJson`；Maintenance TARGET 的输入由 `New-ExampleMaintenanceDiscover` 构造。DISCOVER需要后续边界时可指定新的 `-CompactReceiptPath $receiptPath`，检查退出码后用 `Read-ExampleDiscoverOutput` 核对status，再仅打印 `Get-ExampleRuleText` 返回的完整文本；MACHINE的selectedRuleBlocks、coverage与身份留程序侧。`compactReceipt`是后续边界的紧凑材料；指定保存路径时用返回的 `savedCompactReceipt.path/identity` 引用实际文件，不能从compact读取正文或把义务当完成证据。目录须存在，旧收据不可覆盖；失败停止依赖链。
+下面连续使用已验证的固定runtime、合法字段与当前runtime目录。$facts/$intent是本轮实际绑定，不从开发源码取工具或catalog；$runtimeDirectory已核到当前task/actor，祖先非reparse且没有保护冲突。recoveryState只用实际CURRENT/WARM/FULL_COLD/UNKNOWN；无包只读userDecision用NOT_REQUIRED，有包取当前userConfirmation；不填写空白、空格或自造枚举。
+
+```powershell
+$catalog=Get-Content -LiteralPath (Join-Path $facts.frameworkRoot 'framework/versions/2.0.0/PROCESS_REQUIREMENTS.json') -Raw | ConvertFrom-Json -Depth 100
+$metadata=[ordered]@{requirements=@(Get-ExampleIntentMetadata $catalog);facetVocabulary=@($catalog.facetVocabulary)}
+$metadata | ConvertTo-Json -Depth 100 -Compress # 仅这一份完整元数据投影交模型构造意图
+$document=New-ExampleDiscover $facts $intent
+$inputPath=Join-Path $runtimeDirectory 'discover-1.json'
+$receiptPath=Join-Path $runtimeDirectory 'discover-1-compact.json'
+Write-ExampleNewInputJson $inputPath $document
+$machineLines=@(& $processEntry -InputPath $inputPath -CompactReceiptPath $receiptPath -AsJson)
+if($LASTEXITCODE-ne0){throw ($machineLines -join "`n")}
+$result=Read-ExampleDiscoverOutput (($machineLines -join "`n")|ConvertFrom-Json -Depth 100)
+Get-ExampleRuleText $result $pinnedDisplayModule
+```
+
+$processEntry/$pinnedDisplayModule来自同一固定TOOLCHAIN；Maintenance使用该runtime根前门与New-ExampleMaintenanceDiscover，普通项目使用其声明的版本入口。CreateNew拒绝已有input/compact，失败停依赖链。MACHINE的B正文、coverage与身份留程序侧；仅官方text交模型。compact只供后续A/F，引用实际savedCompactReceipt，不拿义务当完成证据。
 
 将本次真实DISCOVER结果传入固定版本ProcessRequirementDisplay，只打印其 `text`。模型取得模式、真实fallback与限制、短来源、每规则有序短引用及当前义务和一次完整必要正文。例如规则[A]与[B,A]共用唯一正文[A,B]，分别保留引用[A]与[B,A]，不重复打印A，也不改变第二条依赖顺序。不同来源或不同规范身份不合并；不要打印完整机器结果或把整个display对象再次序列化。
 
-首次/压缩/换主体/正文不确定，以及真实动作或适用规则变化，使用FULL取得当前全部必要正文。旧REUSE兼容返回FULL，不读取旧coverage；非空preloadSteps拒绝。健康同动作新增普通文件时，以原compact、当前精确新包及同一意图调用ADMIT_ACTION的actionRebind并保存新compact，检查真实PASS后沿新compact工作；RULE_LOAD_REQUIRED才重新完整DISCOVER。不得靠口头宣称未变跳过准入，或先组装再输出零正文。一次输出完整文本；实际宿主截断从同一结果补缺，不重跑选择。AIW-END不证明attention。
+加载时机唯一取RECOVERY，B/O与字段唯一取TOOL_CONTRACT。实现中普通文件、测试代码或记录变化，用原compact和当前精确新包作actionRebind，PASS后沿新compact的完整O工作；已读规则回到O也可零装配，未读方法即使P/R为空仍须FULL。进入实际自测/自查/审核或返修须按真实活动完整加载，不能伪填原分类。旧REUSE返回FULL、非空preloadSteps拒绝。一次输出完整官方text，真实截断从同一结果补缺；AIW-END不证明attention。
 
 遇到原生输出编码或宿主长度边界时，不重复解析来“补显示”。在首次调用中选择当前runtime下新的 `$bodyPath`：
 ```powershell

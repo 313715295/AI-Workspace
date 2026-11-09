@@ -251,9 +251,11 @@ PASS|maintenance-process-fulltext-matches-complete-display-parts-framework:PR_AU
 PASS|maintenance-process-fulltext-matches-complete-display-parts-framework:PR_CODEX_RESOURCE_ROUTE
 PASS|maintenance-process-fulltext-matches-complete-display-parts-framework:PR_CODEX_ROUTER_REACTIVATION
 PASS|maintenance-process-fulltext-matches-complete-display-parts-framework:PR_CODEX_TOOL_OPERATION_RESOLUTION
+PASS|maintenance-process-fulltext-matches-complete-display-parts-framework:PR_COMPACT_NON_INTERRUPT_DELIVERY
 PASS|maintenance-process-fulltext-matches-complete-display-parts-framework:PR_CORRECTIONS_V2_COMPATIBILITY
 PASS|maintenance-process-fulltext-matches-complete-display-parts-framework:PR_CORRECTION_ADOPTION_ANALYSIS
 PASS|maintenance-process-fulltext-matches-complete-display-parts-framework:PR_DYNAMIC_ROLE_DIRECT_ISSUANCE
+PASS|maintenance-process-fulltext-matches-complete-display-parts-framework:PR_FINAL_OUTPUT_CURRENT_RESULT
 PASS|maintenance-process-fulltext-matches-complete-display-parts-framework:PR_FRAMEWORK_BACKEND_SELECTION
 PASS|maintenance-process-fulltext-matches-complete-display-parts-framework:PR_OWNER_FIRST_DIRECT_DOMAIN_ROUTE
 PASS|maintenance-process-fulltext-matches-complete-display-parts-framework:PR_PROCESS_REQUIREMENTS_PROGRESSIVE_BOUNDARIES
@@ -402,4 +404,4 @@ PASS|local-candidate-recovery-rejects-candidate-payload-drift
 PASS|local-candidate-recovery-payload-bytes-restored
 PASS|local-candidate-recovery-payload-drift-restored-baseline
 FIXTURE_CLEAN|integration-private-root
-RESULT|320/320 passed|scope=Framework-2.0.0-authorization|
+RESULT|322/322 passed|scope=Framework-2.0.0-authorization|

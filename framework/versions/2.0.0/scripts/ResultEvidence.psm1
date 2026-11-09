@@ -118,7 +118,7 @@ function Assert-AiwTaskClosure($Context,[string]$Text,[string]$TaskId,$Boundary,
             if($stage.kind-ceq'RESULT_ACCEPT'){
                 $consumption=Get-EvConsumption $stage evidenceConsumption
                 foreach($ref in $stage.evidenceRefs){
-                    $record=Read-AiwResultEvidence $Context $ref $closedTaskId $stage.candidateRef $stage.requiredBy -RequireSuccess -EvidencePurpose $consumption.purpose -OriginalFinalize $consumption.originalFinalize
+                    $record=Read-AiwResultEvidence $Context $ref $closedTaskId $stage.candidateRef $stage.requiredBy -RequireSuccess -EvidencePurpose $consumption.purpose -OriginalFinalize $consumption.originalFinalize -AcceptancePlan $closedPlan
                     $original=Read-EvRef $Context $record.authorizationRef -Json
                     if($null-ne$original.PSObject.Properties['acceptanceBinding']){$userRefs+=@($original.acceptanceBinding.reservedUserDecisionRefs)}
                 }
@@ -565,21 +565,26 @@ function Get-EvHistoricalFinalize($Context,$Reference,$Record,$OriginalFinalize)
     # Original inputs/results are supplied by the finite consumer, never found
     # by scanning or written back into a typed record (which would form a cycle).
     Assert-EvArray $OriginalFinalize
+    $allowed=switch($Reference.kind){'SELF_CHECK'{@('SOURCE_WRITE','CONTROL_WRITE','TEST_WRITE','TEST_RUN','REVIEW_ROUTE')};'REVIEW_VERDICT'{@('REVIEW_EXECUTE')};'RESULT_ACCEPTANCE'{@('RESULT_ACCEPT')}}
     $matches=@()
     foreach($pair in $OriginalFinalize){
         Assert-EvFields $pair @('inputRef','resultRef')
         $input=Read-EvRef $Context $pair.inputRef -Json
         if($null-eq$input.PSObject.Properties['evidenceRefs']){continue}
         Assert-EvRefs $input.evidenceRefs -Typed
-        if(@($input.evidenceRefs|Where-Object{$_.kind-ceq$Reference.kind-and(Test-EvSameRef $_ $Reference $Context)}).Count){$matches+=@([pscustomobject]@{input=$input;pair=$pair})}
+        if(@($input.evidenceRefs|Where-Object{$_.kind-ceq$Reference.kind-and(Test-EvSameRef $_ $Reference $Context)}).Count){
+            $source=Read-EvRef $Context ([pscustomobject]@{path=$input.discoverReceiptPath;identity=$input.expectedDiscoverReceiptIdentity}) -Json
+            if($source.schemaVersion-notin@(3,4)-or$source.status-cne'PASS'-or$source.mode-cne'DISCOVER'-or$source.receiptType-cne'PROCESS_REQUIREMENTS_DISCOVER'){throw 'EVIDENCE_HISTORICAL_SOURCE_UNSUPPORTED'}
+            # A downstream acceptance can cite the same evidence without
+            # producing it. Only producer actions participate in uniqueness.
+            if($source.intentEnvelope.requestedActionKind-cin$allowed){$matches+=@([pscustomobject]@{input=$input;pair=$pair;source=$source})}
+        }
     }
     if($matches.Count-ne1){throw 'EVIDENCE_HISTORICAL_FINALIZE_UNBOUND'}
     $input=$matches[0].input;$originalPair=$matches[0].pair;$result=Read-EvRef $Context $originalPair.resultRef -Json
     if($input.schemaVersion-ne3-or$input.mode-cne'FINALIZE_OUTPUT'-or$result.mode-cne'FINALIZE_OUTPUT'-or$result.status-cne'PASS'-or@($result.missingPreparation).Count-or@($result.missingResult).Count){throw 'EVIDENCE_HISTORICAL_FINALIZE_INCOMPLETE'}
-    $source=Read-EvRef $Context ([pscustomobject]@{path=$input.discoverReceiptPath;identity=$input.expectedDiscoverReceiptIdentity}) -Json
-    if($source.schemaVersion-notin@(3,4)-or$source.status-cne'PASS'-or$source.mode-cne'DISCOVER'-or$source.receiptType-cne'PROCESS_REQUIREMENTS_DISCOVER'){throw 'EVIDENCE_HISTORICAL_SOURCE_UNSUPPORTED'}
+    $source=$matches[0].source
     $a=$source.binding;$action=$source.intentEnvelope.requestedActionKind
-    $allowed=switch($Reference.kind){'SELF_CHECK'{@('SOURCE_WRITE','CONTROL_WRITE','TEST_WRITE','TEST_RUN','REVIEW_ROUTE')};'REVIEW_VERDICT'{@('REVIEW_EXECUTE')};'RESULT_ACCEPTANCE'{@('RESULT_ACCEPT')}}
     $packageRef=[pscustomobject]@{path=$source.sourceLocators.authorizationPackagePath;identity=$a.authorizationIdentity}
     $package=Read-EvRef $Context $packageRef -Json
     if($null-ne$package.PSObject.Properties['qualityBinding']){
@@ -715,7 +720,7 @@ function Get-EvHistoricalFinalize($Context,$Reference,$Record,$OriginalFinalize)
     $historical|Add-Member HistoricalProducer ([pscustomobject]@{pair=$originalPair;source=$source;input=$input;result=$result})
     return $historical
 }
-function Read-AiwResultEvidence($Context,$Reference,[string]$TaskId,$CandidateObjects,$RequirementsRef,[switch]$RequireSuccess,[string]$ExpectedActor='',[string]$AuthorizationIdentity='',[switch]$RequireIndependentReview,[string[]]$ExcludedReviewActors=@(),[switch]$FrozenCandidateEvidence,[ValidateSet('CURRENT_CANDIDATE','HISTORICAL_SUCCESS')][string]$EvidencePurpose='CURRENT_CANDIDATE',[object[]]$OriginalFinalize=@(),[ValidateSet('CURRENT_CANDIDATE','HISTORICAL_SUCCESS')][string]$PrerequisiteEvidencePurpose='CURRENT_CANDIDATE') {
+function Read-AiwResultEvidence($Context,$Reference,[string]$TaskId,$CandidateObjects,$RequirementsRef,[switch]$RequireSuccess,[string]$ExpectedActor='',[string]$AuthorizationIdentity='',[switch]$RequireIndependentReview,[string[]]$ExcludedReviewActors=@(),[switch]$FrozenCandidateEvidence,[ValidateSet('CURRENT_CANDIDATE','HISTORICAL_SUCCESS')][string]$EvidencePurpose='CURRENT_CANDIDATE',[object[]]$OriginalFinalize=@(),[ValidateSet('CURRENT_CANDIDATE','HISTORICAL_SUCCESS')][string]$PrerequisiteEvidencePurpose='CURRENT_CANDIDATE',$AcceptancePlan=$null) {
     Assert-EvRef $Reference -Typed
     # Continuation history cannot satisfy a success gate. Historical success
     # separately requires the original completed action and its exact postimage.
@@ -790,7 +795,7 @@ function Read-AiwResultEvidence($Context,$Reference,[string]$TaskId,$CandidateOb
                 }
             }else{
                 $prerequisitePurpose=if($historical){'HISTORICAL_SUCCESS'}else{$PrerequisiteEvidencePurpose}
-                Assert-EvAcceptanceBinding $Context $package $null -Historical -RequireIndependentReview:$RequireIndependentReview -ExcludedReviewActors $ExcludedReviewActors -EvidencePurpose $EvidencePurpose -OriginalFinalize $OriginalFinalize -PrerequisiteEvidencePurpose $prerequisitePurpose
+                Assert-EvAcceptanceBinding $Context $package $AcceptancePlan -Historical -RequireIndependentReview:$RequireIndependentReview -ExcludedReviewActors $ExcludedReviewActors -EvidencePurpose $EvidencePurpose -OriginalFinalize $OriginalFinalize -PrerequisiteEvidencePurpose $prerequisitePurpose
                 if($null-ne$package.PSObject.Properties['acceptanceBinding']-and-not(Test-EvSameRef $package.acceptanceBinding.requirementsRef $record.requirementsRef $Context)){throw 'EVIDENCE_REQUIREMENTS_DRIFT'}
                 if($null-ne$record.PSObject.Properties['acceptedCommit']-and$record.acceptedCommit-cnotmatch '^(?:[A-F0-9]{40}|[A-F0-9]{64})$'){throw 'EVIDENCE_ACCEPTED_COMMIT'}
             }
@@ -851,7 +856,8 @@ function Get-EvPrerequisites($Plan,[string]$StageId) {
     Add-StageDeps $StageId
     return @($Plan.stages|Where-Object{$ids.Contains($_.id)})
 }
-function Assert-AiwAcceptanceStages($Context,$Plan,[string]$TaskId,[string]$BeforeStage='', $UserDecisionRefs=@(),[switch]$RequireIndependentReview,[string[]]$ExcludedReviewActors=@(),[ValidateSet('CURRENT_CANDIDATE','HISTORICAL_SUCCESS')][string]$EvidencePurpose='CURRENT_CANDIDATE',[object[]]$OriginalFinalize=@()) {
+function Assert-AiwAcceptanceStages($Context,$Plan,[string]$TaskId,[string]$BeforeStage='', $UserDecisionRefs=@(),[switch]$RequireIndependentReview,[string[]]$ExcludedReviewActors=@(),[ValidateSet('CURRENT_CANDIDATE','HISTORICAL_SUCCESS')][string]$EvidencePurpose='CURRENT_CANDIDATE',[object[]]$OriginalFinalize=@(),$AcceptancePlan=$null) {
+    if($null-eq$AcceptancePlan){$AcceptancePlan=$Plan}
     $stages=if($BeforeStage){@(Get-EvPrerequisites $Plan $BeforeStage)}else{@($Plan.stages)}
     Assert-EvRefs $UserDecisionRefs
     foreach($stage in $stages){
@@ -867,7 +873,7 @@ function Assert-AiwAcceptanceStages($Context,$Plan,[string]$TaskId,[string]$Befo
         }else{
             if($stage.evidenceRefs.Count-eq0){throw ('ACCEPTANCE_STAGE_INCOMPLETE|'+$stage.id)}
             $consumption=Get-EvConsumption $stage evidenceConsumption $EvidencePurpose $OriginalFinalize
-            foreach($ref in $stage.evidenceRefs){$null=Read-AiwResultEvidence $Context $ref $TaskId $stage.candidateRef $stage.requiredBy -RequireSuccess -RequireIndependentReview:$RequireIndependentReview -ExcludedReviewActors $ExcludedReviewActors -EvidencePurpose $consumption.purpose -OriginalFinalize $consumption.originalFinalize}
+            foreach($ref in $stage.evidenceRefs){$null=Read-AiwResultEvidence $Context $ref $TaskId $stage.candidateRef $stage.requiredBy -RequireSuccess -RequireIndependentReview:$RequireIndependentReview -ExcludedReviewActors $ExcludedReviewActors -EvidencePurpose $consumption.purpose -OriginalFinalize $consumption.originalFinalize -AcceptancePlan $AcceptancePlan}
         }
     }
 }
@@ -928,7 +934,7 @@ function Assert-EvAcceptanceBinding($Context,$Package,$Plan,[switch]$Historical,
             $raw=Read-EvRef $Context ([pscustomobject]@{path=$ref.path;identity=$ref.identity}) -Json
             $candidate=$raw.candidateObjects;$requirements=$raw.requirementsRef
         }
-        $null=Read-AiwResultEvidence $Context $ref $Package.taskId $candidate $requirements -RequireSuccess -RequireIndependentReview:$independentRequired -ExcludedReviewActors $excluded -EvidencePurpose $selected.purpose -OriginalFinalize $selected.originalFinalize
+        $null=Read-AiwResultEvidence $Context $ref $Package.taskId $candidate $requirements -RequireSuccess -RequireIndependentReview:$independentRequired -ExcludedReviewActors $excluded -EvidencePurpose $selected.purpose -OriginalFinalize $selected.originalFinalize -AcceptancePlan $Plan
     }
     if($independentRequired){
         $reviewed=$false
@@ -940,7 +946,7 @@ function Assert-EvAcceptanceBinding($Context,$Package,$Plan,[switch]$Historical,
     }
     if($null-ne$Plan){
         foreach($stage in $prereqs){foreach($ref in $stage.evidenceRefs){if(@($binding.prerequisiteEvidenceRefs|Where-Object{$_.kind-ceq$ref.kind-and(Test-EvSameRef $_ $ref $Context)}).Count-ne1){throw 'RESULT_ACCEPT_PREREQUISITE_UNBOUND'}}}
-        Assert-AiwAcceptanceStages $Context ([pscustomobject]@{stages=@($prereqs)}) $Package.taskId '' $binding.reservedUserDecisionRefs -RequireIndependentReview:$independentRequired -ExcludedReviewActors $excluded -EvidencePurpose $consumption.purpose -OriginalFinalize $consumption.originalFinalize
+        Assert-AiwAcceptanceStages $Context ([pscustomobject]@{stages=@($prereqs)}) $Package.taskId '' $binding.reservedUserDecisionRefs -RequireIndependentReview:$independentRequired -ExcludedReviewActors $excluded -EvidencePurpose $consumption.purpose -OriginalFinalize $consumption.originalFinalize -AcceptancePlan $Plan
     }
 }
 function New-AiwPackageEvidenceContext([string]$ProjectRoot,$Package,[string]$FrameworkRoot='', [string[]]$ForbiddenPaths=@(),[string]$TaskPath='',[object]$TargetState=$null,[string[]]$ProtectedPaths=@()) {
@@ -1107,6 +1113,29 @@ function Assert-AiwSelfRepairChain($Context,$Package,$Leaf) {
     }
     return $cycle
 }
+function Test-EvOriginalClosedCardMove($Context,$Receipt,$Boundary,$Package,[string]$Path,[string]$Text){
+    if($Path-cnotmatch'^\.ai-workspace/tasks/archive/(?<name>[^/]+)\.md$'){return $false}
+    $active='.ai-workspace/tasks/active/'+$Matches.name+'.md'
+    if($active-ceq$Receipt.sourceLocators.taskRelativePath-or$active-cnotin@($Receipt.exactPaths)){return $false}
+    $ordinary=$Package.schemaVersion-eq1-or($Package.schemaVersion-eq2-and$Package.repositoryId-ceq'CONTROL')
+    if(-not$ordinary-or@($Package.actions).Count-ne1-or$Package.actions[0]-cne'CONTROL_WRITE'-or$active-cnotin@($Package.exactPaths)-or$Path-cnotin@($Package.exactPaths)){throw 'ACCEPTANCE_ARCHIVE_CURRENT_SCOPE'}
+    foreach($field in @('transitionPlan','continuationPlan','repairReviewPlan','sourcePublicationBinding','acceptanceBinding','externalBinding','gitPushBinding')){if($null-ne$Package.PSObject.Properties[$field]){throw 'ACCEPTANCE_ARCHIVE_CURRENT_SCOPE'}}
+    $pre=@($Package.objectIdentities|Where-Object path -CEQ $active)
+    $posts=@(Get-AiwFinalizedObjectPostimages $Boundary @($Receipt.exactPaths))
+    $post=@($posts|Where-Object path -CEQ $Path)
+    if($pre.Count-ne1-or$pre[0].identity-cnotmatch'^\d+\|[A-F0-9]{64}$'-or$post.Count-ne1-or$post[0].identity-cne$pre[0].identity){throw 'ACCEPTANCE_ARCHIVE_PREIMAGE_DRIFT'}
+    if(@($Boundary.resultReceipts|Where-Object{$_-ceq('OBJECT_POSTIMAGE|'+$active+'|MISSING')}).Count-ne1-or(Get-EvCandidateIdentity (Resolve-EvPath $Context $active -Candidate))-cne'MISSING'){throw 'ACCEPTANCE_ARCHIVE_DELETE_POSTIMAGE'}
+    $null=Read-EvRef $Context $post[0] -Candidate
+    $ids=[regex]::Matches($Text,'(?m)^#\s+(?<id>[A-Za-z0-9][A-Za-z0-9._-]*)\s+(?:\u2014|-)')
+    if($ids.Count-ne1-or[regex]::Matches($Text,'(?m)^- Range summary:[^\r\n]*lifecycle=CLOSED;').Count-ne1){throw 'ACCEPTANCE_ARCHIVE_NOT_CLOSED'}
+    if($Text-cmatch'(?m)^- Writer / reviewer / authorization:'){
+        # Preserve the established legacy release form; do not add modern fields.
+        if([regex]::Matches($Text,'(?m)^- Writer / reviewer / authorization:[ \t]*NONE / NONE / NONE[ \t]*$').Count-ne1){throw 'ACCEPTANCE_CLOSE_LEASE_RELEASE'}
+    }else{Assert-EvArchiveClosedRecord $Text}
+    # The original closed bytes moved. This says nothing new about the validity
+    # of their old success proofs or today's mutable product candidates.
+    return $true
+}
 function Get-AiwBoundaryEvidence($Receipt,$Boundary,$EvidenceContext=$null) {
     $refs=@()
     if($null-ne$Boundary.PSObject.Properties['evidenceRefs']){$refs=$Boundary.evidenceRefs}
@@ -1213,13 +1242,14 @@ function Get-AiwBoundaryEvidence($Receipt,$Boundary,$EvidenceContext=$null) {
                 # body ID. A filename cannot authenticate a changed task body.
                 throw 'ACCEPTANCE_ARCHIVE_PREIMAGE_DRIFT'
             }
-            continue # The archive path below still consumes the full acceptance plan.
+            continue # The archive row distinguishes an original move from new closure.
         }
         $closedText=[IO.File]::ReadAllText($closedFull)
         if($closedText-cnotmatch '(?m)^- Range summary:[^\r\n]*lifecycle=CLOSED;'){continue}
         $closedIds=[regex]::Matches($closedText,'(?m)^#\s+(?<id>[A-Za-z0-9][A-Za-z0-9._-]*)\s+(?:\u2014|-)')
         if($closedIds.Count-ne1){throw 'ACCEPTANCE_CLOSURE_TASK_ID'}
-        Assert-AiwTaskClosure $ctx $closedText $closedIds[0].Groups['id'].Value $Boundary -ExcludedReviewActors @($package.issuer)
+        $originalMove=$taskText-cmatch'(?m)^- Range summary:[^\r\n]*lifecycle=ACTIVE;'-and(Test-EvOriginalClosedCardMove $ctx $Receipt $Boundary $package $closedPath $closedText)
+        if(-not$originalMove){Assert-AiwTaskClosure $ctx $closedText $closedIds[0].Groups['id'].Value $Boundary -ExcludedReviewActors @($package.issuer)}
         # Cancellation/supersession may legally have no acceptance plan. Keep
         # the real decision reference already consumed by the closure validator.
         foreach($decision in [regex]::Matches($closedText,'(?m)^- Closure decision: (?<path>.+)#(?<identity>\d+\|[A-F0-9]{64})[ \t]*$')){$retentionValues.Add([pscustomobject]@{path=$decision.Groups['path'].Value;identity=$decision.Groups['identity'].Value})}

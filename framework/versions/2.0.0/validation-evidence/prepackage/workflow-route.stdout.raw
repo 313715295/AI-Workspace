@@ -1,8 +1,8 @@
-PASS|workflow-live-entry-delegates-exact-contract|C:\Users\zheng\AppData\Local\Temp\aiw-next-s1-01a19eb3-r4\framework\versions\2.0.0\TASK_AND_SCOPE.md
-PASS|workflow-live-entry-delegates-exact-contract|C:\Users\zheng\AppData\Local\Temp\aiw-next-s1-01a19eb3-r4\framework\versions\2.0.0\HOST_CODEX.md
-PASS|workflow-live-entry-delegates-exact-contract|C:\Users\zheng\AppData\Local\Temp\aiw-next-s1-01a19eb3-r4\framework\versions\2.0.0\PROMPTS.md
-PASS|workflow-live-entry-delegates-exact-contract|C:\Users\zheng\AppData\Local\Temp\aiw-next-s1-01a19eb3-r4\framework\versions\2.0.0\project-starter\BOOTSTRAP.md
-PASS|workflow-live-entry-delegates-exact-contract|C:\Users\zheng\AppData\Local\Temp\aiw-next-s1-01a19eb3-r4\framework\maintenance-overlay\BOOTSTRAP.md
+PASS|workflow-live-entry-delegates-exact-contract|C:\Users\zheng\AppData\Local\Temp\aiw-v8-s8\framework\versions\2.0.0\TASK_AND_SCOPE.md
+PASS|workflow-live-entry-delegates-exact-contract|C:\Users\zheng\AppData\Local\Temp\aiw-v8-s8\framework\versions\2.0.0\HOST_CODEX.md
+PASS|workflow-live-entry-delegates-exact-contract|C:\Users\zheng\AppData\Local\Temp\aiw-v8-s8\framework\versions\2.0.0\PROMPTS.md
+PASS|workflow-live-entry-delegates-exact-contract|C:\Users\zheng\AppData\Local\Temp\aiw-v8-s8\framework\versions\2.0.0\project-starter\BOOTSTRAP.md
+PASS|workflow-live-entry-delegates-exact-contract|C:\Users\zheng\AppData\Local\Temp\aiw-v8-s8\framework\maintenance-overlay\BOOTSTRAP.md
 PASS|workflow-owning-contract-keeps-strict-json-and-temporary-input-boundary
 PASS|workflow-asjson-native-success-is-one-strict-json-with-empty-stderr
 PASS|workflow-asjson-native-malformed-preserves-real-reason-without-pretty-stderr

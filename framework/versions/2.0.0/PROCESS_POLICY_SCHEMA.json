@@ -921,6 +921,141 @@
                 },
                 "minItems": 1,
                 "uniqueItems": true
+              },
+              "bodySelectors": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "profiles",
+                  "roles",
+                  "contextTypes",
+                  "facets"
+                ],
+                "properties": {
+                  "profiles": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {
+                      "enum": [
+                        "*",
+                        "MICRO",
+                        "STANDARD",
+                        "CRITICAL"
+                      ]
+                    },
+                    "oneOf": [
+                      {
+                        "items": {
+                          "const": "*"
+                        },
+                        "maxItems": 1
+                      },
+                      {
+                        "not": {
+                          "contains": {
+                            "const": "*"
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "roles": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {
+                      "enum": [
+                        "*",
+                        "CONTROLLER",
+                        "TASK_OWNER",
+                        "EXECUTOR",
+                        "REVIEWER",
+                        "FRAMEWORK_MAINTAINER"
+                      ]
+                    },
+                    "oneOf": [
+                      {
+                        "items": {
+                          "const": "*"
+                        },
+                        "maxItems": 1
+                      },
+                      {
+                        "not": {
+                          "contains": {
+                            "const": "*"
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "contextTypes": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {
+                      "enum": [
+                        "*",
+                        "TASK",
+                        "PROJECT_READ_ONLY",
+                        "PROJECT_EXTERNAL"
+                      ]
+                    },
+                    "oneOf": [
+                      {
+                        "items": {
+                          "const": "*"
+                        },
+                        "maxItems": 1
+                      },
+                      {
+                        "not": {
+                          "contains": {
+                            "const": "*"
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "facets": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [],
+                    "properties": {
+                      "domain": {
+                        "type": "array",
+                        "uniqueItems": true,
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*:[A-Za-z0-9][A-Za-z0-9._-]*$"
+                        },
+                        "minItems": 1
+                      },
+                      "workType": {
+                        "type": "array",
+                        "uniqueItems": true,
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*:[A-Za-z0-9][A-Za-z0-9._-]*$"
+                        },
+                        "minItems": 1
+                      },
+                      "stage": {
+                        "type": "array",
+                        "uniqueItems": true,
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*:[A-Za-z0-9][A-Za-z0-9._-]*$"
+                        },
+                        "minItems": 1
+                      }
+                    }
+                  }
+                }
               }
             },
             "oneOf": [

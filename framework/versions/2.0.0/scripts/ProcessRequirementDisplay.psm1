@@ -12,7 +12,7 @@ function Assert-DisplayStrings($Value){
 function Get-AiwProcessDisplay {
  [CmdletBinding()]param([Parameter(Mandatory)]$Result)
  if($Result-isnot[pscustomobject]-or$null-eq$Result.PSObject.Properties['status']-or$Result.status-isnot[string]){throw 'DISPLAY_RESOLVER_RESULT_REQUIRED'}
- $lf=[string][char]10;$sections=[Collections.Generic.List[object]]::new();$blocks=[Collections.Generic.List[object]]::new();$rules=[Collections.Generic.List[object]]::new()
+ $lf=[string][char]10;$sections=[Collections.Generic.List[object]]::new();$blocks=[Collections.Generic.List[object]]::new();$rules=[Collections.Generic.List[object]]::new();$bodyOnlyRules=[Collections.Generic.List[object]]::new()
  $obligations=[Collections.Generic.List[object]]::new();$mode=if($null-ne$Result.PSObject.Properties['mode']){$Result.mode}else{'NOT_AVAILABLE'};$reuse='FULL';$ceilings=@()
  if($Result.status-cin@('PASS','EVALUATION_ONLY')-and$mode-ceq'DISCOVER'){
   if($Result.resultType-cne'PROCESS_REQUIREMENTS_DISCOVER_RESULT'-or$Result.selectedRuleBlocks-isnot[Array]-or($Result.compactReceipt-isnot[pscustomobject]-and$Result.compactReceipt-isnot[Collections.IDictionary])){throw 'DISPLAY_DISCOVER_RESULT_REQUIRED'}
@@ -23,6 +23,19 @@ function Get-AiwProcessDisplay {
    if($expected.ContainsKey($o.requirementId)){throw 'DISPLAY_REQUIREMENT_DUPLICATE'}
    Assert-DisplayStrings $o.preparationRequirements;Assert-DisplayStrings $o.resultRequirements;$expected.Add($o.requirementId,$o)
   }
+  $bodyRules=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal)
+  foreach($rule in $Result.selectedRuleBlocks){
+   if($bodyRules.ContainsKey($rule.requirementId)){throw 'DISPLAY_REQUIREMENT_DUPLICATE'}
+   foreach($axis in @('preparationRequirements','resultRequirements')){
+    Assert-DisplayStrings $rule.$axis
+    $values=@(if($expected.ContainsKey($rule.requirementId)){$expected[$rule.requirementId].$axis})
+    if((ConvertTo-Json -InputObject @($rule.$axis) -Compress)-cne(ConvertTo-Json -InputObject $values -Compress)){throw 'DISPLAY_OBLIGATION_MISMATCH'}
+   }
+   if($rule.fullText-isnot[string]-or[string]::IsNullOrWhiteSpace($rule.fullText)-or$rule.displayParts-isnot[Array]-or$rule.displayParts.Count-eq0){throw 'DISPLAY_COMPLETE_BODY_REQUIRED'}
+   if([string]::Join($lf+$lf,@($rule.displayParts.fullText))-cne$rule.fullText){throw 'DISPLAY_PARTS_BODY_MISMATCH'}
+   $bodyRules.Add($rule.requirementId,$rule)
+  }
+  foreach($id in $expected.Keys){if(-not$bodyRules.ContainsKey($id)){throw 'DISPLAY_SELECTED_BODY_MISSING'}}
   $seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal);$dedup=[Collections.Generic.Dictionary[string,int]]::new([StringComparer]::Ordinal)
   if($receipt.schemaVersion-eq4){
    if($Result.modelView-isnot[pscustomobject]-or$Result.modelView.uniqueUnits-isnot[Array]-or$Result.modelView.currentRules-isnot[Array]){throw 'DISPLAY_MODEL_VIEW_REQUIRED'}
@@ -34,13 +47,25 @@ function Get-AiwProcessDisplay {
     $id=$blocks.Count+1;$dedup.Add($u.unitKey,$id)
     $blocks.Add([pscustomobject]@{id=$id;unitKey=$u.unitKey;source=$u.sourceKind;sourceLocator=$u.sourceLocator;normativeIdentity=$u.normativeIdentity;textIdentity=$u.textIdentity})
    }
-   $returned=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+   $returned=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal);$unitTexts=[Collections.Generic.Dictionary[string,string]]::new([StringComparer]::Ordinal)
    foreach($u in $Result.modelView.uniqueUnits){
     if(-not$covered.ContainsKey($u.unitKey)-or-not$returned.Add($u.unitKey)-or(Get-DisplayIdentity $u.fullText)-cne$covered[$u.unitKey].textIdentity){throw 'DISPLAY_COMPLETE_BODY_REQUIRED'}
+    $unitTexts.Add($u.unitKey,$u.fullText)
     $sections.Add([pscustomobject]@{id=$dedup[$u.unitKey];kind='RULE';identity=$u.textIdentity;fullText=$u.fullText})
    }
    if([string]::Join('|',@($returned))-cne[string]::Join('|',@($receipt.loadDecision.returnedUnitKeys))){throw 'DISPLAY_RETURNED_UNIT_SET'}
    if($returned.Count-ne$covered.Count){throw 'DISPLAY_COMPLETE_BODY_REQUIRED'}
+   $coveredRules=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+   foreach($rule in $receipt.bodyCoverage.rules){
+    if(-not$coveredRules.Add($rule.requirementId)-or-not$bodyRules.ContainsKey($rule.requirementId)){throw 'DISPLAY_SELECTION_MISMATCH'}
+    Assert-DisplayStrings $rule.orderedUnitKeys
+    $texts=@(foreach($key in $rule.orderedUnitKeys){if(-not$unitTexts.ContainsKey($key)){throw 'DISPLAY_RULE_UNIT_MISSING'};$unitTexts[$key]})
+    if(-not$texts.Count-or[string]::Join($lf+$lf,$texts)-cne$bodyRules[$rule.requirementId].fullText){throw 'DISPLAY_COMPLETE_BODY_REQUIRED'}
+    if(-not$expected.ContainsKey($rule.requirementId)){
+     $bodyOnlyRules.Add([pscustomobject]@{requirementId=$rule.requirementId;blockIds=@($rule.orderedUnitKeys|ForEach-Object{$dedup[$_]});semanticApplicability=$bodyRules[$rule.requirementId].semanticApplicability})
+    }
+   }
+   if($coveredRules.Count-ne$bodyRules.Count){throw 'DISPLAY_SELECTED_BODY_MISSING'}
    foreach($rule in $Result.modelView.currentRules){
     if(-not$seen.Add($rule.requirementId)-or-not$expected.ContainsKey($rule.requirementId)){throw 'DISPLAY_SELECTION_MISMATCH'}
     foreach($axis in @('preparationRequirements','resultRequirements')){if(($rule.$axis|ConvertTo-Json -Compress)-cne($expected[$rule.requirementId].$axis|ConvertTo-Json -Compress)){throw 'DISPLAY_OBLIGATION_MISMATCH'}}
@@ -55,8 +80,8 @@ function Get-AiwProcessDisplay {
    $decision=$receipt.loadDecision
   }else{
    foreach($rule in $Result.selectedRuleBlocks){
-    if(-not$seen.Add($rule.requirementId)-or-not$expected.ContainsKey($rule.requirementId)){throw 'DISPLAY_SELECTION_MISMATCH'}
-    foreach($axis in @('preparationRequirements','resultRequirements')){Assert-DisplayStrings $rule.$axis;if(($rule.$axis|ConvertTo-Json -Compress)-cne($expected[$rule.requirementId].$axis|ConvertTo-Json -Compress)){throw 'DISPLAY_OBLIGATION_MISMATCH'}}
+    $isCurrent=$expected.ContainsKey($rule.requirementId)
+    if($isCurrent-and-not$seen.Add($rule.requirementId)){throw 'DISPLAY_SELECTION_MISMATCH'}
     if($rule.fullText-isnot[string]-or[string]::IsNullOrWhiteSpace($rule.fullText)-or$rule.displayParts-isnot[Array]-or$rule.displayParts.Count-eq0){throw 'DISPLAY_COMPLETE_BODY_REQUIRED'}
     if([string]::Join($lf+$lf,@($rule.displayParts.fullText))-cne$rule.fullText){throw 'DISPLAY_PARTS_BODY_MISMATCH'}
     $ids=[Collections.Generic.List[int]]::new()
@@ -72,8 +97,8 @@ function Get-AiwProcessDisplay {
      }
      $ids.Add($dedup[$key])
     }
-    $rules.Add([pscustomobject]@{requirementId=$rule.requirementId;blockIds=$ids.ToArray();semanticApplicability=$rule.semanticApplicability})
-    $obligations.Add($expected[$rule.requirementId])
+    $displayRule=[pscustomobject]@{requirementId=$rule.requirementId;blockIds=$ids.ToArray();semanticApplicability=$rule.semanticApplicability}
+    if($isCurrent){$rules.Add($displayRule);$obligations.Add($expected[$rule.requirementId])}else{$bodyOnlyRules.Add($displayRule)}
    }
    $anticipated=@();$decision=[pscustomobject]@{effectiveMode='FULL';fallbackReason='LEGACY_EXPLICIT_FULL'}
   }
@@ -101,8 +126,10 @@ function Get-AiwProcessDisplay {
   $selectedGrants=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
   foreach($id in $external.selectedGrantRuleIds){if(-not$grantIds.Contains($id)-or-not$selectedGrants.Add($id)-or-not$expected.ContainsKey('project:'+$receipt.binding.projectId+':'+$id)){throw 'DISPLAY_EXTERNAL_GRANT_SELECTION'}}
   $lines.Add('Project external authorization: '+$external.mode+'; selected grant rules: '+[string]::Join(',',@($external.selectedGrantRuleIds))+'. Policy interpretation is INSTRUCTION_BOUND; this display is not a per-call admission or result receipt.')
-  if($external.mode-ceq'PROJECT_PREAUTHORIZED'){
+  if($external.mode-ceq'PROJECT_PREAUTHORIZED'-and$receipt.intentEnvelope.requestedActionKind-ceq'EXTERNAL'-and$selectedGrants.Count){
    $lines.Add('Within the current selected grant and actual host/user limits, use the original tool directly. Do not create a per-call task/package or repeat DISCOVER/ADMIT/FINALIZE for each call. Read the complete grant conditions below; coverage, withdrawal, delegation and retry safety still require the actual executor judgment. Preserve native SUCCESS/FAILURE/UNKNOWN. This loading compact cannot be used as a per-action authorization or completion receipt.')
+  }else{
+   $lines.Add('The current action retains its own authorization and completion requirements.')
   }
  }
  $sources=[Collections.Generic.Dictionary[string,int]]::new([StringComparer]::Ordinal)
@@ -126,6 +153,10 @@ function Get-AiwProcessDisplay {
  }
  if($Result.status-cin@('PASS','EVALUATION_ONLY')-and$mode-ceq'DISCOVER'-and(($receipt-is[Collections.IDictionary]-and$receipt.Contains('binding'))-or$null-ne$receipt.PSObject.Properties['binding'])-and$receipt.intentEnvelope.requestedActionKind-ceq'NONE'-and$receipt.binding.authorizationIdentity-ceq'NOT_REQUIRED'-and$receipt.intentEnvelope.requestedResultKind-cin@('PLAN','USER_RESPONSE')){
   $lines.Add('Ordinary current USER response: independent mechanical FINALIZE may be omitted only with no package, effect, formal Review/acceptance, TASK_MESSAGE, closure/transition or continuation consumer. All selected rules still apply. This note is not a successful receipt.')
+ }
+ if($bodyOnlyRules.Count){
+  $lines.Add('Additional activity bodies (ordered unit refs; no current operation obligations):')
+  foreach($rule in $bodyOnlyRules){$lines.Add($rule.requirementId+' ['+[string]::Join(',',@($rule.blockIds))+']')}
  }
  $lines.Add('Current rules (ordered unit refs; P=preparation, R=result obligations; omitted P/R=none):')
  foreach($rule in $rules){Add-RuleLine $rule $expected[$rule.requirementId] @($rule.blockIds)}

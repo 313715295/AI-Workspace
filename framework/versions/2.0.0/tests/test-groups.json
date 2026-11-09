@@ -2530,7 +2530,12 @@
         "target-standards-oracle-requires-distinct-member-selections",
         "target-standards-pair-constructs-complete-set-once",
         "target-standards-second-selection-consumes-shared-observations",
-        "target-standards-next-public-pair-reobserves-changed-source"
+        "target-standards-next-public-pair-reobserves-changed-source",
+        "original-source-relevant-public-rule-completion",
+        "original-source-unrelated-public-rule-completion",
+        "original-source-new-mechanical-gate-requires-forward-work",
+        "original-source-empty-gate-text-or-selector-change-is-not-unchanged",
+        "original-source-live-recovery-retains-current-producer-gate"
       ],
       "completionPattern": "^SOURCE_PUBLICATION_TESTS_PASS\\|checks=\\d+\\|group=Publication\\|",
       "dependencies": [],
@@ -2541,7 +2546,7 @@
         "pwsh",
         "git"
       ],
-      "groupContractVersion": 3,
+      "groupContractVersion": 4,
       "behaviorInputs": {
         "files": [
           "framework/versions/2.0.0/tests/TestNativeOutput.psm1"
@@ -4065,7 +4070,9 @@
         "legacy-reuse-displays-all-current-bodies-order-and-obligations",
         "changed-selection-displays-all-current-complete-bodies-and-obligations",
         "renderer-rejects-retired-future-preload",
-        "renderer-rejects-missing-current-body"
+        "renderer-rejects-missing-current-body",
+        "body-only-complete-text-has-no-current-operation-gates",
+        "local-action-preauthorization-does-not-suggest-direct-execution"
       ],
       "completionPattern": "^RULE_DISPLAY_TESTS_PASS\\|checks=",
       "dependencies": [
@@ -4092,15 +4099,13 @@
         "framework/maintenance-overlay/PROJECT_CONFIG_SCHEMA.json",
         "framework/maintenance-overlay/OVERLAY.json"
       ],
-      "unknownDependencies": [
-        "dynamic-consumer-closure-not-yet-separated"
-      ],
-      "alwaysFresh": true,
+      "unknownDependencies": [],
+      "alwaysFresh": false,
       "fixturePolicy": "WHOLE_VERSION",
       "tools": [
         "pwsh"
       ],
-      "groupContractVersion": 2,
+      "groupContractVersion": 3,
       "behaviorInputs": {
         "files": [
           "README.md",

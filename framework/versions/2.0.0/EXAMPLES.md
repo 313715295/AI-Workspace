@@ -207,7 +207,7 @@ $release = ($raw -join "`n") | ConvertFrom-Json -Depth 50
 
 实现中改源码、补测试代码、记录当前事实可仍是同一活动，当前action据实际操作分别填写；写任务卡不自动变成task-organization。真实分派、责任/路线或生命周期转换才改变组织事实。进入TEST_RUN、自查、审核或验证后返修，domain/workType/stage据事实变化，完整加载当前规则；不能为省加载伪填原实现分类。
 
-原EXTERNAL已停止、provider为0且无后续外部动作时，同活动CONTROL记录可沿新包ADMIT_ACTION/actionRebind，当前义务排除已退场外部规则，保存新compact供原FINALIZE消费；原失败、UNKNOWN和次数仍保留。新要求、重新进入旧规则、来源/许可/真实路线变化或正文不确定均FULL。公开历史消费者仍使用原冻结义务；当前policy合法演进不改写历史。
+原EXTERNAL已停止、provider为0且无后续外部动作时，同活动CONTROL记录可沿新包ADMIT_ACTION/actionRebind；O排除退场外部义务，B保留本活动已读正文。后续报告再用已读交付规则时不因它上一操作退出O而重装配；新的未读方法即使P/R为空仍FULL。保存新compact供原FINALIZE消费，原失败、UNKNOWN和次数保留；当前policy合法演进不改写历史。SOURCE视图即使显示PROJECT_PREAUTHORIZED配置，也不据此显示直接调用指令；只有真实EXTERNAL且当前O命中有效非空grant才适用。
 
 在支持functions.exec的宿主中，调用前为外层和内层分别设置足够容量。以下24000/20000只是示例，不是阈值或不会截断的保证；按实际完整正文调整，且不与机器JSON或其他长输出混排。命令中的路径须先替换为当前真实固定入口和绑定输入。
 
@@ -230,6 +230,10 @@ if (r.session_id) {
 未完成时保存session_id，只等待同一命令；不要丢掉会话后重跑DISCOVER。若等待输出仍未完成，继续保留原session_id。默认一次完整官方text，不主动分页或保存副本。实际跨进程编码/输出限制需要时，在该次调用使用已有-AsJson/-DisplayPath：程序捕获机器结果并核exit/status，只向模型读取同次UTF-8官方text。真实截断后从同一返回或DisplayPath补缺失完整单元及义务，不重新选择、不从项目扫描拼文。AIW-END存在不证明中部未被裁剪。
 
 ## 有限会话的继续与收尾
+
+新Owner登记与临时接收者绑定的宿主接点取HOST_CODEX的PR_CODEX_TOOL_OPERATION_RESOLUTION；执行资格统一取TASK_AND_SCOPE的PR_TASK_LAUNCH_AND_ROUTE。例：创建提示已交齐材料，登记F在接收者读取前完成，则沿核心规则执行，登记方不再补发启动消息；若初始提示漏了一份必要包引用，只补该引用。
+
+当前ACTIVE维护任务归档另一张旧CLOSED卡：当前纯CONTROL包精确包含active/archive对，archive后像逐字节等于原active前像，核原ID/闭合/释放、当前权限与保护后只证明移存。旧产品可依法变化，不因此重跑旧验收；卡改字、目标冲突或未释放仍拒绝，新SUCCESS缺必要验收也拒绝。旧计划及决定继续retention，移存不追认其证明有效。先存并读回archive再删active，中断沿原包补完，不造归档事务。
 
 | 当前真实工作 | 现有ROUTE输入与处理 |
 |---|---|
