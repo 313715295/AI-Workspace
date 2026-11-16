@@ -107,6 +107,44 @@ try{
   $badExample=$documented.Value|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100;$badExample.status='FAIL'
   $badOutputRejected=$false;try{$null=Read-ExampleDiscoverOutput $badExample}catch{$badOutputRejected=$true}
   Check $badOutputRejected 'documented-output-stops-on-failed-status'
+ # Execute the published current constructors against the real Input6/boundary4 consumers.
+ $currentExamplePreviousActor=[Environment]::GetEnvironmentVariable('CODEX_THREAD_ID','Process')
+ try{
+  [Environment]::SetEnvironmentVariable('CODEX_THREAD_ID','actor','Process')
+  $currentFacts=$discovery|ConvertTo-Json -Depth 100|ConvertFrom-Json -AsHashtable -Depth 100
+  $currentFacts.authorizationRef='NOT_REQUIRED';$currentFacts.evaluationOnly=$false
+  $currentIntent=$intent|ConvertTo-Json -Depth 100|ConvertFrom-Json -AsHashtable -Depth 100
+  $currentIntent.schemaVersion=3;$currentIntent.facets.Remove('stage')
+  $currentInput=New-ExampleCurrentDiscover $currentFacts $currentIntent
+  $currentReadPath=Join-Path $runtime 'current-example-rule-read.json'
+  $currentDiscoverInputPath=Join-Path $runtime 'current-example-discover-input.json'
+  SaveJson $currentDiscoverInputPath $currentInput
+  $currentRead=Run $resolver @{InputPath=$currentDiscoverInputPath;CompactReceiptPath=$currentReadPath;AsJson=$true}
+  Check ($currentRead.Code-eq0-and$currentRead.Value.status-ceq'PASS'-and$currentRead.Value.compactReceipt.schemaVersion-eq5-and$currentRead.Value.compactReceipt.operation.intentEnvelope.schemaVersion-eq3-and-not$currentInput.Contains('readOnlyContext')) 'documented-current-Input6-Intent3-real-full-consumer'
+  $currentOperation=New-ExampleCurrentOperation $currentInput @{path=$currentReadPath;identity=(Id $currentReadPath)}
+  $currentPreparation=@($currentRead.Value.compactReceipt.operation.selectedObligations|ForEach-Object{$_.preparationRequirements}|Sort-Object -Unique)
+  $currentResults=@($currentRead.Value.compactReceipt.operation.selectedObligations|ForEach-Object{$_.resultRequirements}|Sort-Object -Unique)
+  # Preserve the published lifecycle and each live construction input: admit
+  # the current operation into its own compact, then finalize that operationRef.
+  $currentAdmitPath=Join-Path $runtime 'current-example-admit-input.json'
+  $currentOperationPath=Join-Path $runtime 'current-example-operation.json'
+  $currentAdmitInput=New-ExampleCurrentBoundary 'ADMIT_ACTION' 'currentOperation' $currentOperation $currentPreparation @() @() 'NOT_REQUIRED' 'BOUND'
+  SaveJson $currentAdmitPath $currentAdmitInput
+  $currentAdmitted=Run $resolver @{InputPath=$currentAdmitPath;CompactReceiptPath=$currentOperationPath;AsJson=$true}
+  if($currentAdmitted.Code-ne0){Write-Output ('OBSERVE|current-example-admit|'+$currentAdmitted.Text)}
+  Check ($currentAdmitted.Code-eq0-and$currentAdmitted.Value.status-ceq'PASS'-and$currentAdmitted.Value.sourceBuildCount-eq0-and-not$currentAdmitted.Value.ruleBodyLoaded) 'documented-current-operation-boundary4-real-admit-without-body-assembly'
+  $currentSavedOperation=Get-Content -LiteralPath $currentOperationPath -Raw|ConvertFrom-Json -Depth 100
+  $currentPreparation=@($currentSavedOperation.operation.selectedObligations|ForEach-Object{$_.preparationRequirements}|Sort-Object -Unique)
+  $currentResults=@($currentSavedOperation.operation.selectedObligations|ForEach-Object{$_.resultRequirements}|Sort-Object -Unique)
+  $currentBoundary=New-ExampleCurrentBoundary 'FINALIZE_OUTPUT' 'operationRef' $currentAdmitted.Value.operationRef $currentPreparation $currentResults @('USER_RESPONSE|fixture-current-result') 'NOT_REQUIRED' 'BOUND'
+  $currentFinalizePath=Join-Path $runtime 'current-example-finalize-input.json'
+  SaveJson $currentFinalizePath $currentBoundary
+  $currentClosed=Run $resolver @{InputPath=$currentFinalizePath;AsJson=$true}
+  if($currentClosed.Code-ne0){Write-Output ('OBSERVE|current-example-finalize|'+$currentClosed.Text)}
+  Check ($currentClosed.Code-eq0-and$currentClosed.Value.status-ceq'PASS'-and$currentClosed.Value.sourceBuildCount-eq0-and-not$currentClosed.Value.ruleBodyLoaded) 'documented-current-operation-boundary4-real-finalize-without-body-assembly'
+ }finally{
+  [Environment]::SetEnvironmentVariable('CODEX_THREAD_ID',$(if($null-eq$currentExamplePreviousActor){[NullString]::Value}else{$currentExamplePreviousActor}),'Process')
+ }
  $exampleReceipt=Join-Path $runtime 'example-receipt.json';SaveJson $exampleReceipt $documented.Value.compactReceipt
  $emptyBoundary=New-ExampleBoundary $exampleReceipt (Id $exampleReceipt) 'ADMIT_ACTION' @() @() @() 'NOT_REQUIRED' 'BOUND'
  [IO.File]::WriteAllText($inputPath,(ConvertTo-ExampleInputJson $emptyBoundary),$utf8)
@@ -171,7 +209,12 @@ try{
   $facts=if($case.Name-ceq'test'){CurrentQueryFacets 'aiw:verification' 'aiw:software' 'aiw:report' 'aiw:verification'}else{CurrentQueryFacets 'aiw:implementation' 'aiw:software' 'aiw:code' 'aiw:implementation'}
   $actual=DiscoverCase $case.Hints $facts;$actualIds=@($actual.selectedRuleBlocks.requirementId)
   $scope=@($actual.selectedRuleBlocks|Where-Object requirementId -CEQ 'framework:PR_TASK_COLLABORATION_BOUNDARY')
-  Check ($scope.Count-eq1-and$scope[0].fullText.Contains('wait_threads')-and$scope[0].fullText.Contains('PR_REVIEW_ROUTE_PREPARATION')-and'framework:PR_FINAL_OUTPUT_CURRENT_RESULT'-cnotin$actualIds-and'framework:PR_REVIEW_ROUTE_PREPARATION'-cnotin$actualIds-and'framework:PR_CRITICAL_REVIEW_INDEPENDENCE'-cnotin$actualIds) ('historical-'+$case.Name+'-keeps-collaboration-without-future-review-gate')
+  # selectedRuleBlocks carries complete B bodies too; future gates are the
+  # frozen current O obligations, not every already readable rule identity.
+  $actualGateIds=@($actual.compactReceipt.selectedObligations|Where-Object{@($_.preparationRequirements).Count-gt0-or@($_.resultRequirements).Count-gt0}|ForEach-Object{$_.requirementId})
+  if(-not[string]::IsNullOrWhiteSpace($env:AIW_TEST_RAW_DIRECTORY)){Write-AiwTestJson (Join-Path $env:AIW_TEST_RAW_DIRECTORY ('historical-software-'+$case.Name+'-full-read.json')) $actual}
+  Write-Output ('OBSERVE|historical-software-'+$case.Name+'|'+(@{completeBodyIds=$actualIds;currentObligationIds=$actualGateIds}|ConvertTo-Json -Depth 10 -Compress))
+  Check ($scope.Count-eq1-and$scope[0].fullText.Contains('wait_threads')-and$scope[0].fullText.Contains('PR_REVIEW_ROUTE_PREPARATION')-and'framework:PR_FINAL_OUTPUT_CURRENT_RESULT'-cin$actualIds-and'framework:PR_FINAL_OUTPUT_CURRENT_RESULT'-cnotin$actualGateIds-and'framework:PR_REVIEW_ROUTE_PREPARATION'-cnotin$actualGateIds-and'framework:PR_CRITICAL_REVIEW_INDEPENDENCE'-cnotin$actualGateIds) ('historical-'+$case.Name+'-keeps-collaboration-without-future-review-gate')
   # The historical sample put a deferred review in positive hints. Preserve
   # that replay above, then separately test the documented current-only input.
   # This transformation is fixture data, not measured LLM normalization.
@@ -186,13 +229,15 @@ try{
  $reviewBlock=@($reviewRoute.selectedRuleBlocks|Where-Object requirementId -CEQ 'framework:PR_REVIEW_QUALIFICATION_AND_PLANNING')
  $routeBlock=@($reviewRoute.selectedRuleBlocks|Where-Object requirementId -CEQ 'framework:PR_REVIEW_ROUTE_PREPARATION')
  $hostBlock=@($reviewRoute.selectedRuleBlocks|Where-Object requirementId -CEQ 'framework:PR_CODEX_TOOL_OPERATION_RESOLUTION')
+ $sessionBlock=@($reviewRoute.selectedRuleBlocks|Where-Object requirementId -CEQ 'framework:PR_CODEX_SESSION_ORGANIZATION')
  # Compare the actual selection with each complete current owner block. Missing
  # or duplicate blocks stay diagnosable and fail the original aggregate case.
  $ownerMatches=@{}
  foreach($entry in @(
   @{Id='PR_REVIEW_QUALIFICATION_AND_PLANNING';File='REVIEW_AND_EVIDENCE.md'},
   @{Id='PR_REVIEW_ROUTE_PREPARATION';File='REVIEW_AND_EVIDENCE.md'},
-  @{Id='PR_CODEX_TOOL_OPERATION_RESOLUTION';File='HOST_CODEX.md'}
+  @{Id='PR_CODEX_TOOL_OPERATION_RESOLUTION';File='HOST_CODEX.md'},
+  @{Id='PR_CODEX_SESSION_ORGANIZATION';File='HOST_CODEX.md'}
  )){
   $text=[IO.File]::ReadAllText((Join-Path $fv $entry.File))
   $ownerMatches[$entry.Id]=@([regex]::Matches($text,('(?s)<!-- AIW-REQUIREMENT:'+ $entry.Id +':BEGIN -->(.*?)<!-- AIW-REQUIREMENT:'+ $entry.Id +':END -->')))
@@ -200,6 +245,7 @@ try{
  $qualificationText=if($reviewBlock.Count-eq1){[string]$reviewBlock[0].fullText}else{''}
  $routeText=if($routeBlock.Count-eq1){[string]$routeBlock[0].fullText}else{''}
  $hostText=if($hostBlock.Count-eq1){[string]$hostBlock[0].fullText}else{''}
+ $sessionText=if($sessionBlock.Count-eq1){[string]$sessionBlock[0].fullText}else{''}
  $routePreparations=@($routeBlock|ForEach-Object{$_.preparationRequirements})
  $routeResults=@($routeBlock|ForEach-Object{$_.resultRequirements})
  $allRouteObligations=@($reviewRoute.selectedRuleBlocks|ForEach-Object{@($_.preparationRequirements)+@($_.resultRequirements)})
@@ -211,9 +257,11 @@ try{
   qualificationSingleton=($reviewBlock.Count-eq1)
   routeSingleton=($routeBlock.Count-eq1)
   hostSingleton=($hostBlock.Count-eq1)
+  sessionSingleton=($sessionBlock.Count-eq1)
   qualificationComplete=($ownerMatches['PR_REVIEW_QUALIFICATION_AND_PLANNING'].Count-eq1-and$qualificationText-ceq$ownerMatches['PR_REVIEW_QUALIFICATION_AND_PLANNING'][0].Groups[1].Value.Trim())
   routeComplete=($ownerMatches['PR_REVIEW_ROUTE_PREPARATION'].Count-eq1-and$routeText-ceq$ownerMatches['PR_REVIEW_ROUTE_PREPARATION'][0].Groups[1].Value.Trim())
   hostComplete=($ownerMatches['PR_CODEX_TOOL_OPERATION_RESOLUTION'].Count-eq1-and$hostText-ceq$ownerMatches['PR_CODEX_TOOL_OPERATION_RESOLUTION'][0].Groups[1].Value.Trim())
+  sessionComplete=($ownerMatches['PR_CODEX_SESSION_ORGANIZATION'].Count-eq1-and$sessionText-ceq$ownerMatches['PR_CODEX_SESSION_ORGANIZATION'][0].Groups[1].Value.Trim())
   qualificationDelegatesSequence=$qualificationText.Contains('正常交审顺序唯一取PR_REVIEW_ROUTE_PREPARATION')
   finalizedProductionAndSelectedPreparation=($routeText.Contains('先完成本轮真实生产/自测FINALIZE、适用质量选择要求的当前成功自查')-and$routeText.Contains('LEGACY/选中或另有必需SELF阶段时仍需作者成功SELF')-and$routeText.Contains('C无SELF分支以TOOL_CONTRACT的productionFinalizeRef及完整候选准备成立'))
   actualDispatchAdmission=$routeText.Contains('真实REVIEW_ROUTE+HANDOFF意图取得必要组织、Review和HOST完整正文并ADMIT')
@@ -226,12 +274,12 @@ try{
   reviewMaterialsBound=('REVIEW_MATERIALS_BOUND'-cin$routePreparations)
   routeObserved=('REVIEW_ROUTE_OBSERVED'-cin$routeResults)
   noFutureVerdictObligation=('REVIEW_VERDICT_BOUND'-cnotin$allRouteObligations)
-  hostRequiresObservation=$hostText.Contains('宿主明确要求创建后首次进度观察时')
-  realIdBeforeSnapshot=$hostText.Contains('取得真实可用ID后仅做一次立即快照')
-  unreadyEndsTurn=$hostText.Contains('未就绪结束本轮')
-  timeoutOrCommentaryDoesNotWait=$hostText.Contains('超时/commentary不触发继续等待')
+  hostRequiresObservation=$sessionText.Contains('宿主明确要求创建后首次进度观察时')
+  realIdBeforeSnapshot=$sessionText.Contains('取得真实可用ID后仅做一次立即快照')
+  unreadyEndsTurn=$sessionText.Contains('未就绪结束本轮')
+  timeoutOrCommentaryDoesNotWait=$sessionText.Contains('超时/commentary不触发继续等待')
  }
- Write-Output ('OBSERVE|natural-review-route|'+([ordered]@{routeIds=$routeIds;qualificationCount=$reviewBlock.Count;routeCount=$routeBlock.Count;hostCount=$hostBlock.Count;ownerBlockCounts=@($ownerMatches.GetEnumerator()|Sort-Object Key|ForEach-Object{@{id=$_.Key;count=$_.Value.Count}});routePreparations=$routePreparations;routeResults=$routeResults;clauses=$clauses}|ConvertTo-Json -Depth 20 -Compress))
+ Write-Output ('OBSERVE|natural-review-route|'+([ordered]@{routeIds=$routeIds;qualificationCount=$reviewBlock.Count;routeCount=$routeBlock.Count;hostCount=$hostBlock.Count;sessionCount=$sessionBlock.Count;ownerBlockCounts=@($ownerMatches.GetEnumerator()|Sort-Object Key|ForEach-Object{@{id=$_.Key;count=$_.Value.Count}});routePreparations=$routePreparations;routeResults=$routeResults;clauses=$clauses}|ConvertTo-Json -Depth 20 -Compress))
  Check (@($clauses.Values|Where-Object{-not$_}).Count-eq0) 'natural-review-route-loads-organization-review-and-bounded-host-observation'
  foreach($finding in @($false,$true)){
   $discovery.intentEnvelope.objective=if($finding){'独立审核当前候选并返回局部finding。'}else{'独立审核当前候选，无finding时返回通过结论。'}
@@ -368,7 +416,16 @@ try{
  SaveJson $inputPath $b;$stale=Run $resolver @{InputPath=$inputPath;AsJson=$true};Check ($stale.Code-ne0) 'pre-drift-receipt-cannot-finalize'
  $checker=Join-Path $versionRoot 'scripts/check-task-card.ps1';$card=Join-Path $temp 'tasks/archive/CLOSE-001.md'
  $base="# CLOSE-001 — fixture`n- Task schema: 2.0.0`n- Owner: actor`n- Work route: actor=actor; role=TASK_OWNER; phase=VERIFY`n- Range summary: profile=STANDARD; lifecycle=CLOSED; expected_paths=[]; actual_paths=[]`n- Closure outcome: SUCCESS`n- Closure evidence: reviewed-result`n- Remaining obligations: NONE`n- Artifact disposition: retained; Git deferred in owning task`n- Writer / reviewer / authorization: NONE / NONE / NONE"
- foreach($outcome in @('SUCCESS','CANCELLED','SUPERSEDED')){$text=$base.Replace('Closure outcome: SUCCESS',('Closure outcome: '+$outcome));if($outcome-ceq'SUPERSEDED'){$text=$text.Replace('Remaining obligations: NONE','Remaining obligations: successor TASK-002')};SaveText $card $text;$r=Run $checker @{TaskPath=$card};Check ($r.Code-eq0-and$r.Text.Contains('closure='+$outcome)) ('task-closure-'+$outcome)}
+ foreach($outcome in @('SUCCESS','CANCELLED','SUPERSEDED')){
+  $text=$base.Replace('Closure outcome: SUCCESS',('Closure outcome: '+$outcome))
+  if($outcome-ceq'SUPERSEDED'){$text=$text.Replace('Remaining obligations: NONE','Remaining obligations: successor TASK-002')}
+  if($outcome-cin@('CANCELLED','SUPERSEDED')){
+   $decisionPath=Join-Path $temp ('closure-decision-'+$outcome+'.json')
+   SaveJson $decisionPath ([ordered]@{schemaVersion=1;kind='SYNTHETIC_CLOSURE_DECISION';taskId='CLOSE-001';outcome=$outcome;reason='Fixture delivery is unfinished';successor=$(if($outcome-ceq'SUPERSEDED'){'TASK-002'}else{$null})})
+   $text+="`n- Closure decision: "+$decisionPath+'#'+(Id $decisionPath)+"`n- Unfinished work: fixture delivery remains unfinished"
+  }
+  SaveText $card $text;$r=Run $checker @{TaskPath=$card};Check ($r.Code-eq0-and$r.Text.Contains('closure='+$outcome)) ('task-closure-'+$outcome)
+ }
  $critical=$base.Replace('profile=STANDARD; lifecycle=CLOSED;','profile=CRITICAL; lifecycle=CLOSED; current_exact=fixture-v1;')+"`n- Phase gate: FALSE`n- Proportionality: NOT_APPLICABLE; reason=bounded review of existing behavior"
  SaveText $card $critical;$r=Run $checker @{TaskPath=$card};Check ($r.Code-eq0) 'critical-minimal-closure-template-without-phase-matrix-or-viewpoint-quota'
  foreach($text in @($base.Replace('Closure outcome: SUCCESS','Closure outcome: WAITING'),$base.Replace('Closure evidence: reviewed-result','Closure evidence: PENDING'),$base.Replace('NONE / NONE / NONE','actor / NONE / ACTIVE'))){SaveText $card $text;$r=Run $checker @{TaskPath=$card};Check ($r.Code-ne0) ('task-invalid-closure-'+$passed)}

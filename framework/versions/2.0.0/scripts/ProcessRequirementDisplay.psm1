@@ -17,7 +17,13 @@ function Get-AiwProcessDisplay {
  if($Result.status-cin@('PASS','EVALUATION_ONLY')-and$mode-ceq'DISCOVER'){
   if($Result.resultType-cne'PROCESS_REQUIREMENTS_DISCOVER_RESULT'-or$Result.selectedRuleBlocks-isnot[Array]-or($Result.compactReceipt-isnot[pscustomobject]-and$Result.compactReceipt-isnot[Collections.IDictionary])){throw 'DISPLAY_DISCOVER_RESULT_REQUIRED'}
   $receipt=$Result.compactReceipt
-  if($receipt.receiptType-cne'PROCESS_REQUIREMENTS_DISCOVER'-or$receipt.status-cne$Result.status-or$receipt.selectedObligations-isnot[Array]){throw 'DISPLAY_RECEIPT_MISMATCH'}
+  if($receipt.schemaVersion-eq5){
+   if($Result.schemaVersion-ne5-or$receipt.mode-cne'DISCOVER'){throw 'DISPLAY_FULL_OPERATION_REQUIRED'}
+   $codec=@(Import-Module (Join-Path $PSScriptRoot 'ProcessRequirementComposition.psm1') -PassThru)[0]
+   $raw=$receipt|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100
+   $receipt=& $codec {param($raw)ConvertFrom-AiwOperationCompact $raw} $raw
+  }
+  if($receipt.receiptType-cnotin@('PROCESS_REQUIREMENTS_DISCOVER','PROCESS_REQUIREMENTS_OPERATION')-or$receipt.status-cne$Result.status-or$receipt.selectedObligations-isnot[Array]){throw 'DISPLAY_RECEIPT_MISMATCH'}
   $expected=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal)
   foreach($o in $receipt.selectedObligations){
    if($expected.ContainsKey($o.requirementId)){throw 'DISPLAY_REQUIREMENT_DUPLICATE'}

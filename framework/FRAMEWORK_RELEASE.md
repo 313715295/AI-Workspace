@@ -109,21 +109,29 @@ schema2 payload 是 version 内除 `RELEASE_MANIFEST.json` 外的全部文件；
 
 开发阶段按实际改动选择已有专项；成本观察优先使用主 runner 已有专项调用边界的起止、耗时及退出状态，保留原始输出和失败传播。测试计数与组耗时分别解释，重叠组耗时不能相加冒充总耗时。最终稳定候选仍执行下文现行完整验证和独立审核；局部通过、旧候选证据或耗时改善均不替代这些要求。
 
-schema2 旧调用中，实现期 `-SkipManifest` 只接受 `CANDIDATE + PENDING/PENDING/PENDING`，允许最终 manifest 尚未冻结；final candidate freeze 运行一次 complete current-version suite。默认完整校验仍接受已封存 STABLE，或 payload/manifest/完整 suite/独立 Source Review 全部严格绑定且 `releaseIntegration=PENDING` 的已审 CANDIDATE；混合状态拒绝，manifest 前后不变。schema3 的 PREPACKAGE 调用则使用 SOURCE_PAYLOAD_V1：冻结完整 P/T/D，真正从该视图读取源码和明确构造的 synthetic manifest，不读本次未来 Qpre、Msealed 或 ZIP；partial/focused 结果不生成完整资格。全局 reader、schema 或定义变化撤回依赖它们的旧组记录；受影响或无法闭合的组必须 fresh，不追认旧记录为新输入通过。未受影响且满足当前 proof 合同的原记录才可严格复证。始终证明 immutable baseline payload identity。baseline executable regression 只适用于仍声明支持且确被 shared root tools、upgrade compatibility、Tool Contract 或 execution boundary 变更影响的基线；已退出版本只保留历史 identity 与 recovery evidence，不恢复退役套件。
+schema2 旧调用中，实现期 `-SkipManifest` 只接受 `CANDIDATE + PENDING/PENDING/PENDING`，允许最终 manifest 尚未冻结；final candidate freeze 运行一次 complete current-version suite。默认完整校验仍接受已封存 STABLE，或 payload/manifest/完整 suite/独立 Source Review 全部严格绑定且 `releaseIntegration=PENDING` 的已审 CANDIDATE；混合状态拒绝，manifest 前后不变。schema3 的 PREPACKAGE 调用则使用 SOURCE_PAYLOAD_V1：冻结完整 P/T/D，真正从该视图读取源码和明确构造的 synthetic manifest，不读本次未来 Qpre、Msealed 或 ZIP；partial/focused 结果不生成完整资格。全局 reader、schema 或定义变化撤回依赖它们的旧组记录；当前精确复证要求原记录和行为闭包均成立。使用旧证据接续时，行为变化或缺少合格原件须先停在执行计划，明确评估影响并绑定候选后才执行必要范围。未受影响且满足当前 proof 合同的原记录才可严格复证。始终证明 immutable baseline payload identity。baseline executable regression 只适用于仍声明支持且确被 shared root tools、upgrade compatibility、Tool Contract 或 execution boundary 变更影响的基线；已退出版本只保留历史 identity 与 recovery evidence，不恢复退役套件。
 
 Source Review 前冻结 README/ROADMAP 等 current-facing wording。deterministic sealing 期间不得修改 free-form 或 executable bytes。
 
 四类协议夹具（current coverage、efficiency、governance measurement、non-git transactions）按声明成员构造：coverage 用十二个版本输入及三个 child、两个 sentinel 的私有 inventory；efficiency 和 measurement 各自用机制清单一次构造完整合成资格，governance 直接调用 measurement；旧 1.16 runtime 只复制已声明的八十项，历史 manifest 在隔离夹具内单独处理。完整默认用例与失败出口保留，私有 FixtureContractOnly 仅产生 PARTIAL 构造/消费者证据，不产生正式组 completion。
 
-这四组采用 MECHANISM 闭包，可在原 EXECUTED/native/raw/CLEAN、当前定义、实际工具/父环境、root/options 及完整输入均匹配时严格复证。具名真实 snapshot 反例验证相关改动失效、无关独立测试字节不进入闭包；反例不是四组的新执行证明。旧格式保持原严格读取。新定义只在原记录具有足够的行为事实、当前严格验证通过时复证；事实不足给出具体原因并鲜测，不重签旧记录。当前完整 suite/export、integration.full-source、未闭合动态依赖及 POSTBUILD 实际包检查仍承担各自鲜测义务；部分构造与映射通过不构成整版、Source Review、性能或发行通过。
+这四组采用 MECHANISM 闭包，可在原 EXECUTED/native/raw/CLEAN、当前定义、实际工具/父环境、root/options 及完整输入均匹配时严格复证。具名真实 snapshot 反例验证相关改动失效、无关独立测试字节不进入闭包；反例不是四组的新执行证明。旧格式保持原严格读取。新定义只在原记录具有足够的行为事实、当前严格验证通过时复证；事实不足给出具体原因并鲜测，不重签旧记录。当前完整 suite/export仍核完整P/T/D及必需集；新前向组合同首次、行为输入变化或未闭合动态依赖时取得真实执行，既有合格原件才按当前严格合同复证。每个新ZIP首次实际执行全部POSTBUILD组；同一未改ZIP仅按下述Qpost2合同复证已完成组；部分构造与映射通过不构成整版、Source Review、性能或发行通过。
+
+### 基于历史证据的变更覆盖
+
+D3 的公开 runner 使用现有执行、suite、Export 和 ReleaseValidation。完整运行与精确复证继续输出 proof3。已具备同一 D3 的完整 proof3 时，显式提供 ChangePlanPath、ExpectedChangePlanIdentity 和 Groups 可生成 proof4（CHANGE_VALIDATED_COVERAGE）。计划绑定原 proof 字节、当前 P、原定义、完整差异、判断理由、必须全跑的组以及必要补验组。根工具和仅源码输入与 P 一起验算，增删改必须与两个完整输入闭包一致。运行前校验完整原生证据、计划与精确 Groups，随后按计划执行当前工作。现有选中可选鲜测和新 ZIP 首次 Gpost 沿原合同。
+
+新 Qpre 只含一份平面 index。原 proof 及可达成员保留原字节，正在审核的候选有自己的输入闭包和实际运行 suite。同组的定向用例与当前全组执行有各自的入口、命令和覆盖语义。历史支持保原运行及原复证，公开 summary 分别计算当前全组用例、当前补验用例、精确复证用例和历史支持组。变更覆盖的实际 suite 保持 PARTIAL。组补验须真实运行并以当前输入、命令、退出和 raw 记录证明。夹具输入继续由真实构造配方与各自闭包绑定。
+
+生成端和便携读取消费同一严格校验。批准 S2 前，独立 Source Review 核对累计差异的实际影响、所需覆盖及当前补验与原测试的边界。正式资格仍需原 Mreview/Msealed 准入。资格结果的 Inputs 只返回当前候选，Bundle.Members 包括全部平面附件。健康的已采用项目日常加载继续只核对采用与实际消费字节。
 
 ### 当前共同候选的必要验证
 
-先前常驻引导八文件后继的三组安排只适用于其原冻结输入，原45组及随后三组证据保持历史身份。本次历史证据、材料释放、同活动操作重绑定、外部许可、入口正文及runner解析复用共同候选，按实际变更与直接消费者重新选择当前D3的PREPACKAGE requiredFor FULL；不沿用旧三组，也不将旧PASS重标到当前字节。
+冻结共同候选时，按真实变更与直接消费者选择当前D3的PREPACKAGE requiredFor FULL。历史组和专项结果只支持其原输入，未变部分按当前严格合同判断复证；不将旧PASS重标到当前字节。
 
-当前必需集覆盖历史结果与关闭、授权及连续动作、普通/Maintenance前门与完整源码flow、规则选择/显示/来源变化、入口模板、复用证据与源码资格消费者。通用严格JSON核的Object、Array和时间字段消费者分别纳入现有结果、交付、授权和证据组。实际完整集合由test-groups.json持有，runner、suite3与proof3据此核对；本次未选择的组保留，不表示永久退役。POSTBUILD必需集保持原样，两种新ZIP分别fresh验证。
+当前必需集覆盖历史结果与关闭、授权及连续动作、普通/Maintenance前门与完整源码flow、规则选择/显示/来源变化、入口模板、复用证据与源码资格消费者。通用严格JSON核的Object、Array和时间字段消费者分别纳入现有结果、交付、授权和证据组。实际完整集合由test-groups.json持有，runner、suite3与发布证明据此核对；本次未选择的组保留，不表示永久退役。POSTBUILD必需集保持原样，两种新ZIP分别fresh验证。
 
-实现阶段局部原件及真实失败保留其准确范围。正式S1只消费public runner产生的当前EXECUTED或合格REVALIDATED；直接专项命令没有该记录时，不拼接成完整资格。未知依赖、alwaysFresh、相关字节/环境变化继续执行；缺组、失败、原生输出不完整或收尾不洁均不成为PASS。完整P/T/D和实际根工具、当前文案及拟发布删除一起交独立Source Review，后续S2只作确定的资格字段投影。
+实现阶段局部原件及真实失败保留其准确范围。完整执行路线消费公开 runner 的当前 EXECUTED 和已验证的 REVALIDATED。变更覆盖路线同时验证旧完整证据和当前必要执行，区分当前整组执行、实际补验、精确复证和历史支持。直接专项命令是局部原件。已选 alwaysFresh 或未闭合动态依赖组保留真实鲜测要求。坏原件和未判影响在子进程启动前拒绝。完整P/T/D和实际根工具、当前文案及拟发布删除一起交独立Source Review，后续S2只作确定的资格字段投影。
 
 runner只在实际复用选择时懒建本次私有解析索引。每次使用仍观察全部显式成员的当前路径和字节，成员变化更新解析，非目标记录变成重复目标仍拒绝；目标record、raw、环境、cleanup及当前闭包仍由原validator验证。无resume、alwaysFresh与未知依赖的短路不为索引读取原件。返回值相互独立，失败或动作结束释放私有上下文，不缓存测试PASS、不新增公开证明格式。成本沿现有execution-cost和phase原件报告，没有可比基线不宣称总提速。
 
@@ -134,10 +142,10 @@ P 包含当前 VERSION、测试实现及定义；T 包含实际根工具、构�
 | 阶段 | 已存在输入与真实输出 | 可以宣称的结果 |
 |---|---|---|
 | S0 | 冻结 P/T/D、参数及夹具定义；没有最终 ZIP | 准备完成，尚无验证结论 |
-| S1 | Gpre 读取完整源码视图与独立合成夹具；真实 command/raw/组结果先存包外，全部组成功后组装有限 Qpre | PREPACKAGE_PASS，尚无实际包通过 |
+| S1 | Gpre 读取完整源码视图与独立合成夹具；真实 command/raw/组结果先存包外，全部必要覆盖闭合后组装有限 Qpre | PREPACKAGE_PASS，尚无实际包通过 |
 | S2 | 独立 Source Review 消费 P/T/D/Qpre 和 Source Review=PENDING 的 Mreview；实际审核完成后按精确权限投影 Msealed | SOURCE_QUALIFIED、DISTRIBUTION_NOT_BUILT |
 | S3 | builder 复验已有源码资格，生成 PACKAGE_MANIFEST 和新 ZIP Z；全部包内字节与原构建命令冻结，输出拒绝覆盖 | BUILT_UNVERIFIED |
-| S4 | Gpost fresh 读取实际 Z、校验解压树、构建命令和 runtime；在隔离消费者执行真实注册及同版本升级 smoke，跨版本迁移仍由 Gpre bridge 覆盖；Qpost 只存包外 | 全部必需组成功才 PACKAGE_VALIDATED |
+| S4 | 每个新Z首次执行全部Gpost，读取实际Z并校验解压树、构建命令和runtime；同一Z的完整组按Qpost2严格恢复；在隔离消费者执行真实注册及同版本升级 smoke，跨版本迁移仍由 Gpre bridge 覆盖；Qpost 只存包外 | 全部必需组成功才 PACKAGE_VALIDATED |
 | S5 | 原 Reviewer/Owner 消费源码审核、Z/Qpost 与完整绑定；接受记录留包外并引用同一未改 ZIP | 适用审核、RESULT_ACCEPT 和发行权限齐备才 DISTRIBUTION_READY |
 
 schema3 manifest 用 validationProof 替代 completeSuite。proof v1 只允许 PREPACKAGE/PASS 的 FULL_RUN 或 VERIFIED_GROUP_COVERAGE；显式 proof schemaVersion=2 只允许 PREPACKAGE/PASS 的 CURRENT_GROUP_COVERAGE，baselineRef 必须为 null，并且必需 currentSuiteRef 引用 Export 之前生成的原 suite。两者均绑定当前 P canonical、D identity、精确 Gpre、原 EXECUTED 组引用及 root integration；releaseIntegration=PREPACKAGE_PASS 只表示已完成的源码集成。实现期 CANDIDATE/PENDING 的未来 refs（含 v2 currentSuiteRef）为 null、数组为空，v1 使用 FULL_RUN，v2 使用 CURRENT_GROUP_COVERAGE，不能预填 POSTBUILD/接受结果。v1 的字段及既有接受语义保持，v2 的新时间、文案和归属要求仅用于 v2；旧 v1 reader 必须拒绝显式 v2，不能降格解释。
@@ -150,11 +158,11 @@ v2 将原 suite 字节作为 CURRENT_SUITE 携带。suite 必须为当前 PREPAC
 
 Msealed 的 sourceReviewEvidence 携带被审 Mreview 的原字节身份及 reviewedManifestBase64。解码前像须为 schema3、审核 PENDING、证明 PASS 且非递归。只允许顶层 /sourceReview 与 /sourceReviewEvidence 改变；P、Qpre、D、T、lifecycle、sourceCandidate、releaseIntegration 及其他字段必须一致。VERSION 等 P 字节变化回到 S0/S1，不能当作资格投影。Qpre 不包含 Mreview 或后来的审核附件，不形成自引用。
 
-proof v1 首次没有可用基线时全部 Gpre fresh；后续 VERIFIED_GROUP_COVERAGE 只引用一份实际完成 S5 接受的 FULL_RUN 基线及真实本地 revalidation，其语义保持。proof v2 CURRENT_GROUP_COVERAGE 直接引用有限、平面的原 EXECUTED 记录；每个复用组另有当前严格 REVALIDATED，原记录仍保留其实际命令、时间、原始 stdout/stderr、launch、phase、环境、闭包前后像、validator 与 cleanup。原记录失败、缺失、partial、未知依赖、alwaysFresh、字节/输入/命令/环境/validator 漂移时执行该组，不能把 REVALIDATED 当成可递归复用的原执行。所有 required Gpre 及 root integration 必须完整，未运行组不能补 PASS；来源角色、source-only 与 synthetic 输入的字节、P/T/D 和 root-sensitive 身份继续严格校验。v2 不引用或伪造 S5 基线，不嵌套差异证明。acceptance 原件及 Z/Qpost 绑定由 Source Review 和宿主接受门复证，文件 hash 不独自证明审核者身份或独立接受。新 ZIP 的全部 Gpost 始终 fresh。
+proof v1 首次没有可用基线时全部 Gpre fresh；后续 VERIFIED_GROUP_COVERAGE 只引用一份实际完成 S5 接受的 FULL_RUN 基线及真实本地 revalidation，其语义保持。proof v2 CURRENT_GROUP_COVERAGE 直接引用有限、平面的原 EXECUTED 记录；每个复用组另有当前严格 REVALIDATED，原记录仍保留其实际命令、时间、原始 stdout/stderr、launch、phase、环境、闭包前后像、validator 与 cleanup。原记录失败、缺失、partial、未知依赖、alwaysFresh、字节/输入/命令/环境/validator 漂移时执行该组，不能把 REVALIDATED 当成可递归复用的原执行。所有 required Gpre 及 root integration 必须完整，未运行组不能补 PASS；来源角色、source-only 与 synthetic 输入的字节、P/T/D 和 root-sensitive 身份继续严格校验。v2 不引用或伪造 S5 基线，不嵌套差异证明。acceptance 原件及 Z/Qpost 绑定由 Source Review 和宿主接受门复证，文件 hash 不独自证明审核者身份或独立接受。每个新ZIP首次实际执行全部Gpost；同一未改ZIP的已完成组仅按下述Qpost2合同严格复证。
 
-公开 PREPACKAGE runner 对 D3 默认导出显式 proof v3；未显式选版本的旧 D1/D2 分别保留 v1/v2 默认，已有显式基线调用保留 v1。Export 的既有调用默认 v1，可显式选择版本而不能混用基线参数；D3 只配 suite3/index2/proof3，旧 D1/D2 不生成新格式，显式不兼容组合拒绝。每次使用独立 EvidenceDirectory，执行视图用现有 owned SourceViewPath、原 owner receipt 与独占 lease；owner 保留 Windows SID|creator 形状，完整当前 SID 是资源归属，creator 仅作创建来源，同 SID 的已授权顺序调用不要求相同聊天。省略 resume 路径时只从唯一原 EXECUTED root 推断，缺失、歧义、异主、active、reparse 或未知内容拒绝；显式新根仍按真实环境、位置和记录严格选择，不消去 root-sensitive 身份或静默换根。当前源重建后先保存全组 EXECUTE/REVALIDATED 计划和原因；缺少终态 proof 路线在子进程启动前拒绝。固定优先仅为实测廉价的 `publication.phase-evidence` 与 `non-git.preflight-ast`；focused 选择不自动增加组，其余按显式请求顺序稳定执行。默认 D 将四个独立集成领域及跨层 flow 放在昂贵 current-coverage、proof-schema 和真实恢复组之前，所有必需覆盖与原生失败停止保留。current-coverage、proof-schema、五崩溃恢复均为真实完整验证，不作为廉价元数据入口。最终 suite 验证失败时，已写 suite、summary 和 native 退出均表示失败/不完整，保留原始失败，不留下相矛盾的 PASS suite。阶段 collector 对所有混合记录分类，父阶段绑定 START/REACHED/END、原始检查记录绑定具体生产者、原件身份及真实输出/退出码；未知或不完整记录拒绝。短链通过不代替真实完整 Gpre、独立 Source Review 或 S2–S5；计时和启动数分别报告实际总成本、重建、规划、复证与原生执行，反事实避免时间不能称实测总提速。
+公开 PREPACKAGE runner 对 D3 默认导出显式 proof v3；未显式选版本的旧 D1/D2 分别保留 v1/v2 默认，已有显式基线调用保留 v1。Export 的既有调用默认 v1，可显式选择版本而不能混用基线参数；D3 的完整当前组覆盖使用 suite3/index2/proof3，变更覆盖使用 suite3/index3/proof4，旧 D1/D2 不生成这些格式，显式不兼容组合拒绝。每次使用独立 EvidenceDirectory，执行视图用现有 owned SourceViewPath、原 owner receipt 与独占 lease；owner 保留 Windows SID|creator 形状，完整当前 SID 是资源归属，creator 仅作创建来源，同 SID 的已授权顺序调用不要求相同聊天。省略 resume 路径时只从唯一原 EXECUTED root 推断，缺失、歧义、异主、active、reparse 或未知内容拒绝；显式新根仍按真实环境、位置和记录严格选择，不消去 root-sensitive 身份或静默换根。当前源重建后先保存所请求组的执行、精确复证、缺少影响判断或原件拒绝及原因。变更计划另明确历史支持和当前补验范围；缺少终态 proof 路线在子进程启动前拒绝。固定优先仅为实测廉价的 `publication.phase-evidence` 与 `non-git.preflight-ast`；focused 选择不自动增加组，其余按显式请求顺序稳定执行。默认 D 将四个独立集成领域及跨层 flow 放在昂贵 current-coverage、proof-schema 和真实恢复组之前，所有必需覆盖与原生失败停止保留。current-coverage、proof-schema、五崩溃恢复均为真实完整验证，不作为廉价元数据入口。最终 suite 验证失败时，已写 suite、summary 和 native 退出均表示失败/不完整，保留原始失败，不留下相矛盾的 PASS suite。阶段 collector 对所有混合记录分类，父阶段绑定 START/REACHED/END、原始检查记录绑定具体生产者、原件身份及真实输出/退出码；未知或不完整记录拒绝。短链通过不代替真实完整 Gpre、独立 Source Review 或 S2–S5；计时和启动数分别报告实际总成本、重建、规划、复证与原生执行，反事实避免时间不能称实测总提速。
 
-W1 新格式采用 D3、EXECUTED2、REVALIDATED2、suite3、index2、proof3 和 source-input closure2。D3 每组声明 groupContractVersion、behaviorInputs、fixtureRecipe、environmentPolicy 与 locationPolicy。原生执行由 TestExecutionRuntime 唯一持有进程句柄、流任务和取消资格，TestHarness 保留公开 facade 与夹具/reset 职责；只读 TestEvidenceValidation 统一校验本地、Source 和便携证据，不启动进程、不访问历史绝对路径，也不形成新的规则加载器。LOAD_MANIFEST 的规范加载职责保持。
+D3逐组声明groupContractVersion、behaviorInputs、fixtureRecipe、environmentPolicy与locationPolicy；当前执行及精确复证使用EXECUTED2、REVALIDATED2、suite3和source-input closure2。proof3使用index2，proof4使用index3并保留原生格式。按下文各自输入、原件及严格格式分支消费，不混旧格式或访问历史绝对路径。
 
 EXECUTED2 原件分别保存 producer 的模块来源、实际 native 命令/argv/cwd/环境/退出/双流/phase/cleanup、前后 snapshot 和 executionContext。snapshot 的 definitionIdentity、原生产者 identity 与当前 verifierIdentity 属于各自来源；复用比较 group contract、完整声明行为输入、显式依赖的其他组/全 D、真实 fixture recipe、options、有效环境及位置事实。定义/解析器/验证器的无关变化可触发当前复证；被测验证器、解析器或定义本身仍必须声明为行为输入。WHOLE_VERSION、unknownDependencies、alwaysFresh、必需组集和完整 P/T/D 资格校验保持保守。默认定义仍包含宽闭包，不声称所有组均已获得复用收益。
 
@@ -162,13 +170,17 @@ REVALIDATED2 直接引用一份未改 EXECUTED2，记录当前 snapshot、当前
 
 环境默认 EXACT，保留实际父环境和子进程启动环境。显式 EFFECTIVE_TOOLS 只可忽略未声明为影响行为的环境差异，仍比较实际工具路径、版本与字节、模块、负向工具查找、locale、COMSPEC、PSModulePath 及声明变量；全部 raw 环境事实保留。每组按实际入口选择依赖：只依赖工具解析的组不因无关 PATH 文本变化失效；读取 PATH 文本、查找顺序、内部替换搜索路径或未闭合动态依赖的组保留对应声明或鲜测，廉价负向查找组可使用既有 alwaysFresh。声明的 ambient TMP/TEMP 仍是依赖；组内私有分配的 TMP/TEMP/raw 等六个受控键仅可沿已验证历史上下文比较，不能据此复制旧 PATH、COMSPEC、PSModulePath 或改变实际新启动环境。策略变化产生新身份，须先取得新策略的真实原执行，不能重贴旧记录或推定实际总提速。
 
-公开 runner 在当前分配、原为空的精确私有临时根与实际完成 native 环境相符、输入稳定、全部已跟踪进程记录完整且物理已结束时，可非递归处置该根下直接自有空目录，实际删除后重新观察条目，再按现有 CLEAN 字段与验证器判断。已知空目录先由创建者收尾；非空数据、未知归属、reparse/逃逸、活动或未知 worker、漂移与处置失败仍阻断相应链，功能/native 结论另行保留。不遍历任意临时根，不递归清理、忽略 DIRTY 或引入普遍继续执行策略。位置默认 EXACT；显式 LOGICAL_ROOT 仅服务 SAME_ROOT 的 SOURCE_VIEW 映射，条件声明使用 OBSERVE，由 snapshot 实际观察 Windows volume、目录大小写标志、路径长度类别、ACL、owner 和全部声明路径无 reparse。任一条件无法观察或变化都不能宣称等价。逻辑比较不改写原生 argv/cwd 或历史原件。
+公开 runner 在当前分配、原为空的精确私有临时根与实际完成 native 环境相符、输入稳定、全部已跟踪进程记录完整且物理已结束时，可非递归处置该根下直接自有空目录，实际删除后重新观察条目，再按现有 CLEAN 字段与验证器判断。已知空目录先由创建者收尾；非空数据、未知归属、reparse/逃逸、活动或未知 worker、漂移与处置失败仍阻断相应链，功能/native 结论另行保留。不遍历任意临时根，不递归清理、忽略 DIRTY 或引入普遍继续执行策略。位置默认 EXACT，保留物理根与原生 argv/cwd。六整树组显式声明六项 OBSERVE，由 snapshot 实际观察源码根及现存 ambient 临时分配父目录的 Windows volume、目录大小写标志、路径长度类别、ACL、owner 和无 reparse 条件；当次两位置事实的 canonical SHA256 按 OBSERVED_EXACT_V1 记入原 conditions，完整声明与已观察格式由原 verifier 严格消费。未分配或已清理的私有根不为复证重新创建；这不代表全部宿主状态已观察。旧 EXACT 空条件保留，显式 LOGICAL_ROOT 仍仅服务 SAME_ROOT 的 SOURCE_VIEW 映射及原六项源码位置观察。任一已声明条件无法观察或变化都不能宣称等价；不改历史原件。
 
-executionContext 使用 schema1 的 SAME_ROOT/GIT_WORKTREE 判别结构。SAME_ROOT 的 canonical controlRoot=executionRoot，target ref/observation 必须为 null。GIT_WORKTREE 需要原 descriptor bytes、描述符 identity、control/target roots、common/worktree Git dirs、Git top、branch/head、观察时间及 overridesAbsent，并携带 typed descriptor member/alias；便携验证只读已绑定字节。此处是 W1 的证据形状基础；目标选择、准入、真实工作树执行和 Pocket/其他消费者能力须由后续 W2/W4 的实际证据证明，不能以结构通过宣称已支持。
+executionContext使用schema1的SAME_ROOT/GIT_WORKTREE判别结构。SAME_ROOT的canonical controlRoot=executionRoot，target ref/observation必须为null。GIT_WORKTREE核原descriptor字节及身份、control/target roots、common/worktree Git dirs、Git top、branch/head、观察时间和overridesAbsent，并携typed descriptor member/alias；便携验证只读已绑定字节。真实目标选择、准入及工作树执行取当前TOOL_CONTRACT和对应实际证据，结构通过不替代能力验证。
 
-closure2 的 recipeIdentity 绑定完整 source input 集、constructor identity、synthetic inputs 与 location policy；正式当前资格继续验证完整 P/T/D 和原角色集合。owned view 仅在原 receipt 的完整当前 Windows SID、精确来源/目标与内容、独占 lease、当前 owned handles、无 reparse/未知内容、完整输入及同一 recipe 全部复证后复用准备；creator 不授予动作权限，同 recipe 保留原 receipt/closure 字节，必要重建沿原保护执行。锁和进程内句柄知识不证明未知遗留进程的清理，原未知证据仍保持未知；它不缓存测试 PASS。Release qualification 的同动作私有 scope 可复用一次深验证，逐次消费仍验证实际字节，结果隔离拷贝，失败、异常和动作结束清空。性能结论只能取真实计时与启动数；有限协议夹具通过不等于完整 Gpre、Source Review、性能目标或 S2–S5 通过，新 ZIP 的全部 Gpost 始终 fresh。
+closure2 的 recipeIdentity 绑定完整 source input 集、constructor identity、synthetic inputs 与 location policy；正式当前资格继续验证完整 P/T/D 和原角色集合。owned view 仅在原 receipt 的完整当前 Windows SID、精确来源/目标与内容、独占 lease、当前 owned handles、无 reparse/未知内容、完整输入及同一 recipe 全部复证后复用准备；creator 不授予动作权限，同 recipe 保留原 receipt/closure 字节，必要重建沿原保护执行。锁和进程内句柄知识不证明未知遗留进程的清理，原未知证据仍保持未知；它不缓存测试 PASS。Release qualification 的同动作私有 scope 可复用一次深验证，逐次消费仍验证实际字节，结果隔离拷贝，失败、异常和动作结束清空。性能结论只能取真实计时与启动数；有限协议夹具通过不等于完整 Gpre、Source Review、性能目标或 S2–S5 通过，每个新ZIP首次实际执行全部Gpost；同一未改ZIP的已完成组仅按下述Qpost2合同严格复证。
 
-POSTBUILD runner/summary 必须提供已存在的 PackagePath 和 BuildCommandPath，不读取将来输出。Qpost schema1 记录 phase、Z 整文件 ref、PACKAGE_MANIFEST ref、解压 canonical、source manifest/Qpre/build command refs、D identity、必需 Gpost、真实组记录、runtime/options、outcome 与原输出 refs；不包含自身输入身份，不回填或重打 ZIP。失败、中断、缺组、漂移和 dirty 不能成为 PASS。S4 失败后原 Z/Qpre/Msealed 和失败证据保留，无 DISTRIBUTION_READY；真实修复回到受影响 S0/S1，重新审核并以新分发标识构包。仅进程中断且输入均未变时，可在原权限与额度内续跑必要 Gpost。
+POSTBUILD runner/summary提供已存在的PackagePath和BuildCommandPath，可通过ExtractedPackagePath指定本次自有解压根。首次默认新根；ResumeEvidence只引用原EXECUTED，未指定解压根时从一致原件推断唯一物理根。恢复原根只读核对同一未改ZIP、完整清单和树、Msealed/Qpre/D、构建记录和原输出、当前工具环境及EXACT位置，不重解压、删除或搬移。根旁的归属原件绑定当前Windows SID与创建来源；独占lease和逐文件只读句柄保持到结果消费结束，前后独立观察完整文件及目录集合。原运行的raw包含活动PID/创建时间时拒绝，缺少可证明launch的原生分配及不可观察进程保持UNKNOWN；物理已结束但没有完整组record的执行不能复证，只执行该缺组。不清理原运行的临时根。显式新根按真实输入重新选择，EXACT身份变化仍执行。
+
+D3的两POSTBUILD组从contract2起允许同ZIP组级恢复，保留WHOLE_VERSION、原入口/必需用例、实际工具环境和物理根。EXECUTED2/REVALIDATED2格式不变；新POST行为身份显式绑定packageIdentity、packageTreeIdentity和buildCommandIdentity。旧contract1与旧行为hash保持，不补造新种子。suite3的POSTBUILD分支要求sourceInputsRef=null、PACKAGE_VALIDATION_ONLY、四个false开关和既有六个包路径/身份选项、当前D的必需组集及完整唯一引用。新原执行在当前suite窗内，复用保原native/launch/raw/phase/时间/CLEAN并提供当前窗口内REVALIDATED；失败、partial、缺raw、漂移、fresh与未知不能复用。
+
+包外Qpost2在Qpost1的字段上增加currentSuiteRef和verifierRef。ReleaseValidation的Get-AiwReleasePostbuildQualification统一严格核对同一ZIP、PACKAGE_MANIFEST/完整解压树、build及原raw、Msealed/Qpre/D、当前suite/verifier、组记录与raw引用分区；只有全部当前必需组完整成功才返回PACKAGE_VALIDATED。runner、summary和既有S5接受基线入口实际调用该reader；读取失败使未发布的suite/Qpost保存INCOMPLETE，不留PASS资格。focused结果只为PARTIAL，不具分发资格。Qpost1保持原fresh EXECUTED语义，不接受新复证分区；POSTBUILD保持包内PREPACKAGE证明原字节，Qpost不回填ZIP。S4失败保留原Z/Qpre/Msealed和失败证据；真实修复回到受影响S0/S1、重新审核并以新分发标识构包。进程中断且输入均未变时，在原权限内只补必要Gpost。
 
 ## Review、接受与封存
 
@@ -200,8 +212,6 @@ Review approval、`OWNER_ACCEPT`、seal、Git publication 与 consumer adoption 
 
 platform support 由 evidence 限定。release 只声称 sealed Tool Contract 声明且实际 conformance 已证明的平台。
 
-本流程不增加 release service、registry、queue、ledger、persistent receipt、第二 authority 或 automatic consumer operation。
-
 不同命名包的原 CONTROL_WRITE 采用过程收口，使用[项目接入的显式根边界](PROJECT_ADOPTION.md#原过程的跨命名包收口)。在真实 ADMIT 前通过既有升级投影取得并消费目标规则，成功结果保留原输入；采用后核对原准入、双方包和实际事务。原同包 state-only 迁址 helper 保留其严格包相同约束。此根级集成不改变 version resolver 或既有版本证据；没有原始准入材料的历史流程不能补造。根工具增量须经受影响测试及独立 Review 后以新分发号交付，不能覆盖旧包或已采用目录。
 
 2.0跨版本根桥仅声明健康固定1.16.0-snapshot.12到已审固定2.0候选；实现和逐点恢复合同取目标2.0分发内的MIGRATION_MATRIX.md。旧runtime执行真实原准入，目标投影校验和schema3包不替代它；原FINALIZE完成后才进行新任务。根桥、版本正文及真实依赖一起进入最终Source Review，之后才具备交付条件。普通与Maintenance隔离fixture、测试构包、源码审核、正式打包、宿主安装和项目采用必须分别报告，不从任何单项推断后续已完成。
@@ -232,7 +242,7 @@ COMPLETE 验证目标完整包及目标 composer；ROLLBACK 只验证原保存�
 
 项目 Bootstrap custom 到 process-policy 的来源迁移由原 CONTROL_WRITE FINALIZE 处理；旧 receipt 可提供原包绑定的 Bootstrap 前像，仍须证明管理区未变。已授权动作中断时，upgrade-project 的 ProjectRuleRecoveryPlanPath 入口消费原 DISCOVER、原 ADMIT 输入与结果、原授权包及精确前后像。恢复事务明确在现在创建，不声称历史上已存在；COMPLETE 与 ROLLBACK 均复核所有对象和未授权来源后执行，并以原动作 FINALIZE 收口。缺失原 admission、前像或未知混合字节时拒绝，fresh DISCOVER 不替代原 action。
 
-本批整组纠正与调用减负的新增根 helper 属于接入工具；包构建清单必须包含其真实依赖，测试只在隔离 fixture 构包。新 capability 的开发验证不得更改已有 snapshot、ZIP、live corrections 或采用状态。AGENTS的FRAMEWORK管理区只承载目标导航；当前人类工作约定与必要项目限制位于用户拥有区。升级将旧管理区中已确认授权原文和需保留的自定文字按原投影完整承接，保留原区外字节、后续收窄及撤回；未知归属不猜删。新注册沿明确采用决定生成已批准约定。日常以当前人类正文为准，安装managedIdentity不永久冻结授权；实际事务仍绑定完整前后像并拒绝并发覆盖。封存前验证注册与升级消费者一致。纠正吸收仍需完整来源语义、行为和独立 Review，生命周期安装证据不能替代吸收依据。
+纠正及调用所用根helper随接入工具交付，包构建清单包含真实依赖；开发测试只在隔离fixture构包。新 capability 的开发验证不得更改已有 snapshot、ZIP、live corrections 或采用状态。AGENTS的FRAMEWORK管理区只承载目标导航；当前人类工作约定与必要项目限制位于用户拥有区。升级将旧管理区中已确认授权原文和需保留的自定文字按原投影完整承接，保留原区外字节、后续收窄及撤回；未知归属不猜删。新注册沿明确采用决定生成已批准约定。日常以当前人类正文为准，安装managedIdentity不永久冻结授权；实际事务仍绑定完整前后像并拒绝并发覆盖。封存前验证注册与升级消费者一致。纠正吸收仍需完整来源语义、行为和独立 Review，生命周期安装证据不能替代吸收依据。
 
 ## 内部接入职责
 
@@ -242,4 +252,4 @@ COMPLETE 验证目标完整包及目标 composer；ROLLBACK 只验证原保存�
 
 Maintenance 跨命名包过程以根 process adapter 的 -AdoptionProcessBoundary 和准备材料执行 ADMIT/FINALIZE；后者还绑定原 AdmitResult、AdoptionAuthorizationPackagePath/ExpectedAdoptionAuthorizationIdentity 及实际采用事务。普通消费者使用 PROJECT_ADOPTION 的 root upgrader 入口，不承担 sibling 维护职责。根工具可独立修复，但固定包不可热改，交付变化使用新的分发身份并由项目显式采用。
 
-集成测试由四个独立入口 surface、maintenance、authorization、process 和保留 ID 的 integration.full-source flow 组成。每个领域独占短临时根及原生句柄，私有 IntegrationFixture 只共享不变输入和构造方法；已有授权包与 COMPLETE journal 不跨域复用。原 -MainIntegrationOnly 选择四领域加 flow。短 Frontdoor/Schema1ControlPlane 与正式领域复用同一 Source case、夹具和判定，短选取标示 PARTIAL；真实 flow 消费 owned view、冷注册、当前 DISCOVER、checker/ADMIT、有限原生产物、FINALIZE 与后继消费者，不内部重跑四领域。各领域当前构造整版夹具，均保守 WHOLE_VERSION/alwaysFresh；六新文件进入 inventory、P、D 及实际读取闭包，定义/共同验证器变化使旧组资格失效，不重贴旧 PASS。局部结果不授予 Source Review、接受、发行或采用资格。
+集成测试由四个独立入口 surface、maintenance、authorization、process 和保留 ID 的 integration.full-source flow 组成。每个领域独占短临时根及原生句柄，私有 IntegrationFixture 只共享不变输入和构造方法；已有授权包与 COMPLETE journal 不跨域复用。原 -MainIntegrationOnly 选择四领域加 flow。短 Frontdoor/Schema1ControlPlane 与正式领域复用同一 Source case、夹具和判定，短选取标示 PARTIAL；真实 flow 消费 owned view、冷注册、当前 DISCOVER、checker/ADMIT、有限原生产物、FINALIZE 与后继消费者，不内部重跑四领域。各领域仍构造整版夹具并保留WHOLE_VERSION、完整P、实际根工具、原生根、父环境EXACT与六项位置OBSERVE；新前向合同先取得真实原执行，之后只在当前定义、输入、原native/raw/CLEAN及环境位置全部严格匹配时复证，变化、未知或缺事实仍执行；实际新增或变化成员进入inventory、P、D及读取闭包，相关定义或共同验证器变化按当前严格合同使依赖旧组资格失效，不重贴旧PASS。局部结果不授予 Source Review、接受、发行或采用资格。

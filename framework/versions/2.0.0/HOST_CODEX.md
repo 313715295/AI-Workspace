@@ -31,12 +31,6 @@
 
 <!-- AIW-REQUIREMENT:PR_CODEX_TOOL_OPERATION_RESOLUTION:BEGIN -->
 按RECOVERY的已绑定backend/TOOLCHAIN取得精确operation入口，健康调用复用。已知独立读查同批执行；有依赖且无需新语义判断的机械步骤连续编排，逐门检查实际结果，失败停依赖链。新事实、语义取舍或真实失败才返回模型，不自动填授权、Review或接受PASS；记录、交付与必要归档在原自然收尾完成。
-
-新有限成果、新独审按TASK默认新建可见会话；同一原成果或同审有界修复复审可续仍健康、合格的原会话。创建时同一次实际调用落实选定model、effort、环境和宿主支持的精确起点，使用标题参数，并核对真实thread ID、配置及读取基线。clientThreadId不作正式主体。当前未提交材料、隔离需要和用户指定影响起点，不因“独审”或Git名称自动强制worktree；宿主不支持与用户没授权分别报告，不静默换环境。明确controlRoot及executionTarget的初始指令优先于执行目录内历史复制入口，实际authority/保护仍由当前工具核对。
-
-已知接收者直接使用真实ID。新建未知临时actor时，创建提示一次交齐完整工作/验收/候选/消费者、原始人类来源及不可执行待绑定原件路径、identity、delegationId。接收者核自己的真实初始委派后，AUTHORIZATION_RECEIVER_BIND仅从CODEX_THREAD_ID绑定grantee；不能改Owner/issuer/范围/动作/候选。新有限任务的Owner登记是另一情形：创建前备齐非执行登记模板和完整简报，返回真实threadId后由发起方连续登记真实Owner/route及当前精确包并完成原F。创建提示如实说明登记待完成并一次交齐可预备引用；执行资格唯一取TASK_AND_SCOPE的PR_TASK_LAUNCH_AND_ROUTE，以接收者实际读取时事实为准。确因缺项停止需恢复或初始引用不全时，登记方补必要材料。receiverBinding不能登记新Owner。关系保持INSTRUCTION_BOUND，不声称工具认证提示；具体字段唯一TOOL_CONTRACT，健康续作不重复绑定。
-
-宿主明确要求创建后首次进度观察时，在取得真实可用ID后仅做一次立即快照，未就绪结束本轮；超时/commentary不触发继续等待。当前命令必要等待与peer等待分开，后者遵循TASK。会话继续、释放与应归档条件取TASK；落实时用真实ID调用标题/归档工具并核对宿主返回，标题不发送工作指令，任务卡归档不替代会话归档。实际交审依赖顺序唯一取REVIEW_AND_EVIDENCE。
 <!-- AIW-REQUIREMENT:PR_CODEX_TOOL_OPERATION_RESOLUTION:END -->
 
 <!-- AIW-REQUIREMENT:PR_CODEX_ROUTER_REACTIVATION:BEGIN -->
@@ -46,3 +40,11 @@
 
 旧nav1/nav2项目及在途采用继续使用各自原固定入口，原FINALIZE完成后才读新AGENTS/Bootstrap；部分文件变化不代表切换完成。旧Skill仅在真实依赖结束且有宿主权限时退役，不建消费者登记或每项目副本。输入/证据仍取当前TOOL_CONTRACT，导航本身不授权。
 <!-- AIW-REQUIREMENT:PR_CODEX_ROUTER_REACTIVATION:END -->
+
+<!-- AIW-REQUIREMENT:PR_CODEX_SESSION_ORGANIZATION:BEGIN -->
+新有限成果、新独审按TASK默认新建可见会话；同一原成果或同审有界修复复审可续仍健康、合格的原会话。创建时同一次实际调用落实选定model、effort、环境和宿主支持的精确起点，使用标题参数，并核对真实thread ID、配置及读取基线。clientThreadId不作正式主体。当前未提交材料、隔离需要和用户指定影响起点，不因“独审”或Git名称自动强制worktree；宿主不支持与用户没授权分别报告，不静默换环境。明确controlRoot及executionTarget的初始指令优先于执行目录内历史复制入口，实际authority/保护仍由当前工具核对。
+
+已知接收者直接使用真实ID。新建未知临时actor时，创建提示按TASK的委派输入与受托输出边界一次交齐必要材料、预期成果与验收、原始人类来源和直接消费者，并携不可执行待绑定原件路径、identity、delegationId。接收者核自己的真实初始委派后，AUTHORIZATION_RECEIVER_BIND仅从CODEX_THREAD_ID绑定grantee；不能改Owner/issuer/范围/动作/候选。新有限任务的Owner登记是另一情形：创建前备齐非执行登记模板和完整简报，返回真实threadId后由发起方连续登记真实Owner/route及当前精确包并完成原F。创建提示如实说明登记待完成并一次交齐可预备引用；执行资格唯一取TASK_AND_SCOPE的PR_TASK_LAUNCH_AND_ROUTE，以接收者实际读取时事实为准。确因缺项停止需恢复或初始引用不全时，登记方补必要材料。receiverBinding不能登记新Owner。关系保持INSTRUCTION_BOUND，不声称工具认证提示；具体字段唯一TOOL_CONTRACT，健康续作不重复绑定。
+
+宿主明确要求创建后首次进度观察时，在取得真实可用ID后仅做一次立即快照，未就绪结束本轮；超时/commentary不触发继续等待。当前命令必要等待与peer等待分开，后者遵循TASK。会话继续、释放与应归档条件取TASK；落实时用真实ID调用标题/归档工具并核对宿主返回，标题不发送工作指令，任务卡归档不替代会话归档。实际交审依赖顺序唯一取REVIEW_AND_EVIDENCE。
+<!-- AIW-REQUIREMENT:PR_CODEX_SESSION_ORGANIZATION:END -->

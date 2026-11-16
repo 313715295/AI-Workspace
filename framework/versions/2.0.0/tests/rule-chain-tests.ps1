@@ -5,8 +5,122 @@ Initialize-AiwTestNativeOutput
 $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
 $passed=0;$utf8=[Text.UTF8Encoding]::new($false)
 $versionRoot=Split-Path -Parent $PSScriptRoot
-$frameworkRoot=[IO.Path]::GetFullPath((Join-Path $versionRoot '../../..'))
-Import-Module (Join-Path $versionRoot 'scripts/ProcessRequirementComposition.psm1') -Force
+$sourceRoot=[IO.Path]::GetFullPath((Join-Path $versionRoot '../../..'))
+Import-Module (Join-Path $PSScriptRoot 'TestHarness.psm1')
+# Own the complete declared runtime inputs; neither the outer manifest nor
+# unrelated root adoption tools are inputs to this selection-only fixture.
+$ruleChainVersionPaths=@(
+ 'ACCEPTANCE_PLAN_SCHEMA.json',
+ 'ADOPTION_PROFILE.json',
+ 'AUTHORITY_CONTEXT_SCHEMA.json',
+ 'AUTHORIZATION_MODEL.md',
+ 'CHANGELOG.md',
+ 'CONTENT_CATALOG_SCHEMA.json',
+ 'CONTROL_TRANSITION_SCHEMA.json',
+ 'CONTROLLER_SCHEMA.json',
+ 'EVIDENCE_RECORD_SCHEMA.json',
+ 'EXAMPLES.md',
+ 'GIT_AND_EXTERNAL.md',
+ 'HOST_CODEX.md',
+ 'host/skills/ai-workspace-router-v2/SKILL.md',
+ 'INTENT_ENVELOPE_SCHEMA.json',
+ 'KNOWLEDGE_AND_REFERENCE.md',
+ 'KNOWLEDGE_SCHEMA.json',
+ 'knowledge/cross-domain/ARTIFACT_CLASSIFICATION.md',
+ 'knowledge/cross-domain/PROBLEM_DRIVEN_IMPROVEMENT.md',
+ 'knowledge/game/BEHAVIOR_AND_PERFORMANCE.md',
+ 'knowledge/game/PRESENTATION_AUTHORITY.md',
+ 'knowledge/game/UI_INPUT_CANCELLATION.md',
+ 'knowledge/index.json',
+ 'knowledge/README.md',
+ 'knowledge/software/BEHAVIOR_SPEC_CHANGE.md',
+ 'LOAD_MANIFEST.json',
+ 'MIGRATION_MATRIX.md',
+ 'NORMATIVE_SURFACE_INVENTORY.json',
+ 'object-formats/adapters/knowledge-index-1-to-2.ps1',
+ 'object-formats/adapters/knowledge-index-2-to-3.ps1',
+ 'object-formats/adapters/process-policy-1-to-2.ps1',
+ 'object-formats/adapters/project-config-4-to-5.ps1',
+ 'object-formats/adapters/project-config-5-to-6.ps1',
+ 'object-formats/adapters/project-corrections-1-to-2.ps1',
+ 'object-formats/adapters/project-corrections-2-to-3.ps1',
+ 'object-formats/ASSEMBLY.json',
+ 'PERSPECTIVE_LENSES.md',
+ 'PROCESS_POLICY_SCHEMA.json',
+ 'PROCESS_REQUIREMENTS_EVALUATION.md',
+ 'PROCESS_REQUIREMENTS.json',
+ 'PROJECT_CONFIG_SCHEMA.json',
+ 'PROJECT_CONTROL.md',
+ 'PROJECT_CORRECTIONS_SCHEMA.json',
+ 'project-starter/.gitattributes',
+ 'project-starter/AGENTS.md',
+ 'project-starter/BOOTSTRAP.md',
+ 'project-starter/controller.json',
+ 'project-starter/corrections.json',
+ 'project-starter/process-policy.json',
+ 'project-starter/project.json',
+ 'project-starter/PROJECT.md',
+ 'project-starter/STATUS.md',
+ 'project-starter/tasks/README.md',
+ 'PROMPTS.md',
+ 'README.md',
+ 'RECOVERY_CORE.md',
+ 'requirements/fragments/AUTHORIZATION_MODEL.json',
+ 'requirements/fragments/GIT_AND_EXTERNAL.json',
+ 'requirements/fragments/HOST_CODEX.json',
+ 'requirements/fragments/KNOWLEDGE_AND_REFERENCE.json',
+ 'requirements/fragments/PROJECT_CONTROL.json',
+ 'requirements/fragments/RECOVERY_CORE.json',
+ 'requirements/fragments/REVIEW_AND_EVIDENCE.json',
+ 'requirements/fragments/TASK_AND_SCOPE.json',
+ 'REVIEW_AND_EVIDENCE.md',
+ 'scripts/AuthorizationCheck.psm1',
+ 'scripts/bind-receiver-authorization.ps1',
+ 'scripts/build-process-requirements.ps1',
+ 'scripts/check-authorization.ps1',
+ 'scripts/check-knowledge-entry.ps1',
+ 'scripts/check-knowledge-impact.ps1',
+ 'scripts/check-project-corrections.ps1',
+ 'scripts/check-task-card.ps1',
+ 'scripts/ContentSources.psm1',
+ 'scripts/ControlTransition.psm1',
+ 'scripts/invoke-protected-safe-git.ps1',
+ 'scripts/KnowledgeSources.psm1',
+ 'scripts/ObjectFormats.psm1',
+ 'scripts/ProcessRequirementBoundary.psm1',
+ 'scripts/ProcessRequirementComposition.psm1',
+ 'scripts/ProcessRequirementDisplay.psm1',
+ 'scripts/ProjectSourcePublication.psm1',
+ 'scripts/resolve-control-transition.ps1',
+ 'scripts/resolve-load-plan.ps1',
+ 'scripts/resolve-process-requirements.ps1',
+ 'scripts/resolve-workflow-route.ps1',
+ 'scripts/ResultEvidence.psm1',
+ 'scripts/StrictJsonInput.psm1',
+ 'scripts/WorkflowDelivery.psm1',
+ 'standards/presets/software.json',
+ 'standards/README.md',
+ 'standards/software/DESIGN.md',
+ 'standards/software/IMPLEMENTATION.md',
+ 'standards/software/VALIDATION.md',
+ 'STATIC_COMPARISON.md',
+ 'TASK_AND_SCOPE.md',
+ 'TASK_TEMPLATE.md',
+ 'TOOL_CONTRACT.md',
+ 'TOOLCHAIN.json',
+ 'VERSION.json',
+ 'scripts/ReleaseValidation.psm1',
+ 'tests/TestExecutionRuntime.psm1',
+ 'scripts/TestEvidenceValidation.psm1',
+ 'scripts/ExecutionTargetContext.psm1',
+ 'EXECUTION_TARGET_SCHEMA.json',
+ 'object-formats/adapters/project-config-6-to-7.ps1',
+ 'object-formats/adapters/process-policy-2-to-3.ps1',
+ 'tests/PROCESS_REQUIREMENTS_FIXTURES.json',
+ 'tests/PROCESS_REQUIREMENTS_BUDGETS.json',
+ 'tests/measure-process-requirements.ps1',
+ 'tests/TestNativeOutput.psm1'
+)
 function SaveText([string]$Path,[string]$Text){$null=[IO.Directory]::CreateDirectory((Split-Path -Parent $Path));[IO.File]::WriteAllText($Path,$Text.Replace("`r`n","`n").TrimEnd("`n")+"`n",$utf8)}
 function SaveJson([string]$Path,$Value){SaveText $Path ($Value|ConvertTo-Json -Depth 50)}
 function Check([bool]$Value,[string]$Name){if(-not$Value){throw "ASSERT_FAIL|$Name"};$script:passed++;Write-Output "PASS|$Name"}
@@ -26,8 +140,13 @@ function AssertSelection($Output,[string]$Name,[string[]]$Required,[string[]]$Ex
  if($missing.Count-or$extra.Count){throw ('SELECTION_FAIL|'+$Name+'|missing='+($missing-join',')+'|unwanted='+($extra-join','))}
  Check ($Output.status-cin@('EVALUATION_ONLY','PASS')-and@($Output.conflicts).Count-eq0-and@($Output.selectedRequirements|Where-Object {[string]::IsNullOrWhiteSpace($_.fullText)}).Count-eq0) $Name
 }
-$temp=Join-Path ([IO.Path]::GetTempPath()) ('aiw-rule-chain-'+[guid]::NewGuid().ToString('N'))
+$fixtureRoot=Join-Path ([IO.Path]::GetTempPath()) ('aiw-rule-chain-'+[guid]::NewGuid().ToString('N'))
+$temp=Join-Path $fixtureRoot 'project'
 try{
+ $frameworkRoot=Join-Path $fixtureRoot 'framework'
+ $versionRoot=New-AiwTestRuntimeFixture -SourceRoot $sourceRoot -DestinationRoot $frameworkRoot -VersionPaths $ruleChainVersionPaths -RootPaths @()
+ Set-AiwTestFixtureQualification $versionRoot -Candidate
+ Import-Module (Join-Path $versionRoot 'scripts/ProcessRequirementComposition.psm1') -Force
  $configPath=Join-Path $temp '.ai-workspace/project.json';$correctionsPath=Join-Path $temp '.ai-workspace/corrections.json';$policyPath=Join-Path $temp '.ai-workspace/process-policy.json';$taskPath=Join-Path $temp '.ai-workspace/tasks/active/SELECTION-001.md'
  SaveJson $configPath ([ordered]@{schemaVersion=7;id='selection-fixture';displayName='Selection fixture';controlPlaneLayout='repo-local';repositoryRoot='..';frameworkVersion='2.0.0';frameworkToolBackend='powershell7';routineExcludedPaths=@();frameworkCapabilities=[ordered]@{};sourceBindings=@();processPolicy=[ordered]@{schemaVersion=3;locator='.ai-workspace/process-policy.json'}})
  SaveJson $correctionsPath ([ordered]@{schemaVersion=3;contractVersion='2.0.0';projectId='selection-fixture';corrections=@()})
@@ -121,12 +240,19 @@ try{
  $taskText=[IO.File]::ReadAllText((Join-Path $versionRoot 'TASK_AND_SCOPE.md'))
  $expected=[regex]::Match($taskText,'(?s)<!-- AIW-REQUIREMENT:PR_TASK_IMPLEMENTATION_JUDGMENT:BEGIN -->(.*?)<!-- AIW-REQUIREMENT:PR_TASK_IMPLEMENTATION_JUDGMENT:END -->').Groups[1].Value.Trim()
  $noKnowledge=Get-Content -LiteralPath $configPath -Raw|ConvertFrom-Json
- Check (@($noKnowledge.frameworkCapabilities.PSObject.Properties).Count-eq0-and$coreBody-ceq$expected-and$coreBody.Contains('上述任务责任不依赖启用KNOWLEDGE_REFERENCE或加载METHOD')) 'complete-core-learning-responsibility-not-hidden-in-optional-method'
+ Check (@($noKnowledge.frameworkCapabilities.PSObject.Properties).Count-eq0-and$coreBody-ceq$expected-and$coreBody.Contains('核对自身判断与实际结果、纠正已知错误并取得必要帮助')-and'framework:PR_TASK_PROBLEM_DRIVEN_IMPROVEMENT'-cnotin@($coreOnly.selectedRequirements.requirementId)) 'complete-core-judgment-independent-of-optional-method'
  Check (-not([string]::Join("`n",@($coreOnly.selectedRequirements.fullText))).Contains('# 问题驱动的学习与改进')) 'core-method-link-does-not-load-entire-optional-method'
  Check (-not([string]::Join([char]10,@($coreOnly.selectedRequirements.fullText))).Contains('# 软件行为规格与变更')) 'core-software-method-link-does-not-load-entire-optional-method'
+ # Actual research selects the complete native learning duty even without KNOWLEDGE_REFERENCE.
+ $learning='framework:PR_TASK_PROBLEM_DRIVEN_IMPROVEMENT'
+ $research=Compose MICRO EXECUTOR IMPLEMENT SOURCE_WRITE IMPLEMENTATION_RESULT 'Investigate an actual knowledge gap and validate the resulting judgment.' @('src/example.js') $false (CurrentFacets @('aiw:research') @('aiw:software') @('aiw:implementation'))
+ AssertSelection $research 'micro-research-without-knowledge-loads-native-learning-responsibility' @($judgment,$learning) @('framework:PR_KNOWLEDGE_REFERENCE_QUERY','framework:PR_KNOWLEDGE_IMPACT_MAINTENANCE')
+ $learningBody=@($research.selectedRequirements|Where-Object requirementId -ceq $learning)[0].fullText
+ $expectedLearning=[regex]::Match($taskText,'(?s)<!-- AIW-REQUIREMENT:PR_TASK_PROBLEM_DRIVEN_IMPROVEMENT:BEGIN -->(.*?)<!-- AIW-REQUIREMENT:PR_TASK_PROBLEM_DRIVEN_IMPROVEMENT:END -->').Groups[1].Value.Trim()
+ Check ($learningBody-ceq$expectedLearning-and$learningBody.Contains('上述任务责任不依赖启用KNOWLEDGE_REFERENCE或加载METHOD')-and-not([string]::Join("`n",@($research.selectedRequirements.fullText))).Contains('# 问题驱动的学习与改进')) 'complete-native-learning-responsibility-without-loading-optional-method'
  Write-Output ('RULE_CHAIN_TESTS_PASS|checks='+$passed+'|historicalCases=14|evidence=DETERMINISTIC_SELECTION_ONLY')
 }finally{
- $resolved=[IO.Path]::GetFullPath($temp);$systemTemp=[IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\','/')
+ $resolved=[IO.Path]::GetFullPath($fixtureRoot);$systemTemp=[IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\','/')
  if([IO.Path]::GetDirectoryName($resolved)-cne$systemTemp-or[IO.Path]::GetFileName($resolved)-cnotmatch'^aiw-rule-chain-[a-f0-9]{32}$'){throw 'FIXTURE_CLEANUP_BOUNDARY'}
  if(Test-Path -LiteralPath $resolved){Remove-Item -LiteralPath $resolved -Recurse -Force}
 }

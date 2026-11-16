@@ -1,9 +1,62 @@
 [CmdletBinding()]
-param([ValidateSet('Mechanism','Canonical','Registration','PackageIntegrity','AdoptionSmoke','ProofSchema')][string]$Group='Mechanism',[string]$PackagePath,[string]$ExtractedPackagePath,[string]$BuildCommandPath,[string]$V1ReaderPath,[switch]$WireStringOnly,[switch]$EntryPerformanceOnly,[switch]$DailyProcessOnly)
+param([ValidateSet('Mechanism','Canonical','Registration','PackageIntegrity','AdoptionSmoke','ProofSchema','RouteEvidence')][string]$Group='Mechanism',[string]$PackagePath,[string]$ExtractedPackagePath,[string]$BuildCommandPath,[string]$V1ReaderPath,[switch]$WireStringOnly,[switch]$EntryPerformanceOnly,[switch]$DailyProcessOnly,[switch]$PostbuildResumeOnly)
 $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
+if($PostbuildResumeOnly-and$Group-cne'ProofSchema'){throw 'POSTBUILD_RESUME_ONLY_REQUIRES_PROOF_SCHEMA'}
 if($WireStringOnly-and$Group-cne'ProofSchema'){throw 'WIRE_STRING_ONLY_REQUIRES_PROOF_SCHEMA'}
 if($EntryPerformanceOnly-and$Group-cne'Mechanism'){throw 'ENTRY_PERFORMANCE_ONLY_REQUIRES_MECHANISM'}
 Import-Module (Join-Path $PSScriptRoot 'TestHarness.psm1')
+# Explicit conservative runtime members for these existing protocol fixtures.
+# Narrowing individual mechanisms requires separate execution and dependency evidence.
+$fixtureVersionPaths=@(
+ 'ACCEPTANCE_PLAN_SCHEMA.json','ADOPTION_PROFILE.json','AUTHORITY_CONTEXT_SCHEMA.json',
+ 'AUTHORIZATION_MODEL.md','CHANGELOG.md','CONTENT_CATALOG_SCHEMA.json',
+ 'CONTROL_TRANSITION_SCHEMA.json','CONTROLLER_SCHEMA.json','EVIDENCE_RECORD_SCHEMA.json',
+ 'EXAMPLES.md','GIT_AND_EXTERNAL.md','HOST_CODEX.md',
+ 'host/skills/ai-workspace-router-v2/SKILL.md','INTENT_ENVELOPE_SCHEMA.json','KNOWLEDGE_AND_REFERENCE.md',
+ 'KNOWLEDGE_SCHEMA.json','knowledge/cross-domain/ARTIFACT_CLASSIFICATION.md','knowledge/cross-domain/PROBLEM_DRIVEN_IMPROVEMENT.md',
+ 'knowledge/game/BEHAVIOR_AND_PERFORMANCE.md','knowledge/game/PRESENTATION_AUTHORITY.md','knowledge/game/UI_INPUT_CANCELLATION.md',
+ 'knowledge/index.json','knowledge/README.md','knowledge/software/BEHAVIOR_SPEC_CHANGE.md',
+ 'LOAD_MANIFEST.json','MIGRATION_MATRIX.md','NORMATIVE_SURFACE_INVENTORY.json',
+ 'object-formats/adapters/knowledge-index-1-to-2.ps1','object-formats/adapters/knowledge-index-2-to-3.ps1','object-formats/adapters/process-policy-1-to-2.ps1',
+ 'object-formats/adapters/project-config-4-to-5.ps1','object-formats/adapters/project-config-5-to-6.ps1','object-formats/adapters/project-corrections-1-to-2.ps1',
+ 'object-formats/adapters/project-corrections-2-to-3.ps1','object-formats/ASSEMBLY.json','PERSPECTIVE_LENSES.md',
+ 'PROCESS_POLICY_SCHEMA.json','PROCESS_REQUIREMENTS_EVALUATION.md','PROCESS_REQUIREMENTS.json',
+ 'PROJECT_CONFIG_SCHEMA.json','PROJECT_CONTROL.md','PROJECT_CORRECTIONS_SCHEMA.json',
+ 'project-starter/.gitattributes','project-starter/AGENTS.md','project-starter/BOOTSTRAP.md',
+ 'project-starter/controller.json','project-starter/corrections.json','project-starter/process-policy.json',
+ 'project-starter/project.json','project-starter/PROJECT.md','project-starter/STATUS.md',
+ 'project-starter/tasks/README.md','PROMPTS.md','README.md',
+ 'RECOVERY_CORE.md','requirements/fragments/AUTHORIZATION_MODEL.json','requirements/fragments/GIT_AND_EXTERNAL.json',
+ 'requirements/fragments/HOST_CODEX.json','requirements/fragments/KNOWLEDGE_AND_REFERENCE.json','requirements/fragments/PROJECT_CONTROL.json',
+ 'requirements/fragments/RECOVERY_CORE.json','requirements/fragments/REVIEW_AND_EVIDENCE.json','requirements/fragments/TASK_AND_SCOPE.json',
+ 'REVIEW_AND_EVIDENCE.md','scripts/AuthorizationCheck.psm1','scripts/bind-receiver-authorization.ps1',
+ 'scripts/build-process-requirements.ps1','scripts/check-authorization.ps1','scripts/check-knowledge-entry.ps1',
+ 'scripts/check-knowledge-impact.ps1','scripts/check-project-corrections.ps1','scripts/check-task-card.ps1',
+ 'scripts/ContentSources.psm1','scripts/ControlTransition.psm1','scripts/invoke-protected-safe-git.ps1',
+ 'scripts/KnowledgeSources.psm1','scripts/ObjectFormats.psm1','scripts/ProcessRequirementBoundary.psm1',
+ 'scripts/ProcessRequirementComposition.psm1','scripts/ProcessRequirementDisplay.psm1','scripts/ProjectSourcePublication.psm1',
+ 'scripts/resolve-control-transition.ps1','scripts/resolve-load-plan.ps1','scripts/resolve-process-requirements.ps1',
+ 'scripts/resolve-workflow-route.ps1','scripts/ResultEvidence.psm1','scripts/StrictJsonInput.psm1',
+ 'scripts/WorkflowDelivery.psm1','standards/presets/software.json','standards/README.md',
+ 'standards/software/DESIGN.md','standards/software/IMPLEMENTATION.md','standards/software/VALIDATION.md',
+ 'STATIC_COMPARISON.md','TASK_AND_SCOPE.md','TASK_TEMPLATE.md',
+ 'TOOL_CONTRACT.md','TOOLCHAIN.json','VERSION.json',
+ 'scripts/ReleaseValidation.psm1','tests/TestExecutionRuntime.psm1','scripts/TestEvidenceValidation.psm1',
+ 'scripts/ExecutionTargetContext.psm1','EXECUTION_TARGET_SCHEMA.json','object-formats/adapters/project-config-6-to-7.ps1',
+ 'object-formats/adapters/process-policy-2-to-3.ps1','tests/PROCESS_REQUIREMENTS_FIXTURES.json','tests/PROCESS_REQUIREMENTS_BUDGETS.json',
+ 'tests/measure-process-requirements.ps1','tests/TestNativeOutput.psm1'
+)
+$fixtureRootPaths=@(
+ 'scripts/register-project.ps1','scripts/upgrade-project.ps1','scripts/ProjectAdoptionState.psm1',
+ 'scripts/ProjectAdoptionProjection.psm1','scripts/ProjectAdoptionTransaction.psm1','scripts/ProjectCorrectionLifecycle.psm1',
+ 'scripts/MaintenanceOverlay.psm1','skills/ai-workspace-router-v2/SKILL.md'
+)
+$fixtureMaintenancePaths=@(
+ 'scripts/resolve-framework-maintenance-target.ps1','scripts/resolve-framework-maintenance-process-requirements.ps1','scripts/check-framework-maintenance-authorization.ps1',
+ 'scripts/invoke-framework-maintenance-safe-git.ps1','framework/user-package/README.md','framework/user-package/AGENTS.md',
+ 'framework/maintenance-overlay/AGENTS.md','framework/maintenance-overlay/BOOTSTRAP.md','framework/maintenance-overlay/process-policy.json',
+ 'framework/maintenance-overlay/PROJECT_CONFIG_SCHEMA.json','framework/maintenance-overlay/OVERLAY.json'
+)
 $evidenceReader=Import-Module (Join-Path $PSScriptRoot 'TestGroupEvidence.psm1') -PassThru
 $releaseReader=Import-Module (Join-Path $PSScriptRoot '../scripts/ReleaseValidation.psm1') -PassThru
 Import-Module (Join-Path $PSScriptRoot '../scripts/StrictJsonInput.psm1')
@@ -20,7 +73,7 @@ function NativeTool([string]$Tool,[hashtable]$Parameters,[string]$Cwd=$temp,[str
  $inputPath=Join-Path $callRoot 'input.json';$wrapper=Join-Path $callRoot 'invoke.ps1';$errorPath=Join-Path $callRoot 'error.json'
  $diagnostics=Join-Path $callRoot 'qualification-phases.jsonl'
  Write-AiwTestJson $inputPath @{tool=$Tool;toolIdentity=(Get-AiwTestFileIdentity $Tool);parameters=$Parameters;stage=[IO.Path]::GetFileName($Tool);errorPath=$errorPath;setup=$Setup;releaseDiagnostics=[bool]$ReleaseDiagnostics;diagnosticsPath=$diagnostics}
- Put $wrapper ((@'
+ Put $wrapper (((@'
 param([string]$InputPath)
 __AIW_TEST_NATIVE_OUTPUT__
 $ErrorActionPreference='Stop'
@@ -42,7 +95,7 @@ try{
  try{[IO.File]::WriteAllText($v.errorPath,($errorValue|ConvertTo-Json -Depth 20),[Text.UTF8Encoding]::new($false))}catch{Write-Output ('FAILURE_EVIDENCE_INCOMPLETE|'+$_.Exception.Message);exit 3}
  Write-Output ($original.Exception.Message+'|'+$original.ScriptStackTrace);exit 2
 }
-'@).Replace('__AIW_TEST_NATIVE_OUTPUT__',('Import-Module ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('''+[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes((Join-Path $PSScriptRoot 'TestNativeOutput.psm1')))+''')))' + "`n" + 'Initialize-AiwTestNativeOutput')))
+'@).Replace("`n","`r`n")).Replace('__AIW_TEST_NATIVE_OUTPUT__',('Import-Module ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('''+[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes((Join-Path $PSScriptRoot 'TestNativeOutput.psm1')))+''')))' + "`n" + 'Initialize-AiwTestNativeOutput')))
  $run=Invoke-AiwTestProcess ([Environment]::ProcessPath) @('-NoProfile','-NonInteractive','-File',$wrapper,'-InputPath',$inputPath) -WorkingDirectory $Cwd -EvidenceDirectory $callRoot
  $run|Add-Member CallEvidence ([pscustomobject]@{Root=$callRoot;InputPath=$inputPath;WrapperPath=$wrapper;ErrorPath=$errorPath;Stage=[IO.Path]::GetFileName($Tool);DiagnosticsPath=$diagnostics})
  Write-AiwTestJson (Join-Path $callRoot 'call-result.json') @{stage=$run.CallEvidence.Stage;input=@{path=$inputPath;identity=(Get-AiwTestFileIdentity $inputPath)};wrapper=@{path=$wrapper;identity=(Get-AiwTestFileIdentity $wrapper)};nativeResult=@{path=$run.ResultPath;identity=(Get-AiwTestFileIdentity $run.ResultPath)};error=$(if(Test-Path -LiteralPath $errorPath){@{path=$errorPath;identity=(Get-AiwTestFileIdentity $errorPath)}}else{$null});qualificationDiagnostics=$(if(Test-Path -LiteralPath $diagnostics){@{path=$diagnostics;identity=(Get-AiwTestFileIdentity $diagnostics)}}else{$null})}
@@ -178,7 +231,7 @@ function ComposerColdRegression{
  }
  Write-AiwTestJson (Join-Path $raw 'composer-private-input.json') @{scope='PRIVATE_SYNTHETIC_PARTIAL';versionRoot=$coldVersion;manifest=@{path=$pendingPath;identity=(Get-AiwTestFileIdentity $pendingPath)};constructorClosure='Not consumed after this controlled private manifest mutation; no qualification proof/export';sourceQualification='NOT_PERFORMED'}
  $tool=Join-Path $temp 'composer-cold.ps1'
- Put $tool @'
+ Put $tool (@'
 param([string]$VersionDirectory,[bool]$PreloadReader)
 $ErrorActionPreference='Stop'
 if($PreloadReader){Import-Module (Join-Path $VersionDirectory 'scripts/ReleaseValidation.psm1')}
@@ -186,7 +239,7 @@ $composer=Import-Module (Join-Path $VersionDirectory 'scripts/ProcessRequirement
 $first=& $composer {param($v) Get-AiwCompositionReleaseFacts -VersionDirectory $v} $VersionDirectory
 $second=& $composer {param($v) Get-AiwCompositionReleaseFacts -VersionDirectory $v} $VersionDirectory
 [pscustomobject]@{same=($first.Facts.Canonical-ceq$second.Facts.Canonical-and$first.Facts.FileCount-eq$second.Facts.FileCount-and$first.Facts.TotalBytes-eq$second.Facts.TotalBytes);canonical=$first.Facts.Canonical;fileCount=$first.Facts.FileCount}
-'@
+'@).Replace("`n","`r`n")
  $ok=$true;foreach($preload in @($false,$true)){$run=NativeTool $tool @{VersionDirectory=$coldVersion;PreloadReader=$preload};if($run.Code-ne0){$ok=$false;Write-Output ('COMPOSER_COLD_FAILURE|'+$run.ResultPath)}else{$value=$run.StdoutText|ConvertFrom-Json;$ok=$ok-and$value.same-and$value.fileCount-gt0}}
  Check $ok 'composer-release-facts-repeat-consumption'
  foreach($locator in @('','../outside',(Join-Path $PSScriptRoot '../RELEASE_MANIFEST.json'))){Reject {& $releaseReader.ExportedCommands['Assert-AiwReleaseLocator'] $locator} '^RELEASE_LOCATOR$' 'relative-escape-rejected-before-filesystem-access'}
@@ -300,7 +353,7 @@ function PostbuildOutputRegression{
  $definition=Read-AiwTestGroupDefinition (Join-Path $PSScriptRoot 'test-groups.json')
  $parts=@{functions=$functions;postbuild=$post;mechanism=$mechanism.Extent.Text;summary=$summary;finally=$finally;paramBlock=$ast.ParamBlock.Extent.Text}
  Write-AiwTestJson (Join-Path $evidence 'extracted-consumers.json') @{kind='PRIVATE_SYNTHETIC_PARTIAL';source=@{path=$PSCommandPath;identity=(Get-AiwTestFileIdentity $PSCommandPath)};parts=$parts;mockBoundary='Only expensive lower package/qualification facts and registrar/upgrade tools. Actual Check, AssertPackage, AdoptionSmoke, NativeTool, RequirePositiveNative, dispatch, completion and finally retained.'}
- $template=@'
+ $template=(@'
 __PARAM__
 $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
 Import-Module '__HARNESS__'
@@ -335,7 +388,7 @@ try{
 __BODY__
 __SUMMARY__
 }finally __FINALLY__
-'@
+'@).Replace("`n","`r`n")
  $results=@()
  foreach($case in @(
   @{name='package-positive';group='PackageIntegrity';fault='none';mutation='none';expect=@('actual-zip-members-match-package-manifest','actual-source-qualification-is-preserved','postbuild-leaves-original-zip-and-runtime-bytes-frozen')},
@@ -552,15 +605,154 @@ function V1ColdRegression([string]$Source){
  $proof=Read-AiwTestJson (Join-Path $groups 'prepackage-proof/validation-proof.json');Check ($proof.schemaVersion-eq1-and$proof.mode-ceq'FULL_RUN'-and$null-eq$proof.PSObject.Properties['currentSuiteRef']) 'v1-proof-fields-remain-original'
  Copy-AiwTestAllowlist (Join-Path $groups 'prepackage-proof') $v @((Get-AiwReleaseTreeMembers (Join-Path $groups 'prepackage-proof/validation-evidence'))|ForEach-Object{'validation-evidence/'+$_.path});$null=QualifySample $sample $proof
  $before=Get-AiwTestFileIdentity (Join-Path $v 'RELEASE_MANIFEST.json');Check ((Get-AiwReleaseQualification -VersionRoot $v -SourceRoot $sample).State-ceq'SOURCE_QUALIFIED') 'new-reader-accepts-healthy-original-v1-semantics'
- $cold=Join-Path $temp 'v1-cold.ps1';Put $cold @'
+ $cold=Join-Path $temp 'v1-cold.ps1';Put $cold (@'
 param([string]$Reader,[string]$Version,[string]$Source)
 $ErrorActionPreference='Stop';$module=Import-Module $Reader -PassThru;$dependencies=@(Get-Module -All StrictJsonInput)
 if($module.Path-cne$Reader-or$dependencies.Count-ne1-or$dependencies[0].Path-cne(Join-Path (Split-Path -Parent $Reader) 'StrictJsonInput.psm1')){throw 'COLD_READER_OWNER'}
 $q=& $module.ExportedCommands['Get-AiwReleaseQualification'] -VersionRoot $Version -SourceRoot $Source
 if($q.State-cne'SOURCE_QUALIFIED'-or$q.Proof.Mode-cne'FULL_RUN'){throw 'OLD_V1_HEALTH'};'OLD_READER_ACCEPTS_HEALTHY_V1'
-'@
+'@).Replace("`n","`r`n")
  $observed=NativeTool $cold @{Reader=$old;Version=$v;Source=$sample} -Cwd $sample
  Check ($observed.Code-eq0-and$observed.StdoutText.Contains('OLD_READER_ACCEPTS_HEALTHY_V1')-and(Get-AiwTestFileIdentity (Join-Path $v 'RELEASE_MANIFEST.json'))-ceq$before) 'actual-cold-old-reader-accepts-same-v1-original-bytes'
+}
+function PostbuildResumeRegression {
+ # Private qualification fixture: one real PREPACKAGE sentinel constructs the
+ # proof; both POSTBUILD entries remain the production package and smoke cases.
+ $source=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../../..'));$definition=Read-AiwTestGroupDefinition (Join-Path $PSScriptRoot 'test-groups.json')
+ $evidenceOwner=@(Import-Module (Join-Path $PSScriptRoot '../scripts/TestEvidenceValidation.psm1') -PassThru)[0]
+ $sample=Join-Path $temp 'post-source';$null=New-AiwTestSourceView $source $sample $definition;$v=Join-Path $sample 'framework/versions/2.0.0'
+ $entry='framework/versions/2.0.0/tests/post-pre-sentinel.ps1';Put (Join-Path $sample $entry) "Write-Output 'PASS|post-pre-sentinel';Write-Output 'RESULT|1/1 passed|scope=post-pre-sentinel'"
+ $inventory=Read-AiwTestJson (Join-Path $v 'NORMATIVE_SURFACE_INVENTORY.json');$inventory.schemaAndMechanicalInputs+=@('tests/post-pre-sentinel.ps1');WriteFixtureJson (Join-Path $v 'NORMATIVE_SURFACE_INVENTORY.json') $inventory
+ $d=Clone $definition;$seed=Clone @($d.groups|Where-Object id -CEQ 'integration.full-source')[0]
+ $seed.entry=$entry;$seed.arguments=@();$seed.requiredCaseIds=@('post-pre-sentinel');$seed.completionPattern='^RESULT\|1/1 passed\|scope=post-pre-sentinel$';$seed.dependencies=@();$seed.unknownDependencies=@();$seed.alwaysFresh=$false;$seed.fixturePolicy='WHOLE_VERSION';$seed.tools=@('pwsh')
+ $seed.behaviorInputs=[pscustomobject]@{files=@();definitionGroupIds=@();wholeDefinition=$false;includeCommonSets=$false}
+ $seed.fixtureRecipe=[pscustomobject]@{version=1;steps=@('private-real-sentinel');constructorPaths=@('framework/versions/2.0.0/tests/TestHarness.psm1','framework/versions/2.0.0/tests/TestNativeOutput.psm1')}
+ $d.groups=@($seed)+@($d.groups|Where-Object phase -CEQ 'POSTBUILD');WriteFixtureJson (Join-Path $v 'tests/test-groups.json') $d
+ $preRoot=Join-Path $raw 'post-pre';$pre=NativeTool (Join-Path $v 'tests/run-framework-tests.ps1') @{EvidenceDirectory=$preRoot;SourceViewPath=(Join-Path $temp 'post-pre-view');ProofSchemaVersion=3} -Cwd $sample
+ RequirePositiveNative $pre ($pre.Code-eq0) 'post-resume-private-real-prepackage-export' -QualificationRoot $sample
+ $proofRoot=Join-Path $preRoot 'prepackage-proof';$proof=Read-AiwTestJson (Join-Path $proofRoot 'validation-proof.json')
+ Copy-AiwTestAllowlist $proofRoot $v @((Get-AiwReleaseTreeMembers (Join-Path $proofRoot 'validation-evidence'))|ForEach-Object{'validation-evidence/'+$_.path});$null=QualifySample $sample $proof
+ $zip=Join-Path $temp 'AI-Workspace-2.0.0-snapshot.81.zip';$build=NativeTool (Join-Path $sample 'scripts/build-user-package.ps1') @{WorkspaceRoot=$sample;FrameworkVersion='2.0.0';Provisional=$true;Distribution='snapshot.81';OutputPath=$zip;Apply=$true}
+ RequirePositiveNative $build ($build.Code-eq0-and[IO.File]::Exists($zip)) 'post-resume-private-real-qualified-zip' -Zip $zip -QualificationRoot $sample
+ $packageRoot=Join-Path $temp 'post-owned-package';$firstRoot=Join-Path $raw 'post-first'
+ $first=NativeTool (Join-Path $v 'tests/run-framework-tests.ps1') @{Phase='POSTBUILD';PackagePath=$zip;ExtractedPackagePath=$packageRoot;BuildCommandPath=$build.ResultPath;EvidenceDirectory=$firstRoot} -Cwd $sample
+ RequirePositiveNative $first ($first.Code-eq0) 'post-resume-first-two-real-groups' -Zip $zip -QualificationRoot $sample
+ $firstSuite=Read-AiwTestJson (Join-Path $firstRoot 'suite.json');$firstCost=Read-AiwTestJson (Join-Path $firstRoot 'execution-cost.json');$firstPost=Read-AiwTestJson (Join-Path $firstRoot 'postbuild-proof.json')
+ Check ($firstCost.newGroupChildCount-eq2-and$firstSuite.records.Count-eq2-and@($firstSuite.records|Where-Object executionKind -CNE EXECUTED).Count-eq0-and$firstPost.schemaVersion-eq2-and$firstSuite.coverage-ceq'COMPLETE') 'post-resume-first-package-integrity-and-real-registration-upgrade'
+ $originals=@(foreach($ref in $firstSuite.records){$record=Read-AiwTestJson $ref.path;@{path=$ref.path;identity=$ref.identity;modified=[IO.File]::GetLastWriteTimeUtc($ref.path).Ticks;process=$record.processResult;started=$record.startedUtc;ended=$record.endedUtc}})
+ $resume=@($firstSuite.records.path);$secondRoot=Join-Path $raw 'post-second';$summaryEvidence=Join-Path $raw 'post-second-summary.raw'
+ # Omit ExtractedPackagePath: the public summary must infer the unique original
+ # owned physical root, then validate the new suite and Qpost2 itself.
+ $second=NativeTool (Join-Path $v 'tests/run-framework-tests-summary.ps1') @{Phase='POSTBUILD';PackagePath=$zip;BuildCommandPath=$build.ResultPath;ResumeEvidence=$resume;EvidenceDirectory=$secondRoot;EvidencePath=$summaryEvidence} -Cwd $sample
+ RequirePositiveNative $second ($second.Code-eq0-and$second.Text.Contains('SUMMARY|status=PASS|coverage=COMPLETE')) 'post-resume-public-summary-strict-success' -Zip $zip -QualificationRoot $sample
+ $secondSuite=Read-AiwTestJson (Join-Path $secondRoot 'suite.json') -StringFields @('startedUtc','endedUtc');$secondCost=Read-AiwTestJson (Join-Path $secondRoot 'execution-cost.json');$secondPostPath=Join-Path $secondRoot 'postbuild-proof.json';$secondPost=Read-AiwTestJson $secondPostPath
+ Check ($secondCost.newGroupChildCount-eq0-and$secondSuite.sourceRoot-ceq$packageRoot-and$secondSuite.records.Count-eq2-and@($secondSuite.records|Where-Object executionKind -CNE REVALIDATED).Count-eq0) 'post-resume-same-zip-same-root-zero-new-native-two-current-revalidations'
+ $qualified=Get-AiwReleasePostbuildQualification -Path $secondPostPath -PackagePath $zip -ExtractedPackagePath $packageRoot -BuildCommandPath $build.ResultPath
+ Check ($qualified.State-ceq'PACKAGE_VALIDATED'-and$qualified.Suite.coverage-ceq'COMPLETE') 'post-resume-strict-release-consumer-accepts-current-suite-and-qpost2'
+ foreach($old in $originals){$now=Read-AiwTestJson $old.path;Check ((Get-AiwTestFileIdentity $old.path)-ceq$old.identity-and[IO.File]::GetLastWriteTimeUtc($old.path).Ticks-eq$old.modified-and(Get-AiwTestFileIdentity $old.process.path)-ceq$old.process.identity-and$now.startedUtc-eq$old.started-and$now.endedUtc-eq$old.ended) 'post-resume-preserves-original-record-native-and-times'}
+ # Supplying only the completed first group models the public boundary after
+ # interruption before a complete next-group record. Only that missing smoke
+ # group may run; the production smoke still registers and upgrades the package.
+ $partialRoot=Join-Path $raw 'post-missing-smoke';$integrity=@($firstSuite.records|Where-Object groupId -CEQ 'postbuild.package-integrity')[0]
+ $partial=NativeTool (Join-Path $v 'tests/run-framework-tests.ps1') @{Phase='POSTBUILD';PackagePath=$zip;ExtractedPackagePath=$packageRoot;BuildCommandPath=$build.ResultPath;ResumeEvidence=@($integrity.path);EvidenceDirectory=$partialRoot} -Cwd $sample
+ RequirePositiveNative $partial ($partial.Code-eq0) 'post-resume-only-missing-real-smoke-executes' -Zip $zip -QualificationRoot $sample
+ $partialSuite=Read-AiwTestJson (Join-Path $partialRoot 'suite.json');$partialCost=Read-AiwTestJson (Join-Path $partialRoot 'execution-cost.json')
+ Check ($partialCost.newGroupChildCount-eq1-and@($partialSuite.records|Where-Object executionKind -CEQ REVALIDATED).Count-eq1-and@($partialSuite.records|Where-Object{$_.groupId-ceq'postbuild.adoption-smoke'-and$_.executionKind-ceq'EXECUTED'}).Count-eq1) 'post-resume-missing-group-does-not-replay-complete-integrity'
+ $group=@($d.groups|Where-Object id -CEQ 'postbuild.package-integrity')[0];$original=Read-AiwTestJson $integrity.path -StringFields @('startedUtc','endedUtc');$snapshot=$original.after
+ foreach($fact in @('packageIdentity','packageTreeIdentity','buildCommandIdentity')){
+  $changed=Clone $snapshot.facts;$changed.$fact=if($fact-ceq'packageTreeIdentity'){'A'*64}else{'1|'+('A'*64)}
+  if($fact-ceq'packageIdentity'){$changed.options.PackageIdentity=$changed.$fact};if($fact-ceq'buildCommandIdentity'){$changed.options.BuildCommandIdentity=$changed.$fact}
+  Check ((& $evidenceOwner.ExportedCommands['Get-AiwEvidenceBehaviorIdentity'] $changed $group)-cne$snapshot.facts.behaviorContractIdentity) ('post-resume-explicit-behavior-binds-'+$fact)
+ }
+ $alternateEvidence=Join-Path $raw 'post-new-root-evidence';$null=[IO.Directory]::CreateDirectory($alternateEvidence);$alternateRoot=Join-Path $temp 'post-new-root'
+ $alternate=Enter-AiwTestPackageView -SourceRoot $sample -PackagePath $zip -DestinationRoot $alternateRoot -EvidenceRoot $alternateEvidence -ResumeEvidence $resume
+ try{
+  $alternateOptions=Clone $original.after.facts.options;$alternateOptions.ExtractedPackagePath=$alternateRoot
+  $alternateSnapshot=Get-AiwTestDependencySnapshot $alternateRoot (Join-Path $alternateRoot 'framework/versions/2.0.0/tests/test-groups.json') $d $group $alternateOptions
+  Check ((Select-AiwTestGroupExecution $group $alternateSnapshot @($integrity.path) -PlanOnly).selection-ceq'EXECUTE') 'post-resume-explicit-new-root-does-not-reuse-exact-old-root'
+ }finally{Exit-AiwTestPackageView $alternate}
+ $oldGroup=Clone $group;$oldGroup.groupContractVersion=1;$oldGroup.alwaysFresh=$true
+ Check ((Select-AiwTestGroupExecution $oldGroup $snapshot @($integrity.path) -PlanOnly).reason-ceq'FRESH_REQUIRED') 'post-resume-old-fresh-contract-keeps-original-semantic'
+ $badRecord=Clone $original;$badRecord.outcome='FAIL';$badRecordPath=Join-Path $raw 'post-failed-original.json';Write-AiwTestJson $badRecordPath $badRecord
+ Check ((Select-AiwTestGroupExecution $group $snapshot @($badRecordPath) -PlanOnly).selection-ceq'EXECUTE') 'post-resume-failed-original-cannot-revalidate'
+ $native=@{};foreach($property in $original.after.facts.nativeEnvironment.PSObject.Properties){$native[$property.Name]=$property.Value}
+ $postDefinition=Join-Path $packageRoot 'framework/versions/2.0.0/tests/test-groups.json'
+ $changedBuild=Join-Path $raw 'post-changed-build.json';[IO.File]::WriteAllText($changedBuild,([IO.File]::ReadAllText($build.ResultPath)+"`n"),[Text.UTF8Encoding]::new($false));$changedOptions=Clone $original.after.facts.options;$changedOptions.BuildCommandPath=$changedBuild;$changedOptions.BuildCommandIdentity=Get-AiwTestFileIdentity $changedBuild
+ $current=Get-AiwTestDependencySnapshot $packageRoot $postDefinition $d $group $changedOptions -NativeEnvironment $native
+ Check ((Select-AiwTestGroupExecution $group $current @($integrity.path) -PlanOnly).selection-ceq'EXECUTE') 'post-resume-live-build-evidence-change-requires-execution'
+ $oldPath=$env:PATH;$toolRoot=Join-Path $temp 'post-tool';$null=[IO.Directory]::CreateDirectory($toolRoot);$tool=Join-Path $toolRoot 'pwsh.exe';[IO.File]::Copy([Environment]::ProcessPath,$tool,$false)
+ try{
+  $env:PATH=$toolRoot+[IO.Path]::PathSeparator+$oldPath
+  $current=Get-AiwTestDependencySnapshot $packageRoot $postDefinition $d $group $original.after.facts.options -NativeEnvironment $native
+  Check (@($current.facts.environment.tools|Where-Object{$_.name-ceq'pwsh'-and$_.path-ceq$tool}).Count-eq1-and(Select-AiwTestGroupExecution $group $current @($integrity.path) -PlanOnly).selection-ceq'EXECUTE') 'post-resume-live-tool-path-and-environment-change-requires-execution'
+ }finally{$env:PATH=$oldPath}
+ $groupOwner=@(Import-Module (Join-Path $PSScriptRoot 'TestGroupEvidence.psm1') -PassThru)[0];$artifacts=& $groupOwner {param($record,$current)Get-AiwTestLocalArtifacts $record $current} $original $snapshot
+ $artifacts.stdoutBytes=[byte[]]@($artifacts.stdoutBytes+@([byte]32))
+ Reject {& $evidenceOwner.ExportedCommands['Assert-AiwEvidenceNativeRecord'] $original $group $snapshot $artifacts -ForReuse} '^TEST_RAW_CORRUPT$' 'post-resume-shared-validator-rejects-corrupt-original-native-bytes'
+ $badShape=Clone $secondSuite;$badShape.startedUtc=$secondSuite.startedUtc;$badShape.endedUtc=$secondSuite.endedUtc;$badShape.sourceInputsRef=@{path='future';identity=('1|'+('A'*64))}
+ Reject {Assert-AiwReleaseCurrentSuiteShape $badShape $secondSuite.definitionIdentity $secondSuite.requiredGroupIds -Complete} '^RELEASE_POSTBUILD_SUITE_BINDING$' 'post-resume-suite-rejects-prepackage-source-inputs'
+ $badShape=Clone $secondSuite;$badShape.startedUtc=$secondSuite.startedUtc;$badShape.endedUtc=$secondSuite.endedUtc;$badShape.options.SkipManifest=$true
+ Reject {Assert-AiwReleaseCurrentSuiteShape $badShape $secondSuite.definitionIdentity $secondSuite.requiredGroupIds -Complete} '^RELEASE_CURRENT_SUITE_OPTIONS$' 'post-resume-suite-rejects-skip-options'
+ $badShape=Clone $secondSuite;$badShape.startedUtc=$secondSuite.startedUtc;$badShape.endedUtc=$secondSuite.endedUtc;$badShape.records=@($badShape.records[0])
+ Reject {Assert-AiwReleaseCurrentSuiteShape $badShape $secondSuite.definitionIdentity $secondSuite.requiredGroupIds -Complete} '^RELEASE_CURRENT_SUITE_PARTITION$' 'post-resume-suite-rejects-missing-record'
+ $badShape=Clone $secondSuite;$badShape.startedUtc=$secondSuite.startedUtc;$badShape.endedUtc=$secondSuite.endedUtc;$badShape.records[0].executionKind='EXECUTED'
+ Reject {Assert-AiwReleaseCurrentSuiteShape $badShape $secondSuite.definitionIdentity $secondSuite.requiredGroupIds -Complete} '^RELEASE_CURRENT_SUITE_PARTITION$' 'post-resume-suite-rejects-relabelled-revalidation'
+ $badPost=Clone $secondPost;$badPost.rawRefs=@();$badPostPath=Join-Path $raw 'post-bad-raw-partition.json';Write-AiwTestJson $badPostPath $badPost
+ Reject {Get-AiwReleasePostbuildQualification -Path $badPostPath -PackagePath $zip -ExtractedPackagePath $packageRoot -BuildCommandPath $build.ResultPath} '^RELEASE_POSTBUILD_RAW_PARTITION$' 'post-resume-release-consumer-rejects-missing-original-raw-reference'
+ $oldPost=Clone $secondPost;$oldPost.schemaVersion=1;$oldPost.PSObject.Properties.Remove('currentSuiteRef');$oldPost.PSObject.Properties.Remove('verifierRef');$oldPostPath=Join-Path $raw 'post-legacy-revalidated.json';Write-AiwTestJson $oldPostPath $oldPost
+ Reject {Get-AiwReleasePostbuildQualification -Path $oldPostPath -PackagePath $zip -ExtractedPackagePath $packageRoot -BuildCommandPath $build.ResultPath} '^RELEASE_POSTBUILD_LEGACY_FRESH_REQUIRED$' 'post-resume-qpost1-does-not-acquire-new-revalidation-semantic'
+ # Exercise the actual owned root guard without launching redundant Gpost.
+ $guardEvidence=Join-Path $raw 'post-guard';$null=[IO.Directory]::CreateDirectory($guardEvidence)
+ $enter=@{SourceRoot=$sample;PackagePath=$zip;DestinationRoot=$packageRoot;EvidenceRoot=$guardEvidence;ResumeEvidence=$resume}
+ $lease=Enter-AiwTestPackageView @enter
+ try{
+  $blocked=$false;try{$write=[IO.File]::Open((Join-Path $packageRoot 'README.md'),[IO.FileMode]::Open,[IO.FileAccess]::Write,[IO.FileShare]::Read);$write.Dispose()}catch [IO.IOException]{$blocked=$true};Check $blocked 'post-resume-owned-root-holds-read-only-files'
+  Reject {Enter-AiwTestPackageView @enter} '^TEST_PACKAGE_VIEW_ACTIVE$' 'post-resume-rejects-concurrent-owned-root-lease'
+ }finally{Exit-AiwTestPackageView $lease}
+ $extra=Join-Path $packageRoot 'unlisted-post-resume.txt'
+ try{Put $extra 'unknown';Reject {Enter-AiwTestPackageView @enter} '^TEST_PACKAGE_VIEW_CONTENT_DRIFT$' 'post-resume-rejects-tree-membership-drift'}finally{[IO.File]::Delete($extra)}
+ $zipBytes=[IO.File]::ReadAllBytes($zip)
+ try{[IO.File]::AppendAllText($zip,'changed');Reject {Enter-AiwTestPackageView @enter} '^TEST_PACKAGE_VIEW_PACKAGE_DRIFT$' 'post-resume-rejects-changed-zip-at-original-root'}finally{[IO.File]::WriteAllBytes($zip,$zipBytes)}
+ $pause=Join-Path $temp 'post-guard-worker.ps1';Put $pause 'Start-Sleep -Seconds 600'
+ $handle=Start-AiwTestProcess ([Environment]::ProcessPath) @('-NoProfile','-NonInteractive','-File',$pause) -WorkingDirectory $packageRoot -EvidenceDirectory (Join-Path $guardEvidence 'raw') -GroupId 'post-guard-worker'
+ try{Reject {Enter-AiwTestPackageView @enter} '^TEST_PACKAGE_VIEW_ACTIVE_WORKER$' 'post-resume-physically-rejects-live-native-worker-even-without-executed-record'}finally{Stop-AiwTestProcess $handle -AuthorizedRunId $handle.RunId -Reason 'Owned regression worker finished';$null=Wait-AiwTestProcess $handle}
+ $lease=Enter-AiwTestPackageView @enter;Exit-AiwTestPackageView $lease
+ Check $true 'post-resume-physically-ended-incomplete-group-does-not-block-missing-group-recovery'
+ $unknown=Join-Path $guardEvidence ('raw/'+('f'*32));$null=[IO.Directory]::CreateDirectory($unknown)
+ Reject {Enter-AiwTestPackageView @enter} '^TEST_PACKAGE_WORKER_STATE_UNKNOWN$' 'post-resume-rejects-native-allocation-without-provable-launch'
+ Write-AiwTestJson (Join-Path $raw 'post-resume-observation.json') @{scope='PRIVATE_SYNTHETIC_QUALIFICATION_REAL_POSTBUILD_ENTRIES';package=@{path=$zip;identity=(Get-AiwTestFileIdentity $zip)};firstSuite=Join-Path $firstRoot 'suite.json';secondSuite=Join-Path $secondRoot 'suite.json';missingGroupSuite=Join-Path $partialRoot 'suite.json';firstNewGroupCount=$firstCost.newGroupChildCount;secondNewGroupCount=$secondCost.newGroupChildCount;missingGroupNewGroupCount=$partialCost.newGroupChildCount;qualification='No formal release, independent Review or acceptance claimed'}
+}
+
+function ReleaseRouteDeltaRegression {
+ $definition=Read-AiwTestGroupDefinition (Join-Path $PSScriptRoot 'test-groups.json')
+ $definitionIdentity=Get-AiwReleaseFileIdentity (Join-Path $PSScriptRoot 'test-groups.json')
+ $original=[pscustomobject]@{schemaVersion=2;definitionIdentity=$definitionIdentity;payloadCanonical=('A'*64);inputs=@(
+  [pscustomobject]@{path='scripts/build-user-package.ps1';identity=('1|'+('A'*64));logicalRole='CURRENT_RUNTIME_TOOL';distributionLocator='scripts/build-user-package.ps1'},
+  [pscustomobject]@{path='obsolete-source.txt';identity=('1|'+('B'*64));logicalRole='SOURCE_ONLY_BUILD_OR_TEST_INPUT';distributionLocator=$null}
+ )}
+ $current=[pscustomobject]@{schemaVersion=2;definitionIdentity=$definitionIdentity;payloadCanonical=('B'*64);inputs=@(
+  [pscustomobject]@{path='scripts/build-user-package.ps1';identity=('1|'+('C'*64));logicalRole='CURRENT_RUNTIME_TOOL';distributionLocator='scripts/build-user-package.ps1'},
+  [pscustomobject]@{path='introduced-source.txt';identity=('1|'+('D'*64));logicalRole='SOURCE_ONLY_BUILD_OR_TEST_INPUT';distributionLocator=$null}
+ )}
+ $changes=@(Get-AiwReleaseInputChanges $original $current)
+ Check ($changes.Count-eq3-and$null-eq$changes[0].before-and$null-eq$changes[1].after-and$changes[2].before.identity-cne$changes[2].after.identity) 'release-route-computes-add-delete-and-changed-runtime-tool'
+ $historyId='12|'+('F'*64)
+ $plan=[pscustomobject]@{schemaVersion=1;kind='PREPACKAGE_CHANGE_PLAN';historicalProofRef=[pscustomobject]@{path=(Join-Path $temp 'historical-proof.json');identity=$historyId};candidatePayloadCanonical=$current.payloadCanonical;definitionIdentity=$definitionIdentity;changes=$changes;freshGroupIds=@();targetedGroupIds=@('release.prepackage-readers');assessment='Required reader target on the candidate.'}
+ Assert-AiwReleaseChangePlan $plan $original $current $definition $historyId
+ $small=Get-AiwReleaseChangeGroup @($definition.groups|Where-Object id -CEQ 'release.prepackage-readers')[0] $plan.targetedGroupIds
+ Check ($small.arguments[1]-ceq'RouteEvidence'-and$small.requiredCaseIds[0]-ceq'release-route-consumer-and-delta') 'release-route-short-execution-has-distinct-arguments-and-completion'
+ foreach($path in $changes.path){
+  $bad=Clone $plan;$bad.changes=@($bad.changes|Where-Object path -CNE $path)
+  Reject {Assert-AiwReleaseChangePlan $bad $original $current $definition $historyId} '^RELEASE_CHANGE_INPUT_DELTA$' ('release-route-reader-rejects-omission-'+$path)
+ }
+ $stale=Clone $plan;$stale.candidatePayloadCanonical=$original.payloadCanonical
+ Reject {Assert-AiwReleaseChangePlan $stale $original $current $definition $historyId} '^RELEASE_CHANGE_PLAN_BINDING$' 'release-route-reader-rejects-wrong-candidate-with-valid-delta'
+ $noWork=Clone $plan;$noWork.targetedGroupIds=@()
+ Reject {Assert-AiwReleaseChangePlan $noWork $original $current $definition $historyId} '^RELEASE_CHANGE_VALIDATION_SCOPE$' 'release-route-reader-rejects-no-current-validation'
+ $empty=Clone $plan;$empty.assessment=''
+ Reject {Assert-AiwReleaseChangePlan $empty $original $current $definition $historyId} '^RELEASE_CHANGE_IMPACT_UNASSESSED$' 'release-route-reader-rejects-unassessed-impact'
+ WireStringRegression
+ Check $true 'release-route-consumer-and-delta'
 }
 function ProofSchemaRegression {
  $version=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'));$source=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../../..'));$manifestIdentity=Get-AiwReleaseFileIdentity (Join-Path $version 'RELEASE_MANIFEST.json')
@@ -648,7 +840,8 @@ function StableEntryRegression([string]$Source,$Definition){
 }
 function DailyProcessRegression {
  $source=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../../..'));$runtime=Join-Path $temp 'daily-runtime'
- $version=New-AiwTestMechanismFixture $source $runtime (Join-Path $PSScriptRoot 'test-groups.json') -Maintenance
+ $version=New-AiwTestRuntimeFixture -SourceRoot $source -DestinationRoot $runtime -VersionPaths $fixtureVersionPaths -RootPaths @(@($fixtureRootPaths)+@($fixtureMaintenancePaths))
+ foreach($name in @('README.md','AGENTS.md')){[IO.File]::Copy((Join-Path $runtime ('framework/user-package/'+$name)),(Join-Path $runtime $name),$false)}
  # This package is only a synthetic mechanism fixture. Construction scans it
  # once; the public daily calls below must not repeat that complete scan.
  [string[]]$paths=@(Get-ChildItem -LiteralPath $runtime -Recurse -File|ForEach-Object{[IO.Path]::GetRelativePath($runtime,$_.FullName).Replace('\','/')});[Array]::Sort($paths,[StringComparer]::Ordinal)
@@ -769,7 +962,7 @@ function AdoptionSmoke([string]$Root){
  $registration=@{ProjectId='postbuild-smoke';DisplayName='Isolated actual package smoke';RepositoryPath=$consumer;FrameworkVersion='2.0.0';ControllerId='postbuild-actor';WorkspaceRoot=$Root;Apply=$true}
  if($candidate){
   $registration.LocalCandidatePilot=$true;$initial=Join-Path $temp 'POSTBUILD-001.md'
-  Put $initial @'
+  Put $initial (@'
 # POSTBUILD-001 — Validate isolated actual package registration
 - Task schema: 2.0.0
 - 状态：IN_PROGRESS
@@ -786,7 +979,7 @@ function AdoptionSmoke([string]$Root){
 - Implementation: Use the current public registrar and original transaction recovery.
 - Acceptance: Registration completes and same-version upgrade preserves registered bytes.
 - Next action: Run the actual registration smoke.
-'@
+'@).Replace("`n","`r`n")
   $registration.InitialTaskPath=$initial;$registration.ExpectedInitialTaskIdentity=Get-AiwTestFileIdentity $initial;$registration.InitialTaskRelativePath='.ai-workspace/tasks/active/POSTBUILD-001.md'
  }
  # Reach the actual registrar try/catch through a controlled task drift at its
@@ -826,9 +1019,11 @@ function AdoptionSmoke([string]$Root){
 }
 try{
  $script:smokeZip=$PackagePath
+ if($Group-ceq'RouteEvidence'){ReleaseRouteDeltaRegression;Write-Output 'RELEASE_ROUTE_EVIDENCE_PASS|release.prepackage-readers';return}
  if($DailyProcessOnly){DailyProcessRegression;Write-Output ('PARTIAL|DAILY_PROCESS_ONLY|checks='+$passed+'|scope=synthetic-adopted-package-public-boundaries');return}
+ if($PostbuildResumeOnly){PostbuildResumeRegression;Write-Output ('PARTIAL|POSTBUILD_RESUME_ONLY|checks='+$passed+'|scope=private-qualified-zip-real-postbuild');return}
  if($WireStringOnly){WireStringRegression;Write-Output ('PARTIAL|WIRE_STRING_ONLY|code=0|status=PASS|checks='+$passed+'|scope=release-wire-string');return}
- if($Group-ceq'ProofSchema'){ProofSchemaRegression;Write-Output ('RESULT|'+$passed+'/'+$passed+' passed|scope=release-validation|group='+$Group);return}
+ if($Group-ceq'ProofSchema'){ProofSchemaRegression;PostbuildResumeRegression;Write-Output ('RESULT|'+$passed+'/'+$passed+' passed|scope=release-validation|group='+$Group);return}
  if($Group-ceq'Mechanism'-and-not$EntryPerformanceOnly){NavigationRuntimeRegression}
  if($Group-ceq'Mechanism'-and-not$EntryPerformanceOnly){DailyProcessRegression}
  if($Group-cin@('Canonical','Mechanism','Registration')-and-not$EntryPerformanceOnly){CanonicalRegression}

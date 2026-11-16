@@ -303,7 +303,7 @@
     },
     {
       "fixtureId": "worst_unknown",
-      "fixtureIdentity": "60E91BB22334219B1F5B6D30D90BD403CD9DE7EAE2EA4A0F66FA39949F156A9B",
+      "fixtureIdentity": "F251B7C9DD1BA079886313D18C02566BBD02A8394A1EA9CB82C520A032799343",
       "profile": "CRITICAL",
       "actor": "fixture-controller",
       "role": "CONTROLLER",
@@ -314,7 +314,7 @@
       "exactPaths": [
         "src/public.txt",
         "tests/public.tests.ps1",
-        ".ai-workspace/STATUS.md"
+        "docs/status.md"
       ],
       "capabilities": [
         "KNOWLEDGE_REFERENCE"

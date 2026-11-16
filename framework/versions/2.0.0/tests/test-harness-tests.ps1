@@ -147,6 +147,15 @@ Target -Value $v.value -Array @($v.array)
  $outputRoot=Join-Path $temp 'allow-output'
  Copy-AiwTestAllowlist $inputRoot $outputRoot @('a.txt')
  Check ([IO.File]::Exists((Join-Path $outputRoot 'a.txt'))-and-not(Test-Path -LiteralPath (Join-Path $outputRoot 'unlisted.txt'))) 'explicit-allowlist-is-applied-before-copy'
+ $binary=[byte[]]@(0,255,13,10,128,1);[IO.File]::WriteAllBytes((Join-Path $inputRoot 'binary.dat'),$binary)
+ [IO.File]::WriteAllBytes((Join-Path $inputRoot 'empty.dat'),[byte[]]@())
+ Copy-AiwTestAllowlist $inputRoot $outputRoot @('binary.dat','empty.dat')
+ Check (([Convert]::ToBase64String([IO.File]::ReadAllBytes((Join-Path $outputRoot 'binary.dat'))))-ceq[Convert]::ToBase64String($binary)-and(Get-Item -LiteralPath (Join-Path $outputRoot 'empty.dat')).Length-eq0) 'captured-allowlist-copy-preserves-binary-and-empty-source-bytes'
+ $existingRejected=$false;try{Copy-AiwTestAllowlist $inputRoot $outputRoot @('binary.dat')}catch{$existingRejected=$true}
+ Check $existingRejected 'captured-allowlist-copy-retains-existing-destination-rejection'
+ # The following original reset cases remain a one-file snapshot.
+ [IO.File]::Delete((Join-Path $outputRoot 'binary.dat'));[IO.File]::Delete((Join-Path $outputRoot 'empty.dat'))
+
  Reject {Copy-AiwTestAllowlist $inputRoot (Join-Path $temp 'bad-copy') @('a.txt','../unlisted.txt')} 'ALLOWLIST' 'all-locators-validated-before-any-source-copy'
  Check (-not(Test-Path -LiteralPath (Join-Path $temp 'bad-copy/a.txt'))) 'invalid-allowlist-has-zero-copy'
   $snapshot=Get-AiwTestFixtureSnapshot $outputRoot

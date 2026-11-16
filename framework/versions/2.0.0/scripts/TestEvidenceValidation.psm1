@@ -83,6 +83,17 @@ function Get-AiwEvidenceDependencyPaths($Definition,$Group,[string[]]$VersionPat
  if($Group.behaviorInputs.wholeDefinition){$null=$paths.Add('framework/versions/2.0.0/tests/test-groups.json')}
  [string[]]$sorted=@($paths);[Array]::Sort($sorted,[StringComparer]::Ordinal);return $sorted
 }
+function Get-AiwEvidenceGroupArguments([string]$SourceRoot,$Group,$Options){
+ $args=@('-NoProfile','-NonInteractive','-File',(Join-Path $SourceRoot $Group.entry))+@($Group.arguments)
+ $values=@{};foreach($property in $Options.PSObject.Properties){$values[$property.Name]=$property.Value}
+ if($Options-is[Collections.IDictionary]){foreach($key in $Options.Keys){$values[$key]=$Options[$key]}}
+ $integrationSkips=if($Group.entry-ceq'framework/versions/2.0.0/tests/integration-surface-tests.ps1'){@('SkipManifest','SkipBaseline')}elseif($Group.entry-ceq'framework/versions/2.0.0/tests/run-framework-tests.ps1'){@('SkipManifest','SkipBaseline','SkipPerformanceSmoke')}else{@()}
+ if($Group.id-clike'integration.*'){foreach($name in $integrationSkips){if($values.ContainsKey($name)-and$values[$name]){$args+='-'+$name}}}
+ if($Group.id-ceq'governance-contract'-and$values.ContainsKey('SkipPerformanceSmoke')-and$values.SkipPerformanceSmoke){$args+='-SkipPerformanceSmoke'}
+  if($Group.id-clike'presets.*'-and$values.ContainsKey('MaintenanceFixture')-and$values.MaintenanceFixture){$args+='-MaintenanceFixture'}
+  if($Group.phase-ceq'POSTBUILD'){foreach($name in @('PackagePath','ExtractedPackagePath','BuildCommandPath')){if(-not$values.ContainsKey($name)-or-not$values[$name]){throw 'TEST_POSTBUILD_INPUT_REQUIRED'};$args+=('-'+$name);$args+=[string]$values[$name]}}
+ return @($args)
+}
 function Assert-AiwEvidenceDeclaredInputs($Facts,$Group){
  $mandatory=@($Group.dependencies)+@($Group.behaviorInputs.files)+@($Group.entry)+@($Group.fixtureRecipe.constructorPaths)
  if($Group.behaviorInputs.wholeDefinition){$mandatory+=@('framework/versions/2.0.0/tests/test-groups.json')}
@@ -106,7 +117,7 @@ function Get-AiwEvidenceGroupBehaviorIdentity($Definition,$Group){
  $others=@($Group.behaviorInputs.definitionGroupIds|ForEach-Object{$id=$_;@($Definition.groups|Where-Object id -CEQ $id)[0]})
  return Get-AiwEvidenceValueIdentity ([ordered]@{group=$Group;definitionGroups=$others;commonSets=$(if($Group.behaviorInputs.includeCommonSets){@{mechanism=$Definition.mechanismVersionPaths;root=$Definition.rootAdoptionPaths;maintenance=$Definition.maintenancePaths}}else{$null});wholeDefinition=$(if($Group.behaviorInputs.wholeDefinition){$Definition}else{$null})})
 }
-function Get-AiwEvidenceBehaviorIdentity($Facts){
+function Get-AiwEvidenceBehaviorIdentity($Facts,$Group=$null){
  $fields=@('root','definitionIdentity','groupIdentity','validatorIdentity','verifierIdentity','inputs','unknownDependencies','options','environment','commandArguments','rootSensitive','fixtureRecipeIdentity','environmentPolicy','locationPolicy','executionContext','nativeEnvironment','behaviorContractIdentity')
  if($null-ne$Facts.PSObject.Properties['inputView']){$fields+=@('inputView','sourceInputsIdentity')}
  if($null-ne$Facts.PSObject.Properties['packageIdentity']){$fields+=@('packageIdentity','packageTreeIdentity','buildCommandIdentity')}
@@ -132,6 +143,13 @@ function Get-AiwEvidenceBehaviorIdentity($Facts){
  }
  $lp=$Facts.locationPolicy;Assert-AiwEvidenceFields $lp @('mode','mappings','conditions') 'location-policy'
  if($lp.mode-cnotin@('EXACT','LOGICAL_ROOT')-or$lp.mappings-isnot[Array]-or$lp.conditions-isnot[Array]){throw 'TEST_LOCATION_POLICY'}
+ if($lp.mode-ceq'EXACT'){
+  if($lp.mappings.Count){throw 'TEST_EXACT_LOCATION_UNPROVEN'}
+  if($lp.conditions.Count){
+   foreach($condition in $lp.conditions){Assert-AiwEvidenceFields $condition @('name','value') 'location-condition';if($condition.name-cnotin@('volume','caseSensitivity','pathLengthClass','permissions','ownership','reparse')-or$condition.value-isnot[string]-or$condition.value-cnotmatch'^OBSERVED_EXACT_V1\|[A-F0-9]{64}$'){throw 'TEST_EXACT_LOCATION_UNPROVEN'}}
+   if($lp.conditions.Count-ne6-or@($lp.conditions.name|Select-Object -Unique).Count-ne6){throw 'TEST_EXACT_LOCATION_UNPROVEN'}
+  }
+ }
  $root=$Facts.root;$arguments=@($Facts.commandArguments)
  if($lp.mode-ceq'LOGICAL_ROOT'){
   if($Facts.executionContext.targetKind-cne'SAME_ROOT'-or$lp.mappings.Count-ne1-or$lp.conditions.Count-eq0){throw 'TEST_LOGICAL_ROOT_UNPROVEN'}
@@ -144,9 +162,21 @@ function Get-AiwEvidenceBehaviorIdentity($Facts){
  }
  $context=if($lp.mode-ceq'LOGICAL_ROOT'){@{schemaVersion=1;targetKind='SAME_ROOT';controlRoot='@SOURCE_VIEW';executionRoot='@SOURCE_VIEW';executionTargetRef=$null;targetObservation=$null}}else{$Facts.executionContext}
  $location=@{mode=$lp.mode;conditions=$lp.conditions}
- return Get-AiwEvidenceValueIdentity ([ordered]@{groupIdentity=$Facts.groupIdentity;inputs=$Facts.inputs;unknownDependencies=$Facts.unknownDependencies;options=$Facts.options;environment=$effective;commandArguments=$arguments;root=$root;rootSensitive=$Facts.rootSensitive;fixtureRecipeIdentity=$Facts.fixtureRecipeIdentity;locationPolicy=$location;executionContext=$context;nativeEnvironment=$nativeEffective})
+ $projection=[ordered]@{groupIdentity=$Facts.groupIdentity;inputs=$Facts.inputs;unknownDependencies=$Facts.unknownDependencies;options=$Facts.options;environment=$effective;commandArguments=$arguments;root=$root;rootSensitive=$Facts.rootSensitive;fixtureRecipeIdentity=$Facts.fixtureRecipeIdentity;locationPolicy=$location;executionContext=$context;nativeEnvironment=$nativeEffective}
+ if($null-ne$Group-and$Group.phase-ceq'POSTBUILD'-and$Group.groupContractVersion-ge2){
+  foreach($name in @('packageIdentity','packageTreeIdentity','buildCommandIdentity')){if($null-eq$Facts.PSObject.Properties[$name]-or$Facts.$name-isnot[string]){throw 'TEST_POSTBUILD_BEHAVIOR_FACT_REQUIRED'}}
+  if($Facts.packageIdentity-cnotmatch'^\d+\|[A-F0-9]{64}$'-or$Facts.buildCommandIdentity-cnotmatch'^\d+\|[A-F0-9]{64}$'-or$Facts.packageTreeIdentity-cnotmatch'^[A-F0-9]{64}$'-or$Facts.options.PackageIdentity-cne$Facts.packageIdentity-or$Facts.options.BuildCommandIdentity-cne$Facts.buildCommandIdentity-or$Facts.options.ExtractedPackagePath-cne$Facts.root){throw 'TEST_POSTBUILD_BEHAVIOR_FACT_BINDING'}
+  $projection.packageIdentity=$Facts.packageIdentity;$projection.packageTreeIdentity=$Facts.packageTreeIdentity;$projection.buildCommandIdentity=$Facts.buildCommandIdentity
+ }
+ return Get-AiwEvidenceValueIdentity $projection
 }
-function Assert-AiwEvidenceNativeRecord($Record,$Group,$Snapshot,$Artifacts,[switch]$ForReuse,[switch]$AllowPartial,$Suite=$null){
+function Assert-AiwEvidenceSnapshot($Snapshot,$Group){
+ Assert-AiwEvidenceFields $Snapshot @('facts','identity') 'snapshot'
+ if((Get-AiwEvidenceValueIdentity $Snapshot.facts)-cne$Snapshot.identity){throw 'TEST_SNAPSHOT_CORRUPT'}
+ Assert-AiwEvidenceDeclaredInputs $Snapshot.facts $Group
+ if($Snapshot.facts.behaviorContractIdentity-cne(Get-AiwEvidenceBehaviorIdentity $Snapshot.facts $Group)){throw 'TEST_BEHAVIOR_IDENTITY_CORRUPT'}
+}
+function Assert-AiwEvidenceNativeFacts($Record,$Group,$Artifacts,[switch]$AllowPartial,$OriginalSuite=$null){
  $null=Get-AiwEvidenceLoadedIdentity
  Assert-AiwEvidenceFields $Record @('schemaVersion','executionKind','groupId','phase','before','after','processResult','startedUtc','endedUtc','outcome','cases','completion','cleanup','validatorIdentity','omissions','producer','executionContext','behaviorContractIdentity') 'executed2'
  if($Record.schemaVersion-isnot[int]-and$Record.schemaVersion-isnot[long]-or$Record.schemaVersion-ne2-or$Record.executionKind-cne'EXECUTED'-or$Record.groupId-cne$Group.id-or$Record.phase-cne$Group.phase){throw 'RELEASE_CURRENT_EXECUTION_SCALAR'}
@@ -154,14 +184,12 @@ function Assert-AiwEvidenceNativeRecord($Record,$Group,$Snapshot,$Artifacts,[swi
  Assert-AiwEvidenceReference $Record.producer.moduleRef 'producer-module'
  if($Record.producer.name-cne'TestGroupEvidence'-or($Record.producer.contractVersion-isnot[int]-and$Record.producer.contractVersion-isnot[long])-or$Record.producer.contractVersion-ne2-or$Record.producer.moduleRef.identity-cne$Record.validatorIdentity){throw 'TEST_PRODUCER_PROVENANCE'}
  Assert-AiwEvidenceReference $Record.processResult 'process-ref'
- foreach($snapshotValue in @($Record.before,$Record.after,$Snapshot)){Assert-AiwEvidenceFields $snapshotValue @('facts','identity') 'snapshot';if((Get-AiwEvidenceValueIdentity $snapshotValue.facts)-cne$snapshotValue.identity){throw 'TEST_SNAPSHOT_CORRUPT'}}
- foreach($snapshotValue in @($Record.before,$Record.after,$Snapshot)){Assert-AiwEvidenceDeclaredInputs $snapshotValue.facts $Group}
- foreach($snapshotValue in @($Record.before,$Record.after,$Snapshot)){if($snapshotValue.facts.behaviorContractIdentity-cne(Get-AiwEvidenceBehaviorIdentity $snapshotValue.facts)){throw 'TEST_BEHAVIOR_IDENTITY_CORRUPT'}}
- if($Record.before.identity-cne$Record.after.identity-or$Record.behaviorContractIdentity-cne(Get-AiwEvidenceBehaviorIdentity $Record.after.facts)-or$Record.behaviorContractIdentity-cne(Get-AiwEvidenceBehaviorIdentity $Snapshot.facts)){throw 'TEST_RECORD_FAILED_PARTIAL_OR_INPUT_DRIFT'}
+ Assert-AiwEvidenceSnapshot $Record.before $Group
+ Assert-AiwEvidenceSnapshot $Record.after $Group
+ if($Record.before.identity-cne$Record.after.identity-or$Record.behaviorContractIdentity-cne$Record.after.facts.behaviorContractIdentity){throw 'TEST_RECORD_FAILED_PARTIAL_OR_INPUT_DRIFT'}
  if((Get-AiwEvidenceValueIdentity $Record.executionContext)-cne(Get-AiwEvidenceValueIdentity $Record.after.facts.executionContext)){throw 'TEST_EXECUTION_CONTEXT_BINDING'}
  Assert-AiwEvidenceExecutionContext $Record.executionContext $Artifacts.descriptorBytes
- Assert-AiwEvidenceExecutionContext $Snapshot.facts.executionContext $Artifacts.currentDescriptorBytes
- if(($Record.outcome-cne'PASS'-and(-not$AllowPartial-or$ForReuse-or$Record.outcome-cne'PARTIAL'))-or($ForReuse-and($Group.alwaysFresh-or@($Group.unknownDependencies).Count))){throw 'TEST_FRESH_REQUIRED_OR_NOT_PASS'}
+ if($Record.outcome-cne'PASS'-and(-not$AllowPartial-or$Record.outcome-cne'PARTIAL')){throw 'TEST_FRESH_REQUIRED_OR_NOT_PASS'}
  $p=$Artifacts.process;$l=$Artifacts.launch
  Assert-AiwEvidenceFields $p @('runId','status','command','pid','creationUtc','executor','directConsumer','startedUtc','processExitedUtc','endedUtc','exitCode','stdout','stderr','timing','cancellation','streamOrdering','schemaVersion','environment') 'process'
  Assert-AiwEvidenceFields $p.command @('executable','executableIdentity','executableVersion','arguments','cwd') 'native-command'
@@ -180,7 +208,7 @@ function Assert-AiwEvidenceNativeRecord($Record,$Group,$Snapshot,$Artifacts,[swi
  if(-not$cases.Count-or(Get-AiwEvidenceValueIdentity $cases)-cne(Get-AiwEvidenceValueIdentity @($Record.cases))){throw 'RELEASE_CASE_RAW_MISMATCH'}
  foreach($id in $Group.requiredCaseIds){if($id-cnotin@($Record.cases.name)){throw 'RELEASE_REQUIRED_CASE_MISSING'}}
  $omissions=@(@($stdout,$stderr)|ForEach-Object{$_-split'\r?\n'}|Where-Object{$_-cmatch'^(SKIP|NOT_RUN|UNKNOWN)\|'-and-not($Group.id-cin@('integration.surface','integration.full-source')-and$_-ceq'NOT_RUN|historical-baseline-executable-regression|reason=retired-executable-suite-history-only')})
- if((Get-AiwEvidenceValueIdentity $omissions)-cne(Get-AiwEvidenceValueIdentity @($Record.omissions))-or($omissions.Count-and($ForReuse-or-not$AllowPartial-or$Record.outcome-cne'PARTIAL'))-or(-not$omissions.Count-and$Record.outcome-cne'PASS')){throw 'TEST_SKIPPED_OR_UNKNOWN_COVERAGE'}
+ if((Get-AiwEvidenceValueIdentity $omissions)-cne(Get-AiwEvidenceValueIdentity @($Record.omissions))-or($omissions.Count-and(-not$AllowPartial-or$Record.outcome-cne'PARTIAL'))-or(-not$omissions.Count-and$Record.outcome-cne'PASS')){throw 'TEST_SKIPPED_OR_UNKNOWN_COVERAGE'}
  $terminal=@($stdout-split'\r?\n'|Where-Object{$_-cmatch$Group.completionPattern});if($terminal.Count-ne1-or$Record.completion-cne$terminal[0]){throw 'RELEASE_GROUP_COMPLETION'}
  Assert-AiwEvidenceFields $Record.cleanup @('status','root','entries','workers') 'cleanup';if($Record.cleanup.status-cne'CLEAN'-or@($Record.cleanup.entries).Count-or@($Record.cleanup.workers).Count){throw 'RELEASE_CLEANUP_DIRTY'}
  $start=Get-AiwEvidenceTime $Record.startedUtc 'record-start';$end=Get-AiwEvidenceTime $Record.endedUtc 'record-end';$created=Get-AiwEvidenceTime $p.creationUtc 'process-creation';$exited=Get-AiwEvidenceTime $p.processExitedUtc 'process-exit'
@@ -189,8 +217,20 @@ function Assert-AiwEvidenceNativeRecord($Record,$Group,$Snapshot,$Artifacts,[swi
  if(@($phase|Where-Object{$_.runId-cne$p.runId-or$_.groupId-cne$Group.id}).Count-or@($phase|Where-Object{$_.event-ceq'START'-and$_.step-ceq'native-start'}).Count-ne1-or@($phase|Where-Object{$_.event-ceq'END'-and$_.step-ceq'exit-drain'-and$_.data.exitCode-eq0}).Count-ne1){throw 'RELEASE_PHASE_RUN_BINDING'}
  $previous=$start
  foreach($event in $phase){Assert-AiwEvidenceFields $event @('utc','runId','groupId','step','event','data') 'phase-event';$at=Get-AiwEvidenceTime $event.utc 'phase-event';if($at-lt$previous-or$at-gt$end){throw 'RELEASE_PHASE_RUN_BINDING'};$previous=$at}
- if($Suite-and-not$ForReuse){if($start-lt(Get-AiwEvidenceTime $Suite.startedUtc 'suite-start')-or$end-gt(Get-AiwEvidenceTime $Suite.endedUtc 'suite-end')){throw 'RELEASE_CURRENT_EXECUTION_WINDOW'}}
+ if($OriginalSuite){if($start-lt(Get-AiwEvidenceTime $OriginalSuite.startedUtc 'suite-start')-or$end-gt(Get-AiwEvidenceTime $OriginalSuite.endedUtc 'suite-end')){throw 'RELEASE_CURRENT_EXECUTION_WINDOW'}}
  $null=Get-AiwEvidenceLoadedIdentity
+ return $true
+}
+function Test-AiwEvidenceCurrentApplicability($Record,$Group,$Snapshot,$DescriptorBytes){
+ Assert-AiwEvidenceSnapshot $Snapshot $Group
+ Assert-AiwEvidenceExecutionContext $Snapshot.facts.executionContext $DescriptorBytes
+ return $Record.behaviorContractIdentity-ceq$Snapshot.facts.behaviorContractIdentity
+}
+function Assert-AiwEvidenceNativeRecord($Record,$Group,$Snapshot,$Artifacts,[switch]$ForReuse,[switch]$AllowPartial,$Suite=$null){
+ if($ForReuse-and($Group.alwaysFresh-or@($Group.unknownDependencies).Count)){throw 'TEST_FRESH_REQUIRED_OR_NOT_PASS'}
+ $originalSuite=if(-not$ForReuse){$Suite}
+ $null=Assert-AiwEvidenceNativeFacts $Record $Group $Artifacts -AllowPartial:($AllowPartial-and-not$ForReuse) -OriginalSuite $originalSuite
+ if(-not(Test-AiwEvidenceCurrentApplicability $Record $Group $Snapshot $Artifacts.currentDescriptorBytes)){throw 'TEST_RECORD_FAILED_PARTIAL_OR_INPUT_DRIFT'}
  return $true
 }
 function Assert-AiwEvidenceRevalidation($Validation,$Original,$Group,$Snapshot,$Suite){
@@ -201,10 +241,10 @@ function Assert-AiwEvidenceRevalidation($Validation,$Original,$Group,$Snapshot,$
  if($Validation.groupId-isnot[string]){throw 'RELEASE_STRING|revalidation|groupId'}
  if(($Validation.schemaVersion-isnot[int]-and$Validation.schemaVersion-isnot[long])-or$Validation.schemaVersion-ne2-or$Validation.executionKind-cne'REVALIDATED'-or$Validation.outcome-cne'PASS'-or$Validation.groupId-cne$Group.id-or$Validation.reason-cne'Original native facts verified against current behavior contract'-or($Validation.originalRecordSchemaVersion-isnot[int]-and$Validation.originalRecordSchemaVersion-isnot[long])-or$Validation.originalRecordSchemaVersion-ne2-or$Validation.derivations-isnot[Array]){throw 'RELEASE_CURRENT_REVALIDATION_SCALAR'}
  if($Group.alwaysFresh-or@($Group.unknownDependencies).Count){throw 'RELEASE_CURRENT_REVALIDATION_FRESH_REQUIRED'}
- if($Validation.original.path-cne$Original.path-or$Validation.original.identity-cne$Original.identity-or$Validation.currentSnapshot.identity-cne$Snapshot.identity-or(Get-AiwEvidenceValueIdentity $Validation.currentSnapshot.facts)-cne$Snapshot.identity-or$Validation.validatorIdentity-cne$Snapshot.facts.verifierIdentity-or$Validation.verifierRef.identity-cne$Snapshot.facts.verifierIdentity-or$Validation.verifiedBehaviorIdentity-cne(Get-AiwEvidenceBehaviorIdentity $Snapshot.facts)){throw 'RELEASE_CURRENT_REVALIDATION_INPUT_DRIFT'}
+ if($Validation.original.path-cne$Original.path-or$Validation.original.identity-cne$Original.identity-or$Validation.currentSnapshot.identity-cne$Snapshot.identity-or(Get-AiwEvidenceValueIdentity $Validation.currentSnapshot.facts)-cne$Snapshot.identity-or$Validation.validatorIdentity-cne$Snapshot.facts.verifierIdentity-or$Validation.verifierRef.identity-cne$Snapshot.facts.verifierIdentity-or$Validation.verifiedBehaviorIdentity-cne(Get-AiwEvidenceBehaviorIdentity $Snapshot.facts $Group)){throw 'RELEASE_CURRENT_REVALIDATION_INPUT_DRIFT'}
  if($Validation.derivations.Count){throw 'TEST_UNSUPPORTED_DERIVATION'}
  $checked=Get-AiwEvidenceTime $Validation.checkedUtc 'revalidation-checked'
  if($Suite-and($checked-lt(Get-AiwEvidenceTime $Suite.startedUtc 'suite-start')-or$checked-gt(Get-AiwEvidenceTime $Suite.endedUtc 'suite-end'))){throw 'RELEASE_CURRENT_REVALIDATION_WINDOW'}
  $null=Get-AiwEvidenceLoadedIdentity
 }
-Export-ModuleMember -Function Get-AiwEvidenceLoadedIdentity,Get-AiwEvidenceDependencyPaths,Assert-AiwEvidenceDeclaredInputs,Assert-AiwEvidenceSnapshotInputs,Restore-AiwEvidenceContextStrings,Get-AiwEvidenceGroupBehaviorIdentity,Assert-AiwEvidenceFields,Get-AiwEvidenceCanonical,Get-AiwEvidenceValueIdentity,Get-AiwEvidenceByteIdentity,Get-AiwEvidenceTime,Assert-AiwEvidenceReference,Assert-AiwEvidenceExecutionContext,Get-AiwEvidenceBehaviorIdentity,Assert-AiwEvidenceNativeRecord,Assert-AiwEvidenceRevalidation
+Export-ModuleMember -Function Get-AiwEvidenceGroupArguments,Get-AiwEvidenceLoadedIdentity,Get-AiwEvidenceDependencyPaths,Assert-AiwEvidenceDeclaredInputs,Assert-AiwEvidenceSnapshotInputs,Restore-AiwEvidenceContextStrings,Get-AiwEvidenceGroupBehaviorIdentity,Assert-AiwEvidenceFields,Get-AiwEvidenceCanonical,Get-AiwEvidenceValueIdentity,Get-AiwEvidenceByteIdentity,Get-AiwEvidenceTime,Assert-AiwEvidenceReference,Assert-AiwEvidenceExecutionContext,Get-AiwEvidenceBehaviorIdentity,Assert-AiwEvidenceNativeFacts,Test-AiwEvidenceCurrentApplicability,Assert-AiwEvidenceNativeRecord,Assert-AiwEvidenceRevalidation

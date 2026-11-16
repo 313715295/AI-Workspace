@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "AuthorityContext strict1/2 historical and3 control/object context",
+  "title": "AuthorityContext strict1/2/3 historical and4 current operation context",
   "oneOf": [
     {
       "type": "object",
@@ -773,6 +773,1515 @@
           "continuationReceiptIdentity"
         ]
       }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "projectId",
+        "projectRoot",
+        "repositoryGitTop",
+        "frameworkVersion",
+        "frameworkSealIdentity",
+        "controllerIdentity",
+        "taskIdentity",
+        "taskActor",
+        "actor",
+        "role",
+        "phase",
+        "profile",
+        "exactScope",
+        "forbiddenScope",
+        "protectedScope",
+        "authorizationIdentity",
+        "authorizedActions",
+        "observedCapabilities",
+        "projectConfigIdentity",
+        "correctionsIdentity",
+        "policyIdentity",
+        "userDecision",
+        "recoveryState",
+        "hostEnforcementGrade",
+        "contextType",
+        "contextLocator",
+        "taskId",
+        "taskOwner",
+        "controlRoot",
+        "objectRoot",
+        "repositoryId",
+        "executionContext",
+        "context"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 4
+        },
+        "projectId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "projectRoot": {
+          "type": "string",
+          "minLength": 1
+        },
+        "repositoryGitTop": {
+          "type": "string",
+          "minLength": 1
+        },
+        "frameworkVersion": {
+          "const": "2.0.0"
+        },
+        "frameworkSealIdentity": {
+          "type": "string",
+          "minLength": 1
+        },
+        "controllerIdentity": {
+          "type": "string",
+          "pattern": "^(MISSING|[0-9]+\\|[A-F0-9]{64})$"
+        },
+        "taskIdentity": {
+          "type": "string",
+          "pattern": "^(?:NOT_APPLICABLE|\\d+\\|[A-F0-9]{64})$"
+        },
+        "taskActor": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actor": {
+          "type": "string",
+          "minLength": 1
+        },
+        "role": {
+          "enum": [
+            "CONTROLLER",
+            "TASK_OWNER",
+            "EXECUTOR",
+            "REVIEWER",
+            "FRAMEWORK_MAINTAINER"
+          ]
+        },
+        "phase": {
+          "enum": [
+            "DISCOVER",
+            "PLAN",
+            "IMPLEMENT",
+            "VERIFY",
+            "REVIEW",
+            "GIT",
+            "EXTERNAL",
+            "RECOVER"
+          ]
+        },
+        "profile": {
+          "enum": [
+            "MICRO",
+            "STANDARD",
+            "CRITICAL"
+          ]
+        },
+        "exactScope": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 512
+          }
+        },
+        "forbiddenScope": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 512
+          }
+        },
+        "protectedScope": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 512
+          }
+        },
+        "authorizationIdentity": {
+          "type": "string",
+          "pattern": "^(NOT_REQUIRED|[0-9]+\\|[A-F0-9]{64})$"
+        },
+        "authorizedActions": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "observedCapabilities": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "maxLength": 128
+          }
+        },
+        "projectConfigIdentity": {
+          "type": "string",
+          "pattern": "^[0-9]+\\|[A-F0-9]{64}$"
+        },
+        "correctionsIdentity": {
+          "type": "string",
+          "pattern": "^(MISSING|[0-9]+\\|[A-F0-9]{64})$"
+        },
+        "policyIdentity": {
+          "type": "string",
+          "pattern": "^(MISSING|[0-9]+\\|[A-F0-9]{64})$"
+        },
+        "userDecision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "recoveryState": {
+          "enum": [
+            "FULL_COLD",
+            "WARM",
+            "CURRENT",
+            "UNKNOWN"
+          ]
+        },
+        "hostEnforcementGrade": {
+          "enum": [
+            "HOST_ENFORCED",
+            "FRAMEWORK_GATED",
+            "INSTRUCTION_BOUND"
+          ]
+        },
+        "contextType": {
+          "enum": [
+            "TASK",
+            "PROJECT_READ_ONLY",
+            "PROJECT_EXTERNAL",
+            "PROJECT_WORK"
+          ]
+        },
+        "contextLocator": {
+          "type": "string",
+          "minLength": 1
+        },
+        "taskId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "taskOwner": {
+          "type": "string",
+          "minLength": 1
+        },
+        "continuationReceiptPath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "continuationReceiptIdentity": {
+          "type": "string",
+          "minLength": 1
+        },
+        "continuationStepIndex": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "controlRoot": {
+          "type": "string",
+          "pattern": "^(?:[A-Za-z]:[\\\\/]|/).+"
+        },
+        "objectRoot": {
+          "type": "string",
+          "pattern": "^(?:[A-Za-z]:[\\\\/]|/).+"
+        },
+        "repositoryId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "executionContext": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schemaVersion",
+            "targetKind",
+            "controlRoot",
+            "executionRoot",
+            "executionTargetRef",
+            "targetObservation"
+          ],
+          "properties": {
+            "schemaVersion": {
+              "const": 1
+            },
+            "targetKind": {
+              "enum": [
+                "SAME_ROOT",
+                "GIT_WORKTREE"
+              ]
+            },
+            "controlRoot": {
+              "type": "string",
+              "pattern": "^(?:[A-Za-z]:[\\\\/]|/).+"
+            },
+            "executionRoot": {
+              "type": "string",
+              "pattern": "^(?:[A-Za-z]:[\\\\/]|/).+"
+            },
+            "executionTargetRef": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "path",
+                    "identity"
+                  ],
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "identity": {
+                      "type": "string",
+                      "pattern": "^\\d+\\|[A-F0-9]{64}$"
+                    }
+                  }
+                }
+              ]
+            },
+            "targetObservation": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "schemaVersion",
+                    "descriptorIdentity",
+                    "commonGitDir",
+                    "worktreeGitDir",
+                    "gitTop",
+                    "branch",
+                    "head",
+                    "observedUtc",
+                    "overridesAbsent"
+                  ],
+                  "properties": {
+                    "schemaVersion": {
+                      "const": 1
+                    },
+                    "descriptorIdentity": {
+                      "type": "string",
+                      "pattern": "^\\d+\\|[A-F0-9]{64}$"
+                    },
+                    "commonGitDir": {
+                      "type": "string",
+                      "pattern": "^(?:[A-Za-z]:[\\\\/]|/).+"
+                    },
+                    "worktreeGitDir": {
+                      "type": "string",
+                      "pattern": "^(?:[A-Za-z]:[\\\\/]|/).+"
+                    },
+                    "gitTop": {
+                      "type": "string",
+                      "pattern": "^(?:[A-Za-z]:[\\\\/]|/).+"
+                    },
+                    "branch": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "head": {
+                      "type": "string",
+                      "pattern": "^[0-9a-fA-F]{40}(?:[0-9a-fA-F]{24})?$"
+                    },
+                    "observedUtc": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "overridesAbsent": {
+                      "const": true
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "context": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "workRoute",
+                "lifecycle"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "TASK"
+                },
+                "workRoute": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "actor",
+                    "role",
+                    "phase"
+                  ],
+                  "properties": {
+                    "actor": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "role": {
+                      "enum": [
+                        "CONTROLLER",
+                        "TASK_OWNER",
+                        "EXECUTOR",
+                        "REVIEWER",
+                        "FRAMEWORK_MAINTAINER"
+                      ]
+                    },
+                    "phase": {
+                      "enum": [
+                        "DISCOVER",
+                        "PLAN",
+                        "IMPLEMENT",
+                        "VERIFY",
+                        "REVIEW",
+                        "GIT",
+                        "EXTERNAL",
+                        "RECOVER"
+                      ]
+                    }
+                  }
+                },
+                "lifecycle": {
+                  "enum": [
+                    "ACTIVE",
+                    "CLOSED"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "readOnlyContext"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "PROJECT_READ_ONLY"
+                },
+                "readOnlyContext": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "sessionId",
+                    "requestId",
+                    "role",
+                    "phase",
+                    "profile"
+                  ],
+                  "properties": {
+                    "sessionId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "requestId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "role": {
+                      "enum": [
+                        "CONTROLLER",
+                        "TASK_OWNER",
+                        "EXECUTOR",
+                        "REVIEWER",
+                        "FRAMEWORK_MAINTAINER"
+                      ]
+                    },
+                    "phase": {
+                      "enum": [
+                        "DISCOVER",
+                        "PLAN",
+                        "IMPLEMENT",
+                        "VERIFY",
+                        "REVIEW",
+                        "GIT",
+                        "EXTERNAL",
+                        "RECOVER"
+                      ]
+                    },
+                    "profile": {
+                      "enum": [
+                        "MICRO",
+                        "STANDARD",
+                        "CRITICAL"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "requestContext"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "PROJECT_EXTERNAL"
+                },
+                "requestContext": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "sessionId",
+                    "requestId",
+                    "role",
+                    "phase",
+                    "profile"
+                  ],
+                  "properties": {
+                    "sessionId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "requestId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "role": {
+                      "enum": [
+                        "CONTROLLER",
+                        "TASK_OWNER",
+                        "EXECUTOR",
+                        "REVIEWER",
+                        "FRAMEWORK_MAINTAINER"
+                      ]
+                    },
+                    "phase": {
+                      "enum": [
+                        "DISCOVER",
+                        "PLAN",
+                        "IMPLEMENT",
+                        "VERIFY",
+                        "REVIEW",
+                        "GIT",
+                        "EXTERNAL",
+                        "RECOVER"
+                      ]
+                    },
+                    "profile": {
+                      "enum": [
+                        "MICRO",
+                        "STANDARD",
+                        "CRITICAL"
+                      ]
+                    },
+                    "subject": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "requestContext"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "PROJECT_WORK"
+                },
+                "requestContext": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "requestRef",
+                    "owner",
+                    "actor",
+                    "role",
+                    "phase",
+                    "profile",
+                    "subject",
+                    "requirementsRef",
+                    "resultConsumer"
+                  ],
+                  "properties": {
+                    "requestRef": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "kind",
+                            "path",
+                            "identity"
+                          ],
+                          "properties": {
+                            "kind": {
+                              "const": "FILE"
+                            },
+                            "path": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "identity": {
+                              "type": "string",
+                              "pattern": "^\\d+\\|[A-F0-9]{64}$"
+                            }
+                          }
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "kind",
+                            "hostId",
+                            "threadId",
+                            "turnId",
+                            "messageId"
+                          ],
+                          "properties": {
+                            "kind": {
+                              "const": "HOST_MESSAGE"
+                            },
+                            "hostId": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "threadId": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "turnId": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "messageId": {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "owner": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "actor": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "role": {
+                      "enum": [
+                        "CONTROLLER",
+                        "TASK_OWNER",
+                        "EXECUTOR",
+                        "REVIEWER",
+                        "FRAMEWORK_MAINTAINER"
+                      ]
+                    },
+                    "phase": {
+                      "enum": [
+                        "DISCOVER",
+                        "PLAN",
+                        "IMPLEMENT",
+                        "VERIFY",
+                        "REVIEW",
+                        "GIT",
+                        "EXTERNAL",
+                        "RECOVER"
+                      ]
+                    },
+                    "profile": {
+                      "enum": [
+                        "MICRO",
+                        "STANDARD",
+                        "CRITICAL"
+                      ]
+                    },
+                    "subject": {
+                      "type": "object",
+                      "required": [
+                        "repositoryId",
+                        "exactPaths",
+                        "facets"
+                      ],
+                      "properties": {
+                        "exactPaths": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "minItems": 1,
+                          "uniqueItems": true
+                        },
+                        "repositoryId": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "facets": {
+                          "type": "object",
+                          "required": [
+                            "domain",
+                            "workType",
+                            "deliverableType"
+                          ],
+                          "properties": {
+                            "deliverableType": {
+                              "type": "object",
+                              "required": [
+                                "state",
+                                "values"
+                              ],
+                              "properties": {
+                                "state": {
+                                  "const": "KNOWN"
+                                },
+                                "values": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "minItems": 1,
+                                  "uniqueItems": true
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            "domain": {
+                              "type": "object",
+                              "required": [
+                                "state",
+                                "values"
+                              ],
+                              "properties": {
+                                "state": {
+                                  "const": "KNOWN"
+                                },
+                                "values": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "minItems": 1,
+                                  "uniqueItems": true
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            "workType": {
+                              "type": "object",
+                              "required": [
+                                "state",
+                                "values"
+                              ],
+                              "properties": {
+                                "state": {
+                                  "const": "KNOWN"
+                                },
+                                "values": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "minItems": 1,
+                                  "uniqueItems": true
+                                }
+                              },
+                              "additionalProperties": false
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "requirementsRef": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "path",
+                        "identity"
+                      ],
+                      "properties": {
+                        "path": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "identity": {
+                          "type": "string",
+                          "pattern": "^\\d+\\|[A-F0-9]{64}$"
+                        },
+                        "section": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9:._-]*$"
+                        }
+                      }
+                    },
+                    "resultConsumer": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "channel",
+                            "recipient"
+                          ],
+                          "properties": {
+                            "channel": {
+                              "const": "NATIVE_RESPONSE"
+                            },
+                            "recipient": {
+                              "const": "USER"
+                            }
+                          }
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "channel",
+                            "recipient"
+                          ],
+                          "properties": {
+                            "channel": {
+                              "const": "TASK_MESSAGE"
+                            },
+                            "recipient": {
+                              "type": "string",
+                              "minLength": 1,
+                              "not": {
+                                "enum": [
+                                  "USER",
+                                  "UNKNOWN",
+                                  "NOT_APPLICABLE",
+                                  "NOT_REQUIRED",
+                                  "UNBOUND_RECEIVER",
+                                  "DEFERRED_VISIBLE_REVIEWER"
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "acceptancePlan": {
+                      "required": [
+                        "schemaVersion",
+                        "stages"
+                      ],
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "schemaVersion": {
+                          "enum": [
+                            1,
+                            2
+                          ]
+                        },
+                        "stages": {
+                          "maxItems": 128,
+                          "minItems": 0,
+                          "items": {
+                            "required": [
+                              "id",
+                              "kind",
+                              "requiredBy",
+                              "dependsOn",
+                              "candidateRef",
+                              "evidenceRefs"
+                            ],
+                            "additionalProperties": false,
+                            "properties": {
+                              "evidenceConsumption": {
+                                "$ref": "#/$defs/evidenceConsumption"
+                              },
+                              "kind": {
+                                "enum": [
+                                  "DESIGN",
+                                  "DESIGN_REVIEW",
+                                  "SELF_CHECK",
+                                  "RESULT_REVIEW",
+                                  "RESULT_ACCEPT",
+                                  "USER_DECISION"
+                                ]
+                              },
+                              "candidateRef": {
+                                "type": "array",
+                                "items": {
+                                  "$ref": "#/$defs/candidateRef"
+                                }
+                              },
+                              "id": {
+                                "type": "string",
+                                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                              },
+                              "requiredBy": {
+                                "$ref": "#/$defs/requirementsRef"
+                              },
+                              "evidenceRefs": {
+                                "type": "array",
+                                "items": {
+                                  "$ref": "#/$defs/evidenceRef"
+                                }
+                              },
+                              "dependsOn": {
+                                "uniqueItems": true,
+                                "items": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "type": "array"
+                              }
+                            },
+                            "type": "object",
+                            "allOf": [
+                              {
+                                "if": {
+                                  "properties": {
+                                    "kind": {
+                                      "enum": [
+                                        "DESIGN",
+                                        "USER_DECISION"
+                                      ]
+                                    }
+                                  }
+                                },
+                                "then": {
+                                  "not": {
+                                    "required": [
+                                      "evidenceConsumption"
+                                    ]
+                                  }
+                                }
+                              },
+                              {
+                                "if": {
+                                  "properties": {
+                                    "kind": {
+                                      "const": "USER_DECISION"
+                                    }
+                                  }
+                                },
+                                "then": {
+                                  "properties": {
+                                    "candidateRef": {
+                                      "items": {
+                                        "$ref": "#/$defs/objectRef"
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            ]
+                          },
+                          "type": "array"
+                        },
+                        "qualityBinding": {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "required": [
+                                "schemaVersion",
+                                "policyRef",
+                                "subject",
+                                "effectiveStages"
+                              ],
+                              "properties": {
+                                "effectiveStages": {
+                                  "type": "array",
+                                  "items": {
+                                    "enum": [
+                                      "SELF_CHECK",
+                                      "RESULT_REVIEW",
+                                      "RESULT_ACCEPT"
+                                    ]
+                                  },
+                                  "uniqueItems": true
+                                },
+                                "policyRef": {
+                                  "type": "object",
+                                  "required": [
+                                    "path",
+                                    "identity"
+                                  ],
+                                  "properties": {
+                                    "identity": {
+                                      "type": "string",
+                                      "pattern": "^\\d+\\|[A-F0-9]{64}$"
+                                    },
+                                    "path": {
+                                      "const": ".ai-workspace/process-policy.json"
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                },
+                                "schemaVersion": {
+                                  "const": 1
+                                },
+                                "subject": {
+                                  "type": "object",
+                                  "required": [
+                                    "repositoryId",
+                                    "exactPaths",
+                                    "facets"
+                                  ],
+                                  "properties": {
+                                    "exactPaths": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "minLength": 1
+                                      },
+                                      "minItems": 1,
+                                      "uniqueItems": true
+                                    },
+                                    "repositoryId": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    },
+                                    "facets": {
+                                      "type": "object",
+                                      "required": [
+                                        "domain",
+                                        "deliverableType"
+                                      ],
+                                      "properties": {
+                                        "deliverableType": {
+                                          "type": "object",
+                                          "required": [
+                                            "state",
+                                            "values"
+                                          ],
+                                          "properties": {
+                                            "state": {
+                                              "const": "KNOWN"
+                                            },
+                                            "values": {
+                                              "type": "array",
+                                              "items": {
+                                                "type": "string",
+                                                "minLength": 1
+                                              },
+                                              "minItems": 1,
+                                              "uniqueItems": true
+                                            }
+                                          },
+                                          "additionalProperties": false
+                                        },
+                                        "domain": {
+                                          "type": "object",
+                                          "required": [
+                                            "state",
+                                            "values"
+                                          ],
+                                          "properties": {
+                                            "state": {
+                                              "const": "KNOWN"
+                                            },
+                                            "values": {
+                                              "type": "array",
+                                              "items": {
+                                                "type": "string",
+                                                "minLength": 1
+                                              },
+                                              "minItems": 1,
+                                              "uniqueItems": true
+                                            }
+                                          },
+                                          "additionalProperties": false
+                                        }
+                                      },
+                                      "additionalProperties": false
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "required": [
+                                "schemaVersion",
+                                "policyRef",
+                                "subject",
+                                "effectiveStages"
+                              ],
+                              "properties": {
+                                "effectiveStages": {
+                                  "type": "array",
+                                  "items": {
+                                    "enum": [
+                                      "SELF_CHECK",
+                                      "RESULT_REVIEW",
+                                      "RESULT_ACCEPT"
+                                    ]
+                                  },
+                                  "uniqueItems": true
+                                },
+                                "policyRef": {
+                                  "type": "object",
+                                  "required": [
+                                    "path",
+                                    "identity"
+                                  ],
+                                  "properties": {
+                                    "identity": {
+                                      "type": "string",
+                                      "pattern": "^\\d+\\|[A-F0-9]{64}$"
+                                    },
+                                    "path": {
+                                      "const": ".ai-workspace/process-policy.json"
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                },
+                                "schemaVersion": {
+                                  "const": 2
+                                },
+                                "subject": {
+                                  "type": "object",
+                                  "required": [
+                                    "repositoryId",
+                                    "exactPaths",
+                                    "facets"
+                                  ],
+                                  "properties": {
+                                    "exactPaths": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "minLength": 1
+                                      },
+                                      "minItems": 1,
+                                      "uniqueItems": true
+                                    },
+                                    "repositoryId": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    },
+                                    "facets": {
+                                      "type": "object",
+                                      "required": [
+                                        "domain",
+                                        "workType",
+                                        "deliverableType"
+                                      ],
+                                      "properties": {
+                                        "deliverableType": {
+                                          "type": "object",
+                                          "required": [
+                                            "state",
+                                            "values"
+                                          ],
+                                          "properties": {
+                                            "state": {
+                                              "const": "KNOWN"
+                                            },
+                                            "values": {
+                                              "type": "array",
+                                              "items": {
+                                                "type": "string",
+                                                "minLength": 1
+                                              },
+                                              "minItems": 1,
+                                              "uniqueItems": true
+                                            }
+                                          },
+                                          "additionalProperties": false
+                                        },
+                                        "domain": {
+                                          "type": "object",
+                                          "required": [
+                                            "state",
+                                            "values"
+                                          ],
+                                          "properties": {
+                                            "state": {
+                                              "const": "KNOWN"
+                                            },
+                                            "values": {
+                                              "type": "array",
+                                              "items": {
+                                                "type": "string",
+                                                "minLength": 1
+                                              },
+                                              "minItems": 1,
+                                              "uniqueItems": true
+                                            }
+                                          },
+                                          "additionalProperties": false
+                                        },
+                                        "workType": {
+                                          "type": "object",
+                                          "required": [
+                                            "state",
+                                            "values"
+                                          ],
+                                          "properties": {
+                                            "state": {
+                                              "const": "KNOWN"
+                                            },
+                                            "values": {
+                                              "type": "array",
+                                              "items": {
+                                                "type": "string",
+                                                "minLength": 1
+                                              },
+                                              "minItems": 1,
+                                              "uniqueItems": true
+                                            }
+                                          },
+                                          "additionalProperties": false
+                                        }
+                                      },
+                                      "additionalProperties": false
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                }
+                              },
+                              "additionalProperties": false
+                            }
+                          ]
+                        }
+                      },
+                      "allOf": [
+                        {
+                          "if": {
+                            "properties": {
+                              "schemaVersion": {
+                                "const": 1
+                              }
+                            }
+                          },
+                          "else": {
+                            "required": [
+                              "qualityBinding"
+                            ]
+                          },
+                          "then": {
+                            "not": {
+                              "required": [
+                                "qualityBinding"
+                              ]
+                            },
+                            "properties": {
+                              "stages": {
+                                "minItems": 1
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "userDecisionRef": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "kind",
+                            "path",
+                            "identity"
+                          ],
+                          "properties": {
+                            "kind": {
+                              "const": "FILE"
+                            },
+                            "path": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "identity": {
+                              "type": "string",
+                              "pattern": "^\\d+\\|[A-F0-9]{64}$"
+                            }
+                          }
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "kind",
+                            "hostId",
+                            "threadId",
+                            "turnId",
+                            "messageId"
+                          ],
+                          "properties": {
+                            "kind": {
+                              "const": "HOST_MESSAGE"
+                            },
+                            "hostId": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "threadId": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "turnId": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "messageId": {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "predecessorRef": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "kind",
+                        "closureFinalize"
+                      ],
+                      "properties": {
+                        "kind": {
+                          "const": "TASK_SUPERSEDED"
+                        },
+                        "closureFinalize": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "inputRef",
+                            "resultRef"
+                          ],
+                          "properties": {
+                            "inputRef": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": [
+                                "path",
+                                "identity"
+                              ],
+                              "properties": {
+                                "path": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "identity": {
+                                  "type": "string",
+                                  "pattern": "^\\d+\\|[A-F0-9]{64}$"
+                                }
+                              }
+                            },
+                            "resultRef": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": [
+                                "path",
+                                "identity"
+                              ],
+                              "properties": {
+                                "path": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "identity": {
+                                  "type": "string",
+                                  "pattern": "^\\d+\\|[A-F0-9]{64}$"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "dependentRequired": {
+        "continuationReceiptPath": [
+          "continuationReceiptIdentity",
+          "continuationStepIndex"
+        ],
+        "continuationReceiptIdentity": [
+          "continuationReceiptPath",
+          "continuationStepIndex"
+        ],
+        "continuationStepIndex": [
+          "continuationReceiptPath",
+          "continuationReceiptIdentity"
+        ]
+      }
     }
-  ]
+  ],
+  "$defs": {
+    "evidenceConsumption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "purpose",
+        "originalFinalize"
+      ],
+      "properties": {
+        "purpose": {
+          "enum": [
+            "CURRENT_CANDIDATE",
+            "HISTORICAL_SUCCESS"
+          ]
+        },
+        "originalFinalize": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "inputRef",
+              "resultRef"
+            ],
+            "properties": {
+              "inputRef": {
+                "$ref": "#/$defs/objectRef"
+              },
+              "resultRef": {
+                "$ref": "#/$defs/objectRef"
+              }
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "purpose": {
+                "const": "CURRENT_CANDIDATE"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "originalFinalize": {
+                "maxItems": 0
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "originalFinalize": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "objectRef": {
+      "required": [
+        "path",
+        "identity"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "identity": {
+          "type": "string",
+          "pattern": "^\\d+\\|[A-F0-9]{64}$"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "type": "object"
+    },
+    "requirementsRef": {
+      "required": [
+        "path",
+        "identity"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "identity": {
+          "type": "string",
+          "pattern": "^\\d+\\|[A-F0-9]{64}$"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "section": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9:._-]*$"
+        }
+      },
+      "type": "object"
+    },
+    "evidenceRef": {
+      "required": [
+        "path",
+        "identity",
+        "kind"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "identity": {
+          "type": "string",
+          "pattern": "^\\d+\\|[A-F0-9]{64}$"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "SELF_CHECK",
+            "REVIEW_VERDICT",
+            "RESULT_ACCEPTANCE"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "candidateRef": {
+      "required": [
+        "path",
+        "identity"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "identity": {
+          "type": "string",
+          "pattern": "^(?:\\d+\\|[A-F0-9]{64}|MISSING)$"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "type": "object"
+    }
+  }
 }

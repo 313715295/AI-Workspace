@@ -225,6 +225,39 @@ function Invoke-WorkflowRawCase([string]$Resolver,[string]$Root,[string]$Name,[s
     return Invoke-Ps $Resolver @('-InputPath',$path,'-AsJson')
 }
 
+# Process-local test isolation. Original values stay in memory and are restored
+# even when construction, a deliberate override, or fixture cleanup fails.
+$script:integrationGitScope=$null
+function Restore-IntegrationGitEnvironment($Scope) {
+    if($null-eq$Scope-or$Scope.Restored){return}
+    foreach($name in @([Environment]::GetEnvironmentVariables('Process').Keys)){
+        if(([string]$name).StartsWith('GIT_',[StringComparison]::OrdinalIgnoreCase)){[Environment]::SetEnvironmentVariable([string]$name,[NullString]::Value,'Process')}
+    }
+    foreach($name in $Scope.Original.Keys){[Environment]::SetEnvironmentVariable([string]$name,[string]$Scope.Original[$name],'Process')}
+    $script:integrationGitScope=$Scope.PreviousScope
+    $Scope.Restored=$true
+}
+function Enter-IntegrationGitEnvironment([string]$Root) {
+    $directory=Join-Path $Root 'git-environment'
+    if(Test-Path -LiteralPath $directory){throw 'INTEGRATION_GIT_ENVIRONMENT_EXISTS'}
+    $null=New-Item -ItemType Directory -Path $directory
+    $system=Join-Path $directory 'system.config';$global=Join-Path $directory 'global.config'
+    [IO.File]::WriteAllBytes($system,[byte[]]@());[IO.File]::WriteAllBytes($global,[byte[]]@())
+    $templates=Join-Path $directory 'templates';$hooks=Join-Path $directory 'hooks'
+    $null=New-Item -ItemType Directory -Path $templates;$null=New-Item -ItemType Directory -Path $hooks
+    $original=@{}
+    foreach($name in @([Environment]::GetEnvironmentVariables('Process').Keys)){
+        if(([string]$name).StartsWith('GIT_',[StringComparison]::OrdinalIgnoreCase)){$original[[string]$name]=[Environment]::GetEnvironmentVariable([string]$name,'Process')}
+    }
+    $scope=[pscustomobject]@{Original=$original;PreviousScope=$script:integrationGitScope;Hooks=$hooks;Restored=$false}
+    try {
+        foreach($name in $original.Keys){[Environment]::SetEnvironmentVariable([string]$name,[NullString]::Value,'Process')}
+        foreach($pair in @(@('GIT_CONFIG_NOSYSTEM','1'),@('GIT_CONFIG_SYSTEM',$system),@('GIT_CONFIG_GLOBAL',$global),@('GIT_TEMPLATE_DIR',$templates),@('GIT_ATTR_NOSYSTEM','1'))){[Environment]::SetEnvironmentVariable($pair[0],$pair[1],'Process')}
+        $script:integrationGitScope=$scope
+        return $scope
+    } catch {Restore-IntegrationGitEnvironment $scope;throw}
+}
+
 function New-GitRepo([string]$Path) {
     New-Item -ItemType Directory -Path $Path -Force | Out-Null
     & git -C $Path init -q
@@ -234,6 +267,10 @@ function New-GitRepo([string]$Path) {
     & git -C $Path config core.autocrlf false
     & git -C $Path config core.safecrlf false
     & git -C $Path config core.excludesFile (Join-Path $Path '.git/info/exclude')
+    if($null-ne$script:integrationGitScope){
+        & git -C $Path config core.hooksPath $script:integrationGitScope.Hooks
+        if($LASTEXITCODE-ne0){throw 'GIT_HOOKS_CONFIG_FAILED'}
+    }
 }
 
 function Commit-All([string]$Path,[string]$Message) {
@@ -402,9 +439,13 @@ function New-IntegrationContext([string]$VersionRoot,[ValidateSet('surface','mai
  $starterText=Get-Content -LiteralPath (Join-Path $script:candidateRoot 'project-starter/project.json') -Raw -Encoding utf8
  $budget=Get-Content -LiteralPath (Join-Path $script:candidateRoot 'tests/PROCESS_REQUIREMENTS_BUDGETS.json') -Raw -Encoding utf8|ConvertFrom-Json -Depth 100
  New-Item -ItemType Directory -Path $script:temp|Out-Null
- return @{candidateRoot=$script:candidateRoot;liveFrameworkRoot=$framework;liveRepositoryRoot=$root;maintenanceOverlayRoot=(Join-Path $framework 'maintenance-overlay');temp=$script:temp;tempCleanup=$cleanup;tempParent=$parent;utf8=$script:utf8;utf8Strict=$script:utf8Strict;'script:testJunctions'=$script:testJunctions;actual=$actual;initialManifestPath=$manifestPath;initialManifestIdentity=(Get-Identity $manifestPath);initialManifest=$manifest;initialVersion=$version;version=$version;initialPayloadFacts=$facts;initialReleaseState=$state;projectStarterText=$starterText;budgetContract=$budget}
+ $gitScope=Enter-IntegrationGitEnvironment $script:temp
+ try {
+ return @{gitEnvironmentScope=$gitScope;candidateRoot=$script:candidateRoot;liveFrameworkRoot=$framework;liveRepositoryRoot=$root;maintenanceOverlayRoot=(Join-Path $framework 'maintenance-overlay');temp=$script:temp;tempCleanup=$cleanup;tempParent=$parent;utf8=$script:utf8;utf8Strict=$script:utf8Strict;'script:testJunctions'=$script:testJunctions;actual=$actual;initialManifestPath=$manifestPath;initialManifestIdentity=(Get-Identity $manifestPath);initialManifest=$manifest;initialVersion=$version;version=$version;initialPayloadFacts=$facts;initialReleaseState=$state;projectStarterText=$starterText;budgetContract=$budget}
+ } catch {Restore-IntegrationGitEnvironment $gitScope;throw}
 }
 function Close-IntegrationContext($Context) {
+ try {
  foreach($junction in @($script:testJunctions.ToArray())){Remove-TestJunction $junction}
  $bound=Get-PrivateFixtureCleanupPath $Context.temp $Context.tempParent '^aiw-int-[smapf]-[0-9a-f]{32}$' 'INTEGRATION'
  if(Test-Path -LiteralPath $bound){
@@ -415,6 +456,7 @@ function Close-IntegrationContext($Context) {
  }
  if(Test-Path -LiteralPath $bound){throw 'INTEGRATION_CLEANUP_INCOMPLETE'}
  Write-Output 'FIXTURE_CLEAN|integration-private-root'
+ } finally {Restore-IntegrationGitEnvironment $Context.gitEnvironmentScope}
 }
 function New-IntegrationRuntimeFixture([string]$Destination,[switch]$Maintenance) {
  $source=Split-Path -Parent ([IO.Path]::GetFullPath((Join-Path $script:candidateRoot '../..')))

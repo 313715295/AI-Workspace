@@ -179,17 +179,9 @@ if ($summaryMatches.Count -ne 1) {
 }
 
 $closureOutcome='LEGACY_SUCCESS'
-$closure=[regex]::Matches($text,'(?m)^- Closure outcome:[ \t]*(?<value>[^\r\n]+)$')
-if($closure.Count-gt0){
-    if($closure.Count-ne1-or$closure[0].Groups['value'].Value-cnotin@('SUCCESS','CANCELLED','SUPERSEDED')){Add-Reason $reasons 'CLOSURE_OUTCOME_INVALID'}
-    else{$closureOutcome=$closure[0].Groups['value'].Value}
-    if($lifecycle-cne'CLOSED'){Add-Reason $reasons 'CLOSURE_REQUIRES_CLOSED'}
-    foreach($field in @('Closure evidence','Remaining obligations','Artifact disposition')){
-        $entries=[regex]::Matches($text,'(?m)^- '+[regex]::Escape($field)+':[ \t]*(?<value>[^\r\n]+)$')
-        if($entries.Count-ne1-or-not(Test-ResolvedField $entries[0].Groups['value'].Value)-or$entries[0].Groups['value'].Value-cmatch'^(PENDING|WAITING|BLOCKED|NOT_DELIVERED)$'){Add-Reason $reasons 'CLOSURE_EVIDENCE_INCOMPLETE'}
-    }
-    if([regex]::Matches($text,'(?m)^- Writer / reviewer / authorization:[ \t]*NONE / NONE / NONE[ \t]*$').Count-ne1){Add-Reason $reasons 'CLOSURE_LEASE_NOT_RELEASED'}
-    if($closureOutcome-ceq'SUPERSEDED'-and[regex]::IsMatch($text,'(?m)^- Remaining obligations:[ \t]*NONE[ \t]*$')){Add-Reason $reasons 'SUPERSEDED_SUCCESSOR_REQUIRED'}
+if($lifecycle-ceq'CLOSED'-or$text-cmatch'(?m)^- (?:Closure outcome|Closure basis|Unresolved obligations):'){
+    try{$closureOutcome=(Get-AiwTaskClosureFields $text).Outcome}
+    catch{Add-Reason $reasons ([string]$_.Exception.Message)}
 }
 
 if ($profile -ceq 'CRITICAL' -and [string]::IsNullOrWhiteSpace($currentExact)) { Add-Reason $reasons 'CRITICAL_CURRENT_EXACT' }

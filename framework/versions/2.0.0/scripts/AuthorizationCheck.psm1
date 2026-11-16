@@ -1,8 +1,8 @@
 Set-StrictMode -Version Latest
 Import-Module (Join-Path $PSScriptRoot 'ProjectSourcePublication.psm1')
 function New-AiwPrivateToolExit([int]$Code){$e=[InvalidOperationException]::new('Private tool return');$e.Data['AIW_PRIVATE_TOOL_EXIT']=$Code;return $e}
-function Invoke-AiwAuthorizationCheck {
-[CmdletBinding()]
+function Invoke-AiwAuthorizationCheckCore {
+[CmdletBinding(DefaultParameterSetName='TASK')]
 param(
     [Parameter(Mandatory = $true)]
     [string]$PackagePath,
@@ -10,8 +10,11 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$ObservedActor,
 
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $true,ParameterSetName='TASK')]
     [string]$ObservedTaskId,
+
+    [Parameter(Mandatory = $true,ParameterSetName='PROJECT_WORK')]
+    [string]$RequestContextJson,
 
     [Parameter(Mandatory = $true)]
     [string]$ObservedOwner,
@@ -33,8 +36,10 @@ param(
 
     [string]$ExpectedProjectConfigIdentity,
 
+    [Parameter(ParameterSetName='TASK')]
     [string]$TaskPath,
 
+    [Parameter(ParameterSetName='TASK')]
     [string]$ExpectedTaskIdentity,
 
     [string]$ContinuationReceiptPath,
@@ -47,7 +52,9 @@ param(
 
     [string[]]$ProtectedPaths=@(),
 
-    [switch]$RootRepositoryBindingValidated
+    [switch]$RootRepositoryBindingValidated,
+
+    $PublicationMember=$null
 )
 $outputs=[Collections.Generic.List[object]]::new();$code=0;$aiwPublicationScopeLease=$null
 try {
@@ -217,7 +224,10 @@ if ($null -eq $package) {
     throw (New-AiwPrivateToolExit (2))
 }
 
+$projectWork=(Test-JsonInteger $package.schemaVersion)-and$package.schemaVersion-eq5
+$workPlan=$null;$workObservation=$null
 $requiredFields = @('schemaVersion','frameworkVersion','taskId','profile','lifecycle','owner','issuer','issuerRole','grantee','bundle','decisionClass','userConfirmation','reviewIndependence','delegatedGitCloser','taskIdentity','actions','exactPaths','objectIdentities','invalidatesOn','projectConfigIdentity')
+if($projectWork){$requiredFields=@($requiredFields|Where-Object{$_-cnotin@('taskId','taskIdentity','lifecycle')})+@('requestContext','repositoryId')}
 foreach ($field in $requiredFields) {
     if ($null -eq $package.PSObject.Properties[$field]) { Add-Reason $reasons "FIELD_MISSING_$field" }
 }
@@ -227,6 +237,7 @@ if ($reasons.Count -gt 0) {
 }
 
 $baseFields = @('schemaVersion','frameworkVersion','taskId','profile','lifecycle','owner','issuer','issuerRole','grantee','bundle','decisionClass','userConfirmation','reviewIndependence','delegatedGitCloser','taskIdentity','actions','exactPaths','objectIdentities','invalidatesOn')
+if($projectWork){$baseFields=@($baseFields|Where-Object{$_-cnotin@('taskId','taskIdentity','lifecycle')})+@('requestContext')}
 $controllerFields = @('issuerControllerId','issuerControllerEpoch','controllerControlIdentity')
 $repositoryFields = @('repositoryId')
 $continuationPlanFields = @('continuationPlan')
@@ -242,7 +253,7 @@ $domainPushPackage = [string]$package.issuerRole -ceq 'TASK_OWNER' -and 'PUSH' -
 $actualFields = @($package.PSObject.Properties.Name)
 $expectedFields = @($baseFields) + @('projectConfigIdentity')
 if ([string]$package.issuerRole -ceq 'PROJECT_CONTROLLER') { $expectedFields += $controllerFields }
-if ((Test-JsonInteger $package.schemaVersion) -and [int]$package.schemaVersion -in @(2,4)) { $expectedFields += $repositoryFields }
+if ((Test-JsonInteger $package.schemaVersion) -and [int]$package.schemaVersion -in @(2,4,5)) { $expectedFields += $repositoryFields }
 if($package.schemaVersion-eq4){$expectedFields+=@('controlRoot','executionTargetRef','expectedTargetState')}
 if ($null -ne $package.PSObject.Properties['continuationPlan']) { $expectedFields += $continuationPlanFields }
 if ($null -ne $package.PSObject.Properties['selfCheckRepairLimit']) { $expectedFields += 'selfCheckRepairLimit' }
@@ -253,6 +264,7 @@ if ($null -ne $package.PSObject.Properties['transitionPlan']) { $expectedFields 
 if ($null -ne $package.PSObject.Properties['acceptanceBinding']) { $expectedFields += 'acceptanceBinding' }
 if ($null -ne $package.PSObject.Properties['sourcePublicationBinding']) { $expectedFields += 'sourcePublicationBinding' }
 if ($null -ne $package.PSObject.Properties['qualityBinding']) { $expectedFields += 'qualityBinding' }
+if ($null -ne $package.PSObject.Properties['acceptedOutcomeBinding']) { $expectedFields += 'acceptedOutcomeBinding' }
 if ((Test-JsonInteger $package.schemaVersion) -and [int]$package.schemaVersion -eq 3) {
     $expectedFields += $upgradePostimageFields
     if ($null -ne $package.PSObject.Properties['targetFrameworkSnapshot']) { $expectedFields += $upgradeSnapshotFields }
@@ -272,6 +284,11 @@ function Read-RepairEvidence([string]$Path,[string]$Identity) {
     $ctx=New-AiwEvidenceContext $authorityRoot '' ([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../../..'))) $effectiveForbidden $effectiveProtected
     try{return Read-AiwEvidenceReference $ctx ([pscustomobject]@{path=$Path;identity=$Identity}) -Json}
     catch{if($_.Exception.Message-cmatch'^EVIDENCE_IDENTITY_DRIFT'){throw 'REPAIR_REVIEW_EVIDENCE_DRIFT'};throw}
+}
+function Read-RepairOperation($Boundary,$Result){
+    $ctx=New-AiwEvidenceContext $authorityRoot '' ([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../../..'))) $effectiveForbidden $effectiveProtected
+    $reader=@(Import-Module (Join-Path $PSScriptRoot 'ResultEvidence.psm1') -PassThru)[0]
+    return & $reader {param($c,$b,$r) Read-EvProcessOperation $c $b $r} $ctx $Boundary $Result
 }
 function Assert-RepairPlan($Parent) {
     $plan=$Parent.repairReviewPlan
@@ -293,14 +310,19 @@ function Get-RepairReviewer($Parent,$Binding,[string]$ParentIdentity) {
     }
     if($null-eq$Binding.PSObject.Properties['reviewerAssignment']){throw 'REVIEWER_ASSIGNMENT_REQUIRED'}
     $assignment=$Binding.reviewerAssignment
-    Assert-RepairFields $assignment @('source','createdBy','threadId','hostId','taskId','parentPackageIdentity')
-    foreach($name in @('source','createdBy','threadId','hostId','taskId','parentPackageIdentity')){if($assignment.$name-isnot[string]-or[string]::IsNullOrWhiteSpace([string]$assignment.$name)){throw 'REVIEWER_ASSIGNMENT_TYPE'}}
+    $assignmentStrings=@('source','createdBy','threadId','hostId','parentPackageIdentity')
+    $assignmentFields=$assignmentStrings+$(if($Parent.schemaVersion-eq5){@('context')}else{@('taskId')})
+    Assert-RepairFields $assignment $assignmentFields
+    if($Parent.schemaVersion-ne5){$assignmentStrings+='taskId'}
+    foreach($name in $assignmentStrings){if($assignment.$name-isnot[string]-or[string]::IsNullOrWhiteSpace([string]$assignment.$name)){throw 'REVIEWER_ASSIGNMENT_TYPE'}}
+    $assignmentContextMatches=if($Parent.schemaVersion-eq5){Test-AiwSameResultContext $assignment.context $Parent}else{[string]$assignment.taskId-ceq[string]$Parent.taskId}
     $hostAssigned=[string]$assignment.source-ceq'HOST_CREATE_THREAD_RESULT'
     $initialDelegation=[string]$assignment.source-ceq'HOST_INITIAL_DELEGATION'-and(($Binding.phase-ceq'INITIAL_REVIEW'-and$null-ne$package.PSObject.Properties['receiverBinding']-and[string]$assignment.threadId-ceq[string]$package.grantee)-or($Binding.phase-cin@('REPAIR','REREVIEW')-and$null-eq$package.PSObject.Properties['receiverBinding']-and[string]$assignment.threadId-cne'UNBOUND_RECEIVER'))
-    if(-not($hostAssigned-or$initialDelegation)-or[string]$assignment.createdBy-cne[string]$plan.writer-or[string]$assignment.taskId-cne[string]$Parent.taskId-or[string]$assignment.parentPackageIdentity-cne$ParentIdentity-or[string]$assignment.threadId-cin@($Parent.owner,$Parent.issuer,$plan.writer)-or[string]$assignment.threadId-cin@($plan.materialContributors)){throw 'REVIEWER_ASSIGNMENT_BINDING'}
+    if(-not($hostAssigned-or$initialDelegation)-or[string]$assignment.createdBy-cne[string]$plan.writer-or-not$assignmentContextMatches-or[string]$assignment.parentPackageIdentity-cne$ParentIdentity-or[string]$assignment.threadId-cin@($Parent.owner,$Parent.issuer,$plan.writer)-or[string]$assignment.threadId-cin@($plan.materialContributors)){throw 'REVIEWER_ASSIGNMENT_BINDING'}
     return [string]$assignment.threadId
 }
 $stringFields = @('frameworkVersion','taskId','profile','lifecycle','owner','issuer','issuerRole','grantee','bundle','decisionClass','userConfirmation','reviewIndependence','taskIdentity','projectConfigIdentity')
+if($projectWork){$stringFields=@($stringFields|Where-Object{$_-cnotin@('taskId','taskIdentity','lifecycle')})}
 foreach ($field in $stringFields) {
     if (-not ($package.$field -is [string])) { Add-Reason $reasons "FIELD_TYPE_${field}_STRING" }
 }
@@ -321,19 +343,19 @@ if ($reasons.Count -gt 0) {
     throw (New-AiwPrivateToolExit (2))
 }
 
-if ([int]$package.schemaVersion -notin @(1,2,3,4)) { Add-Reason $reasons 'SCHEMA_VERSION' }
+if ([int]$package.schemaVersion -notin @(1,2,3,4,5)) { Add-Reason $reasons 'SCHEMA_VERSION' }
 if ([string]$package.frameworkVersion -cne '2.0.0') { Add-Reason $reasons 'FRAMEWORK_VERSION' }
 if ([string]$package.projectConfigIdentity -cnotmatch '^\d+\|[A-F0-9]{64}$') { Add-Reason $reasons 'PROJECT_CONFIG_IDENTITY_FORMAT' }
-if ([string]$package.taskIdentity -cnotmatch '^\d+\|[A-F0-9]{64}$') { Add-Reason $reasons 'TASK_IDENTITY_FORMAT' }
-if ([string]$package.lifecycle -cne 'ACTIVE') { Add-Reason $reasons 'LIFECYCLE_NOT_ACTIVE' }
+if (-not$projectWork-and[string]$package.taskIdentity -cnotmatch '^\d+\|[A-F0-9]{64}$') { Add-Reason $reasons 'TASK_IDENTITY_FORMAT' }
+if (-not$projectWork-and[string]$package.lifecycle -cne 'ACTIVE') { Add-Reason $reasons 'LIFECYCLE_NOT_ACTIVE' }
 if ([string]$package.profile -cnotin @('MICRO','STANDARD','CRITICAL')) { Add-Reason $reasons 'PROFILE' }
 if ([string]$package.issuerRole -cnotin @('PROJECT_CONTROLLER','TASK_OWNER')) { Add-Reason $reasons 'ISSUER_ROLE' }
 if ([string]$package.decisionClass -cnotin @('ROUTINE_LOCAL','PRODUCT_RESULT','MAJOR_ARCHITECTURE','EXTERNAL_ACTION')) { Add-Reason $reasons 'DECISION_CLASS' }
 if ([string]$package.grantee -cne $ObservedActor) { Add-Reason $reasons 'GRANTEE_DRIFT' }
 if ([string]$package.grantee -ceq 'UNBOUND_RECEIVER') { Add-Reason $reasons 'PENDING_RECEIVER_NOT_ACTIONABLE' }
-if ([string]$package.taskId -cne $ObservedTaskId) { Add-Reason $reasons 'TASK_DRIFT' }
+if (-not$projectWork-and[string]$package.taskId -cne $ObservedTaskId) { Add-Reason $reasons 'TASK_DRIFT' }
 if ([string]$package.owner -cne $ObservedOwner) { Add-Reason $reasons 'OWNER_DRIFT' }
-if ([string]::IsNullOrWhiteSpace([string]$package.taskId) -or [string]::IsNullOrWhiteSpace([string]$package.owner)) { Add-Reason $reasons 'TASK_OR_OWNER_EMPTY' }
+if ((-not$projectWork-and[string]::IsNullOrWhiteSpace([string]$package.taskId)) -or [string]::IsNullOrWhiteSpace([string]$package.owner)) { Add-Reason $reasons 'TASK_OR_OWNER_EMPTY' }
 if ([string]::IsNullOrWhiteSpace([string]$package.issuer)) { Add-Reason $reasons 'ISSUER_EMPTY' }
 if ([string]::IsNullOrWhiteSpace([string]$package.grantee)) { Add-Reason $reasons 'GRANTEE_EMPTY' }
 
@@ -357,7 +379,7 @@ if($null-ne$package.PSObject.Properties['receiverBinding']){
             ([string]$binding.receiverRole-ceq'REVIEWER'-and($receiverActions.Count-ne1-or$receiverActions[0]-cne'REVIEW_EXECUTE'-or$package.reviewIndependence-cne'INDEPENDENT'))-or
             ([string]$binding.receiverRole-ceq'IMPLEMENTER'-and($receiverActions.Count-eq0-or@($receiverActions|Where-Object{$_-cnotin@('SOURCE_WRITE','TEST_WRITE','TEST_RUN','REVIEW_ROUTE')}).Count))-or
             ([string]$binding.receiverRole-ceq'INVESTIGATOR'-and($receiverActions.Count-ne1-or$receiverActions[0]-cnotin@('NONE','TEST_RUN')))){throw 'RECEIVER_ROLE_ACTION'}
-        $derived=$package|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100;$derived.PSObject.Properties.Remove('receiverBinding');$derived.grantee='UNBOUND_RECEIVER'
+        $derived=$package|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100;$derived.PSObject.Properties.Remove('receiverBinding');$derived.grantee='UNBOUND_RECEIVER';if($projectWork){if($pending.authorizationTemplate.schemaVersion-ne5-or$pending.authorizationTemplate.requestContext.actor-cne'UNBOUND_RECEIVER'){throw 'RECEIVER_WORK_TEMPLATE'};$derived.requestContext.actor='UNBOUND_RECEIVER'}
         if($null-ne$pending.authorizationTemplate.PSObject.Properties['repairReviewPlan']){
             $pendingPlan=$pending.authorizationTemplate.repairReviewPlan
             if([string]$binding.receiverRole-cne'IMPLEMENTER'-or$pendingPlan-isnot[pscustomobject]-or$null-eq$pendingPlan.PSObject.Properties['writer']-or[string]$pendingPlan.writer-cne'UNBOUND_RECEIVER'-or$null-eq$derived.PSObject.Properties['repairReviewPlan']){throw 'RECEIVER_REPAIR_WRITER_TEMPLATE'}
@@ -369,7 +391,38 @@ if($null-ne$package.PSObject.Properties['receiverBinding']){
 }
 
 $taskFactsReady=$false
-try {
+$taskRaw='';$normalizedTaskPath=''
+if($projectWork){
+    try{
+        if($PSCmdlet.ParameterSetName-cne'PROJECT_WORK'-or$TaskPath-or$ExpectedTaskIdentity-or$ObservedTaskId-or$RootRepositoryBindingValidated){throw 'PROJECT_WORK_PARAMETER_SET'}
+        if($package.repositoryId-cne'REPO_LOCAL'-or$ObservedRepositoryId-cne'REPO_LOCAL'){throw 'PROJECT_WORK_REPOSITORY_UNSUPPORTED'}
+        foreach($name in @('transitionPlan','sourcePublicationBinding','externalBinding','gitPushBinding','acceptedOutcomeBinding')){
+            if($null-ne$package.PSObject.Properties[$name]){throw ('PROJECT_WORK_EXTENSION_NOT_ADAPTED|'+$name)}
+        }
+        if(@($package.actions|Where-Object{$_-cnotin@('NONE','SOURCE_WRITE','TEST_WRITE','TEST_RUN','REVIEW_ROUTE','REVIEW_EXECUTE','RESULT_ACCEPT')}).Count){throw 'PROJECT_WORK_ACTION_UNSUPPORTED'}
+        Assert-AiwNoControlTransition $authorityRoot
+        Import-Module (Join-Path $PSScriptRoot 'ProcessRequirementComposition.psm1')
+        Assert-StrictJsonMembers $RequestContextJson
+        $request=$RequestContextJson|ConvertFrom-Json -Depth 100
+        Assert-AiwProjectWorkContext $request;Assert-AiwProjectWorkContext $package.requestContext
+        if($request.actor-cne$ObservedActor-or$request.owner-cne$ObservedOwner){throw 'PROJECT_WORK_PACKAGE_CONTEXT_DRIFT'}
+        foreach($action in $ObservedAction){Assert-AiwWorkPackageContext $request $package $action}
+        if('REVIEW_EXECUTE'-cin$package.actions-and($request.role-cne'REVIEWER'-or$request.phase-cne'REVIEW'-or$request.actor-ceq$request.owner)){throw 'PROJECT_WORK_REVIEW_ROUTE'}
+        if('RESULT_ACCEPT'-cin$package.actions-and($request.actor-cne$request.owner-or$request.role-cne'TASK_OWNER')){throw 'PROJECT_WORK_ACCEPT_OWNER_REQUIRED'}
+        $guard=New-AiwEvidenceContext $authorityRoot '' ([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../../..'))) $ForbiddenPaths $ProtectedPaths
+        $evidenceOwner=(Get-Command New-AiwEvidenceContext).Module
+        $policyPath=& $evidenceOwner {param($context)Resolve-EvPath $context '.ai-workspace/process-policy.json'} $guard
+        Import-Module (Join-Path $PSScriptRoot 'ObjectFormats.psm1')
+        $policy=Read-AiwCurrentObject PROCESS_POLICY $policyPath (Get-FileIdentity $policyPath) ([pscustomobject]@{ForbiddenPaths=@($guard.ForbiddenPaths)})
+        $policyDocument=Read-AiwEvidenceReference $guard ([pscustomobject]@{path=$policyPath;identity=(Get-FileIdentity $policyPath)}) -Json
+        foreach($action in $ObservedAction){$workObservation=Get-AiwProjectWorkObservation $guard $request $policyDocument (Get-FileIdentity $policyPath) @($ObservedPath) $action}
+        if((Get-AiwContentDescriptorIdentity $workObservation.requestContext)-cne(Get-AiwContentDescriptorIdentity $request)){throw 'PROJECT_WORK_CANONICAL_CONTEXT_REQUIRED'}
+        Assert-AiwWorkPredecessorPackage $guard $request $package
+        $workPlan=$workObservation.plan
+        $taskFactsReady=$true
+    }catch{if($_.Exception.Data.Contains('AIW_PRIVATE_TOOL_EXIT')){throw};Add-Reason $reasons ([string]$_.Exception.Message)}
+}else{try {
+    if($PSCmdlet.ParameterSetName-cne'TASK'){throw 'TASK_PARAMETER_SET_REQUIRED'}
     if ([string]::IsNullOrWhiteSpace($TaskPath) -or [string]::IsNullOrWhiteSpace($ExpectedTaskIdentity)) { throw 'TASK_BINDING_REQUIRED' }
     Assert-AiwNoControlTransition ([IO.Path]::GetFullPath($authorityRoot)) $TaskPath
     if($null-ne$package.PSObject.Properties['transitionPlan']){$null=Assert-AiwControlTransitionPackage $package ([IO.Path]::GetFullPath($authorityRoot))}
@@ -410,8 +463,9 @@ try {
     }
 } catch {if($_.Exception.Data.Contains("AIW_PRIVATE_TOOL_EXIT")){throw}; Add-Reason $reasons ([string]$_.Exception.Message) }
 
+}
 $schema2ProjectId = $null
-if ([int]$package.schemaVersion -in @(1,4) -or ([int]$package.schemaVersion -eq 3 -and -not $RootRepositoryBindingValidated)) {
+if ([int]$package.schemaVersion -in @(1,4,5) -or ([int]$package.schemaVersion -eq 3 -and -not $RootRepositoryBindingValidated)) {
     try {
         $workingDirectory = Get-FullDirectoryPath $authorityRoot
         Assert-DirectoryChainWithoutReparse ([IO.Path]::GetPathRoot($workingDirectory)) $workingDirectory
@@ -444,7 +498,7 @@ if ([int]$package.schemaVersion -in @(1,4) -or ([int]$package.schemaVersion -eq 
             -not ($schema1Config.controlPlaneLayout -is [string]) -or [string]$schema1Config.controlPlaneLayout -cne 'repo-local' -or
             -not ($schema1Config.repositoryRoot -is [string]) -or [string]$schema1Config.repositoryRoot -cne '..' -or
             -not ($schema1Config.frameworkVersion -is [string]) -or
-            ([int]$package.schemaVersion -in @(1,4) -and [string]$schema1Config.frameworkVersion -cne '2.0.0') -or
+            ([int]$package.schemaVersion -in @(1,4,5) -and [string]$schema1Config.frameworkVersion -cne '2.0.0') -or
             ([int]$package.schemaVersion -eq 3 -and [string]$schema1Config.frameworkVersion -cnotmatch '^\d+\.\d+\.\d+$') -or
             -not ($schema1Config.frameworkToolBackend -is [string]) -or [string]$schema1Config.frameworkToolBackend -cne 'powershell7' -or
             -not ($schema1Config.routineExcludedPaths -is [System.Array])) { throw 'PROJECT_CONFIG_VALUES' }
@@ -503,7 +557,7 @@ if (-not $taskFactsReady) {
 
 if($package.schemaVersion-eq4){
     if(-not$ControlRoot-or-not[IO.Path]::IsPathFullyQualified($ControlRoot)-or$package.controlRoot-cne$authorityRoot-or$package.repositoryId-cne'PROJECT'-or$ObservedRepositoryId-cne'PROJECT'-or$RootRepositoryBindingValidated){Add-Reason $reasons 'EXECUTION_TARGET_PACKAGE_BINDING'}
-}elseif($taskRaw-cmatch'(?m)^(?:- )?Execution target:'-and@($package.actions|Where-Object{$_-cne'CONTROL_WRITE'}).Count){Add-Reason $reasons 'EXECUTION_TARGET_PACKAGE4_REQUIRED'}
+}elseif(-not$projectWork-and$taskRaw-cmatch'(?m)^(?:- )?Execution target:'-and@($package.actions|Where-Object{$_-cne'CONTROL_WRITE'}).Count){Add-Reason $reasons 'EXECUTION_TARGET_PACKAGE4_REQUIRED'}
 
 $allowedActions = @('NONE','CONTROL_WRITE','SOURCE_WRITE','TEST_WRITE','TEST_RUN','BROWSER_RUN','DEVICE_RUN','REVIEW_ROUTE','REVIEW_EXECUTE','RESULT_ACCEPT','GIT_STAGE','GIT_COMMIT','PUSH','EXTERNAL')
 $actions = @($package.actions)
@@ -548,7 +602,14 @@ if($hasContinuationPlan){
 $hasSelfRepairLimit=$null-ne$package.PSObject.Properties['selfCheckRepairLimit']
 if($hasSelfRepairLimit){
     if(-not(Test-JsonInteger $package.selfCheckRepairLimit)-or$package.selfCheckRepairLimit-lt1-or$package.selfCheckRepairLimit-gt[int]::MaxValue){Add-Reason $reasons 'SELF_REPAIR_LIMIT'}
-    if(-not$hasContinuationPlan-or$continuationPlan.Count-notin@(2,3)-or$continuationPlan[0]-cnotin@('SOURCE_WRITE','TEST_WRITE')-or$continuationPlan[1]-cne'TEST_RUN'-or($continuationPlan.Count-eq3-and$continuationPlan[2]-cne'REVIEW_ROUTE')){Add-Reason $reasons 'SELF_REPAIR_PLAN_SHAPE'}
+    $inheritedSingleTest=$false
+    if($projectWork-and$taskFactsReady-and-not$hasContinuationPlan-and$actions.Count-eq1-and$actions[0]-ceq'TEST_RUN'-and$null-ne$request.PSObject.Properties['predecessorRef']-and$null-eq$package.PSObject.Properties['repairReviewBinding']){
+        # Retain the verified old limit for one independently authorized test.
+        # With no continuation plan this field grants no new repair or retest.
+        $predecessor=& $evidenceOwner {param($c,$r)Get-EvWorkPredecessor $c $r} $guard $request
+        $inheritedSingleTest=$null-ne$predecessor.selfRoot-and$null-eq$predecessor.review-and$package.selfCheckRepairLimit-eq$predecessor.selfLimit
+    }
+    if(-not$inheritedSingleTest-and(-not$hasContinuationPlan-or$continuationPlan.Count-notin@(2,3)-or$continuationPlan[0]-cnotin@('SOURCE_WRITE','TEST_WRITE')-or$continuationPlan[1]-cne'TEST_RUN'-or($continuationPlan.Count-eq3-and$continuationPlan[2]-cne'REVIEW_ROUTE'))){Add-Reason $reasons 'SELF_REPAIR_PLAN_SHAPE'}
 }
 if ([int]$package.schemaVersion -eq 3) {
     if ([string]$package.bundle -cne 'ACTOR_BOUND_PROJECT_UPGRADE' -or $actions.Count -ne 1 -or [string]$actions[0] -cne 'CONTROL_WRITE') { Add-Reason $reasons 'SCHEMA3_UPGRADE_BUNDLE_ACTION' }
@@ -557,7 +618,12 @@ if ([int]$package.schemaVersion -eq 3) {
 $publicationEligibility=$null
 if($null-ne$package.PSObject.Properties['sourcePublicationBinding']){
     try{
-        $publicationEligibility=Get-AiwProjectSourcePublicationEligibility -ProjectRoot $scopeRoot -Package $package
+        if($null-ne$PublicationMember){
+            $publicationOwner=@(Import-Module (Join-Path $PSScriptRoot 'ProjectSourcePublication.psm1') -PassThru)[0]
+            $publicationEligibility=& $publicationOwner {param($member,$root,$package,$denied) Get-PubMemberEligibility $member $root $package $denied} $PublicationMember $scopeRoot $package (@($effectiveForbidden)+@($effectiveProtected))
+        }else{
+            $publicationEligibility=Get-AiwProjectSourcePublicationEligibility -ProjectRoot $scopeRoot -Package $package -ForbiddenPaths (@($effectiveForbidden)+@($effectiveProtected))
+        }
     }catch{if($_.Exception.Data.Contains('AIW_PRIVATE_TOOL_EXIT')){throw};Add-Reason $reasons ([string]$_.Exception.Message)}
 }
 if ([int]$package.schemaVersion -eq 2) {
@@ -683,7 +749,7 @@ if ($domainExternalPackage) {
     } catch {if($_.Exception.Data.Contains("AIW_PRIVATE_TOOL_EXIT")){throw}; Add-Reason $reasons ([string]$_.Exception.Message) }
 }
 
-if ([int]$package.schemaVersion -in @(2,4)) {
+if ([int]$package.schemaVersion -in @(2,4,5)) {
     try {
         if ([string]::IsNullOrWhiteSpace($ControllerControlPath)) { throw 'CONTROLLER_PATH_REQUIRED' }
         $normalizedSchema2ControllerPath = Normalize-RelativePath $ControllerControlPath
@@ -753,8 +819,9 @@ if ('REVIEW_EXECUTE' -in $actions -and @($actions | Where-Object { $_ -in $candi
 }
 
 $requiredInvalidators = @('TASK_CHANGE','OWNER_CHANGE','GRANTEE_CHANGE','ACTION_CHANGE','PATHSET_CHANGE','OBJECT_DRIFT','USER_DECISION_CHANGE','PROJECT_CONFIG_DRIFT')
+if($projectWork){$requiredInvalidators=@($requiredInvalidators|Where-Object{$_-cne'TASK_CHANGE'})+@('REQUEST_CHANGE','SUBJECT_CHANGE','REQUIREMENTS_CHANGE')}
 if ([string]$package.issuerRole -ceq 'PROJECT_CONTROLLER') { $requiredInvalidators += 'CONTROLLER_EPOCH_CHANGE' }
-if ([int]$package.schemaVersion -in @(2,4)) { $requiredInvalidators += 'REPOSITORY_CHANGE' }
+if ([int]$package.schemaVersion -in @(2,4,5)) { $requiredInvalidators += 'REPOSITORY_CHANGE' }
 if ([int]$package.schemaVersion -eq 3) { $requiredInvalidators += 'POST_OBJECT_DRIFT' }
 if ($hasContinuationPlan) { $requiredInvalidators += 'CONTINUATION_RESULT_DRIFT' }
 if ($boundReviewPackage) { $requiredInvalidators += 'CONTRIBUTOR_SET_CHANGE' }
@@ -819,15 +886,21 @@ elseif($hasContinuationPath){
         try{$continuationReceipt=Read-AiwEvidenceReference $recordContext ([pscustomobject]@{path=$ContinuationReceiptPath;identity=$ExpectedContinuationReceiptIdentity}) -Json}
         catch{if($_.Exception.Message-cmatch'^EVIDENCE_IDENTITY_DRIFT'){throw 'CONTINUATION_RECEIPT_DRIFT'};throw}
         $continuationFields=@('schemaVersion','receiptType','status','evidenceGrade','authorityGranted','packageIdentity','taskIdentity','taskId','taskOwner','taskActor','actor','repositoryId','projectConfigIdentity','controllerIdentity','userDecision','protectionState','forbiddenScope','protectedScope','sourceDiscoverReceiptPath','sourceDiscoverReceiptIdentity','sourceSelectionIdentity','sourceContextIdentity','completedStepIndex','completedAction','nextStepIndex','nextAction','exactPaths','postObjectIdentities')
+        if($projectWork){$continuationFields=@($continuationFields|Where-Object{$_-cnotin@('taskIdentity','taskId','taskOwner','taskActor')})+@('requestContext','transitionKind','selfRepairCycle')}
         $continuationNames=@($continuationReceipt.PSObject.Properties.Name)
         $continuationFields+='evidenceRefs'
         if($continuationReceipt.schemaVersion-in@(2,3)){$continuationFields+=@('transitionKind','selfRepairCycle')}
         if($continuationReceipt.schemaVersion-eq3){$continuationFields+=@('executionTargetRef','observedTargetState','postTargetState')}
         if(-not($continuationReceipt-is[pscustomobject])-or$continuationNames.Count-ne$continuationFields.Count-or@($continuationFields|Where-Object{$_-cnotin$continuationNames}).Count-ne0){throw 'CONTINUATION_RECEIPT_FIELDS'}
-        foreach($name in @('receiptType','status','evidenceGrade','packageIdentity','taskIdentity','taskId','taskOwner','taskActor','actor','repositoryId','projectConfigIdentity','controllerIdentity','userDecision','protectionState','sourceDiscoverReceiptPath','sourceDiscoverReceiptIdentity','sourceSelectionIdentity','sourceContextIdentity','completedAction','nextAction')){if(-not($continuationReceipt.$name-is[string])-or[string]::IsNullOrWhiteSpace([string]$continuationReceipt.$name)){throw ('CONTINUATION_RECEIPT_TYPE|'+$name)}}
-        if(-not(Test-JsonInteger $continuationReceipt.schemaVersion)-or[int]$continuationReceipt.schemaVersion-notin@(1,2,3)-or-not($continuationReceipt.authorityGranted-is[bool])-or[bool]$continuationReceipt.authorityGranted-or[string]$continuationReceipt.receiptType-cne'AUTHORIZED_ACTION_CONTINUATION'-or[string]$continuationReceipt.status-cne'PASS'-or[string]$continuationReceipt.evidenceGrade-cne'INSTRUCTION_BOUND'){throw 'CONTINUATION_RECEIPT_TYPE'}
-        if(($hasSelfRepairLimit-and$continuationReceipt.schemaVersion-notin@(2,3))-or($continuationReceipt.schemaVersion-eq2-and-not$hasSelfRepairLimit)){throw 'SELF_REPAIR_RECEIPT_PERMISSION'}
+        $continuationStrings=@('receiptType','status','evidenceGrade','packageIdentity','actor','repositoryId','projectConfigIdentity','controllerIdentity','userDecision','protectionState','sourceDiscoverReceiptPath','sourceDiscoverReceiptIdentity','sourceSelectionIdentity','sourceContextIdentity','completedAction','nextAction')
+        if(-not$projectWork){$continuationStrings+=@('taskIdentity','taskId','taskOwner','taskActor')}
+        foreach($name in $continuationStrings){if(-not($continuationReceipt.$name-is[string])-or[string]::IsNullOrWhiteSpace([string]$continuationReceipt.$name)){throw ('CONTINUATION_RECEIPT_TYPE|'+$name)}}
+        if(-not(Test-JsonInteger $continuationReceipt.schemaVersion)-or[int]$continuationReceipt.schemaVersion-notin@(1,2,3,4)-or-not($continuationReceipt.authorityGranted-is[bool])-or[bool]$continuationReceipt.authorityGranted-or[string]$continuationReceipt.receiptType-cne'AUTHORIZED_ACTION_CONTINUATION'-or[string]$continuationReceipt.status-cne'PASS'-or[string]$continuationReceipt.evidenceGrade-cne'INSTRUCTION_BOUND'){throw 'CONTINUATION_RECEIPT_TYPE'}
+        if($projectWork-ne($continuationReceipt.schemaVersion-eq4)){throw 'CONTINUATION_CONTEXT_SCHEMA'}
+        if($projectWork){Assert-AiwWorkPackageContext $continuationReceipt.requestContext $package $continuationReceipt.completedAction}
+        if(($hasSelfRepairLimit-and$continuationReceipt.schemaVersion-notin@(2,3,4))-or($continuationReceipt.schemaVersion-eq2-and-not$hasSelfRepairLimit)){throw 'SELF_REPAIR_RECEIPT_PERMISSION'}
         if(($package.schemaVersion-eq4)-ne($continuationReceipt.schemaVersion-eq3)){throw 'CONTINUATION_EXECUTION_TARGET_SCHEMA'}
+        if($projectWork-and-not$hasSelfRepairLimit-and($continuationReceipt.transitionKind-cne'ADVANCE'-or$continuationReceipt.selfRepairCycle-ne0-or$continuationReceipt.nextStepIndex-ne($continuationReceipt.completedStepIndex+1))){throw 'CONTINUATION_WORK_LINEAR_PLAN'}
         if($continuationReceipt.schemaVersion-eq3){
             if(($continuationReceipt.executionTargetRef|ConvertTo-Json -Compress)-cne($package.executionTargetRef|ConvertTo-Json -Compress)){throw 'CONTINUATION_EXECUTION_TARGET_DRIFT'}
             if(-not$hasSelfRepairLimit-and($continuationReceipt.transitionKind-cne'ADVANCE'-or$continuationReceipt.selfRepairCycle-ne0-or$continuationReceipt.nextStepIndex-ne($continuationReceipt.completedStepIndex+1))){throw 'CONTINUATION_TARGET_LINEAR_PLAN'}
@@ -838,32 +911,40 @@ elseif($hasContinuationPath){
         $packageIdentity=Get-FileIdentity $PackagePath
         $repositoryBinding=if([int]$package.schemaVersion-in@(2,4)){[string]$package.repositoryId}else{'REPO_LOCAL'}
         $currentControllerIdentity=if(-not[string]::IsNullOrWhiteSpace($ControllerControlPath)-and(Test-Path -LiteralPath ([IO.Path]::GetFullPath($ControllerControlPath,$authorityRoot)) -PathType Leaf)){Get-FileIdentity $ControllerControlPath}else{'MISSING'}
-        if([string]$continuationReceipt.packageIdentity-cne$packageIdentity-or[string]$continuationReceipt.taskIdentity-cne[string]$package.taskIdentity-or[string]$continuationReceipt.taskIdentity-cne[string]$actualTaskIdentity-or[string]$continuationReceipt.taskId-cne$ObservedTaskId-or[string]$continuationReceipt.taskOwner-cne$ObservedOwner-or[string]$continuationReceipt.taskActor-cne[string]$taskRouteActor-or[string]$continuationReceipt.actor-cne$ObservedActor-or[string]$continuationReceipt.repositoryId-cne$repositoryBinding-or[string]$continuationReceipt.projectConfigIdentity-cne[string]$package.projectConfigIdentity-or[string]$continuationReceipt.controllerIdentity-cne$currentControllerIdentity-or[string]$continuationReceipt.userDecision-cne[string]$package.userConfirmation){throw 'CONTINUATION_RECEIPT_AUTHORITY_DRIFT'}
+        if([string]$continuationReceipt.packageIdentity-cne$packageIdentity-or$(if($projectWork){-not(Test-AiwSameResultContext $continuationReceipt $request)}else{[string]$continuationReceipt.taskIdentity-cne[string]$package.taskIdentity-or[string]$continuationReceipt.taskIdentity-cne[string]$actualTaskIdentity-or[string]$continuationReceipt.taskId-cne$ObservedTaskId-or[string]$continuationReceipt.taskOwner-cne$ObservedOwner-or[string]$continuationReceipt.taskActor-cne[string]$taskRouteActor})-or[string]$continuationReceipt.actor-cne$ObservedActor-or[string]$continuationReceipt.repositoryId-cne$repositoryBinding-or[string]$continuationReceipt.projectConfigIdentity-cne[string]$package.projectConfigIdentity-or[string]$continuationReceipt.controllerIdentity-cne$currentControllerIdentity-or[string]$continuationReceipt.userDecision-cne[string]$package.userConfirmation){throw 'CONTINUATION_RECEIPT_AUTHORITY_DRIFT'}
         if([string]$continuationReceipt.protectionState-cnotin@('BOUND','NOT_APPLICABLE')){throw 'CONTINUATION_RECEIPT_PROTECTION'}
         foreach($scopeName in @('forbiddenScope','protectedScope')){if(-not($continuationReceipt.$scopeName-is[Array])){throw ('CONTINUATION_RECEIPT_SCOPE_TYPE|'+$scopeName)};foreach($scopePath in @($continuationReceipt.$scopeName)){if(-not($scopePath-is[string])){throw ('CONTINUATION_RECEIPT_SCOPE_TYPE|'+$scopeName)};Assert-ContinuationProtectionScope $scopePath}}
         $effectiveForbidden=@(@($effectiveForbidden)+@($continuationReceipt.forbiddenScope)|Select-Object -Unique)
         $effectiveProtected=@(@($effectiveProtected)+@($continuationReceipt.protectedScope)|Select-Object -Unique)
         # The source record itself is restricted before its first metadata read.
         $recordContext=New-AiwEvidenceContext $authorityRoot '' ([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../../..'))) $effectiveForbidden $effectiveProtected
-        foreach($identityName in @('packageIdentity','taskIdentity','projectConfigIdentity','sourceDiscoverReceiptIdentity')){if([string]$continuationReceipt.$identityName-cnotmatch'^\d+\|[A-F0-9]{64}$'){throw ('CONTINUATION_RECEIPT_IDENTITY_FORMAT|'+$identityName)}}
+        $identityNames=@('packageIdentity','projectConfigIdentity','sourceDiscoverReceiptIdentity');if(-not$projectWork){$identityNames+='taskIdentity'}
+        foreach($identityName in $identityNames){if([string]$continuationReceipt.$identityName-cnotmatch'^\d+\|[A-F0-9]{64}$'){throw ('CONTINUATION_RECEIPT_IDENTITY_FORMAT|'+$identityName)}}
         foreach($hashName in @('sourceSelectionIdentity','sourceContextIdentity')){if([string]$continuationReceipt.$hashName-cnotmatch'^[A-F0-9]{64}$'){throw ('CONTINUATION_RECEIPT_IDENTITY_FORMAT|'+$hashName)}}
         $sourceReceiptPath=[string]$continuationReceipt.sourceDiscoverReceiptPath
         if(-not[IO.Path]::IsPathRooted($sourceReceiptPath)){throw 'CONTINUATION_SOURCE_RECEIPT_DRIFT'}
         try{$sourceReceipt=Read-AiwEvidenceReference $recordContext ([pscustomobject]@{path=$sourceReceiptPath;identity=[string]$continuationReceipt.sourceDiscoverReceiptIdentity}) -Json}
         catch{if($_.Exception.Message-cmatch'^EVIDENCE_IDENTITY_DRIFT'){throw 'CONTINUATION_SOURCE_RECEIPT_DRIFT'};throw}
-        if(-not(Test-JsonInteger $sourceReceipt.schemaVersion)-or[int]$sourceReceipt.schemaVersion-notin@(1,2,3,4)-or[string]$sourceReceipt.receiptType-cne'PROCESS_REQUIREMENTS_DISCOVER'-or[string]$sourceReceipt.mode-cne'DISCOVER'-or[string]$sourceReceipt.selectionIdentity-cne[string]$continuationReceipt.sourceSelectionIdentity-or[string]$sourceReceipt.contextIdentity-cne[string]$continuationReceipt.sourceContextIdentity){throw 'CONTINUATION_SOURCE_RECEIPT_LINK_DRIFT'}
+        if($sourceReceipt.schemaVersion-eq5){
+            $operationCodec=@(Import-Module (Join-Path $PSScriptRoot 'ProcessRequirementComposition.psm1') -PassThru)[0]
+            $sourceReceipt=& $operationCodec {param($raw,$ctx)ConvertFrom-AiwOperationCompact $raw -EvidenceContext $ctx} $sourceReceipt $recordContext
+            $sourceFormat=$sourceReceipt.status-ceq'PASS'-and$sourceReceipt.receiptType-ceq'PROCESS_REQUIREMENTS_OPERATION'
+        }else{
+            $sourceFormat=(Test-JsonInteger $sourceReceipt.schemaVersion)-and[int]$sourceReceipt.schemaVersion-in@(1,2,3,4)-and[string]$sourceReceipt.receiptType-ceq'PROCESS_REQUIREMENTS_DISCOVER'-and[string]$sourceReceipt.mode-ceq'DISCOVER'
+        }
+        if(-not$sourceFormat-or[string]$sourceReceipt.selectionIdentity-cne[string]$continuationReceipt.sourceSelectionIdentity-or[string]$sourceReceipt.contextIdentity-cne[string]$continuationReceipt.sourceContextIdentity){throw 'CONTINUATION_SOURCE_RECEIPT_LINK_DRIFT'}
         $sourceAuthority=if([int]$sourceReceipt.schemaVersion-eq1){$sourceReceipt.authorityContext}else{$sourceReceipt.binding}
         $sourceAction=if([int]$sourceReceipt.schemaVersion-eq1){[string]$sourceReceipt.actionKind}else{[string]$sourceReceipt.intentEnvelope.requestedActionKind}
         if($sourceAction-cne[string]$continuationReceipt.completedAction){throw 'CONTINUATION_SOURCE_ACTION_DRIFT'}
         if($continuationReceipt.schemaVersion-eq3){
             Import-Module (Join-Path $PSScriptRoot 'ExecutionTargetContext.psm1')
-            if($sourceReceipt.schemaVersion-ne4-or($sourceAuthority.executionContext.executionTargetRef|ConvertTo-Json -Compress)-cne($continuationReceipt.executionTargetRef|ConvertTo-Json -Compress)-or((Get-AiwExecutionTargetState $sourceAuthority.executionContext)|ConvertTo-Json -Compress)-cne($continuationReceipt.observedTargetState|ConvertTo-Json -Compress)){throw 'CONTINUATION_TARGET_SOURCE_DRIFT'}
+            if($sourceReceipt.schemaVersion-notin@(4,5)-or($sourceAuthority.executionContext.executionTargetRef|ConvertTo-Json -Compress)-cne($continuationReceipt.executionTargetRef|ConvertTo-Json -Compress)-or((Get-AiwExecutionTargetState $sourceAuthority.executionContext)|ConvertTo-Json -Compress)-cne($continuationReceipt.observedTargetState|ConvertTo-Json -Compress)){throw 'CONTINUATION_TARGET_SOURCE_DRIFT'}
             # Local production continuations do not grant a Git commit.
             if(($continuationReceipt.postTargetState|ConvertTo-Json -Compress)-cne($continuationReceipt.observedTargetState|ConvertTo-Json -Compress)){throw 'CONTINUATION_TARGET_UNAUTHORIZED_HEAD_CHANGE'}
         }
 
         if($null-eq$sourceAuthority.PSObject.Properties['continuationStepIndex']-or-not(Test-JsonInteger $sourceAuthority.continuationStepIndex)-or[int]$sourceAuthority.continuationStepIndex-ne$completedStep){throw 'CONTINUATION_SOURCE_STEP_DRIFT'}
-        if([string]$sourceAuthority.authorizationIdentity-cne$packageIdentity-or[string]$sourceAuthority.taskIdentity-cne[string]$continuationReceipt.taskIdentity-or[string]$sourceAuthority.taskActor-cne[string]$continuationReceipt.taskActor-or[string]$sourceAuthority.actor-cne[string]$continuationReceipt.actor-or[string]::Join("`n",@($sourceAuthority.forbiddenScope))-cne[string]::Join("`n",@($continuationReceipt.forbiddenScope))-or[string]::Join("`n",@($sourceAuthority.protectedScope))-cne[string]::Join("`n",@($continuationReceipt.protectedScope))){throw 'CONTINUATION_SOURCE_RECEIPT_AUTHORITY_DRIFT'}
+        if([string]$sourceAuthority.authorizationIdentity-cne$packageIdentity-or$(if($projectWork){$sourceReceipt.schemaVersion-ne5-or$sourceAuthority.contextType-cne'PROJECT_WORK'-or(Get-AiwContentDescriptorIdentity $sourceAuthority.context.requestContext)-cne(Get-AiwContentDescriptorIdentity $continuationReceipt.requestContext)}else{[string]$sourceAuthority.taskIdentity-cne[string]$continuationReceipt.taskIdentity-or[string]$sourceAuthority.taskActor-cne[string]$continuationReceipt.taskActor})-or[string]$sourceAuthority.actor-cne[string]$continuationReceipt.actor-or[string]::Join("`n",@($sourceAuthority.forbiddenScope))-cne[string]::Join("`n",@($continuationReceipt.forbiddenScope))-or[string]::Join("`n",@($sourceAuthority.protectedScope))-cne[string]::Join("`n",@($continuationReceipt.protectedScope))){throw 'CONTINUATION_SOURCE_RECEIPT_AUTHORITY_DRIFT'}
         if($observedActions.Count-eq1-and$observedActions[0]-ceq'REVIEW_ROUTE'){
             try{
                 $reviewScopeContext=New-AiwPackageEvidenceContext $authorityRoot $package ([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../../..'))) $effectiveForbidden -TaskPath $TaskPath -ProtectedPaths $effectiveProtected
@@ -897,8 +978,8 @@ elseif($hasContinuationPath){
             $composed=@(Get-AiwComposedReviewCandidate $ctx $package $production)
             if((@($composed|ForEach-Object{$_.path+'='+$_.identity}|Sort-Object)-join'|')-cne(@($continuationReceipt.postObjectIdentities|ForEach-Object{$_.path+'='+$_.identity}|Sort-Object)-join'|')){throw 'CONTINUATION_REVIEW_CANDIDATE_DRIFT'}
             $candidates=@(Get-AiwPackageCandidateReferences ([pscustomobject]@{objectIdentities=$production}))
-            $qualityPlan=Get-AiwAcceptancePlan $taskRaw
-            if(Test-AiwReviewSelfCheckRequired $qualityPlan){Assert-AiwReviewSelfCheck $ctx $continuationReceipt.evidenceRefs $package.taskId $candidates $qualityPlan}
+            $qualityPlan=if($projectWork){$workPlan}else{Get-AiwAcceptancePlan $taskRaw}
+            if(Test-AiwReviewSelfCheckRequired $qualityPlan){Assert-AiwReviewSelfCheck $ctx $continuationReceipt.evidenceRefs $(if($projectWork){$request}else{$package.taskId}) $candidates $qualityPlan}
             else{
                 $null=Get-AiwPackageQuality $ctx $package $qualityPlan
                 # Authorization and preparation remain separate. The actual
@@ -938,15 +1019,25 @@ if($reasons.Count-eq0){try {
         if($null-ne$parent.PSObject.Properties['repairReviewBinding']){throw 'REPAIR_REVIEW_NESTED_PARENT'}
         Assert-RepairPlan $parent
         $plan=$parent.repairReviewPlan
+        $crossReviewRoot=$projectWork-and$parent.schemaVersion-ne5
+        if($crossReviewRoot){
+            $bridgeContext=New-AiwEvidenceContext $authorityRoot '' ([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../../..'))) $effectiveForbidden $effectiveProtected
+            $bridgeReader=(Get-Command New-AiwEvidenceContext).Module
+            $bridgeFacts=& $bridgeReader {param($c,$r,$ref)Get-EvWorkReviewRoot $c $r $ref} $bridgeContext $package.requestContext ([pscustomobject]@{path=$b.parentPackagePath;identity=$b.parentPackageIdentity})
+        }
         $reviewerActor=Get-RepairReviewer $parent $b ([string]$b.parentPackageIdentity)
         $initialReview=$b.phase-ceq'INITIAL_REVIEW'
         if($b.phase-cnotin@('INITIAL_REVIEW','REPAIR','REREVIEW')-or-not(Test-JsonInteger $b.cycle)-or
            ($initialReview-and$b.cycle-ne0)-or(-not$initialReview-and($b.cycle-lt1-or$b.cycle-gt$plan.maxCycles))){throw 'REPAIR_REVIEW_CYCLE'}
-        foreach($name in @('schemaVersion','frameworkVersion','taskId','taskIdentity','owner','issuer','issuerRole','profile','projectConfigIdentity','userConfirmation')){
+        if($projectWork-and-not$crossReviewRoot-and($parent.schemaVersion-ne5-or-not(Test-AiwSameResultContext $package $parent))){throw 'REPAIR_REVIEW_PARENT_CONTEXT_DRIFT'}
+        if($projectWork-and-not$crossReviewRoot-and(Get-AiwWorkPlanDefinitionKey $package.requestContext)-cne(Get-AiwWorkPlanDefinitionKey $parent.requestContext)){throw 'REPAIR_REVIEW_PARENT_PLAN_DRIFT'}
+        $parentFields=@('schemaVersion','frameworkVersion','owner','issuer','issuerRole','profile','projectConfigIdentity','userConfirmation');if(-not$projectWork){$parentFields+=@('taskId','taskIdentity')}
+        if($crossReviewRoot){$parentFields=@('frameworkVersion','owner','profile')}
+        foreach($name in $parentFields){
             if($package.$name-cne$parent.$name){throw ('REPAIR_REVIEW_PARENT_DRIFT|'+$name)}
         }
         foreach($name in @('repositoryId','issuerControllerId','issuerControllerEpoch','controllerControlIdentity')){
-            if($null-ne$parent.PSObject.Properties[$name]-and($null-eq$package.PSObject.Properties[$name]-or$package.$name-cne$parent.$name)){throw ('REPAIR_REVIEW_PARENT_DRIFT|'+$name)}
+            if(-not$crossReviewRoot-and$null-ne$parent.PSObject.Properties[$name]-and($null-eq$package.PSObject.Properties[$name]-or$package.$name-cne$parent.$name)){throw ('REPAIR_REVIEW_PARENT_DRIFT|'+$name)}
         }
         if($parent.schemaVersion-eq4){
             foreach($field in @('controlRoot','executionTargetRef','expectedTargetState')){if(($package.$field|ConvertTo-Json -Compress)-cne($parent.$field|ConvertTo-Json -Compress)){throw ('REPAIR_REVIEW_PARENT_TARGET_DRIFT|'+$field)}}
@@ -959,8 +1050,8 @@ if($reasons.Count-eq0){try {
             if($b.verdictPath-cne'NOT_APPLICABLE'-or$b.verdictIdentity-cne'NOT_APPLICABLE'){throw 'INITIAL_REVIEW_NO_VERDICT'}
         }else{
         $verdict=Read-RepairEvidence $b.verdictPath $b.verdictIdentity
-        Assert-RepairFields $verdict @('taskId','owner','reviewer','writer','cycle','verdict','exactPaths','objectIdentities','findingPaths','scopeChanged','decisionChanged')
-        if($verdict.taskId-cne$parent.taskId-or$verdict.owner-cne$parent.owner-or$verdict.reviewer-cne$reviewerActor-or$verdict.writer-cne$plan.writer-or
+        $verdictFields=@('owner','reviewer','writer','cycle','verdict','exactPaths','objectIdentities','findingPaths','scopeChanged','decisionChanged');$verdictWork=$projectWork-and$null-ne$verdict.PSObject.Properties['context'];$verdictFields+=if($verdictWork){'context'}else{'taskId'};Assert-RepairFields $verdict $verdictFields
+        if(-not(Test-AiwSameResultContext $(if($verdictWork){$verdict.context}else{$verdict}) $(if($verdictWork-and$crossReviewRoot){$package}else{$parent}))-or$verdict.owner-cne$parent.owner-or$verdict.reviewer-cne$reviewerActor-or$verdict.writer-cne$plan.writer-or
            $verdict.cycle-ne($b.cycle-1)-or$verdict.verdict-cne'CHANGES_REQUESTED'-or$verdict.scopeChanged-isnot[bool]-or$verdict.scopeChanged-or$verdict.decisionChanged-isnot[bool]-or$verdict.decisionChanged){throw 'REPAIR_REVIEW_VERDICT_BOUNDARY'}
         if($verdict.findingPaths-isnot[array]-or$verdict.findingPaths.Count-eq0-or@($verdict.findingPaths|Where-Object{$_-cnotin$reviewScope.path}).Count-or
            (@($verdict.exactPaths|Sort-Object)-join'|')-cne(@($reviewScope.path|Sort-Object)-join'|')){throw 'REPAIR_REVIEW_FINDING_SCOPE'}
@@ -982,14 +1073,14 @@ if($reasons.Count-eq0){try {
             $finalInput=Read-RepairEvidence $b.repairFinalizeInputPath $b.repairFinalizeInputIdentity
             $finalResult=Read-RepairEvidence $b.repairFinalizeResultPath $b.repairFinalizeResultIdentity
             if($finalInput.mode-cne'FINALIZE_OUTPUT'-or$finalResult.mode-cne'FINALIZE_OUTPUT'-or$finalResult.status-cne'PASS'-or$finalResult.decisionIdentity-cnotmatch'^[A-F0-9]{64}$'){throw 'REPAIR_REVIEW_FINALIZE_REQUIRED'}
-            $discover=Read-RepairEvidence $finalInput.discoverReceiptPath $finalInput.expectedDiscoverReceiptIdentity
+            $discover=Read-RepairOperation $finalInput $finalResult
             if($null-ne$finalResult.PSObject.Properties['sourcePostimageTransition']){throw 'REPAIR_REVIEW_AUTHORITY_CHANGE_REQUIRES_OWNER'}
-            $context=if($discover.schemaVersion-in@(2,3,4)){$discover.binding}else{$discover.authorityContext}
+            $context=if($discover.schemaVersion-in@(2,3,4,5)){$discover.binding}else{$discover.authorityContext}
             foreach($name in @('forbiddenScope','protectedScope')){if($context.$name-isnot[array]-or@($context.$name|Where-Object{$_-isnot[string]}).Count){throw 'REPAIR_REVIEW_PRODUCER_SCOPE_TYPE'}}
             $effectiveForbidden=@(@($effectiveForbidden)+@($context.forbiddenScope)|Select-Object -Unique)
             $effectiveProtected=@(@($effectiveProtected)+@($context.protectedScope)|Select-Object -Unique)
-            $intent=if($discover.schemaVersion-in@(2,3,4)){$discover.intentEnvelope}else{[pscustomobject]@{objective=$discover.objective;requestedActionKind=$discover.actionKind;requestedResultKind=$discover.resultKind}}
-            $producerExactScope=if($discover.schemaVersion-in@(2,3,4)){$context.exactScope}else{$discover.exactPaths}
+            $intent=if($discover.schemaVersion-in@(2,3,4,5)){$discover.intentEnvelope}else{[pscustomobject]@{objective=$discover.objective;requestedActionKind=$discover.actionKind;requestedResultKind=$discover.resultKind}}
+            $producerExactScope=if($discover.schemaVersion-in@(2,3,4,5)){$context.exactScope}else{$discover.exactPaths}
             $finalDelivery=$null
             if($null-ne$finalInput.PSObject.Properties['deliveryContext']){
                 Import-Module (Join-Path $PSScriptRoot 'ProcessRequirementComposition.psm1')
@@ -1010,15 +1101,25 @@ if($reasons.Count-eq0){try {
             }
             if($null-eq$finalDelivery-and$intent.requestedResultKind-cin@('USER_RESPONSE','TERMINAL','HANDOFF','REVIEW_VERDICT','RESULT_ACCEPTANCE')-and@($finalInput.deliveryReceipts).Count-eq0){throw 'REPAIR_REVIEW_FINALIZE_INCOMPLETE'}
             $repairPackage=Read-RepairEvidence $discover.sourceLocators.authorizationPackagePath $context.authorizationIdentity
-            if($repairPackage.grantee-cne$plan.writer-or$repairPackage.taskIdentity-cne$package.taskIdentity){throw 'REPAIR_REVIEW_REPAIR_SOURCE'}
+            $relationContext=New-AiwEvidenceContext $authorityRoot '' ([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../../..'))) $effectiveForbidden $effectiveProtected
+            $relationReader=(Get-Command New-AiwEvidenceContext).Module
+            & $relationReader {param($c,$current,$producer,$ref)Assert-EvReviewProducerRelation $c $current $producer $ref} $relationContext $package $repairPackage ([pscustomobject]@{path=$discover.sourceLocators.authorizationPackagePath;identity=$context.authorizationIdentity})
+            if($repairPackage.grantee-cne$plan.writer-or$(if($projectWork-and$repairPackage.schemaVersion-eq5){-not(Test-AiwSameResultContext $repairPackage $package)}elseif($crossReviewRoot){$repairPackage.taskId-cne$parent.taskId-or$repairPackage.owner-cne$parent.owner}else{$repairPackage.taskIdentity-cne$package.taskIdentity})){throw 'REPAIR_REVIEW_REPAIR_SOURCE'}
             if([string]$intent.requestedActionKind-cnotin@('SOURCE_WRITE','TEST_WRITE','TEST_RUN','CONTROL_WRITE')){throw 'REPAIR_REVIEW_PRODUCTION_FINALIZE_REQUIRED'}
             if($intent.requestedActionKind-ceq'TEST_RUN'){
                 $selfProjectRoot=if($discover.schemaVersion-eq1){$discover.sourceLocators.projectRoot}else{$context.projectRoot}
                 $selfContext=New-AiwPackageEvidenceContext $selfProjectRoot $repairPackage $discover.sourceLocators.frameworkRoot $effectiveForbidden -TaskPath $discover.sourceLocators.taskRelativePath -ProtectedPaths $effectiveProtected
                 $productionPostimages=@(Get-AiwFinalizedObjectPostimages $finalInput @($repairPackage.exactPaths))
-                $actualTestPlan=Get-AiwAcceptancePlan (Read-StrictUtf8 $TaskPath)
+                if($projectWork-and$repairPackage.schemaVersion-eq5){Assert-AiwWorkPackageContext $context.context.requestContext $repairPackage ([string]$intent.requestedActionKind)}
+                $actualTestPlan=if($repairPackage.schemaVersion-eq5){
+                    Get-AiwProjectWorkPlan $context.context.requestContext
+                }elseif($crossReviewRoot){
+                    # The producer is the original TASK, not the current WORK reviewer.
+                    $producerTaskPath=Read-AiwEvidenceReference $bridgeContext $bridgeFacts.decision.predecessorTaskRef
+                    Get-AiwAcceptancePlan (Read-StrictUtf8 $producerTaskPath)
+                }else{Get-AiwAcceptancePlan (Read-StrictUtf8 $TaskPath)}
                 if(-not(Test-AiwReviewSelfCheckRequired $actualTestPlan)){$actualTestPlan=$null}
-                Assert-AiwReviewSelfCheck $selfContext $finalInput.evidenceRefs $package.taskId @(Get-AiwPackageCandidateReferences ([pscustomobject]@{objectIdentities=$productionPostimages})) $actualTestPlan
+                Assert-AiwReviewSelfCheck $selfContext $finalInput.evidenceRefs (Get-AiwEvidenceSubject $repairPackage) @(Get-AiwPackageCandidateReferences ([pscustomobject]@{objectIdentities=$productionPostimages})) $actualTestPlan
             }
             if($initialReview){
                 if($context.authorizationIdentity-cne$b.parentPackageIdentity-or
@@ -1047,14 +1148,19 @@ if($reasons.Count-eq0){try {
 if($taskFactsReady-and$reasons.Count-eq0){
     try{
         $qualityContext=New-AiwPackageEvidenceContext $authorityRoot $package ([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../../..'))) $effectiveForbidden -TaskPath $TaskPath -ProtectedPaths $effectiveProtected
-        $qualityManagement=Test-AiwQualityManagementPackage $package $normalizedTaskPath
-        $null=Get-AiwPackageQuality $qualityContext $package (Get-AiwAcceptancePlan $taskRaw) -Management:$qualityManagement
+        if($null-ne$package.PSObject.Properties['acceptedOutcomeBinding']){
+            $evidence=@(Import-Module (Join-Path $PSScriptRoot 'ResultEvidence.psm1') -PassThru)[0]
+            $null=& $evidence {param($context,$package,$plan) Get-EvOrdinaryAcceptedOutcome $context $package ADMIT $plan} $qualityContext $package $(if($projectWork){$workPlan}else{Get-AiwAcceptancePlan $taskRaw})
+        }else{
+            $qualityManagement=Test-AiwQualityManagementPackage $package $normalizedTaskPath
+            $null=Get-AiwPackageQuality $qualityContext $package $(if($projectWork){$workPlan}else{Get-AiwAcceptancePlan $taskRaw}) -Management:$qualityManagement
+        }
     }catch{if($_.Exception.Data.Contains('AIW_PRIVATE_TOOL_EXIT')){throw};Add-Reason $reasons ([string]$_.Exception.Message)}
 }
 if ($reasons.Count-eq0-and'RESULT_ACCEPT' -cin $actions) {
     try {
         $evidenceContext=New-AiwPackageEvidenceContext $authorityRoot $package ([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../../..'))) $effectiveForbidden -TaskPath $TaskPath -ProtectedPaths $effectiveProtected
-        Assert-AiwAcceptanceBinding $evidenceContext $package (Get-AiwAcceptancePlan $taskRaw)
+        Assert-AiwAcceptanceBinding $evidenceContext $package $(if($projectWork){$workPlan}else{Get-AiwAcceptancePlan $taskRaw})
     } catch {if($_.Exception.Data.Contains("AIW_PRIVATE_TOOL_EXIT")){throw}; Add-Reason $reasons ([string]$_.Exception.Message) }
 } elseif ($null-ne$package.PSObject.Properties['acceptanceBinding']) {
     Add-Reason $reasons 'RESULT_ACCEPT_BINDING_WRONG_ACTION'
@@ -1219,7 +1325,7 @@ if ($reasons.Count -gt 0) {
 }
 
 foreach ($action in $observedActions) {
-    Write-Output ('PASS|task=' + [string]$package.taskId + '|actor=' + $ObservedActor + '|action=' + $action + '|paths=' + $ObservedPath.Count)
+    Write-Output ('PASS|'+$(if($projectWork){'context=PROJECT_WORK'}else{'task='+[string]$package.taskId}) + '|actor=' + $ObservedActor + '|action=' + $action + '|paths=' + $ObservedPath.Count)
 }
 throw (New-AiwPrivateToolExit (0))
 
@@ -1228,5 +1334,71 @@ throw (New-AiwPrivateToolExit (0))
 if($_.Exception.Data.Contains('AIW_PRIVATE_TOOL_EXIT')){$code=[int]$_.Exception.Data['AIW_PRIVATE_TOOL_EXIT']}else{$code=2;$outputs.Add("FAIL|"+[string]$_.Exception.Message)}
 }finally{if($null-ne$aiwPublicationScopeLease){Exit-AiwProjectSourceScope $aiwPublicationScopeLease}}
 return [pscustomobject]@{exitCode=$code;output=$outputs.ToArray()}
+}
+Export-ModuleMember -Function Invoke-AiwAuthorizationCheck
+
+function Invoke-AiwAuthorizationCheck {
+
+[CmdletBinding(DefaultParameterSetName='TASK')]
+param(
+    [Parameter(Mandatory = $true)]
+    [string]$PackagePath,
+
+    [Parameter(Mandatory = $true)]
+    [string]$ObservedActor,
+
+    [Parameter(Mandatory = $true,ParameterSetName='TASK')]
+    [string]$ObservedTaskId,
+
+    [Parameter(Mandatory = $true,ParameterSetName='PROJECT_WORK')]
+    [string]$RequestContextJson,
+
+    [Parameter(Mandatory = $true)]
+    [string]$ObservedOwner,
+
+    [Parameter(Mandatory = $true)]
+    [ValidateSet('NONE','CONTROL_WRITE','SOURCE_WRITE','TEST_WRITE','TEST_RUN','BROWSER_RUN','DEVICE_RUN','REVIEW_ROUTE','REVIEW_EXECUTE','RESULT_ACCEPT','GIT_STAGE','GIT_COMMIT','PUSH','EXTERNAL')]
+    [string[]]$ObservedAction,
+
+    [Parameter(Mandatory = $true)]
+    [string[]]$ObservedPath,
+
+    [string[]]$ObservedIdentity = @(),
+
+    [string]$ControllerControlPath,
+
+    [string]$ObservedRepositoryId,
+
+    [string]$ProjectConfigPath,
+
+    [string]$ExpectedProjectConfigIdentity,
+
+    [Parameter(ParameterSetName='TASK')]
+    [string]$TaskPath,
+
+    [Parameter(ParameterSetName='TASK')]
+    [string]$ExpectedTaskIdentity,
+
+    [string]$ContinuationReceiptPath,
+
+    [string]$ExpectedContinuationReceiptIdentity,
+
+    [string]$ControlRoot,
+
+    [string[]]$ForbiddenPaths=@(),
+
+    [string[]]$ProtectedPaths=@(),
+
+    [switch]$RootRepositoryBindingValidated
+)
+ $owner=$ExecutionContext.SessionState.Module
+ $publication=@(Import-Module (Join-Path $PSScriptRoot 'ProjectSourcePublication.psm1') -PassThru -ErrorAction Stop)[0]
+ & $publication {
+  param($owner,$parameters)
+  Invoke-PubClosureObservationScope -Body {
+   param($owner,$parameters)
+   & $owner {param($parameters) Invoke-AiwAuthorizationCheckCore @parameters} $parameters
+  } -Arguments @($owner,$parameters)
+ } $owner $PSBoundParameters
 }
 Export-ModuleMember -Function Invoke-AiwAuthorizationCheck

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "AI Workspace typed evidence records 1 and 2",
+  "title": "AI Workspace typed evidence records 1, 2 and 3",
   "$defs": {
     "objectRef": {
       "required": [
@@ -101,6 +101,235 @@
         "head": {
           "type": "string",
           "pattern": "^(?:[A-F0-9]{40}|[A-F0-9]{64})$"
+        }
+      }
+    },
+    "originalFinalizePair": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inputRef",
+        "resultRef"
+      ],
+      "properties": {
+        "inputRef": {
+          "$ref": "#/$defs/objectRef"
+        },
+        "resultRef": {
+          "$ref": "#/$defs/objectRef"
+        }
+      }
+    },
+    "historicalSuccessConsumption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "purpose",
+        "originalFinalize"
+      ],
+      "properties": {
+        "purpose": {
+          "const": "HISTORICAL_SUCCESS"
+        },
+        "originalFinalize": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/originalFinalizePair"
+          }
+        }
+      }
+    },
+    "acceptedOutcomeBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "useRef",
+        "additionalEvidence",
+        "additionalConsumption"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "useRef": {
+          "$ref": "#/$defs/objectRef"
+        },
+        "additionalEvidence": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/evidenceRef"
+          }
+        },
+        "additionalConsumption": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/historicalSuccessConsumption"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "purpose",
+                "originalFinalize"
+              ],
+              "properties": {
+                "purpose": {
+                  "const": "CURRENT_CANDIDATE"
+                },
+                "originalFinalize": {
+                  "type": "array",
+                  "maxItems": 0
+                }
+              }
+            }
+          ]
+        }
+      },
+      "if": {
+        "properties": {
+          "additionalEvidence": {
+            "minItems": 1
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "additionalConsumption": {
+            "$ref": "#/$defs/historicalSuccessConsumption"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "additionalConsumption": {
+            "properties": {
+              "purpose": {
+                "const": "CURRENT_CANDIDATE"
+              }
+            }
+          }
+        }
+      }
+    },
+    "acceptedOutcomeUse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "kind",
+        "requirementsRef",
+        "assuranceEvidence",
+        "assuranceConsumption",
+        "basisRefs",
+        "mappings"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "kind": {
+          "const": "ACCEPTED_OUTCOME_USE"
+        },
+        "requirementsRef": {
+          "$ref": "#/$defs/requirementsRef"
+        },
+        "assuranceEvidence": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/evidenceRef"
+          }
+        },
+        "assuranceConsumption": {
+          "$ref": "#/$defs/historicalSuccessConsumption"
+        },
+        "basisRefs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/requirementsRef"
+          }
+        },
+        "mappings": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "operation",
+                  "sourcePath",
+                  "preparedRef",
+                  "targetPath",
+                  "basisIndexes"
+                ],
+                "properties": {
+                  "operation": {
+                    "const": "WRITE"
+                  },
+                  "sourcePath": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "preparedRef": {
+                    "$ref": "#/$defs/objectRef"
+                  },
+                  "targetPath": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "basisIndexes": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "operation",
+                  "sourcePath",
+                  "targetPath",
+                  "basisIndexes"
+                ],
+                "properties": {
+                  "operation": {
+                    "const": "DELETE"
+                  },
+                  "sourcePath": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "targetPath": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "basisIndexes": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  }
+                }
+              }
+            ]
+          }
         }
       }
     }
@@ -323,6 +552,184 @@
         },
         "candidateTargetState": {
           "$ref": "#/$defs/targetState"
+        }
+      }
+    },
+    {
+      "required": [
+        "schemaVersion",
+        "actor",
+        "candidateObjects",
+        "requirementsRef",
+        "outcome",
+        "checks",
+        "evidenceLocators",
+        "context"
+      ],
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "authorizationRef": {
+          "$ref": "#/$defs/objectRef"
+        },
+        "requirementsRef": {
+          "$ref": "#/$defs/requirementsRef"
+        },
+        "outcome": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "INCOMPLETE",
+            "APPROVED",
+            "CHANGES_REQUESTED",
+            "REJECTED",
+            "ACCEPTED"
+          ]
+        },
+        "checks": {
+          "items": {
+            "required": [
+              "id",
+              "method",
+              "outcome",
+              "reason",
+              "evidenceLocators"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1
+              },
+              "evidenceLocators": {
+                "items": {
+                  "$ref": "#/$defs/objectRef"
+                },
+                "minItems": 1,
+                "type": "array"
+              },
+              "outcome": {
+                "enum": [
+                  "PASS",
+                  "FAIL",
+                  "INCOMPLETE"
+                ]
+              },
+              "method": {
+                "enum": [
+                  "COMMAND",
+                  "MODEL_JUDGMENT"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "acceptedCommit": {
+          "type": "string",
+          "pattern": "^(?:[A-F0-9]{40}|[A-F0-9]{64})$"
+        },
+        "schemaVersion": {
+          "const": 3
+        },
+        "candidateObjects": {
+          "items": {
+            "$ref": "#/$defs/candidateRef"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "evidenceLocators": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/objectRef"
+          }
+        },
+        "actor": {
+          "type": "string",
+          "minLength": 1
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "requestRef",
+            "owner"
+          ],
+          "properties": {
+            "kind": {
+              "const": "PROJECT_WORK"
+            },
+            "requestRef": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "kind",
+                    "path",
+                    "identity"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "const": "FILE"
+                    },
+                    "path": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "identity": {
+                      "type": "string",
+                      "pattern": "^\\d+\\|[A-F0-9]{64}$"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "kind",
+                    "hostId",
+                    "threadId",
+                    "turnId",
+                    "messageId"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "const": "HOST_MESSAGE"
+                    },
+                    "hostId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "threadId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "turnId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "messageId": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              ]
+            },
+            "owner": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
         }
       }
     }

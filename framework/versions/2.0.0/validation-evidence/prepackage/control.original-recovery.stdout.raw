@@ -13,8 +13,9 @@ PASS|crash-after-last-marker-before-cli-return|INJECTED_CRASH|BEFORE_COMPLETE_RE
 PASS|last-marker-gone-only-with-durable-original-proof
 PASS|repeat-complete-is-idempotent
 PASS|old-ordinary-package-remains-invalid-after-handoff
-PASS|protected-control-candidate-refusal-retains-original-markers
-PASS|protected-control-refusal-can-restore-original-chain
+PASS|protected-control-candidate-refused-before-original-admission
+PASS|protected-control-cannot-apply-without-original-admission|INPUT_MISSING
+PASS|protected-control-refusal-keeps-original-objects-without-markers-or-proof
 PASS|directional-transition-TaskOnly
 PASS|directional-transition-ControllerOnly
 PASS|second-target-exclusive-result-is-required-when-first-task-is-unchanged
@@ -73,4 +74,4 @@ PASS|tampered-completion-decision-refused|TRANSITION_PROOF_DECISION
 PASS|tampered-proof-zero-cleanup
 PASS|forbidden-object-rejected-before-state-hash|TRANSITION_FORBIDDEN_READ
 PASS|forbidden-preview-zero-overwrite
-CONTROL_TRANSITION_TESTS_PASS|checks=75|group=OriginalRecovery
+CONTROL_TRANSITION_TESTS_PASS|checks=76|group=OriginalRecovery

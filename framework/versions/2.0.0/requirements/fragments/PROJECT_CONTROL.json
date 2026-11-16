@@ -115,7 +115,7 @@
       "requirementId": "PR_PROCESS_REQUIREMENTS_THREE_SOURCE_COMPOSITION",
       "legacyAliases": [],
       "title": "Three-source normative composition",
-      "description": "Validate the full effective set, current permission and complete ordered normative units before selection.",
+      "description": "Validate complete declarations and current permission, then the full selected ordered closure; adoption and rule changes verify the complete target adopted set.",
       "selectors": {
         "profiles": [
           "*"
@@ -333,7 +333,17 @@
             "RESULT_ACCEPTANCE"
           ]
         },
-        "facets": {}
+        "facets": {
+          "workType": [
+            "aiw:task-organization",
+            "aiw:collaboration",
+            "aiw:review",
+            "aiw:acceptance",
+            "aiw:recovery",
+            "aiw:controller-handoff",
+            "aiw:closure"
+          ]
+        }
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_OWNER_FIRST_DIRECT_DOMAIN_ROUTE",
       "preparationRequirements": [
@@ -341,7 +351,20 @@
       ],
       "resultRequirements": [
         "DIRECT_CONSUMER_BOUND"
-      ]
+      ],
+      "bodySelectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "contextTypes": [
+          "TASK",
+          "PROJECT_WORK"
+        ],
+        "facets": {}
+      }
     },
     {
       "requirementId": "PR_CORRECTIONS_V2_COMPATIBILITY",

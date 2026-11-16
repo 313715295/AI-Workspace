@@ -12,7 +12,7 @@
 | 健康 project6 / snapshot.16 的真实 REGISTER，或 project7 / snapshot.17 已完成采用 | 已审固定的后续 2.0.0 分发 | 16 按真实配置6经 FORMAT 迁移至7，保原 REGISTER journal 及原 state 前像；17 沿实际起源同 pin 刷新。两者均须原准入及原 FINALIZE，采用 state schema7 不代表 project format7；运行源、目标源和执行工具分别绑定 |
 | 健康 project7 / 2.0.0 | 相同目标 | 按当前配置、任务和发行绑定复核；不得把历史安装内容当作当前项目规则的永久锁 |
 | managed AGENTS 模板更新 | 2.0.0 | 精确绑定当前整文件前像，管理区只投影目标导航；承接当前真实授权原文、项目限制及区外字节，未知混合 custom 在原准备中解决，不猜删或扩大授权 |
-| 缺 current actor-bound active task | 2.0.0 | 拒绝实施；不从 Owner 或聊天推断 actor，不批量重写其他任务 |
+| 已选择TASK或需要采用任务的分支缺 current actor-bound active task | 2.0.0 | 拒绝该分支；不从 Owner 或聊天推断 actor，不批量重写其他任务 |
 | 有效规则、纠正覆盖或阶段接受无法自动映射 | 2.0.0 | 项目 Owner 提供当前任务/规则的明确映射并独立审收；不删除记录、伪造完成或以 Framework 中央登记代替项目决定 |
 | 未知对象、第三方字节、保护范围或来源漂移 | 2.0.0 | 写入前拒绝；中断后仅处置原授权精确前后像，保留第三方对象 |
 | unavailable backend/runtime/platform | 2.0.0 | 拒绝依赖动作，不自动下载、安装或切换 backend |
@@ -50,6 +50,6 @@ COMPLETE 仅接受顺序写入形成的新像前缀，包括对象落盘但事�
 
 ## 规则加载与兼容边界
 
-目标新调用使用 schema5 DISCOVER / ruleLoad、schema2 IntentEnvelope 四维 facets 和 schema4 compact；ADMIT/FINALIZE 使用 schema3，typed evidence 与既有授权格式保持。原 snapshot.12/snapshot.3/snapshot.15 的过程仍按各自原合同和原收据验证，不将历史输入批量改写为新格式，也不能用旧格式豁免新调用的证据门。具体 Maintenance TARGET 输入限制以 TOOL_CONTRACT 为准。
+目标普通新调用使用 schema6 DISCOVER / ruleLoad、schema3 IntentEnvelope 和 schema5 compact；ADMIT/FINALIZE使用boundary4的currentOperation或operationRef分支。旧Input4/5、compact3/4及boundary3保持各自严格分支；专门采用、专业发布和typed evidence按TOOL_CONTRACT实际支持的格式执行，不由本导航推定升级。原 snapshot.12/snapshot.3/snapshot.15 的过程仍按各自原合同和原收据验证，不将历史输入批量改写为新格式，也不能用旧格式豁免新调用的证据门。具体 Maintenance TARGET 输入限制以 TOOL_CONTRACT 为准。
 
 同一 composer 组合原生规则、有效纠正和项目标准；完整 selected blocks 供模型实际读取，compact 仅保留来源/边界/义务。旧 budget 字段只作兼容数据，不设置规则包额度。项目可以继续使用 inline 或 source-bound 标准，不自动搬迁正文。机械匹配、哈希和 PASS 不证明模型注意力、语义正确性或宿主实际调用。

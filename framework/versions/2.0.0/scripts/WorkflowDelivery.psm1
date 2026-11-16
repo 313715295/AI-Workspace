@@ -133,45 +133,82 @@ function Get-DeliveryProducerRemnants($Producers,[string]$ScopeRoot){
 
 function Get-DeliveryRuntimeReferences([string]$ProjectRoot,[string]$ScopeRoot,$Values,$EvidenceContext,$VerifiedProducers=@(),[string[]]$TraversalLeaves=@()){
     $paths=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-    $verified=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::OrdinalIgnoreCase)
-    $skipCleanup=[Collections.Generic.HashSet[object]]::new([Collections.Generic.ReferenceEqualityComparer]::Instance)
-    foreach($producer in $VerifiedProducers){
-        $full=[IO.Path]::GetFullPath($producer.pair.resultRef.path,$ProjectRoot)
-        $verified[$full]=$producer.pair.resultRef;$null=$skipCleanup.Add($producer.result)
-    }
-    $queue=[Collections.Generic.Queue[object]]::new();foreach($value in $Values){if($null-ne$value){$queue.Enqueue($value)}}
+    $expanded=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    $expandedDocuments=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::OrdinalIgnoreCase)
+    $verifiedResults=[Collections.Generic.HashSet[object]]::new([Collections.Generic.ReferenceEqualityComparer]::Instance)
+    foreach($producer in $VerifiedProducers){$null=$verifiedResults.Add($producer.result)}
+    $queue=[Collections.Generic.Queue[object]]::new()
+    foreach($value in $Values){if($null-ne$value){$queue.Enqueue([pscustomobject]@{value=$value;field='ROOT'})}}
     $prefix=$ScopeRoot+[IO.Path]::DirectorySeparatorChar
-    function Follow([string]$Candidate){
-        if($Candidate.StartsWith('.ai-workspace/',[StringComparison]::Ordinal)){$Candidate=Join-Path $ProjectRoot $Candidate}
-        if(-not[IO.Path]::IsPathFullyQualified($Candidate)){return}
+    function Follow([string]$Candidate,$Reference=$null,[switch]$Expand,[string]$Kind=''){
+        if(-not[IO.Path]::IsPathFullyQualified($Candidate)){$Candidate=Join-Path $ProjectRoot $Candidate}
         $full=[IO.Path]::GetFullPath($Candidate)
         if(-not@($EvidenceContext.Roots|Where-Object{$full.StartsWith(($_+[IO.Path]::DirectorySeparatorChar),[StringComparison]::OrdinalIgnoreCase)}).Count){return}
-        # The original evidence guard owns root-relative exclusions, protection
-        # and reparse checks before metadata. Retention does not revalidate old bytes.
         $full=Resolve-AiwEvidenceObservationPath $EvidenceContext $full
-        if(-not$paths.Add($full)){return}
-        if($full-in$TraversalLeaves){return}
-        if([IO.File]::Exists($full)-and[IO.Path]::GetExtension($full)-cin@('.json','.txt')){
-            try{
-                if($verified.ContainsKey($full)){$linked=Read-AiwEvidenceReference $EvidenceContext $verified[$full] -Json;$null=$skipCleanup.Add($linked)}
-                else{$linked=(Read-AiwStrictJsonValue $full).Value}
-            }catch{if([IO.Path]::GetExtension($full)-ceq'.json'){throw ('RUNTIME_PROOF_JSON_UNREADABLE|'+$full+'|'+$_.Exception.Message)};return}
-            if($null-ne$linked){$queue.Enqueue($linked)}
+        $null=$paths.Add($full)
+        # Artifact/typed references are leaves. Only an explicit existing
+        # continuation/recovery field requests another known-format object.
+        if(-not$Expand-or$full-in$TraversalLeaves){return}
+        if($null-eq$Reference-or(-not$Kind-and-not[IO.File]::Exists($full))){return}
+        if($expandedDocuments.ContainsKey($full)){
+            $observed=$expandedDocuments[$full]
+            if($observed.identity-cne$Reference.identity){throw 'RUNTIME_REFERENCE_IDENTITY_CONFLICT'}
+            $linked=$observed.document
+        }else{
+            try{$linked=Read-AiwEvidenceReference $EvidenceContext $Reference -Json}
+            catch{throw ('RUNTIME_PROOF_JSON_UNREADABLE|'+$full+'|'+$_.Exception.Message)}
+            $expandedDocuments.Add($full,[pscustomobject]@{identity=$Reference.identity;document=$linked})
         }
+        if($linked-isnot[pscustomobject]){throw ('RUNTIME_RECOVERY_OBJECT_REQUIRED|'+$full)}
+        switch($Kind){
+            OPERATION{if($linked.schemaVersion-ne5-or$linked.receiptType-cne'PROCESS_REQUIREMENTS_OPERATION'-or$null-eq$linked.PSObject.Properties['operation']){throw 'RUNTIME_OPERATION_FORMAT'}}
+            RULE_READ{if($linked.schemaVersion-ne5-or$linked.mode-cne'DISCOVER'-or$null-eq$linked.PSObject.Properties['ruleRead']-or$null-ne$linked.PSObject.Properties['ruleReadRef']){throw 'RUNTIME_DIRECT_FULL_FORMAT'}}
+            PREPARED_INPUT{if($linked.schemaVersion-ne4-or$linked.mode-cne'FINALIZE_OUTPUT'-or$null-eq$linked.PSObject.Properties['deliveryContext']-or$linked.deliveryContext.stage-cne'PREPARE'){throw 'RUNTIME_PREPARED_INPUT_FORMAT'}}
+            PREPARED_RESULT{if($linked.mode-cne'FINALIZE_OUTPUT'-or$linked.status-cne'BLOCKED'-or$null-eq$linked.PSObject.Properties['delivery']-or$linked.delivery.status-cne'READY_TO_SEND'){throw 'RUNTIME_PREPARED_RESULT_FORMAT'}}
+        }
+        if(-not$expanded.Add($full)){return}
+        $queue.Enqueue([pscustomobject]@{value=$linked;field='RECOVERY'})
     }
+    $containers=@('context','requestContext','acceptancePlan','predecessorRef','closureFinalize','operation','currentOperation','construction','sourceLocators','authorityContext','binding','acceptanceBinding','prerequisiteConsumption','evidenceConsumption','stages','qualityBinding','subject','repairReviewPlan','repairReviewBinding','receiverBinding','sourcePublicationBinding','acceptedOutcomeBinding','assuranceConsumption','additionalConsumption','assuranceEvidence','additionalEvidence','originalFinalize','mappings','deliveryContext','inputCleanup','consumedObject','postObjectIdentities','objectIdentities')
+    $pathFields=@('discoverReceiptPath','authorizationPackagePath','continuationReceiptPath','parentPackagePath','verdictFinalizeInputPath','verdictFinalizeResultPath','repairFinalizeInputPath','repairFinalizeResultPath','productionFinalizeInputPath','productionFinalizeResultPath','sourceDiscoverReceiptPath','previousReceiptPath','authorizationParentPath')
     while($queue.Count){
-        $value=$queue.Dequeue()
+        $item=$queue.Dequeue();$value=$item.value
         if($value-is[string]){
-            if($value-cmatch'^(.+)#(\d+\|[A-F0-9]{64})$'){Follow $Matches[1];continue}
-            foreach($part in $value.Split('|')){Follow ($part -replace '#\d+$','')}
-        }elseif($value-is[Array]){foreach($item in $value){if($null-ne$item){$queue.Enqueue($item)}}}
-        elseif($value-is[Collections.IDictionary]){foreach($key in $value.Keys){if([string]$key-cin@('forbiddenScope','forbiddenPaths','protectedScope','protectedPaths','routineExcludedPaths')){continue};if($null-ne$value[$key]){$queue.Enqueue($value[$key])}}}
-        elseif($value-is[pscustomobject]){
-            if($null-ne$value.PSObject.Properties['path']-and$null-ne$value.PSObject.Properties['identity']-and$value.path-is[string]-and$value.identity-is[string]){
-                Follow $(if([IO.Path]::IsPathFullyQualified($value.path)){$value.path}else{Join-Path $ProjectRoot $value.path})
+            # A caller-supplied exact locator is a leaf. Prose/command strings
+            # are never split on pipes or interpreted as dependency programs.
+            if($item.field-ceq'ROOT'-and($value.StartsWith('.ai-workspace/',[StringComparison]::Ordinal)-or[IO.Path]::IsPathFullyQualified($value))){Follow $value}
+            continue
+        }
+        if($value-is[Array]){foreach($child in $value){if($null-ne$child){$queue.Enqueue([pscustomobject]@{value=$child;field=$item.field})}};continue}
+        if($value-is[Collections.IDictionary]){$value=[pscustomobject]$value}
+        if($value-isnot[pscustomobject]){continue}
+        if($null-ne$value.PSObject.Properties['path']-and$null-ne$value.PSObject.Properties['identity']-and$value.path-is[string]-and$value.identity-is[string]){Follow $value.path;continue}
+        foreach($property in $value.PSObject.Properties){
+            $name=$property.Name;$child=$property.Value
+            if($null-eq$child){continue}
+            if($name-ceq'inputCleanup'-and$verifiedResults.Contains($value)){continue}
+            if($name-cin@('operationRef','ruleReadRef')){
+                if($child-isnot[pscustomobject]-or(@($child.PSObject.Properties.Name|Sort-Object)-join'|')-cne'identity|path'-or$child.path-isnot[string]-or$child.identity-isnot[string]-or$child.identity-cnotmatch'^\d+\|[A-F0-9]{64}$'){throw 'RUNTIME_OPERATION_REFERENCE_FIELDS'}
+                Follow $child.path $child -Expand -Kind $(if($name-ceq'operationRef'){'OPERATION'}else{'RULE_READ'})
+            }elseif($name-ceq'preparedDeliveryRef'){
+                if($child-isnot[pscustomobject]-or(@($child.PSObject.Properties.Name|Sort-Object)-join'|')-cne'inputRef|resultRef'){throw 'RUNTIME_PREPARED_REFERENCE_FIELDS'}
+                foreach($side in @('inputRef','resultRef')){
+                    $reference=$child.$side
+                    if($reference-isnot[pscustomobject]-or(@($reference.PSObject.Properties.Name|Sort-Object)-join'|')-cne'identity|path'-or$reference.path-isnot[string]-or$reference.identity-isnot[string]-or$reference.identity-cnotmatch'^\d+\|[A-F0-9]{64}$'){throw 'RUNTIME_PREPARED_REFERENCE_FIELDS'}
+                    Follow $reference.path $reference -Expand -Kind $(if($side-ceq'inputRef'){'PREPARED_INPUT'}else{'PREPARED_RESULT'})
+                }
+            }elseif($name-cin$pathFields-and$child-is[string]-and$child-cnotin@('NOT_REQUIRED','NOT_APPLICABLE')){
+                $identityName=$name.Substring(0,$name.Length-4)+'Identity'
+                $identity=if($null-ne$value.PSObject.Properties[$identityName]){[string]$value.$identityName}else{''}
+                $ref=if($identity-cmatch'^\d+\|[A-F0-9]{64}$'){[pscustomobject]@{path=$child;identity=$identity}}else{$null}
+                Follow $child $ref -Expand:($null-ne$ref)
+            }elseif($name-ceq'evidence'-and$item.field-ceq'deliveryContext'-and$child-is[string]-and$child-cmatch'^(.+)#(\d+\|[A-F0-9]{64})$'){
+                Follow $Matches[1]
+            }elseif($name-cin$containers-or$name-cmatch'(?:Ref|Refs)$'){
+                $queue.Enqueue([pscustomobject]@{value=$child;field=$name})
+            }elseif($item.field-ceq'inputCleanup'-and$name-cin@('remaining','removed','alreadyAbsent')){
+                foreach($path in $child){if($path-is[string]){Follow $path}}
             }
-            # Traversed JSON may retain a path, but can never mint a producer.
-            foreach($property in $value.PSObject.Properties){if($property.Name-cin@('forbiddenScope','forbiddenPaths','protectedScope','protectedPaths','routineExcludedPaths')-or($property.Name-ceq'inputCleanup'-and$skipCleanup.Contains($value))){continue};if($null-ne$property.Value){$queue.Enqueue($property.Value)}}
         }
     }
     [pscustomobject]@{retained=@($paths|Where-Object{$_.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase)})}
@@ -270,8 +307,12 @@ function Invoke-AiwRuntimeMaintenance($Request,[string]$RequestPath=''){
     # These three exact, already read chain files remain retained leaves.
     $chainLeaves=@($keep[0..2])
     $values=@($r.sourceLocators,$admit,$package.userConfirmation,$config,(Get-AiwAcceptancePlan $taskText))+@($Request.retainedRefs)
-    # Only known current roots, never a scan for every project reference.
-    foreach($relative in @('.ai-workspace/controller.json','.ai-workspace/process-policy.json','.ai-workspace/corrections.json',('.ai-workspace/upgrade-recovery/'+$config.frameworkVersion+'/state.json'))){
+    # Retain the three exact journals consumed by the current adoption reader.
+    # Keep these self-contained recovery originals as leaves, without replaying proofs.
+    foreach($relative in @('.ai-workspace/controller.json','.ai-workspace/process-policy.json','.ai-workspace/corrections.json',('.ai-workspace/upgrade-recovery/'+$config.frameworkVersion+'/state.json'),
+        '.ai-workspace/runtime/project-adoption/register/state.json',
+        '.ai-workspace/runtime/project-adoption/upgrade/state.json',
+        '.ai-workspace/runtime/project-adoption/refresh/state.json')){
         $full=Resolve-AiwEvidenceObservationPath $ctx $relative
         if([IO.File]::Exists($full)){$keep+=$full;$values+=[pscustomobject]@{path=$full;identity=(Get-AiwFileIdentity $full)}}
     }
@@ -344,19 +385,27 @@ function Get-AiwCodexSendOutcome($HostResult,[string]$ExpectedRecipient) {
     [pscustomobject]@{outcome=$outcome;observedRecipient=$recipient;hostAccepted=($outcome-ceq'SUCCESS');recipientWorkProven=$false;userAuthorizationProven=$false}
 }
 function Get-DeliveryReceiptView($Receipt) {
+    if($null-ne$Receipt.PSObject.Properties['schemaVersion']-and$Receipt.schemaVersion-eq5-and$null-ne$Receipt.PSObject.Properties['operation']){
+        $codec=@(Import-Module (Join-Path $PSScriptRoot 'ProcessRequirementComposition.psm1') -PassThru)[0]
+        $Receipt=& $codec {param($raw)ConvertFrom-AiwOperationCompact $raw} $Receipt
+    }
     if($null-eq$Receipt.PSObject.Properties['binding']){return $Receipt}
     $b=$Receipt.binding
-    [pscustomobject]@{taskId=$b.taskId;taskIdentity=$b.taskIdentity;taskOwner=$b.taskOwner;taskActor=$b.taskActor;actor=$b.actor;actionKind=$Receipt.intentEnvelope.requestedActionKind;resultKind=$Receipt.intentEnvelope.requestedResultKind;exactPaths=@($b.exactScope);authorityContext=$b;sourceLocators=[pscustomobject]@{projectRoot=$b.projectRoot;frameworkRoot=$Receipt.sourceLocators.frameworkRoot;taskRelativePath=$Receipt.sourceLocators.taskRelativePath;authorizationPackagePath=$Receipt.sourceLocators.authorizationPackagePath}}
+    $view=[pscustomobject]@{taskId=$b.taskId;taskIdentity=$b.taskIdentity;taskOwner=$b.taskOwner;taskActor=$b.taskActor;actor=$b.actor;actionKind=$Receipt.intentEnvelope.requestedActionKind;resultKind=$Receipt.intentEnvelope.requestedResultKind;exactPaths=@($b.exactScope);authorityContext=$b;sourceLocators=[pscustomobject]@{projectRoot=$b.projectRoot;frameworkRoot=$Receipt.sourceLocators.frameworkRoot;taskRelativePath=$Receipt.sourceLocators.taskRelativePath;authorizationPackagePath=$Receipt.sourceLocators.authorizationPackagePath}}
+    if($null-ne$b.PSObject.Properties['contextType']-and$b.contextType-ceq'PROJECT_WORK'){$view.taskOwner=$b.context.requestContext.owner;$view.taskActor=$b.context.requestContext.actor}
+    return $view
 }
 function Get-DeliveryReviewRouteQualification($Receipt,$Boundary,$Package,$ctx) {
     $r=Get-DeliveryReceiptView $Receipt
     if($r.actionKind-cne'REVIEW_ROUTE'){throw 'DELIVERY_REVIEW_ROUTE_REQUIRED'}
     $context=if($null-ne$Boundary.PSObject.Properties['deliveryContext']){$Boundary.deliveryContext}else{[pscustomobject]@{}}
-    if($Package.owner-cne$r.taskOwner-or$Package.taskId-cne$r.taskId-or$Package.grantee-cne$r.actor){throw 'DELIVERY_PACKAGE_CONTEXT_DRIFT'}
+    if($Package.owner-cne$r.taskOwner-or-not(Test-AiwSameResultContext $Package $r)-or$Package.grantee-cne$r.actor){throw 'DELIVERY_PACKAGE_CONTEXT_DRIFT'}
     $review=$null;$writer=$null
     if($null-ne$context.PSObject.Properties['reviewPackageRef']){
             $review=Read-AiwEvidenceReference $ctx $context.reviewPackageRef -Json
-            foreach($field in @('taskId','taskIdentity','owner','projectConfigIdentity','userConfirmation')){if($review.$field-cne$package.$field){throw 'DELIVERY_REVIEW_PACKAGE_DRIFT'}}
+            $fields=if($package.schemaVersion-eq5){@('schemaVersion','owner','profile','projectConfigIdentity','userConfirmation','repositoryId')}else{@('taskId','taskIdentity','owner','projectConfigIdentity','userConfirmation')}
+            foreach($field in $fields){if($review.$field-cne$package.$field){throw 'DELIVERY_REVIEW_PACKAGE_DRIFT'}}
+            if($package.schemaVersion-eq5-and-not(Test-AiwSameResultContext $review $package)){throw 'DELIVERY_REVIEW_REQUEST_DRIFT'}
             if($package.schemaVersion-eq4){foreach($field in @('schemaVersion','repositoryId','controlRoot','executionTargetRef','expectedTargetState')){if(($review.$field|ConvertTo-Json -Compress)-cne($package.$field|ConvertTo-Json -Compress)){throw 'DELIVERY_REVIEW_TARGET_DRIFT'}}}
             if($review.actions-isnot[Array]-or$review.actions.Count-ne1-or$review.actions[0]-cne'REVIEW_EXECUTE'-or$review.reviewIndependence-cne'INDEPENDENT'-or[string]::IsNullOrWhiteSpace($review.candidateWriter)){throw 'DELIVERY_REVIEW_PACKAGE_BOUNDARY'}
             # The route actor organizes delivery; the successful author evidence
@@ -399,7 +448,7 @@ function Assert-AiwReviewRoutePreparation($Receipt,$Boundary,$Evidence=$null,$Pa
     # deferred Reviewer exists. The same check serves ADMIT and final delivery.
             if($null-eq$Evidence){$Evidence=Get-AiwBoundaryEvidence $r $Boundary $ctx}
             Import-Module (Join-Path $PSScriptRoot 'ControlTransition.psm1')
-            $plan=$null
+            $plan=if($Package.schemaVersion-eq5){Get-AiwProjectWorkPlan $Package.requestContext}else{$null}
             if($null-ne$Package.PSObject.Properties['qualityBinding']-and$r.sourceLocators.taskRelativePath-cne'NOT_APPLICABLE'){$plan=Get-AiwAcceptancePlan (Read-AiwControlTransitionTask $r.sourceLocators.projectRoot $r.sourceLocators.taskRelativePath).Text}
             if(Test-AiwReviewSelfCheckRequired $plan){
                 $selfChecks=@(for($i=0;$i-lt$Evidence.references.Count;$i++){if($Evidence.references[$i].kind-ceq'SELF_CHECK'){$Evidence.records[$i]}})
@@ -424,8 +473,10 @@ function Get-DeliveryReviewRouteRecipient($Receipt,$Context,$Package,$Review) {
     if($null-ne$Context.PSObject.Properties['reviewerAssignment']){
         $a=$Context.reviewerAssignment
         if($null-eq$Package.PSObject.Properties['repairReviewPlan']-or$Package.repairReviewPlan.reviewer-cne'DEFERRED_VISIBLE_REVIEWER'){throw 'DELIVERY_ASSIGNMENT_NOT_DEFERRED'}
-        if((@($a.PSObject.Properties.Name|Sort-Object)-join'|')-cne(@('source','createdBy','threadId','hostId','taskId','parentPackageIdentity'|Sort-Object)-join'|')){throw 'DELIVERY_ASSIGNMENT_FIELDS'}
-        if($a.source-cne'HOST_CREATE_THREAD_RESULT'-or$a.createdBy-cne$Package.grantee-or$a.taskId-cne$r.taskId-or$a.parentPackageIdentity-cne$r.authorityContext.authorizationIdentity-or[string]::IsNullOrWhiteSpace($a.hostId)){throw 'DELIVERY_ASSIGNMENT_DRIFT'}
+        $assignmentFields=@('source','createdBy','threadId','hostId','parentPackageIdentity')+$(if($Package.schemaVersion-eq5){@('context')}else{@('taskId')})
+        if((@($a.PSObject.Properties.Name|Sort-Object)-join'|')-cne(@($assignmentFields|Sort-Object)-join'|')){throw 'DELIVERY_ASSIGNMENT_FIELDS'}
+        $assignmentContextMatches=if($Package.schemaVersion-eq5){Test-AiwSameResultContext $a.context $Package}else{$a.taskId-ceq$r.taskId}
+        if($a.source-cne'HOST_CREATE_THREAD_RESULT'-or$a.createdBy-cne$Package.grantee-or-not$assignmentContextMatches-or$a.parentPackageIdentity-cne$r.authorityContext.authorizationIdentity-or[string]::IsNullOrWhiteSpace($a.hostId)){throw 'DELIVERY_ASSIGNMENT_DRIFT'}
         if($recipient-cnotin@('UNBOUND_RECEIVER','DEFERRED_VISIBLE_REVIEWER')-and$recipient-cne$a.threadId){throw 'DELIVERY_ASSIGNMENT_RECIPIENT_DRIFT'}
         $recipient=[string]$a.threadId
     }
@@ -435,10 +486,16 @@ function Get-DeliveryReviewRouteRecipient($Receipt,$Context,$Package,$Review) {
     return $recipient
 }
 function Get-AiwBoundDelivery($Receipt,$Boundary,$Evidence=$null,[string[]]$ForbiddenPaths=@(),[string[]]$ProtectedPaths=@()) {
+    if($null-ne$Receipt.PSObject.Properties['schemaVersion']-and$Receipt.schemaVersion-eq5-and$null-ne$Receipt.PSObject.Properties['operation']){
+        $codec=@(Import-Module (Join-Path $PSScriptRoot 'ProcessRequirementComposition.psm1') -PassThru)[0]
+        $guarded=New-AiwEvidenceContext $Receipt.operation.binding.projectRoot '' $Receipt.operation.sourceLocators.frameworkRoot @(@($Receipt.operation.binding.forbiddenScope)+$ForbiddenPaths|Select-Object -Unique) @(@($Receipt.operation.binding.protectedScope)+$ProtectedPaths|Select-Object -Unique)
+        $Receipt=& $codec {param($raw,$ctx)ConvertFrom-AiwOperationCompact $raw -EvidenceContext $ctx} $Receipt $guarded
+    }
+    if($Boundary.schemaVersion-eq4-and$null-eq$Boundary.PSObject.Properties['deliveryContext']-and$null-ne$Boundary.PSObject.Properties['preparedDeliveryRef']){throw 'PREPARED_DELIVERY_REF_BOUNDARY'}
     $r=Get-DeliveryReceiptView $Receipt
     $isReview=$r.actionKind-cin@('REVIEW_ROUTE','REVIEW_EXECUTE')
     if($null-eq$Boundary.PSObject.Properties['deliveryContext']){
-        if($isReview){throw 'DELIVERY_CONTEXT_REQUIRED'}
+        if($isReview-or($null-ne$r.authorityContext.PSObject.Properties['contextType']-and$r.authorityContext.contextType-ceq'PROJECT_WORK')){throw 'DELIVERY_CONTEXT_REQUIRED'}
         return $null
     }
     $context=$Boundary.deliveryContext
@@ -451,7 +508,7 @@ function Get-AiwBoundDelivery($Receipt,$Boundary,$Evidence=$null,[string[]]$Forb
     $package=$null
     if($r.sourceLocators.authorizationPackagePath-cne'NOT_REQUIRED'){
         $package=Read-AiwEvidenceReference $base ([pscustomobject]@{path=$r.sourceLocators.authorizationPackagePath;identity=$r.authorityContext.authorizationIdentity}) -Json
-        if($package.owner-cne$r.taskOwner-or$package.taskId-cne$r.taskId-or$package.grantee-cne$r.actor){throw 'DELIVERY_PACKAGE_CONTEXT_DRIFT'}
+        if($package.owner-cne$r.taskOwner-or-not(Test-AiwSameResultContext $package $r)-or$package.grantee-cne$r.actor){throw 'DELIVERY_PACKAGE_CONTEXT_DRIFT'}
     }
     $ctx=New-AiwPackageEvidenceContext $r.sourceLocators.projectRoot $package $r.sourceLocators.frameworkRoot $effectiveForbidden -TaskPath $r.sourceLocators.taskRelativePath -ProtectedPaths $effectiveProtected
     $preparedReview=if($r.actionKind-ceq'REVIEW_ROUTE'){Assert-AiwReviewRoutePreparation $r $Boundary $Evidence $package $ctx}else{$null}
@@ -490,15 +547,29 @@ function Get-AiwBoundDelivery($Receipt,$Boundary,$Evidence=$null,[string[]]$Forb
             $reason='EXPLICIT_USER_TASK_DELIVERY'
         }
     }
+    if($null-ne$r.authorityContext.PSObject.Properties['contextType']-and$r.authorityContext.contextType-ceq'PROJECT_WORK'){
+        $request=$r.authorityContext.context.requestContext
+        Assert-AiwProjectWorkContext $request
+        if($r.actionKind-cne'REVIEW_ROUTE'-and$request.actor-cne$request.owner-and$request.resultConsumer.recipient-cne$request.owner){throw 'PROJECT_WORK_CONTRIBUTION_OWNER_REQUIRED'}
+        if($r.actionKind-cnotin@('REVIEW_ROUTE','REVIEW_EXECUTE')){$recipient=$request.resultConsumer.recipient;$reason='PROJECT_WORK_CONSUMER'}
+        if($r.actionKind-ceq'REVIEW_EXECUTE'){
+            if($request.resultConsumer.channel-cne'TASK_MESSAGE'-or$request.resultConsumer.recipient-cne$request.owner){throw 'PROJECT_WORK_REVIEW_TO_OWNER_REQUIRED'}
+            # The existing verdict reader determines a real finding's writer.
+            # It is the only exceptional recipient of this review result.
+        }elseif($request.resultConsumer.recipient-cne$recipient-or$request.resultConsumer.channel-cne$(if($recipient-ceq'USER'){'NATIVE_RESPONSE'}else{'TASK_MESSAGE'})){throw 'PROJECT_WORK_CONSUMER_DRIFT'}
+        if($r.actionKind-ceq'REVIEW_EXECUTE'-and$recipient-ceq'USER'){throw 'PROJECT_WORK_REVIEW_TO_OWNER_REQUIRED'}
+    }
     $channel=if($recipient-ceq'USER'){'NATIVE_RESPONSE'}else{'TASK_MESSAGE'}
     if($context.expectedRecipient-cne$recipient-or$context.channel-cne$channel){throw 'DELIVERY_CONSUMER_CHANNEL_MISMATCH'}
+    $consumer=[pscustomobject]@{recipient=$recipient;channel=$channel;reason=$reason;authorizationIdentity=$r.authorityContext.authorizationIdentity;userDecisionIdentity=$userDecision;userAuthorizationProven=$false;recipientWorkProven=$false;evidenceCeiling='INSTRUCTION_BOUND'}
+    if($Boundary.schemaVersion-eq4){Assert-AiwPreparedOperationDelivery $Receipt $Boundary $ctx $consumer}
     if($context.stage-ceq'OBSERVE'){
         if($context.evidence-cnotmatch'^(.+)#(\d+\|[A-F0-9]{64})$'){throw 'DELIVERY_HOST_REFERENCE_REQUIRED'}
         $hostResult=Read-AiwEvidenceReference $ctx ([pscustomobject]@{path=$Matches[1];identity=$Matches[2]}) -Json
         $actual=Get-AiwCodexSendOutcome $hostResult $recipient
         if($actual.outcome-ceq'WRONG_RECIPIENT'-or$actual.outcome-cne$context.outcome-or$actual.observedRecipient-cne$context.observedRecipient){throw 'DELIVERY_HOST_RESULT_MISMATCH'}
     }
-    [pscustomobject]@{delivery=$observation;consumer=[pscustomobject]@{recipient=$recipient;channel=$channel;reason=$reason;authorizationIdentity=$r.authorityContext.authorizationIdentity;userDecisionIdentity=$userDecision;userAuthorizationProven=$false;recipientWorkProven=$false;evidenceCeiling='INSTRUCTION_BOUND'};closureSatisfied=($channel-ceq'NATIVE_RESPONSE'-or$observation.delivered)}
+    [pscustomobject]@{delivery=$observation;consumer=$consumer;closureSatisfied=($channel-ceq'NATIVE_RESPONSE'-or$observation.delivered)}
 }
 function Invoke-AiwDeliveryBoundary($Reference,[string[]]$ConsumedRuntimePath=@(),[string]$ConsumedRuntimePathList,
     [string[]]$EmptyRuntimeDirectory=@(),[string[]]$RetainedRuntimePath=@()) {
@@ -518,3 +589,36 @@ function Invoke-AiwDeliveryBoundary($Reference,[string[]]$ConsumedRuntimePath=@(
     return $value
 }
 Export-ModuleMember -Function Get-AiwCodexSendOutcome,Get-AiwBoundDelivery,Invoke-AiwDeliveryBoundary,Assert-AiwReviewRoutePreparation,Remove-AiwConsumedRuntimeFiles,Complete-AiwRuntimeConsumption,Write-AiwRuntimeCleanupObservation,Invoke-AiwRuntimeMaintenance
+
+
+function Assert-AiwPreparedOperationDelivery($Receipt,$Boundary,$Context,$Consumer){
+ if($Boundary.schemaVersion-ne4){return}
+ $isObserved=$Boundary.mode-ceq'FINALIZE_OUTPUT'-and$null-ne$Boundary.PSObject.Properties['deliveryContext']-and$Boundary.deliveryContext.channel-ceq'TASK_MESSAGE'-and$Boundary.deliveryContext.stage-ceq'OBSERVE'
+ $hasPrepared=$null-ne$Boundary.PSObject.Properties['preparedDeliveryRef']
+ if($isObserved-ne$hasPrepared){throw 'PREPARED_DELIVERY_REF_BOUNDARY'}
+ if(-not$isObserved){return}
+ $pair=$Boundary.preparedDeliveryRef
+ if($pair-isnot[pscustomobject]-or(@($pair.PSObject.Properties.Name|Sort-Object)-join'|')-cne'inputRef|resultRef'){throw 'PREPARED_DELIVERY_REF_FIELDS'}
+ $ctx=$Context
+ $prepared=Read-AiwEvidenceReference $ctx $pair.inputRef -Json
+ $result=Read-AiwEvidenceReference $ctx $pair.resultRef -Json
+ if($prepared.schemaVersion-ne4-or$prepared.mode-cne'FINALIZE_OUTPUT'-or$prepared.deliveryContext.stage-cne'PREPARE'-or$prepared.deliveryContext.channel-cne'TASK_MESSAGE'-or$null-ne$prepared.PSObject.Properties['preparedDeliveryRef']-or$result.mode-cne'FINALIZE_OUTPUT'-or$result.status-cne'BLOCKED'-or$result.delivery.status-cne'READY_TO_SEND'-or@($result.missingPreparation).Count-or(@($result.missingResult)-join'|')-cne'DELIVERY_NOT_CONFIRMED'){throw 'PREPARED_DELIVERY_READY_REQUIRED'}
+ if((Get-AiwContentDescriptorIdentity $result.operationRef)-cne(Get-AiwContentDescriptorIdentity $Boundary.operationRef)-or$result.selectionIdentity-cne$Receipt.selectionIdentity){throw 'PREPARED_DELIVERY_OPERATION_DRIFT'}
+ if($null-ne$prepared.PSObject.Properties['operationRef']){
+  if((Get-AiwContentDescriptorIdentity $prepared.operationRef)-cne(Get-AiwContentDescriptorIdentity $Boundary.operationRef)){throw 'PREPARED_DELIVERY_OPERATION_DRIFT'}
+ }elseif($null-ne$prepared.PSObject.Properties['currentOperation']){
+  if($Receipt.construction.entry-cne'FINALIZE_PREPARE'-or(Get-AiwContentDescriptorIdentity $Receipt.construction.boundaryRef)-cne(Get-AiwContentDescriptorIdentity $pair.inputRef)){throw 'PREPARED_DELIVERY_CONSTRUCTION_DRIFT'}
+ }else{throw 'PREPARED_DELIVERY_OPERATION_REQUIRED'}
+ foreach($field in @('preparationReceipts','resultReceipts','evidenceRefs','publicDecisionIdentity','protectionState','productionFinalizeRef','continuationDisposition')){
+  $before=$prepared.PSObject.Properties[$field];$after=$Boundary.PSObject.Properties[$field]
+  if(($null-eq$before)-ne($null-eq$after)){throw ('PREPARED_DELIVERY_EVIDENCE_DRIFT|'+$field)}
+  if($null-ne$before-and(Get-AiwContentDescriptorIdentity $before.Value)-cne(Get-AiwContentDescriptorIdentity $after.Value)){throw ('PREPARED_DELIVERY_EVIDENCE_DRIFT|'+$field)}
+ }
+ $before=$prepared.deliveryContext|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100
+ $after=$Boundary.deliveryContext|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100
+ foreach($field in @('stage','outcome','observedRecipient','evidence')){$before.PSObject.Properties.Remove($field);$after.PSObject.Properties.Remove($field)}
+ if((Get-AiwContentDescriptorIdentity $before)-cne(Get-AiwContentDescriptorIdentity $after)){throw 'PREPARED_DELIVERY_CONSUMER_DRIFT'}
+ if(@($prepared.deliveryReceipts).Count){throw 'PREPARED_DELIVERY_FUTURE_RECEIPT'}
+ if((Get-AiwContentDescriptorIdentity $result.consumer)-cne(Get-AiwContentDescriptorIdentity $Consumer)-or(Get-AiwContentDescriptorIdentity $result.delivery)-cne(Get-AiwContentDescriptorIdentity (Get-AiwDeliveryObservation $prepared.deliveryContext))){throw 'PREPARED_DELIVERY_RESULT_DRIFT'}
+}
+

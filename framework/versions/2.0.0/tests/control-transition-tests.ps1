@@ -4,6 +4,47 @@ $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 if($PSVersionTable.PSEdition-cne'Core'-or$PSVersionTable.PSVersion.Major-lt7){throw 'POWERSHELL7_REQUIRED'}
 Import-Module (Join-Path $PSScriptRoot 'TestHarness.psm1')
+# Explicit conservative runtime members for these existing protocol fixtures.
+# Narrowing individual mechanisms requires separate execution and dependency evidence.
+$fixtureVersionPaths=@(
+ 'ACCEPTANCE_PLAN_SCHEMA.json','ADOPTION_PROFILE.json','AUTHORITY_CONTEXT_SCHEMA.json',
+ 'AUTHORIZATION_MODEL.md','CHANGELOG.md','CONTENT_CATALOG_SCHEMA.json',
+ 'CONTROL_TRANSITION_SCHEMA.json','CONTROLLER_SCHEMA.json','EVIDENCE_RECORD_SCHEMA.json',
+ 'EXAMPLES.md','GIT_AND_EXTERNAL.md','HOST_CODEX.md',
+ 'host/skills/ai-workspace-router-v2/SKILL.md','INTENT_ENVELOPE_SCHEMA.json','KNOWLEDGE_AND_REFERENCE.md',
+ 'KNOWLEDGE_SCHEMA.json','knowledge/cross-domain/ARTIFACT_CLASSIFICATION.md','knowledge/cross-domain/PROBLEM_DRIVEN_IMPROVEMENT.md',
+ 'knowledge/game/BEHAVIOR_AND_PERFORMANCE.md','knowledge/game/PRESENTATION_AUTHORITY.md','knowledge/game/UI_INPUT_CANCELLATION.md',
+ 'knowledge/index.json','knowledge/README.md','knowledge/software/BEHAVIOR_SPEC_CHANGE.md',
+ 'LOAD_MANIFEST.json','MIGRATION_MATRIX.md','NORMATIVE_SURFACE_INVENTORY.json',
+ 'object-formats/adapters/knowledge-index-1-to-2.ps1','object-formats/adapters/knowledge-index-2-to-3.ps1','object-formats/adapters/process-policy-1-to-2.ps1',
+ 'object-formats/adapters/project-config-4-to-5.ps1','object-formats/adapters/project-config-5-to-6.ps1','object-formats/adapters/project-corrections-1-to-2.ps1',
+ 'object-formats/adapters/project-corrections-2-to-3.ps1','object-formats/ASSEMBLY.json','PERSPECTIVE_LENSES.md',
+ 'PROCESS_POLICY_SCHEMA.json','PROCESS_REQUIREMENTS_EVALUATION.md','PROCESS_REQUIREMENTS.json',
+ 'PROJECT_CONFIG_SCHEMA.json','PROJECT_CONTROL.md','PROJECT_CORRECTIONS_SCHEMA.json',
+ 'project-starter/.gitattributes','project-starter/AGENTS.md','project-starter/BOOTSTRAP.md',
+ 'project-starter/controller.json','project-starter/corrections.json','project-starter/process-policy.json',
+ 'project-starter/project.json','project-starter/PROJECT.md','project-starter/STATUS.md',
+ 'project-starter/tasks/README.md','PROMPTS.md','README.md',
+ 'RECOVERY_CORE.md','requirements/fragments/AUTHORIZATION_MODEL.json','requirements/fragments/GIT_AND_EXTERNAL.json',
+ 'requirements/fragments/HOST_CODEX.json','requirements/fragments/KNOWLEDGE_AND_REFERENCE.json','requirements/fragments/PROJECT_CONTROL.json',
+ 'requirements/fragments/RECOVERY_CORE.json','requirements/fragments/REVIEW_AND_EVIDENCE.json','requirements/fragments/TASK_AND_SCOPE.json',
+ 'REVIEW_AND_EVIDENCE.md','scripts/AuthorizationCheck.psm1','scripts/bind-receiver-authorization.ps1',
+ 'scripts/build-process-requirements.ps1','scripts/check-authorization.ps1','scripts/check-knowledge-entry.ps1',
+ 'scripts/check-knowledge-impact.ps1','scripts/check-project-corrections.ps1','scripts/check-task-card.ps1',
+ 'scripts/ContentSources.psm1','scripts/ControlTransition.psm1','scripts/invoke-protected-safe-git.ps1',
+ 'scripts/KnowledgeSources.psm1','scripts/ObjectFormats.psm1','scripts/ProcessRequirementBoundary.psm1',
+ 'scripts/ProcessRequirementComposition.psm1','scripts/ProcessRequirementDisplay.psm1','scripts/ProjectSourcePublication.psm1',
+ 'scripts/resolve-control-transition.ps1','scripts/resolve-load-plan.ps1','scripts/resolve-process-requirements.ps1',
+ 'scripts/resolve-workflow-route.ps1','scripts/ResultEvidence.psm1','scripts/StrictJsonInput.psm1',
+ 'scripts/WorkflowDelivery.psm1','standards/presets/software.json','standards/README.md',
+ 'standards/software/DESIGN.md','standards/software/IMPLEMENTATION.md','standards/software/VALIDATION.md',
+ 'STATIC_COMPARISON.md','TASK_AND_SCOPE.md','TASK_TEMPLATE.md',
+ 'TOOL_CONTRACT.md','TOOLCHAIN.json','VERSION.json',
+ 'scripts/ReleaseValidation.psm1','tests/TestExecutionRuntime.psm1','scripts/TestEvidenceValidation.psm1',
+ 'scripts/ExecutionTargetContext.psm1','EXECUTION_TARGET_SCHEMA.json','object-formats/adapters/project-config-6-to-7.ps1',
+ 'object-formats/adapters/process-policy-2-to-3.ps1','tests/PROCESS_REQUIREMENTS_FIXTURES.json','tests/PROCESS_REQUIREMENTS_BUDGETS.json',
+ 'tests/measure-process-requirements.ps1','tests/TestNativeOutput.psm1'
+)
 $Group=@('All','PlanShape','OriginalRecovery','OrdinaryArchive','NativeIO')|Where-Object{$_-ieq$Group}
 if($Group-ceq'All'){
  foreach($selected in @('PlanShape','OriginalRecovery')){
@@ -186,7 +227,7 @@ function New-OrdinaryArchiveFixture([string]$Outcome='SUCCESS',[switch]$MissingU
   }
   Write-Json $producerReport $report
   $f|Add-Member KeptInputs $keptInputs
-  $stages+=@([ordered]@{id='producer';kind='DESIGN';requiredBy=$stage.requiredBy;dependsOn=@();candidateRef=@([ordered]@{path=$producerReport;identity=(Id $producerReport)});evidenceRefs=@()})
+  $stages+=@([ordered]@{id='producer';kind='DESIGN';requiredBy=$stage.requiredBy;dependsOn=@();candidateRef=@([ordered]@{path=$producerReport;identity=(Id $producerReport)},[ordered]@{path=$proofLeaf;identity=(Id $proofLeaf)});evidenceRefs=@()})
   $f|Add-Member RetryInput $retryInput;$f|Add-Member ProofLeaf $proofLeaf;$f|Add-Member ProofIdentity (Id $proofLeaf);$f|Add-Member ProducerReport $producerReport
  }
  if($Outcome-ceq'SUCCESS'){$text+='```aiw-acceptance-plan'+"`n"+([ordered]@{schemaVersion=1;stages=$stages}|ConvertTo-Json -Depth 30 -Compress)+"`n"+'```'+"`n"}
@@ -287,7 +328,7 @@ function Test-OrdinaryArchive {
  Assert-True ($null-eq$done.Value.PSObject.Properties['runtimeCleanup']-and[IO.File]::Exists($f.RetryInput)-and[IO.File]::Exists($f.Locators.discoverReceipt)-and[IO.File]::Exists($f.Locators.finalizeInput)-and[IO.File]::Exists($f.Decision)) 'archive-zero-candidate-does-not-promote-report-observations-to-validated-producers'
  foreach($kept in $f.KeptInputs){Assert-True ([IO.File]::Exists($kept.path)-and(Id $kept.path)-ceq$kept.identity) ('archive-keeps-recreated-changed-failed-unknown-policy-input-'+[IO.Path]::GetFileName($kept.path))}
  $retained=Run-Process $f.Locators.finalizeInput -ConsumedRuntimePath @($f.ProofLeaf);Must-Pass $retained 'ORDINARY_ARCHIVE_REPORT_RETENTION'
- Assert-True ($retained.Value.runtimeCleanup.status-ceq'RETAINED'-and$f.ProofLeaf-cin$retained.Value.runtimeCleanup.retained-and(Id $f.ProofLeaf)-ceq$f.ProofIdentity) 'archive-plan-report-outside-runtime-retains-listed-runtime-proof'
+ Assert-True ($retained.Value.runtimeCleanup.status-ceq'RETAINED'-and$f.ProofLeaf-cin$retained.Value.runtimeCleanup.retained-and(Id $f.ProofLeaf)-ceq$f.ProofIdentity) 'archive-plan-explicit-artifact-ref-retains-runtime-proof-with-report-as-leaf'
  Assert-True ($done.Value.actionOutcome-ceq'OBSERVED'-and-not(Test-Path -LiteralPath $f.PlanPath)-and-not(Test-Path -LiteralPath (Join-Path $f.Project '.ai-workspace/runtime/control-transition.active.json'))-and-not(Test-Path -LiteralPath $f.Locators.completionProof)) 'ordinary-archive-original-finalize-completes-without-plan-marker-journal-or-proof'
  foreach($blocked in @('PROJECT_EXCLUDED','FRAMEWORK_RELATIVE_PROTECTED')){
   $guarded=New-OrdinaryArchiveFixture -BlockedProof $blocked
@@ -298,7 +339,7 @@ function Test-OrdinaryArchive {
    $zero=Run-Process $guarded.Locators.finalizeInput;Must-Pass $zero ('ORDINARY_ARCHIVE_ZERO_'+$blocked)
    Assert-True ($null-eq$zero.Value.PSObject.Properties['runtimeCleanup']-and[IO.File]::Exists($guarded.RetryInput)) ('archive-zero-candidate-does-not-open-locked-protected-history-'+$blocked)
    $guard=Run-Process $guarded.Locators.finalizeInput -ConsumedRuntimePath @($guarded.ProofLeaf);Must-Pass $guard ('ORDINARY_ARCHIVE_GUARD_'+$blocked)
-   Assert-True ($guard.Value.runtimeCleanup.status-ceq'REJECTED'-and$guard.Value.runtimeCleanup.reason-ceq'EVIDENCE_PATH_FORBIDDEN'-and[IO.File]::Exists($guarded.RetryInput)) ('archive-full-root-aware-guard-before-linked-read-or-delete-'+$blocked)
+   Assert-True ($guard.Value.runtimeCleanup.status-ceq'RETAINED'-and$guarded.ProofLeaf-cin$guard.Value.runtimeCleanup.retained-and[IO.File]::Exists($guarded.RetryInput)) ('archive-explicit-proof-retained-without-opening-locked-protected-report-prose-'+$blocked)
   }finally{$guarded.SentinelHold.Dispose()}
  }
  foreach($outcome in @('CANCELLED','SUPERSEDED')){
@@ -319,7 +360,7 @@ $originalActor=$env:CODEX_THREAD_ID;$complete=$false
 try {
     $script:framework=Join-Path $script:temp 'framework-root';$fixtureVersion=Join-Path $script:framework 'framework/versions/2.0.0'
     $sourceRoot=[IO.Path]::GetFullPath((Join-Path $versionRoot '../../..'))
-    $script:fixtureVersion=New-AiwTestMechanismFixture $sourceRoot $script:framework (Join-Path $PSScriptRoot 'test-groups.json')
+    $script:fixtureVersion=New-AiwTestRuntimeFixture -SourceRoot $sourceRoot -DestinationRoot $script:framework -VersionPaths $fixtureVersionPaths -RootPaths @()
     $script:resolver=Join-Path $fixtureVersion 'scripts/resolve-process-requirements.ps1'
     $script:transitionModule=@(Import-Module (Join-Path $fixtureVersion 'scripts/ControlTransition.psm1') -Force -PassThru)[0]
 
@@ -378,11 +419,13 @@ try {
     $finalSnapshot=Snapshot $f;$done=Transition $f 'COMPLETE';Assert-True ($done.status-ceq'COMPLETE'-and(Snapshot $f)-ceq$finalSnapshot) 'repeat-complete-is-idempotent'
     $oldAction=Run-Process $f.Locators.admitInput;Assert-True ($oldAction.Code-ne0) 'old-ordinary-package-remains-invalid-after-handoff'
 
-    # A protected candidate is a genuine refusal, not a valid handoff prerequisite.
-    $f=New-Fixture -ProtectControl;$initial=Snapshot $f;$null=Transition $f 'APPLY';$marked=Snapshot $f;$env:CODEX_THREAD_ID='new-actor'
-    $protected=Run-Process $f.Locators.finalizeInput
-    Assert-True ($protected.Code-eq2-and$protected.Value.reason-ceq'EVIDENCE_PATH_FORBIDDEN'-and-not(Test-Path $f.Locators.completionProof)-and(Snapshot $f)-ceq$marked) 'protected-control-candidate-refusal-retains-original-markers'
-    $rolled=Transition $f 'RECOVER' 'ROLLBACK';Assert-True ($rolled.status-ceq'ROLLED_BACK'-and(Snapshot $f)-ceq$initial) 'protected-control-refusal-can-restore-original-chain'
+    # This protection rejects the candidate before any original admission.
+    # Assert that real boundary instead of inventing an unreachable F/rollback.
+    $f=New-Fixture -ProtectControl -PreparationOnly;$initial=Snapshot $f;$env:CODEX_THREAD_ID='old-actor'
+    $protected=Run-Process $f.Locators.discoverInput
+    Assert-True ($protected.Code-eq2-and$protected.Value.reason-ceq'EVIDENCE_PATH_FORBIDDEN'-and-not(Test-Path $f.Locators.completionProof)-and(Snapshot $f)-ceq$initial) 'protected-control-candidate-refused-before-original-admission'
+    Expect-Rejected {Transition $f 'APPLY'} 'INPUT_MISSING' 'protected-control-cannot-apply-without-original-admission'
+    Assert-True ((Snapshot $f)-ceq$initial-and-not(Test-Path $f.Locators.completionProof)) 'protected-control-refusal-keeps-original-objects-without-markers-or-proof'
 
     foreach($kind in @('TaskOnly','ControllerOnly','AnotherTask','CriticalTarget')){
         $arguments=@{};$arguments[$kind]=$true;$f=New-Fixture @arguments;$null=Transition $f 'APPLY';$env:CODEX_THREAD_ID='new-actor'

@@ -126,6 +126,8 @@ STABLE 封存与已审 Snapshot 分发不同。可变开发候选本身不能作
 
 命名分发包解压到独立目录，保留PACKAGE_MANIFEST.json和原文件字节。注册/显式升级固定distributionId、完整包contentIdentity、manifestIdentity与runtimeRoot，版本pin仍由project.json决定。日常恢复核真实采用完成链、独立绑定、manifest原字节及声明和当前实际消费实现/catalog/选中规则/依赖，不遍历未消费测试或历史，也不证明全包健康。真正首次/新来源、完整LocalCandidate消费者、qualification/build/ZIP及分发仍核完整包；实际已消费成员或绑定漂移、事务未完拒绝，不转回开发HEAD。
 
+首次采用和同版本快照切换通过现有资格读取器核对新 proof4。读取器核对原完整 proof3 的平面原件、当前候选完整输入、变更判断和当前补验。已有健康采用的日常观察仍依据实际完成事务和当前消费成员。
+
 同版本 snapshot 切换也须经过 root upgrade-project.ps1 的真实 preview、精确 schema3 preimage/postimage 授权与 Apply。旧运行目录保留到切换及恢复验证完成。升级前明确三个来源：负责原准入及回退后正常运行的旧固定包、执行本次升级和恢复的固定兼容接入工具、拟采用的目标固定包。旧 snapshot.3 的 upgrader 不认识新的 UPGRADE_FORMAT_TRANSITION，不能仅凭 Framework 版本号相同将它用作该事务恢复入口。
 
 旧来源按其自身 reader 和原合同观察，目标规则与投影由目标所属模块解释，执行工具只编排其支持的组合。旧 reader 未声明新的日常轻观察函数时，使用该旧来源自己的完整验证路径；不要求旧包补入后来模块或用执行工具的同名 reader 替代。目标 profile 明列 snapshot.16 的真实 REGISTER 起点及 snapshot.17 后续采用，已有累积对象适配链继续复用。JSON 对象成员合法换序不构成值漂移；字段、类型、值、数组次序和原始前后像仍分别严格核对。

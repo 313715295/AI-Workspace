@@ -1,0 +1,213 @@
+{
+  "schemaVersion": 1,
+  "kind": "PREPACKAGE_CHANGE_PLAN",
+  "historicalProofRef": {
+    "path": "C:\\work\\game\\AI-Workspace-System\\AI-Workspace-Maintenance\\.ai-workspace\\tmp\\f139\\prepackage-proof\\validation-proof.json",
+    "identity": "9019|C2E59C51CAAB6EE9AC2605522D179BD35EB2E0D08385BE12C98597E8F84711A8"
+  },
+  "candidatePayloadCanonical": "02BEBEB9002A37939952B16D6226110513A02D7705FC0D1C00D24A5E434787EB",
+  "definitionIdentity": "416277|D98D5F97D321A66AB714A2CE5FC5352B515CB3AC4370CCEBA1F690A5C09D7E8A",
+  "changes": [
+    {
+      "path": "framework/FRAMEWORK_RELEASE.md",
+      "before": {
+        "identity": "56680|2C16439069C01C008B72AD2E68D83DC33B71486DA772F442C7ADCEAB3FAB11D1",
+        "path": "framework/FRAMEWORK_RELEASE.md",
+        "distributionLocator": null,
+        "logicalRole": "SOURCE_ONLY_BUILD_OR_TEST_INPUT"
+      },
+      "after": {
+        "path": "framework/FRAMEWORK_RELEASE.md",
+        "identity": "58843|B199586BBACAD60B72571F48999C5517553EEC2E388AD6DC3EED393F4531986B",
+        "logicalRole": "SOURCE_ONLY_BUILD_OR_TEST_INPUT",
+        "distributionLocator": null
+      }
+    },
+    {
+      "path": "framework/PROJECT_ADOPTION.md",
+      "before": {
+        "identity": "60071|7C7F487DF3C2730B9BB509D74EF62CC15B0E8BD3E583D56FD20033E5C8AB6757",
+        "path": "framework/PROJECT_ADOPTION.md",
+        "distributionLocator": null,
+        "logicalRole": "SOURCE_ONLY_BUILD_OR_TEST_INPUT"
+      },
+      "after": {
+        "path": "framework/PROJECT_ADOPTION.md",
+        "identity": "60346|4AD9640B71EB7A39C9F02D2B6E129DA4AD580A95C54DDDA7954ECC6C1A166453",
+        "logicalRole": "SOURCE_ONLY_BUILD_OR_TEST_INPUT",
+        "distributionLocator": null
+      }
+    },
+    {
+      "path": "framework/versions/2.0.0/CHANGELOG.md",
+      "before": {
+        "identity": "17243|89CE2B2490F461697A05F48C33513FA9DB03F76ACE517FFAE612B72257784E17",
+        "path": "framework/versions/2.0.0/CHANGELOG.md",
+        "distributionLocator": "framework/versions/2.0.0/CHANGELOG.md",
+        "logicalRole": "CURRENT_PAYLOAD"
+      },
+      "after": {
+        "path": "framework/versions/2.0.0/CHANGELOG.md",
+        "identity": "17521|06C8C9231D85C7860EE38721C150A39027E1E719F592236FCFF629E8E1EE7588",
+        "logicalRole": "CURRENT_PAYLOAD",
+        "distributionLocator": "framework/versions/2.0.0/CHANGELOG.md"
+      }
+    },
+    {
+      "path": "framework/versions/2.0.0/README.md",
+      "before": {
+        "identity": "15258|6FC4BC569B989F5778EA2D9ED9DA5A1BBBC6CDE19629C12DEF418F29628267E6",
+        "path": "framework/versions/2.0.0/README.md",
+        "distributionLocator": "framework/versions/2.0.0/README.md",
+        "logicalRole": "CURRENT_PAYLOAD"
+      },
+      "after": {
+        "path": "framework/versions/2.0.0/README.md",
+        "identity": "15434|B2A2A1750A15FB7C28FBB1687FD2FE74AB9DED4303FB65CD24EA787A1ECE7FEA",
+        "logicalRole": "CURRENT_PAYLOAD",
+        "distributionLocator": "framework/versions/2.0.0/README.md"
+      }
+    },
+    {
+      "path": "framework/versions/2.0.0/scripts/AuthorizationCheck.psm1",
+      "before": {
+        "identity": "128879|C73082DFEB4C59DBB1EECC794FAEE500D778B87A98E5C96F41221A0D0D5E2B02",
+        "path": "framework/versions/2.0.0/scripts/AuthorizationCheck.psm1",
+        "distributionLocator": "framework/versions/2.0.0/scripts/AuthorizationCheck.psm1",
+        "logicalRole": "CURRENT_PAYLOAD"
+      },
+      "after": {
+        "path": "framework/versions/2.0.0/scripts/AuthorizationCheck.psm1",
+        "identity": "129273|74C1871E2E160A6B8896A249C8AD1B83BE40A806DFE7F5233699DA3FA4078635",
+        "logicalRole": "CURRENT_PAYLOAD",
+        "distributionLocator": "framework/versions/2.0.0/scripts/AuthorizationCheck.psm1"
+      }
+    },
+    {
+      "path": "framework/versions/2.0.0/scripts/ReleaseValidation.psm1",
+      "before": {
+        "identity": "111154|2A310A821E244D872096D203DACCED23A8ACDC2BD85BC94C3511AD95054A4BF2",
+        "path": "framework/versions/2.0.0/scripts/ReleaseValidation.psm1",
+        "distributionLocator": "framework/versions/2.0.0/scripts/ReleaseValidation.psm1",
+        "logicalRole": "CURRENT_PAYLOAD"
+      },
+      "after": {
+        "path": "framework/versions/2.0.0/scripts/ReleaseValidation.psm1",
+        "identity": "128936|BA4CEB580862E7F1C0308ECF692FC17AF1CA72626A02702DB63154AEA62CB36A",
+        "logicalRole": "CURRENT_PAYLOAD",
+        "distributionLocator": "framework/versions/2.0.0/scripts/ReleaseValidation.psm1"
+      }
+    },
+    {
+      "path": "framework/versions/2.0.0/scripts/TestEvidenceValidation.psm1",
+      "before": {
+        "identity": "30678|8B87282870C9D683A3351CC3F58FB2F9C2F8A6E9D758C387194F1376823AAE39",
+        "path": "framework/versions/2.0.0/scripts/TestEvidenceValidation.psm1",
+        "distributionLocator": "framework/versions/2.0.0/scripts/TestEvidenceValidation.psm1",
+        "logicalRole": "CURRENT_PAYLOAD"
+      },
+      "after": {
+        "path": "framework/versions/2.0.0/scripts/TestEvidenceValidation.psm1",
+        "identity": "32655|6D75341721ED06D4F53716543AEDDF53FE6E0ECE593339EB0574A27DEB246306",
+        "logicalRole": "CURRENT_PAYLOAD",
+        "distributionLocator": "framework/versions/2.0.0/scripts/TestEvidenceValidation.psm1"
+      }
+    },
+    {
+      "path": "framework/versions/2.0.0/tests/TestGroupEvidence.psm1",
+      "before": {
+        "identity": "72896|CBFB5FB0512E3A22E00EC0906FDC60940F4704DD06BFE54EE749B7553FBCF25D",
+        "path": "framework/versions/2.0.0/tests/TestGroupEvidence.psm1",
+        "distributionLocator": "framework/versions/2.0.0/tests/TestGroupEvidence.psm1",
+        "logicalRole": "CURRENT_PAYLOAD"
+      },
+      "after": {
+        "path": "framework/versions/2.0.0/tests/TestGroupEvidence.psm1",
+        "identity": "77602|288389F199D06E1F7EF26844F6B7548401E7324815AA21065259C90EEDDBEFFB",
+        "logicalRole": "CURRENT_PAYLOAD",
+        "distributionLocator": "framework/versions/2.0.0/tests/TestGroupEvidence.psm1"
+      }
+    },
+    {
+      "path": "framework/versions/2.0.0/tests/facets-selection-tests.ps1",
+      "before": {
+        "identity": "226110|1E17CBB09FC78CA27F302E94BCD909E2E0F7A2943B9358DCD77FEBA031A5361F",
+        "path": "framework/versions/2.0.0/tests/facets-selection-tests.ps1",
+        "distributionLocator": "framework/versions/2.0.0/tests/facets-selection-tests.ps1",
+        "logicalRole": "CURRENT_PAYLOAD"
+      },
+      "after": {
+        "path": "framework/versions/2.0.0/tests/facets-selection-tests.ps1",
+        "identity": "228772|14EA2EF6136BB8733FCB0434A1EBB91DB7DFA7E86B699F6847F5EDCBFEE91EBE",
+        "logicalRole": "CURRENT_PAYLOAD",
+        "distributionLocator": "framework/versions/2.0.0/tests/facets-selection-tests.ps1"
+      }
+    },
+    {
+      "path": "framework/versions/2.0.0/tests/release-validation-tests.ps1",
+      "before": {
+        "identity": "165005|2EEC9935A3CD340916A6628FBCBE9330B19B790B79593BF9F5464373854B5C4D",
+        "path": "framework/versions/2.0.0/tests/release-validation-tests.ps1",
+        "distributionLocator": "framework/versions/2.0.0/tests/release-validation-tests.ps1",
+        "logicalRole": "CURRENT_PAYLOAD"
+      },
+      "after": {
+        "path": "framework/versions/2.0.0/tests/release-validation-tests.ps1",
+        "identity": "168412|78EB8BA881F7BA09AB2306DC255AFA73F2F49ED95FADFE9DBEA43BA9342D66A5",
+        "logicalRole": "CURRENT_PAYLOAD",
+        "distributionLocator": "framework/versions/2.0.0/tests/release-validation-tests.ps1"
+      }
+    },
+    {
+      "path": "framework/versions/2.0.0/tests/run-framework-tests-summary.ps1",
+      "before": {
+        "identity": "7213|BFA2FD53261B82BCB5D7E8D04EC7B460A802330DB54AA936A75A4AE4A77DC52B",
+        "path": "framework/versions/2.0.0/tests/run-framework-tests-summary.ps1",
+        "distributionLocator": "framework/versions/2.0.0/tests/run-framework-tests-summary.ps1",
+        "logicalRole": "CURRENT_PAYLOAD"
+      },
+      "after": {
+        "path": "framework/versions/2.0.0/tests/run-framework-tests-summary.ps1",
+        "identity": "8617|56F8E92F996933EC2D653D0CFB70C52C4647FB585D5DD9B1EB4C86D801B3B596",
+        "logicalRole": "CURRENT_PAYLOAD",
+        "distributionLocator": "framework/versions/2.0.0/tests/run-framework-tests-summary.ps1"
+      }
+    },
+    {
+      "path": "framework/versions/2.0.0/tests/run-framework-tests.ps1",
+      "before": {
+        "identity": "36176|BB62C4B2CEC8538E5A42976A7D914A2C666D563C8CA5ADE49009480D84805B1D",
+        "path": "framework/versions/2.0.0/tests/run-framework-tests.ps1",
+        "distributionLocator": "framework/versions/2.0.0/tests/run-framework-tests.ps1",
+        "logicalRole": "CURRENT_PAYLOAD"
+      },
+      "after": {
+        "path": "framework/versions/2.0.0/tests/run-framework-tests.ps1",
+        "identity": "38331|A3593464992F40974ABDFFE3C592B4FDA0823489EFAD242594F5FFF32DABFA6F",
+        "logicalRole": "CURRENT_PAYLOAD",
+        "distributionLocator": "framework/versions/2.0.0/tests/run-framework-tests.ps1"
+      }
+    },
+    {
+      "path": "framework/versions/2.0.0/tests/test-group-evidence-tests.ps1",
+      "before": {
+        "identity": "234571|8A10F8CDAB69C4CC35926411970BA5C89FC6DF32ACCEE4D43D45F062E424CE0B",
+        "path": "framework/versions/2.0.0/tests/test-group-evidence-tests.ps1",
+        "distributionLocator": "framework/versions/2.0.0/tests/test-group-evidence-tests.ps1",
+        "logicalRole": "CURRENT_PAYLOAD"
+      },
+      "after": {
+        "path": "framework/versions/2.0.0/tests/test-group-evidence-tests.ps1",
+        "identity": "243488|F6BC10B84F499D9933CBC149038AE9BF844A518AE43B6A437B30C2CAFE6A054E",
+        "logicalRole": "CURRENT_PAYLOAD",
+        "distributionLocator": "framework/versions/2.0.0/tests/test-group-evidence-tests.ps1"
+      }
+    }
+  ],
+  "freshGroupIds": [],
+  "targetedGroupIds": [
+    "evidence.schema-resume",
+    "release.prepackage-readers"
+  ],
+  "assessment": "同一D3保留139历史和153/155 R2作用域。S2 176提出R3/R4。修复真实整组覆盖判定，用现有有界三组fixture实跑混合覆盖全部组名、真实P增删和运行根工具变化及完整Source/portable拒绝边界。现行两条RouteEvidence定向，当前全组0，复证0。保持其他变化证据及实际双ZIP后置验证。"
+}

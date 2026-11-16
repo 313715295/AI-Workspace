@@ -21,8 +21,8 @@
     "discoverInputVersion": 5,
     "compactReceiptVersion": 4,
     "navigationContractVersion": 3,
-    "catalogIdentity": "63981|18FEA0CE9354797E5A03A8F48D2AAD0C9D693B6B1B936340B1AE6A4D797AD362",
-    "fixtureContractIdentity": "9043|BC999CAAD052A6EE33F499E2F06B7FFD7B503AECBF474C6F4C6FB282C1D2454E",
+    "catalogIdentity": "72937|3D2A86413C39305C1AD87B494998BBEF3C47EB2E63641601435B1E0053456946",
+    "fixtureContractIdentity": "9034|30C01485BFAC5BC232DEB2F01BE65B1E5A0A147049F37F20C091DD1B37314769",
     "measurementHarnessIdentity": "82246|018A4DA03AB9E7514D359C5014B0001DBEE249BE3F56EC0987E790B6D46A9EA4",
     "legacyAuthorityContextFieldCount": 25,
     "compactAuthorityBindingFieldCount": 33,
@@ -31,7 +31,7 @@
     "compactBoundaryInputFieldCount": 9,
     "measurementObservation": {
       "status": "PENDING",
-      "ceiling": "Current W2/W3 TC4/navigation3 input5/compact4 references are derived from actual files. Historical baseline, historicalCandidate and fixture observations retain only their original scope. Current latency, model attention, billing and cost require actual TEST measurement; no present performance or adoption qualification is claimed."
+      "ceiling": "Current generated catalog reference includes the actual complete native-unit and O/B selector changes. The retained measurement harness/fixtures use the explicit Input5/compact4 compatibility route; historical counts/times are unchanged. Current Input6 semantic, latency, natural model, billing and adoption qualification remain unproved."
     }
   },
   "fixtures": [

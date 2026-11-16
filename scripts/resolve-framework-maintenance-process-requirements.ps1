@@ -231,17 +231,42 @@ try {
         foreach ($field in @('projectRoot','frameworkRoot','expectedProjectConfigIdentity')) { if ($null -eq $input.PSObject.Properties[$field] -or [string]::IsNullOrWhiteSpace([string]$input.$field)) { throw ('INPUT_FIELD_REQUIRED|' + $field) } }
         $projectRoot=[string]$input.projectRoot;$frameworkRoot=[string]$input.frameworkRoot;$projectConfigIdentity=[string]$input.expectedProjectConfigIdentity
     } elseif ([string]$input.mode -in @('ADMIT_ACTION','FINALIZE_OUTPUT')) {
-        foreach ($field in @('discoverReceiptPath','expectedDiscoverReceiptIdentity')) { if ($null -eq $input.PSObject.Properties[$field] -or [string]::IsNullOrWhiteSpace([string]$input.$field)) { throw ('INPUT_FIELD_REQUIRED|' + $field) } }
-        if($OriginalSourceRepositoryPath){
-            & $aiwRootState {param($root,$path,$denied) Assert-AiwOriginalCompletionReadPaths $root @($path) $denied} $OriginalSourceRepositoryPath ([string]$input.discoverReceiptPath) @($OriginalSourceForbiddenPath+$OriginalSourceProtectedPath)
+        $operationReceipt=$null
+        $current=$input.schemaVersion-eq4-and$null-ne$input.PSObject.Properties['currentOperation']
+        $frozen=$input.schemaVersion-eq4-and$null-ne$input.PSObject.Properties['operationRef']
+        if($input.schemaVersion-eq4-and([int]$current+[int]$frozen-ne1-or$null-ne$input.PSObject.Properties['discoverReceiptPath']-or$null-ne$input.PSObject.Properties['expectedDiscoverReceiptIdentity'])){throw 'OPERATION_REFERENCE_ONE_OF'}
+        if($current){
+            # Resolve current topology; the original version boundary constructs
+            # and validates the operation from this unchanged input.
+            foreach($field in @('projectRoot','frameworkRoot','expectedProjectConfigIdentity')){if($null-eq$input.currentOperation.PSObject.Properties[$field]-or[string]::IsNullOrWhiteSpace([string]$input.currentOperation.$field)){throw ('INPUT_FIELD_REQUIRED|'+$field)}}
+            $projectRoot=$input.currentOperation.projectRoot;$frameworkRoot=$input.currentOperation.frameworkRoot;$projectConfigIdentity=$input.currentOperation.expectedProjectConfigIdentity
+        }else{
+            if($frozen){
+                Assert-Fields $input.operationRef @('path','identity') 'OPERATION_REFERENCE'
+                if($input.operationRef.path-isnot[string]-or-not[IO.Path]::IsPathFullyQualified($input.operationRef.path)-or$input.operationRef.identity-isnot[string]-or$input.operationRef.identity-cnotmatch'^\d+\|[A-F0-9]{64}$'){throw 'OPERATION_REFERENCE'}
+                $referencePath=$input.operationRef.path;$referenceIdentity=$input.operationRef.identity
+            }else{
+                foreach ($field in @('discoverReceiptPath','expectedDiscoverReceiptIdentity')) { if ($null -eq $input.PSObject.Properties[$field] -or [string]::IsNullOrWhiteSpace([string]$input.$field)) { throw ('INPUT_FIELD_REQUIRED|' + $field) } }
+                $referencePath=$input.discoverReceiptPath;$referenceIdentity=$input.expectedDiscoverReceiptIdentity
+            }
+            if($OriginalSourceRepositoryPath){
+                & $aiwRootState {param($root,$path,$denied) Assert-AiwOriginalCompletionReadPaths $root @($path) $denied} $OriginalSourceRepositoryPath $referencePath @($OriginalSourceForbiddenPath+$OriginalSourceProtectedPath)
+            }
+            $receiptFull = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $referencePath))
+            if ((Get-Identity $receiptFull) -cne $referenceIdentity) { throw 'DISCOVER_RECEIPT_DRIFT' }
+            $receipt = Read-StrictJson $receiptFull 'DISCOVER_RECEIPT_SELECTION'
+            if($frozen){
+                if($receipt.schemaVersion-ne5-or$null-eq$receipt.PSObject.Properties['operation']){throw 'OPERATION_COMPACT_REQUIRED'}
+                $operationReceipt=$receipt
+                # Locator metadata grants no trust. The version consumer decodes
+                # the original compact, reference and complete operation again.
+                $receipt=[pscustomobject]@{schemaVersion=5;binding=$operationReceipt.operation.binding;sourceLocators=$operationReceipt.operation.sourceLocators;sourceBindings=$operationReceipt.operation.sourceBindings;intentEnvelope=$operationReceipt.operation.intentEnvelope}
+            }
+            if (-not ($receipt.schemaVersion -is [ValueType]) -or [int64]$receipt.schemaVersion -notin @(1,2,3,4,5) -or $null -eq $receipt.sourceLocators -or $null -eq $receipt.sourceBindings) { throw 'DISCOVER_RECEIPT_SELECTION_UNAVAILABLE' }
+            $projectRoot = Get-ControlRootFromReceipt $receipt
+            $frameworkRoot=[string]$receipt.sourceLocators.frameworkRoot;$projectConfigIdentity=[string]$receipt.sourceBindings.projectConfigIdentity
+            if ([string]::IsNullOrWhiteSpace($projectRoot) -or [string]::IsNullOrWhiteSpace($frameworkRoot) -or [string]::IsNullOrWhiteSpace($projectConfigIdentity)) { throw 'DISCOVER_RECEIPT_SELECTION_UNAVAILABLE' }
         }
-        $receiptFull = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath ([string]$input.discoverReceiptPath)))
-        if ((Get-Identity $receiptFull) -cne [string]$input.expectedDiscoverReceiptIdentity) { throw 'DISCOVER_RECEIPT_DRIFT' }
-        $receipt = Read-StrictJson $receiptFull 'DISCOVER_RECEIPT_SELECTION'
-        if (-not ($receipt.schemaVersion -is [ValueType]) -or [int64]$receipt.schemaVersion -notin @(1,2,3,4) -or $null -eq $receipt.sourceLocators -or $null -eq $receipt.sourceBindings) { throw 'DISCOVER_RECEIPT_SELECTION_UNAVAILABLE' }
-        $projectRoot = Get-ControlRootFromReceipt $receipt
-        $frameworkRoot=[string]$receipt.sourceLocators.frameworkRoot;$projectConfigIdentity=[string]$receipt.sourceBindings.projectConfigIdentity
-        if ([string]::IsNullOrWhiteSpace($projectRoot) -or [string]::IsNullOrWhiteSpace($frameworkRoot) -or [string]::IsNullOrWhiteSpace($projectConfigIdentity)) { throw 'DISCOVER_RECEIPT_SELECTION_UNAVAILABLE' }
     } else { throw 'INPUT_MODE_UNSUPPORTED' }
     if($OriginalSourceRepositoryPath-or$AdoptionFinalizeResultPath-or$ExpectedAdoptionFinalizeResultIdentity-or$OriginalSourceForbiddenPath.Count-or$OriginalSourceProtectedPath.Count-or$CompleteOriginalSourceAfterAgentsChange-or$OriginalAgentsPreimagePath-or$ExpectedOriginalAgentsPreimageIdentity-or$ExpectedCurrentAgentsIdentity-or$CurrentCompletionDecisionPath-or$ExpectedCurrentCompletionDecisionIdentity-or($CurrentCompletionPermission-cne'UNKNOWN')-or$RulePublicationInputPath-or$ExpectedRulePublicationInputIdentity-or($CurrentRuleEffect-cne'UNKNOWN')){
         if($input.mode-cne'FINALIZE_OUTPUT'-or$null-eq$receipt-or$DeleteInputOnExit-or$AdoptionProcessBoundary){throw 'ORIGINAL_SOURCE_FINALIZE_ONLY_INPUT_RETAINED'}
@@ -258,7 +283,7 @@ try {
         $aiwPublicationEntryContext.ExitCode=0;return
     }
     $configAdoptionFinalize = $false
-    if($null-ne$receipt-and$input.mode-ceq'FINALIZE_OUTPUT'-and$receipt.schemaVersion-in@(3,4)-and@($input.preparationReceipts|Where-Object{$_-clike'PROJECT_SOURCE_CHANGE|*'}).Count){
+    if($null-ne$receipt-and$input.mode-ceq'FINALIZE_OUTPUT'-and$receipt.schemaVersion-in@(3,4,5)-and@($input.preparationReceipts|Where-Object{$_-clike'PROJECT_SOURCE_CHANGE|*'}).Count){
         if($AdoptionProcessBoundary){throw 'SOURCE_CHANGE_ADOPTION_BOUNDARY_CONFLICT'}
         # Establish the original fixed runtime before loading its shared proof
         # validator. The daily source operation never switches distributions.
@@ -268,7 +293,13 @@ try {
         $null=& $stateModule.ExportedCommands['Assert-AiwDistributionBinding'] $adopted $frameworkRoot '2.0.0'
         $composer=@(Import-Module (Join-Path $frameworkRoot 'framework/versions/2.0.0/scripts/ProcessRequirementComposition.psm1') -PassThru -ErrorAction Stop)[0]
         $rollback='PROJECT_SOURCE_ROLLBACK'-cin@($input.preparationReceipts)
-        $sourceChange=& $composer.ExportedCommands['Get-AiwProjectSourceChange'] -Receipt $receipt -Boundary $input -Stage FINALIZE -Rollback:$rollback
+        $sourceBoundary=$input
+        if($null-ne$operationReceipt){
+            $publication=@(Import-Module (Join-Path $frameworkRoot 'framework/versions/2.0.0/scripts/ProjectSourcePublication.psm1') -PassThru -ErrorAction Stop)[0]
+            $receipt=& $publication {param($raw,$root,$composer) Convert-PubOperationReceipt $raw $root @() $composer} $operationReceipt $projectRoot $composer
+            $sourceBoundary=& $publication {param($boundary) Convert-PubBoundaryView $boundary} $input
+        }
+        $sourceChange=& $composer.ExportedCommands['Get-AiwProjectSourceChange'] -Receipt $receipt -Boundary $sourceBoundary -Stage FINALIZE -Rollback:$rollback
         $projectConfigIdentity=if($rollback){$receipt.sourceBindings.projectConfigIdentity}else{$sourceChange.candidate.target.projectConfigIdentity}
     }
     if ($null -ne $receipt -and [string]$input.mode -ceq 'FINALIZE_OUTPUT') {

@@ -1,4 +1,4 @@
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName='TASK')]
 param(
     [Parameter(Mandatory = $true)]
     [string]$PackagePath,
@@ -6,8 +6,11 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$ObservedActor,
 
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $true,ParameterSetName='TASK')]
     [string]$ObservedTaskId,
+
+    [Parameter(Mandatory = $true,ParameterSetName='PROJECT_WORK')]
+    [string]$RequestContextJson,
 
     [Parameter(Mandatory = $true)]
     [string]$ObservedOwner,
@@ -29,8 +32,10 @@ param(
 
     [string]$ExpectedProjectConfigIdentity,
 
+    [Parameter(ParameterSetName='TASK')]
     [string]$TaskPath,
 
+    [Parameter(ParameterSetName='TASK')]
     [string]$ExpectedTaskIdentity,
 
     [string]$ContinuationReceiptPath,

@@ -6,7 +6,7 @@
 
 ## Existing project
 
-现有 1.16 项目可以预览同 pin 的幂等修复；完整相同则返回 `NO_CHANGE`。未来跨 pin 采用必须由目标版本按 Project Format/capability 明确声明兼容，不能靠旧发行号白名单放行。工具在隔离 projection 中先验证 target policy/budget 与必要 task route，target resolver PASS 后才准备可恢复 transaction。non-task object 先写，task 最后写，之后零写入。
+实际注册、升级和恢复沿所选固定版本及根PROJECT_ADOPTION的明确支持面。目标准备在授权隔离投影核完整采用集合、必要规则/权限及真实前后像；原准入后按该事务顺序执行并用原FINALIZE收口。当前2.0的同pin刷新、REGISTER origin、FORMAT及major各保原分支，不用旧policy/budget/task-last叙述推导当前零写窗口。
 
 ## Task actor 与 independent Reviewer
 
@@ -16,7 +16,7 @@ current card 可声明 `Work route: actor=task-123; role=EXECUTOR; phase=VERIFY`
 
 例如范围、writer和Reviewer均已确定的任务，在本地写测包配置`repairReviewPlan={writer,reviewer,maxCycles,materialContributors}`，maxCycles取本任务的有限计划。生产FINALIZE后，REPAIR_REVIEW以INITIAL_REVIEW/cycle=0及生产FINALIZE准备首次审核包；verdict字段为NOT_APPLICABLE。审核提出真实CHANGES_REQUESTED后，以cycle=1准备REPAIR，修复FINALIZE后准备REREVIEW。每包都独立准入，最终Owner接受单独处理。普通无需独立审核的任务直接完成，不强制造计划或新任务。
 
-临时只读观察用PROJECT_READ_ONLY、真实EXECUTOR职责、NONE与PLAN；相同context请求SOURCE_WRITE或REVIEW_VERDICT仍拒绝。CRITICAL普通修复按实际影响选择完整规则；重大方案说明实质取舍和验收依据，实际里程碑遵循当前阶段验收合同。
+已知TASK内临时安全NONE观察用原TASK，EXECUTOR/PLAN且无包或原有限NONE包；无适用任务才用PROJECT_READ_ONLY。两者都不授SOURCE/Review；Input6仅增加纯只读HANDOFF，正式消息仍核原人类来源与精确消费者。CRITICAL普通修复保适用要求，重大方案取舍及实际质量阶段按当前有效选择。
 
 ## Progressive requirements
 
@@ -32,7 +32,7 @@ conforming adapter 可以证明调用 resolver；instruction-only host 报告 `I
 
 ## IntentEnvelope 构造示例
 
-以下映射只说明现有字段如何表达当前请求，不是模型回放、自然识别准确率或语义 PASS。
+当前Input6/IntentEnvelope3的完整构造复用PROMPTS中New-ExampleCurrentDiscover及TOOL_CONTRACT四上下文；旧Input4/5仅沿明确兼容函数。以下映射只说明现有字段如何表达当前请求，不是模型回放、自然识别准确率或语义 PASS。
 
 ### 只讨论也要实质分析
 
@@ -78,7 +78,7 @@ conforming adapter 可以证明调用 resolver；instruction-only host 报告 `I
 
 ## 已知材料与机械边界同批编排
 
-已知合法规则与专业材料用同一工具编排中的独立读取；当前模型必须取得完整正文。已有准备判断后，可在一个宿主调用中顺序执行 checker → ADMIT → 已授权操作 → FINALIZE；每一步检查退出码和结果，失败停止依赖链，有新语义问题才返回模型。不能从机械PASS生成接受或Review结论。短命令按预期耗时设置首次等待，例如预计十几秒时等待约20秒，未知长任务用宿主异步能力。
+已知合法规则与专业材料同批独立读取，模型实际取得完整正文。准备已完成后同次顺序执行当前ADMIT→已授权操作→原FINALIZE，每门核实际结果，失败停依赖链；AUTHORIZATION_MODEL所列等价checker由ADMIT内部满足，未证专门入口另调用。新语义问题才返回模型，机械PASS不生成Review或接受结论。短命令按预期等待，长命令用宿主异步能力。
 
 ```powershell
 # $entry由已核验TOOLCHAIN解析，$document来自当前真实绑定；PowerShell变量不作字符串代码执行。
@@ -92,24 +92,11 @@ if ($LASTEXITCODE -ne 0) { throw 'PROCESS_OR_SAVE_FAILED' }
 
 参数只代表官方调用，不能复制样例布尔值充当当前授权事实。Maintenance使用自己的固定包根适配器；当前SOURCE/CONTROL按固定TOOLCHAIN声明使用输入/compact；仅旧固定TC2保留其schema2 DISCOVER/schema1 compact组合。
 
-## 到期 receipt 的独立删除与核验
+## 到期receipt的自然释放
 
-先按 TOOL_CONTRACT 确认 receipt 的最后消费者已结束，并将下面路径替换为当前已核验、已授权的绝对文件路径。支持的 input 仍直接用所绑定入口的 `-DeleteInputOnExit`；此例用于 caller 管理的到期 receipt。
+先按TOOL_CONTRACT确认实际最后消费者和当前精确权限。输入有后续引用时保留，最后一次消费才用入口-DeleteInputOnExit；WORKFLOW_ROUTE_RESOLVE可用-InputJson不落盘。其他已知到期receipt可随原FINALIZE的ConsumedRuntimePath释放；独立精确删除时，真实成功返回通常足够。仅后续正确性依赖不存在、部分失败或恢复/保护风险时，在同一调用核验实际剩余。
 
-宿主支持 `functions.exec` 时，可在同一次编排中顺序提交两个独立工具调用：
-
-```javascript
-const removed = await tools.exec_command({
-  cmd: "Remove-Item -LiteralPath 'C:/project/.ai-workspace/runtime/TASK-001/actor-1/receipt.json' -ErrorAction Stop"
-});
-if (removed.exit_code !== 0) throw new Error("删除未完成；停止依赖步骤并报告实际结果");
-const checked = await tools.exec_command({
-  cmd: "if (Test-Path -LiteralPath 'C:/project/.ai-workspace/runtime/TASK-001/actor-1/receipt.json') { throw 'RECEIPT_REMAINS' }"
-});
-if (checked.exit_code !== 0) throw new Error("删除后核验未通过");
-```
-
-删除调用只删除该文件，核验调用只读。普通文件不默认加 `-Force`、清属性或在失败后升级强制删除；特殊属性需按其真实原因和原权限处理。宿主政策拒绝时停止，不以换工具或改命令重试；分开调用也不保证宿主批准。
+删除只处理已核绝对普通文件，不加Force、清属性或升级强制；宿主策略拒绝就保原结果并停止受影响删除，不换入口试探。
 
 ## 当前有限任务释放旧 runtime 文件
 
@@ -207,7 +194,7 @@ $release = ($raw -join "`n") | ConvertFrom-Json -Depth 50
 
 实现中改源码、补测试代码、记录当前事实可仍是同一活动，当前action据实际操作分别填写；写任务卡不自动变成task-organization。真实分派、责任/路线或生命周期转换才改变组织事实。进入TEST_RUN、自查、审核或验证后返修，domain/workType/stage据事实变化，完整加载当前规则；不能为省加载伪填原实现分类。
 
-原EXTERNAL已停止、provider为0且无后续外部动作时，同活动CONTROL记录可沿新包ADMIT_ACTION/actionRebind；O排除退场外部义务，B保留本活动已读正文。后续报告再用已读交付规则时不因它上一操作退出O而重装配；新的未读方法即使P/R为空仍FULL。保存新compact供原FINALIZE消费，原失败、UNKNOWN和次数保留；当前policy合法演进不改写历史。SOURCE视图即使显示PROJECT_PREAUTHORIZED配置，也不据此显示直接调用指令；只有真实EXTERNAL且当前O命中有效非空grant才适用。
+原EXTERNAL已停止、provider为0且无后续外部动作时，同活动CONTROL记录在当前Input6/boundary4以currentOperation准入并保存当前操作，后续消费operationRef；旧Input5/boundary3兼容使用ADMIT_ACTION/actionRebind。O排除退场外部义务，B保留本活动已读正文。后续报告再用已读交付规则时不因它上一操作退出O而重装配；新的未读方法即使P/R为空仍FULL。保存新compact供原FINALIZE消费，原失败、UNKNOWN和次数保留；当前policy合法演进不改写历史。SOURCE视图即使显示PROJECT_PREAUTHORIZED配置，也不据此显示直接调用指令；只有真实EXTERNAL且当前O命中有效非空grant才适用。
 
 在支持functions.exec的宿主中，调用前为外层和内层分别设置足够容量。以下24000/20000只是示例，不是阈值或不会截断的保证；按实际完整正文调整，且不与机器JSON或其他长输出混排。命令中的路径须先替换为当前真实固定入口和绑定输入。
 
@@ -231,7 +218,7 @@ if (r.session_id) {
 
 ## 有限会话的继续与收尾
 
-新Owner登记与临时接收者绑定的宿主接点取HOST_CODEX的PR_CODEX_TOOL_OPERATION_RESOLUTION；执行资格统一取TASK_AND_SCOPE的PR_TASK_LAUNCH_AND_ROUTE。例：创建提示已交齐材料，登记F在接收者读取前完成，则沿核心规则执行，登记方不再补发启动消息；若初始提示漏了一份必要包引用，只补该引用。
+新Owner登记与临时接收者绑定的宿主接点取HOST_CODEX的PR_CODEX_SESSION_ORGANIZATION；执行资格统一取TASK_AND_SCOPE的PR_TASK_LAUNCH_AND_ROUTE。例：创建提示已交齐材料，登记F在接收者读取前完成，则沿核心规则执行，登记方不再补发启动消息；若初始提示漏了一份必要包引用，只补该引用。
 
 当前ACTIVE维护任务归档另一张旧CLOSED卡：当前纯CONTROL包精确包含active/archive对，archive后像逐字节等于原active前像，核原ID/闭合/释放、当前权限与保护后只证明移存。旧产品可依法变化，不因此重跑旧验收；卡改字、目标冲突或未释放仍拒绝，新SUCCESS缺必要验收也拒绝。旧计划及决定继续retention，移存不追认其证明有效。先存并读回archive再删active，中断沿原包补完，不造归档事务。
 
@@ -371,6 +358,6 @@ $request.orderedOperations = @([ordered]@{
 }
 ```
 
-这里的ruleId必须已存在且本活动实际选中；工具/provider、费用、数据及委派范围由真实项目决定填写，不从此例复制授权。首次或恢复时取得完整许可与当前规则；无适用任务使用TOOL_CONTRACT的PROJECT_EXTERNAL，保真实EXTERNAL意图。随后在许可范围内直接调用原工具，保其实际返回并交付，不新建一图一卡、逐次EXTERNAL包或D/A/F。失败/UNKNOWN保原记录且不盲重试。项目撤回、范围不符或宿主拒绝时不发新调用。
+这里的ruleId必须已存在且本活动实际选中；工具/provider、费用、数据及委派范围由真实项目决定填写，不从此例复制授权。首次或恢复时取得完整许可及当前规则；先按卡和成果质量选TASK/PROJECT_WORK，仅无需卡/成果门的普通工具才用PROJECT_EXTERNAL。TASK/WORK内许可已覆盖的工具同样直接调用并保原返回，不逐工具增加EXTERNAL包或D/A/F。失败/UNKNOWN保原记录且不盲重试。项目撤回、范围不符或宿主拒绝时不发新调用。
 
 要保持原按次行为可省略该设置，或写`{"schemaVersion":1,"mode":"PER_ACTION"}`；使用原ExternalGrant构造例子和准入链。两种模式不能把未调用、未知消费或加载PASS说成工具成功。

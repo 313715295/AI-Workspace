@@ -1,3 +1,4 @@
+WARNING: The names of some imported commands from the module 'IntegrationFixture' include unapproved verbs that might make them less discoverable. To find the commands with unapproved verbs, run the Import-Module command again with the Verbose parameter. For a list of approved verbs, type Get-Verb.
 PASS|delete-only-write-route-SOURCE_WRITE-actual-discover-and-admit
 PASS|delete-only-write-route-SOURCE_WRITE-actual-finalize
 PASS|delete-only-write-route-SOURCE_WRITE-authorization-absence-stays-new
@@ -46,8 +47,8 @@ PASS|mixed-write-test-route-modified-byte-drift-rejects-stale-continuation
 PASS|mixed-write-test-route-current-pure-reviewer-package-checks-independent-candidate
 PASS|mixed-write-test-route-actual-route-finalize-consumes-synthetic-host-delivery
 PASS|mixed-write-test-route-original-source-package-unchanged-after-complete-chain
-PASS|protected-card-fixture-reaches-original-finalize-guard
-PASS|protected-control-candidate-rejected-by-evidence-path-guard
+PASS|protected-card-fixture-rejects-at-discover-before-admission
+PASS|protected-control-has-no-finalize-without-original-admission
 PASS|protected-control-rejection-performs-zero-overwrite
 PASS|mixed-current-card-is-rejected-before-admission
 PASS|mixed-current-card-rejection-performs-zero-write
@@ -60,7 +61,7 @@ PASS|single-current-card-preserves-original-finalize-chain
 PASS|other-task-plus-document-batch-remains-admissible
 PASS|other-task-plus-document-batch-finalizes
 PASS|correction-source-transition-old-authority-admits-and-binds-old-result
-PASS|correction-source-transition-preserves-old-result-obligation|{"status":"BLOCKED","mode":"FINALIZE_OUTPUT","reason":"RESULT_INCOMPLETE","artifactStorage":"CALLER_MANAGED","selectionIdentity":"5F41077062CCCD0058D173211B64AC84DB9127DA32B5524AAA7504FE8D7172A4","decisionIdentity":"FB609856B019EE35BB9AE0D63BF2EC917E012C3B5615CFAA7EF3F64A24F83F31","sourceBuildCount":2,"decisionBuildCount":1,"missingPreparation":[],"missingResult":["OLD_RESULT_REQUIRED"],"authorityGranted":false,"semanticCorrectnessProven":false,"hostInvocationProven":false,"sourcePostimageTransition":{"status":"PASS","previousSourceCompositionIdentity":"560D8CF5A2AE088015720003899EAAC1EDF62E9D554D1F676E6BC486B1152683","currentSourceCompositionIdentity":"C8508567170541DA7B25905E5A76EC2F349AE4D5F90A00DF490F14DF80532A8C","changedBindings":["correctionsIdentity","effectiveSetIdentity"],"selectedPackBytes":93046,"selectedRequirementCount":18},"runtimeCleanup":{"status":"DEFERRED","reason":"LAST_CONSUMER_NOT_COMPLETE"}}
+PASS|correction-source-transition-preserves-old-result-obligation|{"status":"BLOCKED","mode":"FINALIZE_OUTPUT","reason":"RESULT_INCOMPLETE","artifactStorage":"CALLER_MANAGED","selectionIdentity":"D00456958EEB7B294088D00EA2C37745A6641ABB9E1C01B407365FC5DA681610","decisionIdentity":"33578BB7C8EBB70FAB779F5DCBF7665144DA178BC335DD0C46E6E7313DC3E86C","sourceBuildCount":2,"decisionBuildCount":1,"missingPreparation":[],"missingResult":["OLD_RESULT_REQUIRED"],"authorityGranted":false,"semanticCorrectnessProven":false,"hostInvocationProven":false,"sourcePostimageTransition":{"status":"PASS","previousSourceCompositionIdentity":"F12135D23EB9F4728DFB073887D5DFC95016765BBE04FCDF7516EA39DC3F2171","currentSourceCompositionIdentity":"7F5A12D2654D2C2A470F7A06B1FDFC488E8F0D5F1AB429CA632CF0EBDF86EAC5","changedBindings":["correctionsIdentity","effectiveSetIdentity"],"selectedPackBytes":84305,"selectedRequirementCount":21},"runtimeCleanup":{"status":"DEFERRED","reason":"LAST_CONSUMER_NOT_COMPLETE"}}
 PASS|correction-status-index-postimages-finalize-through-recomposed-source
 PASS|policy-source-transition-old-authority-admits
 PASS|policy-postimage-derives-and-validates-project-standard-identity
@@ -76,7 +77,7 @@ PASS|invalid-new-policy-source-binding-rejected
 PASS|legacy-budget-field-is-not-a-current-policy-field
 PASS|R1-policy-only-real-admission-has-new-managed-binding
 PASS|R1-package-external-custom-drift-rejected-without-live-mutation
-PASS|bootstrap-policy-original-action-admitted|{"status":"PASS","mode":"ADMIT_ACTION","reason":"STRUCTURAL_REQUIREMENTS_COMPLETE","artifactStorage":"CALLER_MANAGED","selectionIdentity":"2E60BA474C16E80C05F8D83D22EE092E63DC36334E3B0475CEB206D5D9262EE3","decisionIdentity":"7E24BBD1F80183FB0A72790A213787573C996F29D1F1ABECF89449CAC22A1B19","sourceBuildCount":1,"decisionBuildCount":1,"missingPreparation":[],"missingResult":[],"authorityGranted":false,"semanticCorrectnessProven":false,"hostInvocationProven":false}
+PASS|bootstrap-policy-original-action-admitted|{"status":"PASS","mode":"ADMIT_ACTION","reason":"STRUCTURAL_REQUIREMENTS_COMPLETE","artifactStorage":"CALLER_MANAGED","selectionIdentity":"99309E717D47BA6E810C1D53021993AB27BC9CB0263DB238814BDA4F225E66F0","decisionIdentity":"DEABCE6F2D7FFCA37C2623F20FBE5FEE5512358118AD28F7059AEC53578EE530","sourceBuildCount":1,"decisionBuildCount":1,"missingPreparation":[],"missingResult":[],"authorityGranted":false,"semanticCorrectnessProven":false,"hostInvocationProven":false}
 PASS|bootstrap-to-policy-original-finalize-succeeds
 PASS|bootstrap-managed-third-party-drift-rejected
 PASS|historical-rule-action-really-admitted

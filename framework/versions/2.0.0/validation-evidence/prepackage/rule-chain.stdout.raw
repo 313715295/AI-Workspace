@@ -58,7 +58,9 @@ PASS|only-current-action-Do not implement; compare the existing design.
 PASS|shared-rule-complete-body-equals-current-project-source
 PASS|review-planning-needs-no-future-evidence
 PASS|micro-implementation-without-knowledge-still-loads-core-judgment
-PASS|complete-core-learning-responsibility-not-hidden-in-optional-method
+PASS|complete-core-judgment-independent-of-optional-method
 PASS|core-method-link-does-not-load-entire-optional-method
 PASS|core-software-method-link-does-not-load-entire-optional-method
-RULE_CHAIN_TESTS_PASS|checks=63|historicalCases=14|evidence=DETERMINISTIC_SELECTION_ONLY
+PASS|micro-research-without-knowledge-loads-native-learning-responsibility
+PASS|complete-native-learning-responsibility-without-loading-optional-method
+RULE_CHAIN_TESTS_PASS|checks=65|historicalCases=14|evidence=DETERMINISTIC_SELECTION_ONLY

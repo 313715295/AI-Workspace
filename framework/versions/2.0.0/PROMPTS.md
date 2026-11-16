@@ -27,7 +27,7 @@ Controller与Owner按委派后本人持续职责选择资源，均可安排专�
 
 同项目自有专业正文与采用引用联合更新时，沿TOOL_CONTRACT冻结完整候选，取得各自纯SOURCE_WRITE/CONTROL_WRITE包、原checker/DISCOVER与两次真实ADMIT。写集只含实际变化者，根入口按原前后像识别有序prefix并执行，日常新批次不强制全局journal或双pending。allNew后两份原FINALIZE分别取得真实结果，两份成功才整批完成；一份成功一份未完保留原件只补未完。普通读、预览及纯F不取写锁，真实联合写者保护保留；旧真实journal按原固定工具恢复。读取许可与外部来源不产生正文写权。
 
-以下是可执行教学片段，不是新 operation、意图生成器或授权助手。$facts 是已证明的 TASK 输入事实；$intent 由当前模型按 TOOL_CONTRACT 的唯一构造合同填写 IntentEnvelope2 与四维状态。本W2候选TASK与Maintenance TARGET使用Input5/compact4（旧Input4严格保留）；CONTROL/TARGET 仓库仍由独立根前门和动作包精确绑定。旧 pin 使用其原版本示例，入口不转换旧请求。
+以下教学片段从已核固定来源构造Input6 / IntentEnvelope3和boundary4。$facts含当前真实字段，$intent由当前模型填写三维核心及可选stage；旧Input4/5 / IntentEnvelope2的明确兼容函数仍保留。Maintenance使用固定runtime根前门精确核CONTROL/TARGET，输入不从开发源码或旧包存储位置推断。
 
 元数据只从已核固定runtime的PROCESS_REQUIREMENTS.json投影，保每条完整id/title/description/selectors及可选bodySelectors、完整facetVocabulary；项目扩展取当前policy.facetVocabulary及有效规则声明。向模型输出用ConvertTo-Json -Depth 100 -Compress去空白，不删selector轴、词项说明或旧兼容文本，不先打印整份policy再重复投影。先验证全局声明和当前权威，按同一Intent选择，再验证B的完整公共条件、依赖和正文。未命中的独立外部正文不访问，真实采用/规则变更仍完整验证目标集合；健康元数据不逐工具重读。
 
@@ -40,6 +40,44 @@ function Get-ExampleIntentMetadata($Catalog) {
         [pscustomobject]$row
     }
 }
+function New-ExampleCurrentDiscover($Facts, $Intent) {
+    $value=[ordered]@{schemaVersion=6;mode='DISCOVER';ruleLoad=@{mode='FULL'};evaluationOnly=$Facts['evaluationOnly']}
+    foreach($name in @('contextType','projectRoot','frameworkRoot','expectedProjectConfigIdentity',
+        'expectedCorrectionsIdentity','observedActor','capabilities','exactPaths','forbiddenPaths',
+        'protectedPaths','authorizationRef','userDecision','recoveryState','hostEnforcementGrade','invocationState')) {
+        $value[$name]=$Facts[$name]
+    }
+    $members=switch -CaseSensitive ($Facts['contextType']) {
+        'TASK' {@('taskPath','expectedTaskIdentity')}
+        'PROJECT_READ_ONLY' {@('readOnlyContext')}
+        'PROJECT_EXTERNAL' {@('requestContext')}
+        'PROJECT_WORK' {@('requestContext')}
+        default {throw 'CONTEXT_TYPE'}
+    }
+    foreach($name in $members){$value[$name]=$Facts[$name]}
+    foreach($name in @('executionTargetRef','continuationReceiptPath','expectedContinuationReceiptIdentity')) {
+        if($Facts.Contains($name)){$value[$name]=$Facts[$name]}
+    }
+    $value.intentEnvelope=$Intent
+    return $value
+}
+function New-ExampleCurrentOperation($FullInput,$FullRuleReadRef) {
+    $value=$FullInput|ConvertTo-Json -Depth 100|ConvertFrom-Json -AsHashtable -Depth 100
+    foreach($name in @('schemaVersion','mode','ruleLoad','evaluationOnly')){$value.Remove($name)}
+    $value.ruleReadRef=$FullRuleReadRef
+    return $value # 此后仅按真实当前事实更新scope/包/意图，不复制旧权限。
+}
+function New-ExampleCurrentBoundary($Mode,$BindingKind,$Binding,
+    [string[]]$CompletedPreparation,[string[]]$ObservedResults,[string[]]$ActualDelivery,
+    $PublicDecisionIdentity,$ProtectionState,[object[]]$ActualEvidence=@()) {
+    if($BindingKind-cnotin@('currentOperation','operationRef')){throw 'OPERATION_BOUNDARY_ONE_OF'}
+    $value=[ordered]@{schemaVersion=4;mode=$Mode;preparationReceipts=@($CompletedPreparation);
+        resultReceipts=@($ObservedResults);deliveryReceipts=@($ActualDelivery);
+        publicDecisionIdentity=$PublicDecisionIdentity;protectionState=$ProtectionState;evidenceRefs=@($ActualEvidence)}
+    $value[$BindingKind]=$Binding
+    return $value
+}
+# 以下两个构造函数仅示旧Input5 / boundary3兼容，不用于新Input6。
 function New-ExampleDiscover($Facts, $Intent, $RuleLoad=$null) {
     $value = [ordered]@{schemaVersion=5;mode='DISCOVER';contextType='TASK';readOnlyContext='NOT_APPLICABLE';ruleLoad=$(if($null-ne$RuleLoad){$RuleLoad}else{@{mode='FULL'}})}
     foreach ($name in @('projectRoot','frameworkRoot','taskPath','expectedProjectConfigIdentity',
@@ -93,7 +131,7 @@ function Write-ExampleNewInputJson([string]$Path,$Value){
 $catalog=Get-Content -LiteralPath (Join-Path $facts.frameworkRoot 'framework/versions/2.0.0/PROCESS_REQUIREMENTS.json') -Raw | ConvertFrom-Json -Depth 100
 $metadata=[ordered]@{requirements=@(Get-ExampleIntentMetadata $catalog);facetVocabulary=@($catalog.facetVocabulary)}
 $metadata | ConvertTo-Json -Depth 100 -Compress # 仅这一份完整元数据投影交模型构造意图
-$document=New-ExampleDiscover $facts $intent
+$document=New-ExampleCurrentDiscover $facts $intent
 $inputPath=Join-Path $runtimeDirectory 'discover-1.json'
 $receiptPath=Join-Path $runtimeDirectory 'discover-1-compact.json'
 Write-ExampleNewInputJson $inputPath $document
@@ -103,11 +141,11 @@ $result=Read-ExampleDiscoverOutput (($machineLines -join "`n")|ConvertFrom-Json 
 Get-ExampleRuleText $result $pinnedDisplayModule
 ```
 
-$processEntry/$pinnedDisplayModule来自同一固定TOOLCHAIN；Maintenance使用该runtime根前门与New-ExampleMaintenanceDiscover，普通项目使用其声明的版本入口。CreateNew拒绝已有input/compact，失败停依赖链。MACHINE的B正文、coverage与身份留程序侧；仅官方text交模型。compact只供后续A/F，引用实际savedCompactReceipt，不拿义务当完成证据。
+$processEntry/$pinnedDisplayModule来自同一固定TOOLCHAIN；Maintenance也将New-ExampleCurrentDiscover的真实TASK输入交该runtime根前门。旧IntentEnvelope2/TASK调用才用New-ExampleMaintenanceDiscover兼容函数。CreateNew拒已有input/compact，失败停依赖链。B正文及完整机器载体留程序侧，只把官方text交模型；compact是后续边界引用，不是义务已完成证明。
 
 将本次真实DISCOVER结果传入固定版本ProcessRequirementDisplay，只打印其 `text`。模型取得模式、真实fallback与限制、短来源、每规则有序短引用及当前义务和一次完整必要正文。例如规则[A]与[B,A]共用唯一正文[A,B]，分别保留引用[A]与[B,A]，不重复打印A，也不改变第二条依赖顺序。不同来源或不同规范身份不合并；不要打印完整机器结果或把整个display对象再次序列化。
 
-加载时机唯一取RECOVERY，B/O与字段唯一取TOOL_CONTRACT。实现中普通文件、测试代码或记录变化，用原compact和当前精确新包作actionRebind，PASS后沿新compact的完整O工作；已读规则回到O也可零装配，未读方法即使P/R为空仍须FULL。进入实际自测/自查/审核或返修须按真实活动完整加载，不能伪填原分类。旧REUSE返回FULL、非空preloadSteps拒绝。一次输出完整官方text，真实截断从同一结果补缺；AIW-END不证明attention。
+加载时机取RECOVERY。当前Input6完整读取后，用New-ExampleCurrentOperation构造当前事实，在原ADMIT的boundary4携currentOperation并保存新的operationRef；原F只引用该操作。已有当前操作则直接给operationRef，不混旧actionRebind。旧Input5的同活动本地重绑继续boundary3/actionRebind。进入实际自测、自查、审核或返修按新活动FULL；新要求同样FULL，已读规则重回O不触发装配。一次完整官方text，真实截断从同一结果补缺。
 
 遇到原生输出编码或宿主长度边界时，不重复解析来“补显示”。在首次调用中选择当前runtime下新的 `$bodyPath`：
 ```powershell
@@ -130,7 +168,7 @@ $officialText = [IO.File]::ReadAllText($bodyPath, [Text.UTF8Encoding]::new($fals
 
 接收者首次恢复时同时核对原始人类目标、当前有效合同、分派正文与实际包能支持的完整下一步。正文声称可直接交审而包仅授写测时，不把正文当追加权限，也不假装目标只剩局部写测；保留已授安全工作，向实际Owner精确指出缺失的交审/接受范围，由其按原成果补齐。并非每份写测包都应含REVIEW_ROUTE：Owner尚需实质集成或任务确实只交付写入时，原有限边界继续有效。
 
-用限域 package 绑定 task、owner、actor、Controller epoch、actions、exact paths/identities、repository/config 与 user decision。执行 `PROCESS_REQUIREMENTS_RESOLVE / ADMIT_ACTION`，再通过 `<FW>/TOOLCHAIN.json` 完成 authorization 与 workflow-route checks。全部 gate PASS 后无需第二次 START 即可开始；否则返回最窄 drift 或 missing preparation。
+用当前限域包绑定真实TASK或PROJECT_WORK、Owner/actor、动作、精确对象及决定。按AUTHORIZATION_MODEL条件，普通schema1或Maintenance schema2的完整checker由ADMIT实际调用满足，不另发相同检查；其他未证明等价入口分别调用。只在真实workflow transition发生时执行其对应检查，已有FINALIZE消费者不重复全链。全部实际前置满足即执行，无需第二次START；缺失或漂移只停受影响链。
 
 ## 隔离目标、关闭与已有资源
 
@@ -166,7 +204,7 @@ $officialText = [IO.File]::ReadAllText($bodyPath, [Text.UTF8Encoding]::new($fals
 
 ## Task routing
 
-评估 project、cwd/Git top、outcome、task-owner continuity、actor eligibility、lineage、resource、independent-context need、protection、Git/device/external boundary 与 public decision。把 strict ephemeral input 写入 `.ai-workspace/runtime/<task>/<actor>/`，通过 Tool Contract 运行 `WORKFLOW_ROUTE_RESOLVE`，随后删除 input。mandatory facts 任一缺失或冲突都 `fail closed`；只返回 `REUSE`、`MUST_NEW` 或 `BLOCKED`。
+在真实任务组织边界核项目/执行根、有限成果、Owner/actor资格、资源、独立性、保护及必要公共决定；仅实际Git动作核对应Git条件。已有字段可用WORKFLOW_ROUTE_RESOLVE -InputJson直接提交，不落盘；需要文件时保至最后消费者，按TOOL_CONTRACT释放。mandatory事实缺失或冲突停止该组织分支；正常结果为REUSE、MUST_NEW或BLOCKED。
 
 `TERMINAL`、`MESSAGE`、`HANDOFF` 与 `HOT_STATE` 必须在声称 transition 前调用相应 operation。最终输出按实际result/delivery执行FINALIZE_OUTPUT；仅TOOL_CONTRACT所列无包无副作用、当前USER普通NONE/PLAN或USER_RESPONSE且无任何下游消费者的窄例外可省独立机械调用，不造成功收据。独立任务只做一次紧凑终态交付；协作期间的等待与续作取 TASK 的 PR_TASK_COLLABORATION_BOUNDARY。
 
@@ -178,7 +216,7 @@ $officialText = [IO.File]::ReadAllText($bodyPath, [Text.UTF8Encoding]::new($fals
 
 消费纯 Review package，独立校验 frozen candidate，返回 findings、evidence ceiling 与 Git disposition；不得写入或 repair。Reviewer 是临时 action grantee，不改写 task Work route。Review approval 与 `RESULT_ACCEPT` 分离。
 
-交审顺序和结果消费者只取 REVIEW_AND_EVIDENCE。调用示例：生产/自测 FINALIZE 和候选冻结后，分派者按当前任务/候选签自身 `REVIEW_ROUTE` 包并校验，用 `REVIEW_ROUTE + HANDOFF` 意图 DISCOVER、读取 `selectedRuleBlocks[*].fullText`、ADMIT，再准备接收者纯 Review 包；不能用旧 SOURCE/TEST receipt 代替这次分派。已有 Reviewer 用真实 ID 绑定新工作，新建且 ID 未知时用 `HOST_INITIAL_DELEGATION` 待绑定原件在创建提示一次交齐材料；`HOST_CREATE_THREAD_RESULT` 只保留已绑定兼容路径。真实 finding 回原 writer，APPROVED 由 Reviewer 一次交原 Owner；writer 交审后结束当前轮但保留原范围修复职责，无 Owner 下一动作不另发“审核进行中”消息。
+交审顺序和结果消费者只取 REVIEW_AND_EVIDENCE。调用示例：生产/自测 FINALIZE 和候选冻结后，分派者按当前任务/候选签自身 `REVIEW_ROUTE` 包并校验，用 `REVIEW_ROUTE + HANDOFF` 意图 DISCOVER、读取官方renderer的一份完整text及当前义务、ADMIT，再准备接收者纯 Review 包；不能用旧 SOURCE/TEST receipt 代替这次分派。已有 Reviewer 用真实 ID 绑定新工作，新建且 ID 未知时用 `HOST_INITIAL_DELEGATION` 待绑定原件在创建提示一次交齐材料；`HOST_CREATE_THREAD_RESULT` 只保留已绑定兼容路径。真实 finding 回原 writer，APPROVED 由 Reviewer 一次交原 Owner；writer 交审后结束当前轮但保留原范围修复职责，无 Owner 下一动作不另发“审核进行中”消息。
 
 同一次组织判断先选实际路线，再从这一选择同时生成父包动作与派发说明。以下为可执行的局部示例，`$organization`、`$requiresTest`及有限周期来自已完成的当前模型判断；不从关键词或包权限反推目标，不是新增operation或必用公共工厂。`$authorizationTemplate`已绑定原Owner、范围和决定。
 
@@ -202,7 +240,7 @@ if('TEST_RUN'-cnotin$actions){$parent.PSObject.Properties.Remove('selfCheckRepai
 [pscustomobject]@{authorizationTemplate=$parent;dispatch=('当前有限动作：'+($parent.actions-join', ')+'。'+$next)}
 ```
 
-路线改变时重绑真实受影响包与正文；不加第二份路线台账。交审ADMIT先消费作者SELF和原writer绑定，未知Reviewer创建在其后；最终发送仍复核当前候选与真实消费者。示例只证明同源输出能表达三种已定路线，不证明自然意图识别、授权语义或模型实际遵循。
+路线改变重绑实际受影响包和正文。交审ADMIT核真实作者、冻结候选及适用准备：LEGACY、选中或另有必需SELF时消费成功作者SELF；未选且无额外SELF时用真实productionFinalizeRef。实际TEST_RUN失败不能交审。未知Reviewer创建在准备通过之后，发送仍核当前候选与真实消费者；示例不证明自然模型遵从或授权语义。
 
 ## Framework maintenance
 
@@ -210,7 +248,7 @@ if('TEST_RUN'-cnotin$actions){$parent.PSObject.Properties.Remove('selfCheckRepai
 
 ## 连续动作与发送返回
 
-生命周期收尾使用原调用的已知集合：生产时只保存后继真正需要的compact/continuation和必要行为原件，显示从同次内存结果取text，不另存完整DISCOVER或显示副本。原接受/关闭FINALIZE会在业务成功和真实投递条件满足后，直接从当前证明链及原ResultEvidence已验证的实际任务/归档验收计划读取已链接的成功生成返回；只有成功生成返回中以consumedObject绑定实际读取字节、明确IO_ERROR的remaining，才由生产入口在当前字节仍匹配时自动恢复释放；历史removed/alreadyAbsent不删除再次出现的同名输入，缺身份/换字节、FAIL/INCOMPLETE/未知或HOST_POLICY_REJECTED均保留并显示原因，不需模型重新整理输入路径数组。失败生成或另被当前证明引用的原件保留；不知道的后继用途继续保留。成功输入释放观察可沿已有必要输出/失败复现引用承接，不为清理复制完整DISCOVER或新建清单。其他确知到期的输出和显式空目录才在同一次FINALIZE调用传`-ConsumedRuntimePath $consumedPaths -EmptyRuntimeDirectory $emptyDirectories -RetainedRuntimePath $futureEvidencePaths`；这些数组来自本批生成返回及现存引用，不扫描、不按关闭状态猜测，不另唤起模型清理。已有已消费清单可传`-ConsumedRuntimePathList`，部分失败按返回remaining保原清单。WorkflowDelivery的原Invoke-AiwDeliveryBoundary同样接这些参数，实际OBSERVE成功后才释放投递阶段的到期材料；当前证明链沿完整原证据路径保护（含routine exclusions和各根相对禁区）自动保留，后继独审/接受/量测仍需而当前证明未引用的原件放入原futureEvidencePaths。没有最后消费者事实就不放入consumedPaths。原结果和清理结果分别判断；默认文本/模型输出的AIW-CLEANUP行也要消费实际剩余和失败分类，不能只看业务PASS；无需为了普通成功复制整套逐步输出或创建清单文件。
+生命周期与自动输入恢复的唯一合同取TOOL_CONTRACT。原调用仅把确知最后消费者已完成的当前runtime对象放ConsumedRuntimePath/ConsumedRuntimePathList，显式自有空目录放EmptyRuntimeDirectory，后继仍需材料放RetainedRuntimePath；集合来自本次真实生成返回及现有引用，不扫描或按关闭状态推断。WorkflowDelivery沿相同参数，在真实OBSERVE成功后释放投递材料。业务结果与AIW-CLEANUP分别消费，失败、remaining及宿主拒绝如实保留；缺到期依据就保留，不为清理另复制完整D、建清单或唤起模型。
 
 当前意图由模型提供；路径身份与固定字段可在原脚本一次取得。保存 DISCOVER compact 后，当前模型先读完整命中正文并判断准备是否实际完成，再传真实 preparationReceipts 调用 ADMIT；不能把 selected obligations 数组直接当作完成证明。有依赖的步骤检查上一返回 status 后连续运行，失败停止依赖链，日志保留各门原结果；保存的新 continuation 供下一 DISCOVER 使用，原证据留到最后消费者完成。健康复用不要求重复输出整个机器收据。程序保留机器收据并只向模型显示命中完整正文、必要义务与结果摘要；失败和异常保留完整原证据。
 
@@ -228,8 +266,6 @@ if('TEST_RUN'-cnotin$actions){$parent.PSObject.Properties.Remove('selfCheckRepai
 
 ## 质量策略的正常准备与接续
 
-普通repo-local schema1及Maintenance CONTROL/TARGET schema2的原完整checker已在ADMIT按同一固定来源/适配器、完整动作/对象/续链参数和当前观察执行时，由该实际调用满足授权检查；调用者省略额外相同checker命令。checker公共入口保留；DISCOVER、ADMIT与收口各自真实观察不合并成全局一次或缓存。schema4及未证明等价的专门路径仍分别调用；错主体、越界、前像漂移、撤回和坏续链照原拒绝。
+实际采用支持当前能力的新固定来源后，按项目原来源维护门选择taskCards和qualityAssurance。QA2的稳定subject保domain、发起workType、deliverableType，QA1沿旧两维；质量为defaultStages与命中规则并集，另保原用户/专业阶段。卡选择和质量独立，不用profile或单次工具数量推省卡/零门。
 
-项目显式qualityAssurance1按完整稳定成果subject并集选择SELF_CHECK/RESULT_REVIEW/RESULT_ACCEPT，规则/格式和准备唯一取TOOL_CONTRACT。缺省LEGACY，启用缺plan2不得降为无门；真零不伪造证据，用户/专业阶段和真实失败保留。qualityBinding是当前选择投影，不授动作、跨仓、专门门或接受权。
-
-先沿项目原来源维护门启用qualityAssurance1，再用WORKFLOW_ROUTE_RESOLVE的QUALITY_PLAN_PREPARE提交当前project/task/config/policy、完整稳定subject和持久requirementsRef。读取真实候选及限制，在原卡CONTROL绑定plan2，包从原plan投影；后续只补自然发生的候选/证据，不逐步重抄策略。交审按REVIEW_AND_EVIDENCE选择适用SELF或真实productionFinalizeRef，仍要真实REVIEW_ROUTE准入/发送/OBSERVE。普通USER窄例外不用于本段任务消息、接受、关闭或continuation。
+TASK使用QUALITY_PLAN_PREPARE并在原单卡一次绑定plan2；PROJECT_WORK在原requestContext内联必要计划，原请求/Owner/完整subject/要求与当前精确包共同绑定，不建影子卡。候选和证据随真实结果补齐。交审按REVIEW_AND_EVIDENCE消费适用成功SELF或原productionFinalizeRef，仍须真实REVIEW_ROUTE、发送及OBSERVE；当前USER普通窄例外不用于任务消息、质量动作、关闭或续链。

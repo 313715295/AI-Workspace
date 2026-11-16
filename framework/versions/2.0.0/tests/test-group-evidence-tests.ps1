@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([ValidateSet('All','Core','CurrentCoverage','FinalSuiteAndOwnership')][string]$Group='All',[string]$V1ReaderPath,[switch]$FixtureContractOnly,[switch]$PublicSuiteConsumerContractOnly,[switch]$FocusedReviewRepairOnly,[switch]$ToolResolutionContractOnly,[switch]$IntegrationConsumerContractOnly,[string]$GuardFixturePath,[switch]$ExecutionTargetOnly,[switch]$FailureTransportOnly,[switch]$WorkerCompletionOnly)
+param([ValidateSet('All','Core','CurrentCoverage','FinalSuiteAndOwnership','RouteEvidence')][string]$Group='All',[string]$V1ReaderPath,[switch]$FixtureContractOnly,[switch]$PublicSuiteConsumerContractOnly,[switch]$FocusedReviewRepairOnly,[switch]$ToolResolutionContractOnly,[switch]$IntegrationConsumerContractOnly,[string]$GuardFixturePath,[switch]$ExecutionTargetOnly,[switch]$FailureTransportOnly,[switch]$WorkerCompletionOnly,[switch]$FiniteEntryClosureOnly)
 $ErrorActionPreference='Stop'
 $groupEvidenceFirstFailure=$null;$groupEvidenceCleanupFailure=$null
 try {
@@ -48,7 +48,50 @@ exit $LASTEXITCODE
  }
 }
 function CloneEvidence($Value,[string[]]$StringFields){return (ConvertFrom-AiwStrictInputJson ($Value|ConvertTo-Json -Depth 100 -Compress) -StringFields $StringFields).Value}
+function TestIntegrationGitEnvironment {
+ $fixture=@(Import-Module (Join-Path $PSScriptRoot 'IntegrationFixture.psm1') -PassThru)[0]
+ $owned=Join-Path $temp 'git-isolation-contract';$null=[IO.Directory]::CreateDirectory($owned)
+ $hostile=Join-Path $owned 'inherited';$null=[IO.Directory]::CreateDirectory((Join-Path $hostile 'hooks'))
+ $marker=Join-Path $owned 'unwanted-hook.txt';$config=Join-Path $hostile 'global.config'
+ Put $config "[core]`n    bare = true`n[commit]`n    gpgsign = true`n"
+ Put (Join-Path $hostile 'hooks/pre-commit') ("#!/bin/sh`necho unwanted > '"+$marker.Replace('\','/')+"'`nexit 1`n")
+ Put (Join-Path $hostile 'template-sentinel.txt') 'must not be copied'
+ $configBefore=Get-AiwTestFileIdentity $config
+ $original=@{};foreach($name in [Environment]::GetEnvironmentVariables('Process').Keys){if(([string]$name).StartsWith('GIT_',[StringComparison]::OrdinalIgnoreCase)){$original[[string]$name]=[Environment]::GetEnvironmentVariable([string]$name,'Process')}}
+ try {
+  foreach($name in $original.Keys){[Environment]::SetEnvironmentVariable([string]$name,[NullString]::Value,'Process')}
+  $inherited=@{GIT_CONFIG_GLOBAL=$config;GIT_CONFIG_SYSTEM=$config;GIT_CONFIG_COUNT='1';GIT_CONFIG_KEY_0='core.bare';GIT_CONFIG_VALUE_0='true';GIT_DIR=(Join-Path $hostile 'absent.git');GIT_INDEX_FILE=(Join-Path $hostile 'index');GIT_CONFIG_PARAMETERS="'commit.gpgsign=true'";GIT_TEMPLATE_DIR=$hostile}
+  foreach($name in $inherited.Keys){[Environment]::SetEnvironmentVariable($name,$inherited[$name],'Process')}
+  $scope=& $fixture {param($r) Enter-IntegrationGitEnvironment $r} $owned
+  try {
+   Check (@([Environment]::GetEnvironmentVariables('Process').Keys|Where-Object{([string]$_).StartsWith('GIT_',[StringComparison]::OrdinalIgnoreCase)}).Count-eq5-and-not$env:GIT_DIR-and-not$env:GIT_INDEX_FILE-and-not$env:GIT_CONFIG_COUNT-and-not$env:GIT_CONFIG_PARAMETERS) 'git-isolation-removes-inherited-config-and-repository-overrides'
+   Check ((Get-Item -LiteralPath $env:GIT_CONFIG_GLOBAL).Length-eq0-and(Get-Item -LiteralPath $env:GIT_CONFIG_SYSTEM).Length-eq0) 'git-isolation-owns-empty-system-and-global-configs'
+   $repo=Join-Path $owned 'repo';$null=& $fixture {param($p) New-GitRepo $p} $repo
+   Put (Join-Path $repo 'tracked.txt') 'actual isolated commit'
+   $null=& $fixture {param($p) Commit-All $p 'Actual isolated environment contract'} $repo
+   Check (-not(Test-Path -LiteralPath (Join-Path $repo '.git/template-sentinel.txt'))-and-not(Test-Path -LiteralPath $marker)) 'git-isolation-actual-init-and-commit-ignore-inherited-template-hooks-and-signing'
+   $probe=Join-Path $owned 'probe.ps1'
+   Put $probe 'param([string]$Root,[switch]$Override);$ErrorActionPreference="Stop";if($Override){if($env:GIT_DIR-cne"deliberate-negative-override"){throw "OVERRIDE_NOT_INHERITED"};"OVERRIDE_VISIBLE";exit 0};if($env:GIT_DIR-or$env:GIT_CONFIG_COUNT-or$env:GIT_CONFIG_PARAMETERS){throw "INHERITED_GIT_OVERRIDE"};$g=@(& git -C $Root config --global --list);if($LASTEXITCODE-ne0-or$g.Count){throw "GLOBAL_NOT_EMPTY"};$h=@(& git -C $Root rev-parse --verify HEAD);if($LASTEXITCODE-ne0-or$h.Count-ne1){throw "COMMIT_NOT_READABLE"};"ISOLATED_GIT_CHILD_PASS"'
+   $child=& $fixture {param($p,$root) Invoke-Ps $p @('-Root',$root)} $probe $repo
+   Check ($child.Code-eq0-and$child.Text.Contains('ISOLATED_GIT_CHILD_PASS')) 'git-isolation-real-native-child-inherits-controlled-baseline'
+   $negative=& $fixture {param($p,$root) Invoke-PsWithProcessEnvironment $p @('-Root',$root,'-Override') $root @{GIT_DIR='deliberate-negative-override'}} $probe $repo
+   Check ($negative.Code-eq0-and$negative.Text.Contains('OVERRIDE_VISIBLE')-and-not$env:GIT_DIR) 'git-isolation-deliberate-negative-override-still-injected-and-restored'
+  } finally {& $fixture {param($s) Restore-IntegrationGitEnvironment $s} $scope}
+  Check (@($inherited.Keys|Where-Object{[Environment]::GetEnvironmentVariable($_,'Process')-cne$inherited[$_]}).Count-eq0-and@([Environment]::GetEnvironmentVariables('Process').Keys|Where-Object{([string]$_).StartsWith('GIT_',[StringComparison]::OrdinalIgnoreCase)}).Count-eq$inherited.Count) 'git-isolation-restores-exact-inherited-process-values'
+  Check ((Get-AiwTestFileIdentity $config)-ceq$configBefore-and-not(Test-Path -LiteralPath $marker)) 'git-isolation-preserves-inherited-config-bytes-and-unexecuted-hook'
+ } finally {
+  foreach($name in @([Environment]::GetEnvironmentVariables('Process').Keys)){if(([string]$name).StartsWith('GIT_',[StringComparison]::OrdinalIgnoreCase)){[Environment]::SetEnvironmentVariable([string]$name,[NullString]::Value,'Process')}}
+  foreach($name in $original.Keys){[Environment]::SetEnvironmentVariable([string]$name,$original[$name],'Process')}
+ }
+ if([OperatingSystem]::IsWindows()){
+  $shadow=Join-Path $owned 'shadow';$null=[IO.Directory]::CreateDirectory($shadow);Put (Join-Path $shadow 'powershell.exe') 'not the Windows PowerShell executable'
+  $priorPath=$env:PATH
+  try {$env:PATH=$shadow+[IO.Path]::PathSeparator+$priorPath;$producer=Get-Module TestGroupEvidence;$observed=& $producer {Get-AiwTestEnvironment @('powershell.exe')};$physical=[IO.Path]::GetFullPath((Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'));Check ($observed.tools[0].path-ceq$physical-and$observed.tools[0].identity-ceq(Get-AiwTestFileIdentity $physical)) 'tool-observation-binds-actual-physical-PS5-despite-PATH-homonym'} finally {$env:PATH=$priorPath}
+ }
+}
+
 function TestIntegrationConsumerContracts {
+ TestIntegrationGitEnvironment
  $source=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../../..'))
  $definition=Read-AiwTestGroupDefinition (Join-Path $PSScriptRoot 'test-groups.json')
  $options=[pscustomobject]@{SkipManifest=$true;SkipBaseline=$true;SkipPerformanceSmoke=$true;MaintenanceFixture=$false}
@@ -257,6 +300,81 @@ function TestFiniteDependencyMappings {
  $link=Join-Path $seed 'mapping-link';$null=New-Item -ItemType Junction -Path $link -Target $map
  try{Reject {Copy-AiwTestAllowlist $seed (Join-Path $temp 'mapping-reparse-reject') @('mapping-link/README.md')} 'REPARSE' 'mapping-allowlist-rejects-reparse'}finally{Remove-Item -LiteralPath $link}
  Write-AiwTestJson (Join-Path $rawRoot 'finite-dependency-mappings.json') @{kind='ACTUAL_CURRENT_D_SNAPSHOT_COUNTEREXAMPLES';formalFourGroupExecution=$false;coverage=$(if($ToolResolutionContractOnly){'PARTIAL_TOOL_PATH_SUFFIX'}else{'DEFAULT_MAPPING_CASES'});skippedPrefixExecuted=(-not$ToolResolutionContractOnly);definitionIdentity=(Get-AiwTestFileIdentity (Join-Path $source $dp));members=(Get-AiwTestFixtureSnapshot $map -IdentityOnly).Files;cases=$script:mappingRows;rootAndOptions=(-not$ToolResolutionContractOnly);parentPathPrefixExecuted=(-not$ToolResolutionContractOnly);actualPathAndToolResolution=$true;restoration=$true}
+ if(-not$ToolResolutionContractOnly){TestFiniteEntryClosures}
+}
+
+
+function TestFiniteEntryClosures {
+ param([switch]$ExecuteEntries,[ValidateSet('workflow-delivery','adoption.entry-templates','facets-selection')][string[]]$ExecuteGroupIds=@('workflow-delivery','adoption.entry-templates','facets-selection'))
+ # The default-entry proof uses a different exact tree for every group. The
+ # mapping fixture below is separate and cannot hide one group's missing file.
+ $source=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../../..'));$vp='framework/versions/2.0.0/';$dp=$vp+'tests/test-groups.json'
+ $d=Read-AiwTestGroupDefinition (Join-Path $source $dp)
+ $ids=@('workflow-delivery','adoption.entry-templates','facets-selection')
+ $groups=@($ids|ForEach-Object{$id=$_;@($d.groups|Where-Object id -CEQ $id)[0]})
+ $dependencyReader=@(Import-Module (Join-Path $PSScriptRoot '../scripts/TestEvidenceValidation.psm1') -PassThru)[0]
+ $omissionOwner=(Get-Command Get-AiwTestGroupArguments).Module
+ $groupMembers=@{};$allMembers=@();$unrelated=$vp+'tests/control-transition-tests.ps1'
+ foreach($g in $groups){
+  Check ($g.fixturePolicy-ceq'MECHANISM'-and-not$g.behaviorInputs.includeCommonSets-and-not$g.behaviorInputs.wholeDefinition) ('finite-entry-explicit-contract-'+$g.id)
+  $members=@(& $dependencyReader.ExportedCommands['Get-AiwEvidenceDependencyPaths'] $d $g)
+  Check ($unrelated-cnotin$members) ('finite-entry-unrelated-input-excluded-'+$g.id)
+  $groupMembers[$g.id]=$members;$allMembers+=@($members)
+  if($ExecuteEntries-and$g.id-cin$ExecuteGroupIds){
+   $entryRoot=Join-Path $temp ('finite-entry-'+$g.id)
+   Copy-AiwTestAllowlist $source $entryRoot $members
+   Copy-AiwTestAllowlist $source $entryRoot @($unrelated)
+   $lockedPath=Join-Path $entryRoot $unrelated;$lockedIdentity=Get-AiwTestFileIdentity $lockedPath
+   $hold=[IO.File]::Open($lockedPath,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::None)
+   try{
+    $readRejected=$false;try{$null=[IO.File]::ReadAllBytes($lockedPath)}catch{$readRejected=$true}
+    Check $readRejected ('finite-entry-unrelated-real-file-is-locked-'+$g.id)
+    $native=Invoke-AiwTestProcess ([Environment]::ProcessPath) @(Get-AiwTestGroupArguments $entryRoot $g ([ordered]@{})) -WorkingDirectory $entryRoot -EvidenceDirectory (Join-Path $rawRoot 'finite-default-entries') -GroupId $g.id
+    Write-Output ('FINITE_ENTRY_NATIVE|'+$g.id+'|pid='+$native.Record.pid+'|exit='+$native.Code+'|nativeRecord='+$native.ResultPath)
+    if($native.Code-ne0){[Console]::Error.Write($native.StderrText)}
+    $terminal=@($native.StdoutText-split'\r?\n'|Where-Object{$_-cmatch$g.completionPattern})
+    $omissions=@(& $omissionOwner {param($stdout,$stderr,$id)Get-AiwTestOmissions $stdout $stderr $id} $native.StdoutText $native.StderrText $g.id)
+    Check ($native.Code-eq0-and$terminal.Count-eq1-and$omissions.Count-eq0) ('finite-entry-complete-real-default-with-unrelated-lock-'+$g.id)
+   }finally{$hold.Dispose()}
+   Check ((Get-AiwTestFileIdentity $lockedPath)-ceq$lockedIdentity) ('finite-entry-unrelated-real-bytes-preserved-'+$g.id)
+  }
+ }
+ $support=@(@($d.rootAdoptionPaths)+@($d.maintenancePaths)+@('README.md','LICENSE','framework/FRAMEWORK_RELEASE.md','.gitattributes','framework/ROADMAP.md','skills/ai-workspace-router/SKILL.md'))
+ $members=@($allMembers+$support+@($dp,$unrelated,($vp+'VERSION.json'),($vp+'NORMATIVE_SURFACE_INVENTORY.json'),($vp+'tests/TestHarness.psm1'),($vp+'tests/TestExecutionRuntime.psm1'),($vp+'tests/TestGroupEvidence.psm1'),($vp+'scripts/TestEvidenceValidation.psm1'),($vp+'scripts/ReleaseValidation.psm1'),($vp+'scripts/StrictJsonInput.psm1'))|Sort-Object -Unique)
+ $seed=Join-Path $temp 'finite-entry-mapping-seed';$map=Join-Path $temp 'finite-entry-mapping-view'
+ Copy-AiwTestAllowlist $source $seed $members
+ $inventory=Read-AiwTestJson (Join-Path $seed ($vp+'NORMATIVE_SURFACE_INVENTORY.json'))
+ $inventory.runtimeNormativeModules=@();$inventory.actionRequiredArtifacts=@();$inventory.explanationAndHistory=@()
+ $inventory.schemaAndMechanicalInputs=@($members|Where-Object{$_.StartsWith($vp,[StringComparison]::Ordinal)}|ForEach-Object{$_.Substring($vp.Length)})
+ Put (Join-Path $seed ($vp+'NORMATIVE_SURFACE_INVENTORY.json')) (($inventory|ConvertTo-Json -Depth 100 -Compress)+[char]10)
+ $construction=Clone $d;$construction.sourceViewPaths=$members
+ $null=New-AiwTestSourceView $seed $map $construction
+ $options=[ordered]@{SkipManifest=$false;SkipBaseline=$false;SkipPerformanceSmoke=$false;MaintenanceFixture=$false}
+ function FiniteSnapshots {
+  $result=@{};foreach($g in $groups){$result[$g.id]=Get-AiwTestDependencySnapshot $map (Join-Path $map $dp) $d $g $options};return $result
+ }
+ $baseline=FiniteSnapshots;$observations=@()
+ foreach($spec in @(
+  @{name='unrelated-real-test';path=$unrelated;affected=@()},
+  @{name='prompts-actual-example';path=($vp+'PROMPTS.md');affected=@('facets-selection','workflow-delivery')},
+  @{name='catalog';path=($vp+'PROCESS_REQUIREMENTS.json');affected=@('facets-selection')},
+  @{name='entry-template';path=($vp+'project-starter/AGENTS.md');affected=@('facets-selection','adoption.entry-templates')},
+  @{name='delivery-consumer';path=($vp+'scripts/WorkflowDelivery.psm1');affected=@('facets-selection','workflow-delivery')},
+  @{name='root-state';path='scripts/ProjectAdoptionState.psm1';affected=@('facets-selection','adoption.entry-templates')}
+ )){
+  $path=Join-Path $map $spec.path;$bytes=[IO.File]::ReadAllBytes($path)
+  try{
+   [IO.File]::AppendAllText($path,"`n# finite dependency mutation")
+   $now=FiniteSnapshots
+   foreach($g in $groups){
+    $changed=$now[$g.id].facts.behaviorContractIdentity-cne$baseline[$g.id].facts.behaviorContractIdentity
+    Check ($changed-eq($g.id-cin$spec.affected)) ('finite-entry-mapping-'+$spec.name+'-'+$g.id)
+    $observations+=@{case=$spec.name;groupId=$g.id;expectedChange=($g.id-cin$spec.affected);changed=$changed;before=$baseline[$g.id].facts.behaviorContractIdentity;after=$now[$g.id].facts.behaviorContractIdentity}
+   }
+  }finally{[IO.File]::WriteAllBytes($path,$bytes)}
+ }
+ $restored=FiniteSnapshots;foreach($g in $groups){Check ($restored[$g.id].facts.behaviorContractIdentity-ceq$baseline[$g.id].facts.behaviorContractIdentity) ('finite-entry-mapping-restored-'+$g.id)}
+ Write-AiwTestJson (Join-Path $rawRoot 'finite-entry-closures.json') @{kind='FINITE_ENTRY_DEFAULT_EXECUTION_AND_DEPENDENCY_COUNTEREXAMPLES';actualDefaultEntriesExecuted=[bool]$ExecuteEntries;executedGroupIds=@(if($ExecuteEntries){$ExecuteGroupIds});definitionIdentity=(Get-AiwTestFileIdentity (Join-Path $source $dp));groupMembers=$groupMembers;cases=$observations;formalGroupQualification=$false;ceiling='PARTIAL development closure proof; not formal Gpre seed, source qualification, performance or natural-model evidence'}
 }
 
 function TestSourceReadClosure {
@@ -281,15 +399,36 @@ function TestSourceReadClosure {
  $ids=@($d.groups.id)
  $positive=Assert-AiwTestSourceViewReadClosure $seed $dp $d $ids
  Check ($positive.inputCount-eq46) 'read-closure-finite-consistent-declaration-before-construction'
- $lease=Enter-AiwTestSourceView $seed $view $d (Join-Path $temp 'read-closure-evidence')
+ $lease=Enter-AiwTestSourceView $seed $view $d (Join-Path $temp 'read-closure-evidence') -ReadClosureGroupIds $ids
  try{
   $positive=Assert-AiwTestSourceViewReadClosure $seed $dp $d $ids -Stage AfterConstruction -ViewRoot $view
   Check ($positive.inputCount-eq46) 'read-closure-real-owned-view-projection'
+  $harnessOwner=(Get-Command New-AiwTestSourceView).Module
+  $prepared=& $harnessOwner {param($root,$definition)New-TestSourcePreparation $root $definition} $seed $d
+  $preparedSnapshot=Get-AiwTestFixtureSnapshot $view -IdentityOnly
+  $sourceAttrs=Join-Path $seed '.gitattributes';$sourceAttrsBytes=[IO.File]::ReadAllBytes($sourceAttrs)
+  try{
+   Put $sourceAttrs 'changed during constructor preparation'
+   Reject {& $harnessOwner {param($p)Assert-TestSourcePreparationStable $p} $prepared} 'TEST_SOURCE_PREPARATION_DRIFT' 'read-closure-private-capture-does-not-hide-mid-preparation-source-drift'
+  }finally{[IO.File]::WriteAllBytes($sourceAttrs,$sourceAttrsBytes)}
+  $shared=& $harnessOwner {param($p,$definition,$ids,$root,$snapshot)Invoke-TestPreparedReadClosure $p $definition $ids 'AfterConstruction' $root $snapshot} $prepared $d $ids $view $preparedSnapshot
+  Check ($shared.inputCount-eq46) 'read-closure-constructor-captured-observation-shares-complete-finite-closure'
+  $sourceLock=[IO.File]::Open($sourceAttrs,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::None)
+  try{
+   $shared=& $harnessOwner {param($p,$definition,$ids,$root,$snapshot)Invoke-TestPreparedReadClosure $p $definition $ids 'AfterConstruction' $root $snapshot} $prepared $d $ids $view $preparedSnapshot
+   Check ($shared.inputCount-eq46) 'read-closure-private-shared-consumer-does-not-reopen-captured-source-bytes'
+   $independentRejected=$false;try{$null=Assert-AiwTestSourceViewReadClosure $seed $dp $d $ids -Stage BeforeExport -ViewRoot $view}catch{$independentRejected=$true}
+   Check $independentRejected 'read-closure-public-before-export-independently-observes-locked-source'
+  }finally{$sourceLock.Dispose()}
+
   $attrs=Join-Path $view '.gitattributes';$attrsBytes=[IO.File]::ReadAllBytes($attrs)
   [IO.File]::Delete($attrs)
   Reject {Assert-AiwTestSourceViewReadClosure $seed $dp $d $ids -Stage AfterConstruction -ViewRoot $view} 'TEST_SOURCE_VIEW_INPUT_MISSING\|\.gitattributes' 'read-closure-view-missing-attrs'
   [IO.File]::WriteAllBytes($attrs,$attrsBytes);Put $attrs 'changed attrs'
   Reject {Assert-AiwTestSourceViewReadClosure $seed $dp $d $ids -Stage AfterConstruction -ViewRoot $view} 'TEST_SOURCE_VIEW_INPUT_DRIFT\|\.gitattributes' 'read-closure-view-byte-drift'
+  $driftedSnapshot=Get-AiwTestFixtureSnapshot $view -IdentityOnly
+  Reject {& $harnessOwner {param($p,$definition,$ids,$root,$snapshot)Invoke-TestPreparedReadClosure $p $definition $ids 'AfterConstruction' $root $snapshot} $prepared $d $ids $view $driftedSnapshot} 'TEST_SOURCE_VIEW_INPUT_DRIFT' 'read-closure-private-shared-consumer-checks-actual-view-readback'
+
   [IO.File]::WriteAllBytes($attrs,$attrsBytes)
   $hidden=Join-Path $seed '.github/workflows/framework-toolchain-conformance.yml';Put $hidden 'hidden CI'
   Reject {Assert-AiwTestSourceViewReadClosure $seed $dp $d $ids -Stage BeforeExport -ViewRoot $view} 'TEST_SOURCE_READ_FORBIDDEN_ROOT\|\.github' 'read-closure-hidden-source-ci-at-terminal'
@@ -323,6 +462,12 @@ function TestSourceReadClosure {
    Reject {Assert-AiwTestSourceViewReadClosure $seed $dp $bad $ids} 'TEST_SOURCE_READ_DEPENDENCY' ('read-closure-private-helper-required-'+$newEntryId)
    $bad=Clone $d;$targetGroup=@($bad.groups|Where-Object id -CEQ $newEntryId)[0];$targetGroup.arguments=@('-Case','Frontdoor');SaveReadDefinition $bad
    Reject {Assert-AiwTestSourceViewReadClosure $seed $dp $bad $ids} 'TEST_SOURCE_READ_CONSUMER_ARGUMENTS' ('read-closure-formal-domain-rejects-partial-arguments-'+$newEntryId)
+  }
+  foreach($id in @('integration.surface','integration.maintenance')){
+   $bad=Clone $d;$g=@($bad.groups|Where-Object id -CEQ $id)[0];$g.tools=@($g.tools|Where-Object{$_-cne'powershell.exe'});SaveReadDefinition $bad
+   Reject {Assert-AiwTestSourceViewReadClosure $seed $dp $bad $ids} ('TEST_SOURCE_READ_TOOL\|'+$id+'\|powershell.exe') ('read-closure-physical-PS5-tool-required-'+$id)
+   $bad=Clone $d;$g=@($bad.groups|Where-Object id -CEQ $id)[0];$g.environmentPolicy.influentialVariables=@($g.environmentPolicy.influentialVariables|Where-Object{$_-cne'SystemRoot'});SaveReadDefinition $bad
+   Reject {Assert-AiwTestSourceViewReadClosure $seed $dp $bad $ids} ('TEST_SOURCE_READ_ENVIRONMENT\|'+$id+'\|SystemRoot') ('read-closure-physical-PS5-root-required-'+$id)
   }
   $bad=Clone $d;$bad.groups[0].arguments=@('-InternalLegacyRun','-MainIntegrationOnly','-SelectorOnly');SaveReadDefinition $bad
  Reject {Assert-AiwTestSourceViewReadClosure $seed $dp $bad $ids} 'TEST_SOURCE_READ_CONSUMER_ARGUMENTS' 'read-closure-conflicting-real-entry-arguments'
@@ -510,6 +655,9 @@ function TestLegacyPortableGuardContracts($Reader,[string]$VersionRoot,$Proof,$S
 
 
 function TestActualTargetProducer {
+ $gitFixture=@(Import-Module (Join-Path $PSScriptRoot 'IntegrationFixture.psm1') -PassThru)[0]
+ $gitScope=& $gitFixture {param($r) Enter-IntegrationGitEnvironment $r} $temp
+ try {
  $source=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../../..'))
  $actual=Read-AiwTestGroupDefinition (Join-Path $PSScriptRoot 'test-groups.json')
  $seed=Join-Path $temp 'target-seed';$controlRoot=Join-Path $temp 'target-control';$targetRoot=Join-Path $temp 'actual-target'
@@ -536,6 +684,7 @@ function TestActualTargetProducer {
   return ($out-join"`n").Trim()
  }
  $null=TargetGit $controlRoot @('init','-q');$null=TargetGit $controlRoot @('config','core.autocrlf','false')
+ $null=TargetGit $controlRoot @('config','core.hooksPath',$gitScope.Hooks)
  $closure=Read-AiwTestJson (Join-Path $controlRoot 'source-inputs.json')
  $tracked=@($closure.inputs.path)+@($closure.syntheticInputs.path)+@('source-inputs.json','.ai-workspace/project.json','.ai-workspace/controller.json',$task)
  $null=TargetGit $controlRoot (@('add','--')+$tracked)
@@ -581,6 +730,7 @@ function TestActualTargetProducer {
  $null=TargetGit $targetRoot @('-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','--allow-empty','-qm','Actual isolated drift counterexample')
  Reject {Get-AiwTestDependencySnapshot $targetRoot $definitionPath $definition $group $opts} 'HEAD_DRIFT' 'producer-reobserves-git-on-each-call-rather-than-trusting-held-context'
  Write-AiwTestJson (Join-Path $rawRoot 'actual-target-producer-ceiling.json') @{kind='ACTUAL_LOCAL_WORKTREE_OBSERVER_AND_NATIVE_PRODUCER';controlRoot=$controlRoot;executionRoot=$targetRoot;recordRef=@{path=$recordPath;identity=(Get-AiwTestFileIdentity $recordPath)};actualGitObservation=$true;actualTargetNativeExecution=$true;authorizationGranted=$false;hostWorktreeManagementProven=$false;formalSourceOrReleaseQualification=$false}
+ } finally {& $gitFixture {param($s) Restore-IntegrationGitEnvironment $s} $gitScope}
 }
 
 function TestExecutionContextContracts {
@@ -682,11 +832,64 @@ function TestLegacyCurrentCoverage([string]$Seed,$Definition,$Reader){
  $crossPath=Join-Path $rawRoot 'legacy2-crossed-suite.json';Write-AiwTestJson $crossPath $cross
  Reject {Assert-AiwTestSuiteEvidence $crossPath $owned (Join-Path $owned 'framework/versions/2.0.0/tests/test-groups.json') -CurrentCoverage} '^TEST_EXECUTION_SUITE_VERSION_MISMATCH$' 'guard-suite2-rejects-native2-before-dispatch'
 }
+function TestExactLocationObservations([string]$SourceRoot,$Definition,$Group,$Options){
+ $verifier=@(Import-Module (Join-Path $PSScriptRoot '../scripts/TestEvidenceValidation.psm1') -PassThru)[0]
+ $observedGroup=Clone $Group
+ $observedGroup.locationPolicy=[pscustomobject]@{mode='EXACT';mappings=@();conditions=@(@('volume','caseSensitivity','pathLengthClass','permissions','ownership','reparse')|ForEach-Object{@{name=$_;value='OBSERVE'}})}
+ $definitionPath=Join-Path $SourceRoot 'framework/versions/2.0.0/tests/test-groups.json'
+ $owned=Join-Path $temp 'exact-location-ambient';$null=[IO.Directory]::CreateDirectory($owned)
+ $owned=Assert-AiwTestPath $owned
+ if([IO.Path]::GetDirectoryName($owned)-cne[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($temp))){throw 'EXACT_LOCATION_ACL_SCOPE'}
+ $originalAcl=Get-Acl -LiteralPath $owned;$prior=@{TEMP=$env:TEMP;TMP=$env:TMP}
+ try{
+  $env:TEMP=$owned;$env:TMP=$owned
+  $before=Get-AiwTestDependencySnapshot $SourceRoot $definitionPath $Definition $observedGroup $Options
+  $same=Get-AiwTestDependencySnapshot $SourceRoot $definitionPath $Definition $observedGroup $Options
+  Check ($before.facts.locationPolicy.conditions.Count-eq6-and@($before.facts.locationPolicy.conditions|Where-Object{$_.value-cnotmatch'^OBSERVED_EXACT_V1\|[A-F0-9]{64}$'}).Count-eq0-and$before.facts.behaviorContractIdentity-ceq$same.facts.behaviorContractIdentity-and$before.facts.root-ceq$SourceRoot-and$before.facts.commandArguments[3]-ceq(Join-Path $SourceRoot $Group.entry)) 'exact-location-observes-six-real-source-and-temp-conditions-without-rewriting-command'
+  # Preserve every access rule while making inheritance an actual ACL change
+  # on this owned directory only. Environment path text stays identical.
+  $changedAcl=Get-Acl -LiteralPath $owned;$changedAcl.SetAccessRuleProtection($true,$true)
+  if($changedAcl.Sddl-ceq$originalAcl.Sddl){throw 'EXACT_LOCATION_ACL_PROBE_NO_CHANGE'}
+  Set-Acl -LiteralPath (Assert-AiwTestPath $owned) -AclObject $changedAcl -ErrorAction Stop
+  $changed=Get-AiwTestDependencySnapshot $SourceRoot $definitionPath $Definition $observedGroup $Options
+  Check ((Get-TestValueIdentity $before.facts.environment)-ceq(Get-TestValueIdentity $changed.facts.environment)-and$before.facts.behaviorContractIdentity-cne$changed.facts.behaviorContractIdentity-and($before.facts.locationPolicy.conditions|Where-Object name -CEQ 'permissions').value-cne($changed.facts.locationPolicy.conditions|Where-Object name -CEQ 'permissions').value) 'exact-location-real-owned-temp-acl-drift-invalidates-with-identical-environment-text'
+  $restoreAcl=[Security.AccessControl.DirectorySecurity]::new();$restoreAcl.SetSecurityDescriptorSddlForm($originalAcl.Sddl,[Security.AccessControl.AccessControlSections]::Access);[IO.FileSystemAclExtensions]::SetAccessControl([IO.DirectoryInfo]::new((Assert-AiwTestPath $owned)),$restoreAcl)
+  $restored=Get-AiwTestDependencySnapshot $SourceRoot $definitionPath $Definition $observedGroup $Options
+  Check ($restored.facts.behaviorContractIdentity-ceq$before.facts.behaviorContractIdentity) 'exact-location-restored-owned-temp-acl-restores-behavior-identity'
+  foreach($kind in @('missing','duplicate','unknown','unobserved','mapping')){
+   $invalid=Clone $observedGroup
+   switch($kind){
+    missing {$invalid.locationPolicy.conditions=@($invalid.locationPolicy.conditions|Select-Object -Skip 1)}
+    duplicate {$invalid.locationPolicy.conditions[1].name=$invalid.locationPolicy.conditions[0].name}
+    unknown {$invalid.locationPolicy.conditions[0].name='unknown-location-condition'}
+    unobserved {$invalid.locationPolicy.conditions[0].value='claimed-observation'}
+    mapping {$invalid.locationPolicy.mappings=@(@{logicalRoot='SOURCE_VIEW';physicalRoot='CURRENT_SOURCE_VIEW'})}
+   }
+   Reject {Get-AiwTestDependencySnapshot $SourceRoot $definitionPath $Definition $invalid $Options} 'TEST_LOCATION_(CONDITIONS|MAP)_DECLARATION' ('exact-location-producer-rejects-'+$kind)
+  }
+  foreach($kind in @('missing','duplicate','unknown','unobserved','malformed','mapping')){
+   $invalid=Clone $before.facts
+   switch($kind){
+    missing {$invalid.locationPolicy.conditions=@($invalid.locationPolicy.conditions|Select-Object -Skip 1)}
+    duplicate {$invalid.locationPolicy.conditions[1].name=$invalid.locationPolicy.conditions[0].name}
+    unknown {$invalid.locationPolicy.conditions[0].name='unknown-location-condition'}
+    unobserved {$invalid.locationPolicy.conditions[0].value='OBSERVE'}
+    malformed {$invalid.locationPolicy.conditions[0].value='OBSERVED_EXACT_V1|not-an-identity'}
+    mapping {$invalid.locationPolicy.mappings=@(@{logicalRoot='SOURCE_VIEW';physicalRoot=$SourceRoot})}
+   }
+   Reject {& $verifier.ExportedCommands['Get-AiwEvidenceBehaviorIdentity'] $invalid} 'TEST_EXACT_LOCATION_UNPROVEN' ('exact-location-verifier-rejects-'+$kind)
+  }
+ }finally{
+  try{$restoreAcl=[Security.AccessControl.DirectorySecurity]::new();$restoreAcl.SetSecurityDescriptorSddlForm($originalAcl.Sddl,[Security.AccessControl.AccessControlSections]::Access);[IO.FileSystemAclExtensions]::SetAccessControl([IO.DirectoryInfo]::new((Assert-AiwTestPath $owned)),$restoreAcl)}
+  finally{foreach($name in $prior.Keys){$value=if($null-eq$prior[$name]){[NullString]::Value}else{$prior[$name]};[Environment]::SetEnvironmentVariable($name,$value,'Process')}}
+ }
+}
+
 function TestCurrentCoverage {
- param([switch]$FinalSuiteAndOwnershipOnly)
+ param([switch]$FinalSuiteAndOwnershipOnly,[switch]$RouteOnly)
  $fixtureContract=$FixtureContractOnly-or$PublicSuiteConsumerContractOnly
- TestExecutionContextContracts
- if(-not($FixtureContractOnly-or$PublicSuiteConsumerContractOnly-or$FocusedReviewRepairOnly-or$FinalSuiteAndOwnershipOnly-or$FailureTransportOnly-or$WorkerCompletionOnly)){TestActualTargetProducer}
+ if(-not$RouteOnly){TestExecutionContextContracts}
+ if(-not($RouteOnly-or$FixtureContractOnly-or$PublicSuiteConsumerContractOnly-or$FocusedReviewRepairOnly-or$FinalSuiteAndOwnershipOnly-or$FailureTransportOnly-or$WorkerCompletionOnly)){TestActualTargetProducer}
  # The complete required set below is a synthetic mechanism fixture. All child
  # commands, natural failures, repair, revalidations and reader calls are real.
  $reader=@(Import-Module (Join-Path $PSScriptRoot '../scripts/ReleaseValidation.psm1') -PassThru)[0]
@@ -712,17 +915,29 @@ function TestCurrentCoverage {
   Put $full (($Value|ConvertTo-Json -Depth 100 -Compress)+"`n")
  }
  $aEntry='framework/versions/2.0.0/tests/coverage-a.ps1';$bEntry='framework/versions/2.0.0/tests/coverage-b.ps1';$iEntry='framework/versions/2.0.0/tests/coverage-integration.ps1';$aValue='framework/versions/2.0.0/tests/coverage-a.txt';$bValue='framework/versions/2.0.0/tests/coverage-b.txt'
+ $aId='proof.a'
+ $retiredInput='tests/route-retired.txt';$newInput='tests/route-introduced.txt'
+ if($RouteOnly){$aId='evidence.schema-resume';$aEntry='framework/versions/2.0.0/tests/test-group-evidence-tests.ps1'}
  function New-CoverageNativeBody([string]$Body){
   return 'Import-Module (Join-Path $PSScriptRoot "TestNativeOutput.psm1");Initialize-AiwTestNativeOutput;$ErrorActionPreference="Stop";try{'+$Body+'}catch{$failure=$_;[Console]::Error.WriteLine(([ordered]@{status="FAIL";reason=[string]$failure.Exception.Message;scriptStackTrace=[string]$failure.ScriptStackTrace;fullyQualifiedErrorId=[string]$failure.FullyQualifiedErrorId}|ConvertTo-Json -Depth 100 -Compress -EscapeHandling EscapeNonAscii));exit 1}'
  }
  Put (Join-Path $sample $aEntry) (New-CoverageNativeBody 'if([IO.File]::ReadAllText((Join-Path $PSScriptRoot "coverage-a.txt"))-cne"A-sentinel"){throw "A_SENTINEL_FAILURE"};Write-Output "PASS|coverage-a";Write-Output "RESULT|1/1 passed|scope=coverage-a"')
+ if($RouteOnly){
+  $focusedA=New-CoverageNativeBody 'if([IO.File]::ReadAllText((Join-Path $PSScriptRoot "coverage-a.txt"))-cne"A-sentinel"){throw "A_SENTINEL_FAILURE"};if($Group -ceq "RouteEvidence"){Write-Output "PASS|release-route-selector-and-original";Write-Output "RELEASE_ROUTE_EVIDENCE_PASS|evidence.schema-resume"}else{Write-Output "PASS|coverage-a";Write-Output "RESULT|1/1 passed|scope=coverage-a"}'
+  Put (Join-Path $sample $aEntry) ('param([string]$Group)'+[char]10+$focusedA)
+ }
  Put (Join-Path $sample $bEntry) (New-CoverageNativeBody 'if([IO.File]::ReadAllText((Join-Path $PSScriptRoot "coverage-b.txt"))-cne"A-sentinel:repaired"){throw "NATURAL_B_FAILURE"};Write-Output "PASS|coverage-b";Write-Output "RESULT|1/1 passed|scope=coverage-b"')
  Put (Join-Path $sample $iEntry) (New-CoverageNativeBody '$a=[IO.File]::ReadAllText((Join-Path $PSScriptRoot "coverage-a.txt"));$b=[IO.File]::ReadAllText((Join-Path $PSScriptRoot "coverage-b.txt"));if($a-cne"A-sentinel"-or$b-cne($a+":repaired")){throw "AB_RELATION_FAILURE"};Write-Output "PASS|coverage-integration";Write-Output "RESULT|1/1 passed|scope=coverage-integration"')
  Put (Join-Path $sample $aValue) 'A-sentinel'
  Put (Join-Path $sample $bValue) 'broken'
  $inventory=Read-AiwTestJson (Join-Path $version 'NORMATIVE_SURFACE_INVENTORY.json');$inventory.runtimeNormativeModules=@();$inventory.actionRequiredArtifacts=@();$inventory.explanationAndHistory=@();$inventory.schemaAndMechanicalInputs=@($coverageVersionPaths)+@('tests/coverage-a.ps1','tests/coverage-b.ps1','tests/coverage-integration.ps1','tests/coverage-a.txt','tests/coverage-b.txt');Put (Join-Path $version 'NORMATIVE_SURFACE_INVENTORY.json') (($inventory|ConvertTo-Json -Depth 100 -Compress)+"`n")
+ if($RouteOnly){
+  $inventory.schemaAndMechanicalInputs=@($inventory.schemaAndMechanicalInputs|Where-Object{$_-cne'tests/coverage-a.ps1'})+@('tests/test-group-evidence-tests.ps1',$retiredInput)
+  Put (Join-Path $version $retiredInput) 'Historical payload input'
+  Put (Join-Path $version 'NORMATIVE_SURFACE_INVENTORY.json') (($inventory|ConvertTo-Json -Depth 100 -Compress)+"`n")
+ }
  $d=Read-AiwTestJson (Join-Path $sampleTests 'test-groups.json');$d.mechanismVersionPaths=@();$d.groups=@()
- foreach($spec in @(@{id='proof.a';entry=$aEntry;case='coverage-a';deps=@($aValue);fresh=$false},@{id='proof.b';entry=$bEntry;case='coverage-b';deps=@($bValue);fresh=$false},@{id='integration.full-source';entry=$iEntry;case='coverage-integration';deps=@($aValue,$bValue);fresh=$true})){
+ foreach($spec in @(@{id=$aId;entry=$aEntry;case='coverage-a';deps=@($aValue);fresh=$false},@{id='proof.b';entry=$bEntry;case='coverage-b';deps=@($bValue);fresh=$false},@{id='integration.full-source';entry=$iEntry;case='coverage-integration';deps=@($aValue,$bValue);fresh=$true})){
   $d.groups+=@{id=$spec.id;entry=$spec.entry;arguments=@();phase='PREPACKAGE';requiredFor=@('FULL');casePolicy='OBSERVED_NAMED_CASES';requiredCaseIds=@($spec.case);completionPattern=('^RESULT\|1/1 passed\|scope='+$spec.case+'$');dependencies=$spec.deps;unknownDependencies=@(if($spec.fresh){'synthetic dynamic A/B integration relationship remains conservatively unclosed'});alwaysFresh=$spec.fresh;fixturePolicy='MECHANISM';tools=@('pwsh')}
  }
  foreach($g in $d.groups){
@@ -732,12 +947,12 @@ function TestCurrentCoverage {
   $g.environmentPolicy=@{mode='EFFECTIVE_TOOLS';influentialVariables=@('COMSPEC','PSModulePath');negativeToolLookups=@()}
   $g.locationPolicy=@{mode='EXACT';mappings=@();conditions=@()}
  }
- $d.sourceViewPaths=@($coverageRootPaths)+@($inventory.schemaAndMechanicalInputs|ForEach-Object{'framework/versions/2.0.0/'+$_})
+ $d.sourceViewPaths=@($coverageRootPaths)+@($inventory.schemaAndMechanicalInputs|Where-Object{$_-cne$retiredInput}|ForEach-Object{'framework/versions/2.0.0/'+$_})
  Put (Join-Path $sampleTests 'test-groups.json') (($d|ConvertTo-Json -Depth 100 -Compress)+"`n")
  if($fixtureContract){Put (Join-Path $sample 'owned-undeclared-seed.txt') 'Unlisted owned input must not flow into the fixture.'}
  $seed=$sample;$sample=Join-Path $temp 'coverage-source';$null=New-AiwTestSourceView $seed $sample $d
  $sampleTests=Join-Path $sample 'framework/versions/2.0.0/tests';$version=Join-Path $sample 'framework/versions/2.0.0'
- if(-not($fixtureContract-or$FocusedReviewRepairOnly-or$FailureTransportOnly-or$WorkerCompletionOnly)){
+ if(-not($RouteOnly-or$fixtureContract-or$FocusedReviewRepairOnly-or$FailureTransportOnly-or$WorkerCompletionOnly)){
   $policyGroup=Clone $d.groups[0];$policyDefinitionPath=Join-Path $sampleTests 'test-groups.json';$policyOptions=[ordered]@{}
   $policyBase=Get-AiwTestDependencySnapshot $sample $policyDefinitionPath $d $policyGroup $policyOptions
   $oldPath=$env:PATH;$oldTemp=$env:TEMP;$oldTmp=$env:TMP;$policyTools=Join-Path $temp 'policy-tools';$null=[IO.Directory]::CreateDirectory($policyTools)
@@ -763,19 +978,196 @@ function TestCurrentCoverage {
   $exactOne=Get-AiwTestDependencySnapshot $one.Root (Join-Path $one.Root 'framework/versions/2.0.0/tests/test-groups.json') $d $policyGroup $policyOptions
   $exactTwo=Get-AiwTestDependencySnapshot $two.Root (Join-Path $two.Root 'framework/versions/2.0.0/tests/test-groups.json') $d $policyGroup $policyOptions
   Check ($exactOne.facts.behaviorContractIdentity-cne$exactTwo.facts.behaviorContractIdentity) 'default-exact-location-rejects-moved-root'
+  TestExactLocationObservations $one.Root $d $policyGroup $policyOptions
   $logical=Clone $policyGroup;$logical.locationPolicy=[pscustomobject]@{mode='LOGICAL_ROOT';mappings=@(@{logicalRoot='SOURCE_VIEW';physicalRoot='CURRENT_SOURCE_VIEW'});conditions=@(@('volume','caseSensitivity','pathLengthClass','permissions','ownership','reparse')|ForEach-Object{@{name=$_;value='OBSERVE'}})}
   $logicalOne=Get-AiwTestDependencySnapshot $one.Root (Join-Path $one.Root 'framework/versions/2.0.0/tests/test-groups.json') $d $logical $policyOptions
   $logicalTwo=Get-AiwTestDependencySnapshot $two.Root (Join-Path $two.Root 'framework/versions/2.0.0/tests/test-groups.json') $d $logical $policyOptions
   Check ($logicalOne.facts.behaviorContractIdentity-ceq$logicalTwo.facts.behaviorContractIdentity-and$logicalOne.facts.root-cne$logicalTwo.facts.root-and$logicalOne.facts.locationPolicy.conditions.Count-eq6) 'logical-location-uses-six-real-observations-and-retains-physical-facts'
  }
  $stable=Join-Path $temp 'coverage-owned-view';$runner=Join-Path $sampleTests 'run-framework-tests.ps1'
- function RunCoverage([string]$Name,[string[]]$Resume=@(),[string]$View=$stable,[switch]$Summary,[string[]]$Selected=@(),[hashtable]$Environment=@{}){
+ function RunCoverage([string]$Name,[string[]]$Resume=@(),[string]$View=$stable,[switch]$Summary,[string[]]$Selected=@(),[hashtable]$Environment=@{},[string]$ChangePlan){
   $arguments=@('-NoProfile','-NonInteractive','-File',$(if($Summary){Join-Path $sampleTests 'run-framework-tests-summary.ps1'}else{$runner}),'-EvidenceDirectory',(Join-Path $rawRoot ($Name+'-groups')))
+  if($ChangePlan){$arguments+=@('-ChangePlanPath',$ChangePlan,'-ExpectedChangePlanIdentity',(Get-AiwTestFileIdentity $ChangePlan))}
   if($View){$arguments+=@('-SourceViewPath',$View)};if($Resume.Count){$arguments+=@('-ResumeEvidence',($Resume-join','))}
   if($Selected.Count){$arguments+=@('-Groups',($Selected-join','))};$transcript=Join-Path $rawRoot ($Name+'-summary.txt');if($Summary){$arguments+=@('-EvidencePath',$transcript)}
   $process=Invoke-AiwTestProcess ([Environment]::ProcessPath) $arguments -WorkingDirectory $sample -Environment $Environment -EvidenceDirectory (Join-Path $rawRoot ($Name+'-native')) -GroupId 'complete-public-runner-coverage'
   $process|Add-Member Transcript $(if($Summary-and(Test-Path -LiteralPath $transcript)){[IO.File]::ReadAllText($transcript)}else{$process.StdoutText});return $process
  }
+  function NeedPrelaunchStop($Run,[string]$Label,[string]$Status){
+   $evidence=Join-Path $rawRoot ($Label+'-groups')
+   $choices=Read-AiwTestJson (Join-Path $evidence 'execution-plan.json')
+   Check ($Run.Code-ne0-and$Run.StderrText.Contains('TEST_EXECUTION_PLAN_BLOCKED')-and@($choices.groups|Where-Object selection -CEQ $Status).Count-gt0-and-not$Run.Transcript.Contains('|START|reason=')-and-not(Test-Path -LiteralPath (Join-Path $evidence 'suite.json'))) ($Label+'-blocked-before-native')
+  }
+  function TestReleaseRoute {
+   Put (Join-Path $sample $bValue) 'A-sentinel:repaired'
+   $baseline=RunCoverage 'route-baseline'
+   if($baseline.Code-ne0){throw ('ROUTE_BASELINE_FAILED|'+$baseline.Transcript+'|'+$baseline.StderrText)}
+   Check ($baseline.Transcript.Contains('coverage=COMPLETE')) 'route-fixture-establishes-complete-original'
+   $originals=Join-Path $rawRoot 'route-baseline-groups'
+   $a=Join-Path $originals ($aId+'/executed.json')
+   $b=Join-Path $originals 'proof.b/executed.json'
+   $baselinePath=Join-Path $originals 'prepackage-proof/validation-proof.json'
+   $baselineIdentity=Get-AiwTestFileIdentity $baselinePath
+   $bIdentity=Get-AiwTestFileIdentity $b
+   $damaged=Read-AiwTestJson $b -StringFields @('startedUtc','endedUtc')
+   $damaged.cleanup.status='DIRTY'
+   $damagedPath=Join-Path $rawRoot 'route-dirty.json'
+   Write-AiwTestJson $damagedPath $damaged
+   $rawChange=RunCoverage 'route-dirty' @($a,$damagedPath) -Selected @($aId,'proof.b')
+   NeedPrelaunchStop $rawChange 'route-dirty' ORIGINAL_REJECTED
+   $missing=RunCoverage 'route-missing' @($a) -Selected @($aId,'proof.b')
+   NeedPrelaunchStop $missing 'route-missing' NEEDS_IMPACT_ASSESSMENT
+   [IO.File]::AppendAllText((Join-Path $sample $bEntry),([string][char]10+'# Current candidate entry byte change'))
+   $blocked=RunCoverage 'route-unassessed' @($a,$b) -Selected @($aId,'proof.b')
+   NeedPrelaunchStop $blocked 'route-unassessed' NEEDS_IMPACT_ASSESSMENT
+   $rootTool='scripts/register-project.ps1'
+   [IO.File]::AppendAllText((Join-Path $sample $rootTool),([string][char]10+'# Fixture runtime tool revision'))
+   [IO.File]::Delete((Join-Path $version $retiredInput))
+   Put (Join-Path $version $newInput) 'Current payload input'
+   $inventory.schemaAndMechanicalInputs=@($inventory.schemaAndMechanicalInputs|Where-Object{$_-cne$retiredInput})+@($newInput)
+   Put (Join-Path $version 'NORMATIVE_SURFACE_INVENTORY.json') (($inventory|ConvertTo-Json -Depth 100 -Compress)+"`n")
+   $current=New-AiwTestSourceView $sample (Join-Path $temp 'route-observation') $d
+   $old=Read-AiwTestJson (Join-Path $originals 'prepackage-proof/validation-evidence/prepackage/source-inputs.json')
+   $now=Read-AiwTestJson $current.ClosurePath
+   $plan=@{schemaVersion=1;kind='PREPACKAGE_CHANGE_PLAN';historicalProofRef=@{path=$baselinePath;identity=$baselineIdentity};candidatePayloadCanonical=$now.payloadCanonical;definitionIdentity=$now.definitionIdentity;changes=@(Get-AiwReleaseInputChanges $old $now);freshGroupIds=@('proof.b','integration.full-source');targetedGroupIds=@($aId);assessment='Fixture sources, B entry and runtime tool changed. Run B and dynamic integration and exercise focused A.'}
+   $selected=$plan.freshGroupIds+$plan.targetedGroupIds
+   $badPlan=Join-Path $rawRoot 'route-missing-delta.json'
+   $underclaimed=Clone $plan
+   $underclaimed.changes=@($underclaimed.changes|Where-Object path -CNE $bEntry)
+   Write-AiwTestJson $badPlan $underclaimed
+   $denied=RunCoverage 'route-missing-delta' -Selected $selected -ChangePlan $badPlan
+   Check ($denied.Code-ne0-and$denied.StderrText.Contains('RELEASE_CHANGE_')-and-not$denied.Transcript.Contains('|START|reason=')) 'route-incomplete-delta-cannot-start-group'
+   $planPath=Join-Path $rawRoot 'route-plan.json'
+   Write-AiwTestJson $planPath $plan
+   $run=RunCoverage 'route-current' -Selected $selected -ChangePlan $planPath -Summary
+    if($run.Code-ne0){
+    $runnerError=Join-Path $rawRoot 'route-current-summary.txt.stderr.raw'
+    $detail=if([IO.File]::Exists($runnerError)){[IO.File]::ReadAllText($runnerError)}else{$run.StderrText}
+    throw ('ROUTE_CURRENT_FAILED|'+$detail+'|'+$run.Transcript)
+   }
+   $outputRoot=Join-Path $rawRoot 'route-current-groups'
+   $cost=Read-AiwTestJson (Join-Path $outputRoot 'execution-cost.json')
+   $proofRoot=Join-Path $outputRoot 'prepackage-proof'
+   $proof=Read-AiwTestJson (Join-Path $proofRoot 'validation-proof.json')
+   $suite=Read-AiwTestJson (Join-Path $outputRoot 'suite.json') -StringFields @('startedUtc','endedUtc')
+   Check ($suite.requestedGroupIds.Count-eq$suite.requiredGroupIds.Count-and$cost.newGroupChildCount-eq3-and$run.StdoutText.Contains('historicalGroups=1')-and$run.StdoutText.Contains('executedCases=2')-and$run.StdoutText.Contains('targetedCases=1')-and$run.StdoutText.Contains('revalidatedOriginalCases=0')-and$suite.coverage-ceq'PARTIAL'-and$proof.schemaVersion-eq4) 'route-all-required-names-count-only-whole-groups-as-full'
+   $moved=Join-Path $temp 'route-moved'
+   $null=New-AiwTestSourceView $sample $moved $d
+   $movedVersion=Join-Path $moved 'framework/versions/2.0.0'
+   Copy-AiwTestAllowlist $proofRoot $movedVersion @((Get-AiwReleaseTreeMembers (Join-Path $proofRoot 'validation-evidence'))|ForEach-Object{'validation-evidence/'+$_.path})
+   $sourceResult=Assert-AiwReleaseProof $version @{validationProof=$proof} -SourceRoot $sample -EvidenceRoot $proofRoot
+   $result=Assert-AiwReleaseProof $movedVersion @{validationProof=$proof} -RuntimeRoot $moved
+   $addedPath='framework/versions/2.0.0/'+$newInput;$removedPath='framework/versions/2.0.0/'+$retiredInput
+   $added=@($plan.changes|Where-Object path -CEQ $addedPath)[0]
+   $removed=@($plan.changes|Where-Object path -CEQ $removedPath)[0]
+   $tool=@($plan.changes|Where-Object path -CEQ $rootTool)[0]
+   Check ($sourceResult.Mode-ceq$result.Mode-and$null-eq$added.before-and$null-eq$removed.after-and$tool.after.logicalRole-ceq'CURRENT_RUNTIME_TOOL'-and$tool.before.identity-cne$tool.after.identity-and$added.after.identity-ceq(Get-AiwTestFileIdentity (Join-Path $moved $addedPath))-and-not[IO.File]::Exists((Join-Path $moved $removedPath))) 'route-real-input-add-remove-runtime-tool-source-and-portable'
+   $indexPath=Join-Path $movedVersion $proof.proofBundleRef.path
+   $baseIndex=Read-AiwTestJson $indexPath
+   $originalBytes=@{}
+   foreach($memberPath in @($baseIndex.members.path)+@($proof.proofBundleRef.path)){
+    $originalBytes[$memberPath]=[IO.File]::ReadAllBytes((Join-Path $movedVersion $memberPath))
+   }
+   # Change one semantic fact at a time, then rebind the exact affected links.
+   function ReplaceRouteMember($Index,$Member,$Value){
+    $path=Join-Path $movedVersion $Member.path
+    Put $path (($Value|ConvertTo-Json -Depth 100 -Compress)+"`n")
+    $Member.identity=Get-AiwTestFileIdentity $path
+    foreach($link in $Index.aliases|Where-Object targetMemberId -CEQ $Member.id){$link.originalIdentity=$Member.identity}
+   }
+   $routeFaults=[ordered]@{
+    OMIT_ADD='RELEASE_CHANGE_INPUT_DELTA'
+    OMIT_REMOVE='RELEASE_CHANGE_INPUT_DELTA'
+    OMIT_TOOL='RELEASE_CHANGE_INPUT_DELTA'
+    WRONG_PLAN_CANDIDATE='RELEASE_CHANGE_PLAN_BINDING'
+    MIXED_CLOSURES='RELEASE_CHANGE_CLOSURE_PARTITION'
+    OMIT_CURRENT='RELEASE_CHANGE_CURRENT_EXECUTION_MISSING'
+    FAILED_CURRENT='TEST_FRESH_REQUIRED_OR_NOT_PASS'
+    WRONG_CANDIDATE_EXECUTION='TEST_BEHAVIOR_INPUT_CLOSURE'
+    DIRTY_ORIGINAL='RELEASE_CLEANUP_DIRTY'
+   }
+   foreach($fault in $routeFaults.Keys){
+    $index=Clone $baseIndex
+    $bad=Clone $proof
+    $planMember=@($index.members|Where-Object path -CEQ $proof.changePlanRef.path)[0]
+    $currentMember=@($index.members|Where-Object path -CEQ $proof.currentSuiteRef.path)[0]
+    $historicalMember=@($index.members|Where-Object path -CEQ $proof.baselineRef.path)[0]
+    $oldProof=Read-AiwTestJson (Join-Path $movedVersion $historicalMember.path)
+    $oldBRef=@($oldProof.groupRecordRefs|Where-Object groupId -CEQ 'proof.b')[0]
+    $oldBMember=@($index.members|Where-Object path -CEQ $oldBRef.path)[0]
+    $badSuite=CloneEvidence $suite @('startedUtc','endedUtc')
+    $badPlan=Read-AiwTestJson (Join-Path $movedVersion $planMember.path)
+    try{
+     switch($fault){
+      {$_ -cin @('OMIT_ADD','OMIT_REMOVE','OMIT_TOOL','WRONG_PLAN_CANDIDATE')} {
+       if($fault-ceq'WRONG_PLAN_CANDIDATE'){$badPlan.candidatePayloadCanonical=$old.payloadCanonical}
+       else{
+        $missingPath=@{OMIT_ADD=$addedPath;OMIT_REMOVE=$removedPath;OMIT_TOOL=$rootTool}[$fault]
+        $badPlan.changes=@($badPlan.changes|Where-Object path -CNE $missingPath)
+       }
+       ReplaceRouteMember $index $planMember $badPlan
+      }
+      'MIXED_CLOSURES' {
+       $oldSuiteMember=@($index.members|Where-Object path -CEQ $oldProof.currentSuiteRef.path)[0]
+       $index.sourceInputClosureMemberId=@($index.aliases|Where-Object{$_.ownerMemberId-ceq$oldSuiteMember.id-and$_.slot-ceq'/sourceInputsRef'})[0].targetMemberId
+      }
+      'OMIT_CURRENT' {
+       $badSuite.requestedGroupIds=@($badSuite.requestedGroupIds|Where-Object{$_-cne$aId})
+       $badSuite.records=@($badSuite.records|Where-Object groupId -CNE $aId)
+       ReplaceRouteMember $index $currentMember $badSuite
+      }
+      {$_ -cin @('FAILED_CURRENT','WRONG_CANDIDATE_EXECUTION')} {
+       $id=if($fault-ceq'FAILED_CURRENT'){$aId}else{'proof.b'}
+       $pos=[Array]::IndexOf(@($badSuite.records.groupId),$id)
+       $entry=$badSuite.records[$pos]
+       $slot='/records/'+$pos+'/original'
+       $alias=@($index.aliases|Where-Object{$_.ownerMemberId-ceq$currentMember.id-and$_.slot-ceq$slot})[0]
+       if($fault-ceq'FAILED_CURRENT'){
+        $recordMember=@($index.members|Where-Object id -CEQ $alias.targetMemberId)[0]
+        $record=Read-AiwTestJson (Join-Path $movedVersion $recordMember.path) -StringFields @('startedUtc','endedUtc')
+        $record.outcome='FAIL'
+        ReplaceRouteMember $index $recordMember $record
+        $entry.identity=$recordMember.identity
+       }else{
+        $entry.path=$b;$entry.identity=$oldBMember.identity
+        $alias.targetMemberId=$oldBMember.id;$alias.originalLocator=$entry.path;$alias.originalIdentity=$entry.identity
+       }
+       ReplaceRouteMember $index $currentMember $badSuite
+      }
+      'DIRTY_ORIGINAL' {
+       $record=Read-AiwTestJson (Join-Path $movedVersion $oldBMember.path) -StringFields @('startedUtc','endedUtc')
+       $record.cleanup.status='DIRTY'
+       ReplaceRouteMember $index $oldBMember $record
+       $oldSuiteMember=@($index.members|Where-Object path -CEQ $oldProof.currentSuiteRef.path)[0]
+       $oldSuite=Read-AiwTestJson (Join-Path $movedVersion $oldSuiteMember.path) -StringFields @('startedUtc','endedUtc')
+       @($oldSuite.records|Where-Object groupId -CEQ 'proof.b')[0].identity=$oldBMember.identity
+       ReplaceRouteMember $index $oldSuiteMember $oldSuite
+       $oldBRef.identity=$oldBMember.identity
+       $oldProof.currentSuiteRef.identity=$oldSuiteMember.identity
+       ReplaceRouteMember $index $historicalMember $oldProof
+       $badPlan.historicalProofRef.identity=$historicalMember.identity
+       ReplaceRouteMember $index $planMember $badPlan
+      }
+     }
+     $bad.baselineRef.identity=$historicalMember.identity
+     $bad.changePlanRef.identity=$planMember.identity
+     $bad.currentSuiteRef.identity=$currentMember.identity
+     foreach($ref in @($bad.groupRecordRefs)+@($bad.prepackageIntegrationRefs)){
+      $ref.identity=@($index.members|Where-Object path -CEQ $ref.path)[0].identity
+     }
+     Put $indexPath (($index|ConvertTo-Json -Depth 100 -Compress)+"`n")
+     $bad.proofBundleRef.identity=Get-AiwTestFileIdentity $indexPath
+     $bad.proofBundleIdentity=(Get-AiwReleaseMemberFacts (@($bad.proofBundleRef)+@($index.members))).Canonical
+     $expected='^'+[regex]::Escape($routeFaults[$fault])+'$'
+     Reject {Assert-AiwReleaseProof $version @{validationProof=$bad} -SourceRoot $sample -EvidenceRoot $movedVersion} $expected ('route-source-rejects-'+$fault)
+     Reject {Assert-AiwReleaseProof $movedVersion @{validationProof=$bad} -RuntimeRoot $moved} $expected ('route-portable-rejects-'+$fault)
+    }finally{
+     foreach($path in $originalBytes.Keys){[IO.File]::WriteAllBytes((Join-Path $movedVersion $path),$originalBytes[$path])}
+    }
+   }
+   Check ($result.Mode-ceq'CHANGE_VALIDATED_COVERAGE'-and-not$result.ExecutionReusable-and$result.Inputs.payloadCanonical-ceq$now.payloadCanonical-and(Get-AiwTestFileIdentity $baselinePath)-ceq$baselineIdentity-and(Get-AiwTestFileIdentity $b)-ceq$bIdentity) 'release-route-selector-and-original'
+  }
+  if($RouteOnly){TestReleaseRoute;return}
   function TestPublicExactResume([string[]]$Preserve=@(),[switch]$CleanupOnly){
    $fixtureDefinitionPath=Join-Path $sampleTests 'test-groups.json';$bEntryPath=Join-Path $sample $bEntry;$bValuePath=Join-Path $sample $bValue
    $saved=@{};foreach($path in @($runner,$fixtureDefinitionPath,$bEntryPath,$bValuePath)){$saved[$path]=[IO.File]::ReadAllBytes($path)}
@@ -832,66 +1224,30 @@ $wire=Get-Content -LiteralPath $Proof -Raw|ConvertFrom-Json -Depth 100
 $consumed=& $reader.ExportedCommands['Assert-AiwReleaseProof'] $Version ([pscustomobject]@{validationProof=$wire}) -SourceRoot $Source
 if($consumed.Mode-cne'CURRENT_GROUP_COVERAGE'){throw 'EXACT_COLD_PROOF_MODE'}
 $bad=Read-AiwTestJson $BadRv -StringFields @('checkedUtc')
-try{$null=& $reader {param($s,$d,$g,$w,$v) Assert-AiwReleaseBehaviorSnapshot $s $d $g $w $v} $bad.currentSnapshot $definition $definition.groups[0] $suite $Version;throw 'BAD_PORTABLE_ACCEPTED'}catch{if($_.Exception.Message-cne'RELEASE_CURRENT_REVALIDATION_INPUT_DRIFT'){throw}}
+try{$null=& $reader {param($s,$d,$g,$w,$v) Assert-AiwReleaseBehaviorSnapshot $s $d $g $w (Get-AiwReleaseFileIdentity (Join-Path $v 'scripts/TestEvidenceValidation.psm1'))} $bad.currentSnapshot $definition $definition.groups[0] $suite $Version;throw 'BAD_PORTABLE_ACCEPTED'}catch{if($_.Exception.Message-cne'RELEASE_CURRENT_REVALIDATION_INPUT_DRIFT'){throw}}
 'PASS|exact-cold-local-and-portable-with-identity-counterexamples'
 '@).Replace('__AIW_TEST_NATIVE_OUTPUT__',('Import-Module ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('''+[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes((Join-Path $PSScriptRoot 'TestNativeOutput.psm1')))+''')))' + "`n" + 'Initialize-AiwTestNativeOutput')))
     $cold=Invoke-AiwTestProcess ([Environment]::ProcessPath) @('-NoProfile','-NonInteractive','-File',$probe,'-View',$stable,'-Source',$sample,'-Version',$portableVersion,'-SuitePath',$suitePath,'-Proof',$proofPath,'-BadSuite',$badSuitePath,'-BadRv',$badRvPath) -WorkingDirectory $sample -EvidenceDirectory (Join-Path $rawRoot 'exact-cold-native')
     Check ($cold.Code-eq0-and$cold.StdoutText.Contains('PASS|exact-cold-local-and-portable')) 'exact-public-cold-local-and-portable-accept-real-proof-reject-false-snapshot'
-    $runnerText=[Text.Encoding]::UTF8.GetString($saved[$runner])
-    $guard="if(`$definition.schemaVersion-eq3-and`$plannedChoice.selection-ceq'EXECUTE'-and`$plannedGroup.environmentPolicy.mode-cin@('EXACT','EFFECTIVE_TOOLS')-and`$null-ne`$plannedChoice.original){"
-    if($runnerText.Split($guard).Count-ne2){throw 'EXACT_OLD_ORDER_VARIANT_SITE'}
-    try{Put $runner ($runnerText.Replace($guard,'if($false){ # isolated original fresh-context ordering'));$oldOrder=RunCoverage 'exact-old-order' @($a,$b,$integration);NeedPublicRun $oldOrder 'old-order-comparison';Check (-not(ExactReused 'exact-old-order')-and(Read-AiwTestJson (Join-Path $rawRoot 'exact-old-order-groups/execution-cost.json')).newGroupChildCount-eq3) 'exact-public-oracle-detects-original-fresh-context-ordering'}finally{[IO.File]::WriteAllBytes($runner,$saved[$runner])}
-    # Change only B's actual entry/value inputs; A remains behavior-identical.
     Put $bValuePath 'A-sentinel:repaired:v2'
     Put $bEntryPath (New-CoverageNativeBody 'if([IO.File]::ReadAllText((Join-Path $PSScriptRoot "coverage-b.txt"))-cne"A-sentinel:repaired:v2"){throw "NATURAL_B_FAILURE"};Write-Output "PASS|coverage-b";Write-Output "RESULT|1/1 passed|scope=coverage-b"')
-    $changed=RunCoverage 'exact-b-change' @($a,$b) -Selected @('proof.a','proof.b');NeedPublicRun $changed 'B-change'
-    Check ($changed.StdoutText.Contains('GROUP|proof.a|REVALIDATED')-and(FreshContext 'exact-b-change' 'proof.b' $bRecord)) 'exact-public-b-input-change-keeps-a-and-launches-b-in-fresh-context'
-    # Leak only old TMP/TEMP in an isolated variant. Old raw never becomes a write target.
-    $launchSite='$childEnvironment=$nativeOverrides[$id]'
-    $leak='$childEnvironment=@{};foreach($key in $nativeOverrides[$id].Keys){$childEnvironment[$key]=$nativeOverrides[$id][$key]};if($null-ne$planned.original){$oldEnvironment=Get-RunnerOriginalEnvironment $planned.original $group $nativeOverrides[$id];if($null-ne$oldEnvironment){$childEnvironment.TMP=$oldEnvironment.TMP;$childEnvironment.TEMP=$oldEnvironment.TEMP}}'
-    if($runnerText.Split($launchSite).Count-ne2){throw 'EXACT_OLD_MAP_VARIANT_SITE'}
-    # This deliberately wrong launch recreates the first B child's cleaned TMP.
-    # Bind disposal to that actual native record and this invocation's outer TMP.
-    $wrongMapTemp=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($bRecord.after.facts.nativeEnvironment.TMP))
-    $wrongMapParent=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath([IO.Path]::GetTempPath()))
-    $firstBNative=Read-AiwTestJson $bRecord.processResult.path
-    if($bRecord.outcome-cne'PASS'-or$bRecord.cleanup.status-cne'CLEAN'-or@($bRecord.cleanup.entries).Count-ne0-or@($bRecord.cleanup.workers).Count-ne0-or$bRecord.cleanup.root-cne$wrongMapTemp-or$bRecord.after.facts.nativeEnvironment.TEMP-cne$wrongMapTemp-or$firstBNative.exitCode-ne0-or$firstBNative.environment.TMP-cne$wrongMapTemp-or$firstBNative.environment.TEMP-cne$wrongMapTemp-or-not[IO.Path]::GetDirectoryName($wrongMapTemp).Equals($wrongMapParent,[StringComparison]::OrdinalIgnoreCase)-or(Test-Path -LiteralPath $wrongMapTemp)){throw 'EXACT_WRONG_MAP_ORIGINAL_TEMP_SCOPE'}
-    $walk=$wrongMapParent;while($walk){if(((Get-Item -LiteralPath $walk -Force).Attributes-band[IO.FileAttributes]::ReparsePoint)-ne0){throw 'EXACT_WRONG_MAP_TEMP_REPARSE'};$walk=[IO.Path]::GetDirectoryName($walk)}
-    $wrongMapTempOwned=$false
-    try{
-     Put $runner ($runnerText.Replace($launchSite,$leak));$wrongMap=RunCoverage 'exact-wrong-map' @($b) -Selected @('proof.b')
-     $wrongRecord=Read-AiwTestJson (Join-Path $rawRoot 'exact-wrong-map-groups/proof.b/executed.json');$wrongNative=Read-AiwTestJson $wrongRecord.processResult.path
-     Check ($wrongMap.Code-ne0-and$wrongMap.StdoutText.Contains('GROUP_INVALID|proof.b|')-and$wrongNative.exitCode-eq0-and$wrongNative.environment.TMP-ceq$bRecord.after.facts.nativeEnvironment.TMP-and$wrongNative.environment.AIW_TEST_RAW_DIRECTORY-cne$bRecord.after.facts.nativeEnvironment.AIW_TEST_RAW_DIRECTORY-and-not(FreshContext 'exact-wrong-map' 'proof.b' $bRecord)) 'exact-public-oracle-detects-historical-map-fallback-after-real-native-success'
-     if($wrongNative.environment.TEMP-cne$wrongMapTemp){throw 'EXACT_WRONG_MAP_NATIVE_TEMP_DRIFT'}
-     $wrongMapTempOwned=$true
-    }finally{
-     [IO.File]::WriteAllBytes($runner,$saved[$runner])
-     if($wrongMapTempOwned){
-      $item=Get-Item -LiteralPath $wrongMapTemp -Force
-      if(-not$item.PSIsContainer-or-not[IO.Path]::GetDirectoryName($item.FullName).Equals($wrongMapParent,[StringComparison]::OrdinalIgnoreCase)){throw 'EXACT_WRONG_MAP_RECREATED_TEMP_SCOPE'}
-      $walk=$wrongMapTemp;while($walk){if(((Get-Item -LiteralPath $walk -Force).Attributes-band[IO.FileAttributes]::ReparsePoint)-ne0){throw 'EXACT_WRONG_MAP_TEMP_REPARSE'};$walk=[IO.Path]::GetDirectoryName($walk)}
-      if(@([IO.Directory]::EnumerateFileSystemEntries($wrongMapTemp)).Count-ne0){throw 'EXACT_WRONG_MAP_TEMP_NOT_EMPTY'}
-      [IO.Directory]::Delete($wrongMapTemp,$false)
-      Check (-not(Test-Path -LiteralPath $wrongMapTemp)) 'exact-public-wrong-map-recreated-owned-temp-removed-before-return'
-     }
-    }
+    $changed=RunCoverage 'exact-b-change' @($a,$b) -Selected @('proof.a','proof.b')
+    NeedPrelaunchStop $changed 'exact-b-change' NEEDS_IMPACT_ASSESSMENT
+    $explicit=RunCoverage 'exact-b-selected-fresh' -Selected @('proof.b');NeedPublicRun $explicit 'B-selected-fresh'
+    Check (FreshContext 'exact-b-selected-fresh' 'proof.b' $bRecord) 'exact-public-selected-fresh-run-has-new-temp-raw-and-launch'
     foreach($fault in @('missing-native-raw','failed-original','wrong-host')){
      $bad=CloneEvidence $aRecord @('startedUtc','endedUtc')
      switch($fault){'missing-native-raw'{$bad.processResult.path=Join-Path $rawRoot 'missing-native-raw/result.json'} 'failed-original'{$bad.outcome='FAIL'} 'wrong-host'{$bad.after.facts.nativeEnvironment.AIW_TEST_HOST='FOREIGN_HOST'}}
      $badPath=Join-Path $rawRoot ('exact-'+$fault+'.json');Write-AiwTestJson $badPath $bad;$name='exact-'+$fault
-     $run=RunCoverage $name @($badPath) -Selected @('proof.a');NeedPublicRun $run $fault
-     Check (FreshContext $name 'proof.a' $aRecord) ('exact-public-'+$fault+'-uses-fresh-native-raw-temp-and-launch')
+     $run=RunCoverage $name @($badPath) -Selected @('proof.a');NeedPrelaunchStop $run $name ORIGINAL_REJECTED
     }
     $ambient=Join-Path $temp 'exact-ambient';$null=[IO.Directory]::CreateDirectory($ambient)
     foreach($change in @(@{name='path';env=@{PATH=($env:PATH+[IO.Path]::PathSeparator+$ambient)}},@{name='temp';env=@{TEMP=$ambient;TMP=$ambient}},@{name='module-path';env=@{PSModulePath=($env:PSModulePath+[IO.Path]::PathSeparator+$ambient)}})){
-     $name='exact-ambient-'+$change.name;$run=RunCoverage $name @($a) -Selected @('proof.a') -Environment $change.env;NeedPublicRun $run $name
-     Check (FreshContext $name 'proof.a' $aRecord) ('exact-public-actual-ambient-'+$change.name+'-still-invalidates-reuse')
+     $name='exact-ambient-'+$change.name;$run=RunCoverage $name @($a) -Selected @('proof.a') -Environment $change.env;NeedPrelaunchStop $run $name NEEDS_IMPACT_ASSESSMENT
     }
-    $other=RunCoverage 'exact-other-root' @($a) -View (Join-Path $temp 'exact-other-owned') -Selected @('proof.a');NeedPublicRun $other 'other-root'
-    Check (FreshContext 'exact-other-root' 'proof.a' $aRecord) 'exact-public-different-physical-root-still-invalidates-reuse'
+    $other=RunCoverage 'exact-other-root' @($a) -View (Join-Path $temp 'exact-other-owned') -Selected @('proof.a');NeedPrelaunchStop $other 'exact-other-root' NEEDS_IMPACT_ASSESSMENT
     $exact.groups[0].fixtureRecipe.steps+=@('changed recipe input');Put $fixtureDefinitionPath (($exact|ConvertTo-Json -Depth 100 -Compress)+"`n")
-    $recipe=RunCoverage 'exact-other-recipe' @($a) -Selected @('proof.a');NeedPublicRun $recipe 'other-recipe'
-    Check (FreshContext 'exact-other-recipe' 'proof.a' $aRecord) 'exact-public-current-recipe-still-invalidates-reuse'
+    $recipe=RunCoverage 'exact-other-recipe' @($a) -Selected @('proof.a');NeedPrelaunchStop $recipe 'exact-other-recipe' NEEDS_IMPACT_ASSESSMENT
     $duplicate=RunCoverage 'exact-duplicate-original' @($a,$a) -Selected @('proof.a')
     Check ($duplicate.Code-ne0-and$duplicate.StderrText.Contains('TEST_DUPLICATE_RESUME_GROUP')) 'exact-public-duplicate-original-guard-is-preserved'
     # Use the production policy shape, with real first executions under that policy.
@@ -923,27 +1279,21 @@ try{$null=& $reader {param($s,$d,$g,$w,$v) Assert-AiwReleaseBehaviorSnapshot $s 
     Check ($effectiveCold.Record.schemaVersion-eq2-and$effectiveCold.Record.environment.PATH-ceq($env:PATH+[IO.Path]::PathSeparator+$noise)) 'effective-public-cold-uses-actual-current-path-noise'
     $effectiveAmbient=Join-Path $temp 'effective-ambient';$null=[IO.Directory]::CreateDirectory($effectiveAmbient)
     foreach($change in @(@{name='temp';env=@{TEMP=$effectiveAmbient;TMP=$effectiveAmbient}},@{name='module-path';env=@{PSModulePath=($env:PSModulePath+[IO.Path]::PathSeparator+$effectiveAmbient)}})){
-     $name='effective-ambient-'+$change.name;$run=RunCoverage $name @($ea) -Selected @('proof.a') -Environment $change.env;NeedPublicRun $run $name
-     Check (FreshContext $name 'proof.a' $eaRecord) ('effective-public-declared-'+$change.name+'-invalidates-and-launches-fresh')
+     $name='effective-ambient-'+$change.name;$run=RunCoverage $name @($ea) -Selected @('proof.a') -Environment $change.env;NeedPrelaunchStop $run $name NEEDS_IMPACT_ASSESSMENT
     }
     $effectiveTools=Join-Path $temp 'effective-tools';$null=[IO.Directory]::CreateDirectory($effectiveTools)
     $actualGit=Get-Command git -CommandType Application|Select-Object -First 1
     [IO.File]::Copy($actualGit.Source,(Join-Path $effectiveTools 'git.exe'),$false)
-    $toolChange=RunCoverage 'effective-tool-change' @($ea) -Selected @('proof.a') -Environment @{PATH=($effectiveTools+[IO.Path]::PathSeparator+$env:PATH)};NeedPublicRun $toolChange 'effective-tool-change'
-    $toolRecord=Read-AiwTestJson (Join-Path $rawRoot 'effective-tool-change-groups/proof.a/executed.json')
-    $originalGit=@($eaRecord.after.facts.environment.tools|Where-Object name -CEQ 'git');$changedGit=@($toolRecord.before.facts.environment.tools|Where-Object name -CEQ 'git')
-    Check ((FreshContext 'effective-tool-change' 'proof.a' $eaRecord)-and$originalGit.Count-eq1-and$changedGit.Count-eq1-and$originalGit[0].path-ceq$actualGit.Source-and$changedGit[0].path-ceq(Join-Path $effectiveTools 'git.exe')-and$originalGit[0].path-cne$changedGit[0].path) 'effective-public-actual-resolved-tool-change-invalidates-and-launches-fresh'
+    $toolChange=RunCoverage 'effective-tool-change' @($ea) -Selected @('proof.a') -Environment @{PATH=($effectiveTools+[IO.Path]::PathSeparator+$env:PATH)}
+    NeedPrelaunchStop $toolChange 'effective-tool-change' NEEDS_IMPACT_ASSESSMENT
     [IO.File]::Copy($actualGit.Source,(Join-Path $effectiveTools 'aiw-fixture-negative-lookup.exe'),$false)
-    # Exclude the changed git copy here so only the declared negative lookup changes.
     [IO.File]::Delete((Join-Path $effectiveTools 'git.exe'))
-    $negativeChange=RunCoverage 'effective-negative-change' @($ea) -Selected @('proof.a') -Environment @{PATH=($effectiveTools+[IO.Path]::PathSeparator+$env:PATH)};NeedPublicRun $negativeChange 'effective-negative-change'
-    $negativeRecord=Read-AiwTestJson (Join-Path $rawRoot 'effective-negative-change-groups/proof.a/executed.json')
-    Check ((FreshContext 'effective-negative-change' 'proof.a' $eaRecord)-and$negativeRecord.after.facts.environment.negativeToolLookups[0].found-and-not$eaRecord.after.facts.environment.negativeToolLookups[0].found) 'effective-public-actual-negative-resolution-change-invalidates'
+    $negativeChange=RunCoverage 'effective-negative-change' @($ea) -Selected @('proof.a') -Environment @{PATH=($effectiveTools+[IO.Path]::PathSeparator+$env:PATH)}
+    NeedPrelaunchStop $negativeChange 'effective-negative-change' NEEDS_IMPACT_ASSESSMENT
     $modulePath=Join-Path $sampleTests 'TestNativeOutput.psm1';$moduleBytes=[IO.File]::ReadAllBytes($modulePath)
     try{
      Put $modulePath ([Text.Encoding]::UTF8.GetString($moduleBytes)+"`n# isolated required module byte change`n")
-     $moduleChange=RunCoverage 'effective-module-change' @($ea) -Selected @('proof.a');NeedPublicRun $moduleChange 'effective-module-change'
-     Check (FreshContext 'effective-module-change' 'proof.a' $eaRecord) 'effective-public-required-module-byte-change-invalidates'
+     $moduleChange=RunCoverage 'effective-module-change' @($ea) -Selected @('proof.a');NeedPrelaunchStop $moduleChange 'effective-module-change' NEEDS_IMPACT_ASSESSMENT
     }finally{[IO.File]::WriteAllBytes($modulePath,$moduleBytes)}
     Write-AiwTestJson (Join-Path $rawRoot 'effective-public-resume-ceiling.json') @{kind='REAL_PUBLIC_EFFECTIVE_POLICY_FOCUSED';first=$effectiveFirst.ResultPath;resume=$effectiveResume.ResultPath;cold=$effectiveCold.ResultPath;honestNewPolicyBaseline=$true;immutableOriginals=@($ea,$eb,$ei);fullFrameworkQualification=$false;fiveRealHeavyGroupsRevalidated=$false;performanceAcceptance=$false}
      }
@@ -984,7 +1334,7 @@ try{$null=& $reader {param($s,$d,$g,$w,$v) Assert-AiwReleaseBehaviorSnapshot $s 
      # and COMPLETE only after the owned worker exits and its result is consumed.
     Write-AiwTestJson (Join-Path $rawRoot 'public-cleanup-ceiling.json') @{kind='BOUNDED_CURRENT_OWNED_EMPTY_DISPOSAL';cases=$cleanupEvidence;unknownLaunchOwnership=$(if($CleanupOnly){'NOT_RUN_IN_WORKER_SELECTION'}else{'existing wrong-map native0/public-invalid and creator-only disposal retained'});noGenericRecursiveCleanup=$true;functionalAndCleanupOutcomesSeparate=$true;fullFrameworkQualification=$false}
     foreach($path in $originalGraphs.Keys){Check ((GraphIdentity $path)-ceq$originalGraphs[$path]) ('exact-public-original-graph-unchanged-'+(Split-Path -Leaf (Split-Path -Parent $path))+'-'+[Array]::IndexOf(@($originalGraphs.Keys),$path))}
-     if(-not$CleanupOnly){    Write-AiwTestJson (Join-Path $rawRoot 'exact-public-resume-ceiling.json') @{kind='REAL_PUBLIC_EXACT_FOCUSED';first=$first.ResultPath;resume=$second.ResultPath;cold=$cold.ResultPath;oldOrdering=$oldOrder.ResultPath;wrongMap=$wrongMap.ResultPath;wrongMapOnlyTempKeys=$true;immutableOriginals=@($originalGraphs.Keys);fullFrameworkQualification=$false;performanceAcceptance=$false}}
+     if(-not$CleanupOnly){    Write-AiwTestJson (Join-Path $rawRoot 'exact-public-resume-ceiling.json') @{kind='REAL_PUBLIC_EXACT_FOCUSED';first=$first.ResultPath;resume=$second.ResultPath;cold=$cold.ResultPath;blockedChange=$changed.ResultPath;explicitFresh=$explicit.ResultPath;immutableOriginals=@($originalGraphs.Keys);fullFrameworkQualification=$false;performanceAcceptance=$false}}
    }finally{foreach($path in $saved.Keys){[IO.File]::WriteAllBytes($path,$saved[$path])}}
   }
  if($WorkerCompletionOnly){TestPublicExactResume -CleanupOnly;Write-Output ('PARTIAL|WORKER_COMPLETION_ONLY|checks='+$passed);return}
@@ -1053,7 +1403,7 @@ $aRecordBytes=[IO.File]::ReadAllBytes($record)
 $null=& $reader.ExportedCommands['Assert-AiwReleaseProof'] $v ([pscustomobject]@{validationProof=$proof}) -SourceRoot $Source
 Need ($true) 'same-path-a-baseline-local-and-direct-reader'
 $text=[Text.Encoding]::UTF8.GetString($original)
-$signature='function Assert-AiwEvidenceNativeRecord($Record,$Group,$Snapshot,$Artifacts,[switch]$ForReuse,[switch]$AllowPartial,$Suite=$null){'
+$signature='function Assert-AiwEvidenceNativeFacts($Record,$Group,$Artifacts,[switch]$AllowPartial,$OriginalSuite=$null){'
 if($text.IndexOf($signature)-lt0-or$text.IndexOf($signature)-ne$text.LastIndexOf($signature)){throw 'SEMANTIC_MUTATION_ANCHOR'}
 $mutation=$signature+[char]10+' if($Record.groupId-ceq"proof.a"){$script:SemanticBWitness++;if($Record.cases[0].name-cne"coverage-a"){throw "SEMANTIC_B_CASE"}}'
 $bText=('$script:SemanticBWitness=0'+[char]10)+$text.Replace($signature,$mutation)
@@ -1138,7 +1488,7 @@ Write-Output 'RESULT|same-instance-same-path-current-verifier|PASS'
   $definition=Read-AiwTestGroupDefinition $definitionPath
   $rv=Read-AiwTestJson $suite.records[0].revalidation.path -StringFields @('checkedUtc')
   Check ($suite.records[0].executionKind-ceq'REVALIDATED') 'snapshot-small-fixture-real-native-then-revalidation'
-  $null=& $reader {param($s,$d,$g,$w,$v) Assert-AiwReleaseBehaviorSnapshot $s $d $g $w $v} $rv.currentSnapshot $definition $definition.groups[0] $suite (Join-Path $stable 'framework/versions/2.0.0')
+  $null=& $reader {param($s,$d,$g,$w,$v) Assert-AiwReleaseBehaviorSnapshot $s $d $g $w (Get-AiwReleaseFileIdentity (Join-Path $v 'scripts/TestEvidenceValidation.psm1'))} $rv.currentSnapshot $definition $definition.groups[0] $suite (Join-Path $stable 'framework/versions/2.0.0')
   Check ($true) 'snapshot-small-fixture-original-portable-adapter-baseline'
   $bad=CloneEvidence $rv @('checkedUtc');$bad.currentSnapshot.identity=if($bad.currentSnapshot.identity-ceq('A'*64)){'B'*64}else{'A'*64}
   Check ($bad.currentSnapshot.facts.root-ceq$rv.currentSnapshot.facts.root-and(Get-TestValueIdentity $bad.currentSnapshot.facts.options)-ceq(Get-TestValueIdentity $rv.currentSnapshot.facts.options)-and$bad.currentSnapshot.identity-cne$rv.currentSnapshot.identity) 'snapshot-identity-only-keeps-root-options-preconditions'
@@ -1146,7 +1496,7 @@ Write-Output 'RESULT|same-instance-same-path-current-verifier|PASS'
   $badSuite=CloneEvidence $suite @('startedUtc','endedUtc');$badSuite.records[0].revalidation=[pscustomobject]@{path=$badRvPath;identity=(Get-AiwTestFileIdentity $badRvPath)}
   $badSuitePath=Join-Path $rawRoot 'snapshot-small-negative-suite.json';Write-AiwTestJson $badSuitePath $badSuite
   Reject {Assert-AiwTestSuiteEvidence $badSuitePath $stable $definitionPath} '^RELEASE_CURRENT_REVALIDATION_INPUT_DRIFT$' 'snapshot-small-local-identity-drift'
-  Reject {& $reader {param($s,$d,$g,$w,$v) Assert-AiwReleaseBehaviorSnapshot $s $d $g $w $v} $bad.currentSnapshot $definition $definition.groups[0] $suite (Join-Path $stable 'framework/versions/2.0.0')} '^RELEASE_CURRENT_REVALIDATION_INPUT_DRIFT$' 'snapshot-small-original-portable-adapter-identity-drift'
+  Reject {& $reader {param($s,$d,$g,$w,$v) Assert-AiwReleaseBehaviorSnapshot $s $d $g $w (Get-AiwReleaseFileIdentity (Join-Path $v 'scripts/TestEvidenceValidation.psm1'))} $bad.currentSnapshot $definition $definition.groups[0] $suite (Join-Path $stable 'framework/versions/2.0.0')} '^RELEASE_CURRENT_REVALIDATION_INPUT_DRIFT$' 'snapshot-small-original-portable-adapter-identity-drift'
   if($PublicSuiteConsumerContractOnly){
    $faults=[ordered]@{NATIVE_MISSING='INPUT_STRING_FIELD_MISSING\|startedUtc';NATIVE_TIME='RELEASE_EVIDENCE_TIME\|record-start';RV_FAILED='RELEASE_CURRENT_REVALIDATION_SCALAR';RV_TIME_TYPE='INPUT_STRING_FIELD_TYPE\|checkedUtc';NATIVE_VERSION='TEST_EXECUTION_SUITE_VERSION_MISMATCH'}
    foreach($kind in $faults.Keys){
@@ -1189,22 +1539,26 @@ Write-Output 'RESULT|same-instance-same-path-current-verifier|PASS'
  $constructorPath=Join-Path $sampleTests 'TestHarness.psm1';$constructorBytes=[IO.File]::ReadAllBytes($constructorPath)
  try{
   [IO.File]::AppendAllText($constructorPath,"`n# owned constructor-change regression`n")
-  $rebuiltB=RunCoverage 'ownership-constructor-rebuild' @($creatorAPath) $principalView -Selected @('proof.a') -Environment @{CODEX_THREAD_ID='fixture-creator-B'}
+  $rebuiltB=RunCoverage 'ownership-constructor-rebuild' @() $principalView -Selected @('proof.a') -Environment @{CODEX_THREAD_ID='fixture-creator-B'}
   $rebuiltClosure=Read-AiwTestJson $principalClosure
   Check ($rebuiltB.Code-eq0-and(Get-AiwTestFileIdentity $principalOwnerPath)-cne$principalOwnerIdentity-and(Get-AiwTestFileIdentity $principalClosure)-cne$principalClosureIdentity-and$rebuiltClosure.syntheticInputs[0].constructorIdentity-ceq(Get-AiwTestFileIdentity $constructorPath)-and(Read-AiwTestJson $principalOwnerPath).owner-ceq($principal+'|fixture-creator-B')) 'same-principal-real-constructor-change-rebuilds-through-public-runner'
  }finally{[IO.File]::WriteAllBytes($constructorPath,$constructorBytes)}
  # A real later child corrupts the already-written A revalidation. Every child
  # still completes, so the failure reaches final suite validation and summary.
- $bEntryPath=Join-Path $sample $bEntry;$bEntryBytes=[IO.File]::ReadAllBytes($bEntryPath)
+ $bSeed=RunCoverage 'coverage-final-b-seed' -Selected @('proof.b')
+ Check ($bSeed.Code-eq0) 'final-suite-fixture-has-valid-original-b'
+ $bOriginal=Join-Path $rawRoot 'coverage-final-b-seed-groups/proof.b/executed.json'
+ $integrationPath=Join-Path $sample $iEntry
+ $integrationBytes=[IO.File]::ReadAllBytes($integrationPath)
  try{
-  [IO.File]::AppendAllText($bEntryPath,'; $rv=Join-Path (Split-Path -Parent (Split-Path -Parent $env:AIW_TEST_RAW_DIRECTORY)) "proof.a/revalidation.json";if(Test-Path -LiteralPath $rv){[IO.File]::AppendAllText($rv," ")}')
-  $invalidFinal=RunCoverage 'coverage-final-suite-failure' @($freshA) -Summary
+  [IO.File]::AppendAllText($integrationPath,'; $rv=Join-Path (Split-Path -Parent (Split-Path -Parent $env:AIW_TEST_RAW_DIRECTORY)) "proof.a/revalidation.json";if(Test-Path -LiteralPath $rv){[IO.File]::AppendAllText($rv," ")}')
+  $invalidFinal=RunCoverage 'coverage-final-suite-failure' @($freshA,$bOriginal) -Summary
   $invalidSuite=Read-AiwTestJson (Join-Path $rawRoot 'coverage-final-suite-failure-groups/suite.json')
   Check ($invalidFinal.StdoutText.Contains('SUMMARY|status=FAIL|coverage=PARTIAL|exit=1')-and$invalidFinal.StdoutText.Contains('DETAIL|RUNNER_EXIT|1')-and$invalidFinal.StdoutText.Contains('PROCESS_EVIDENCE|path=')) 'invalid-final-suite-reaches-normal-summary-and-preserves-native-exit'
  Check ($invalidFinal.Code-ne0-and$invalidFinal.Transcript.Contains('SUITE_INVALID|TEST_REVALIDATION_DRIFT')-and$invalidFinal.Transcript.Contains('RESULT|outcome=INCOMPLETE|coverage=PARTIAL')-and$invalidSuite.outcome-ceq'INCOMPLETE'-and$invalidSuite.coverage-ceq'PARTIAL'-and-not(Test-Path -LiteralPath (Join-Path $rawRoot 'coverage-final-suite-failure-groups/prepackage-proof/validation-proof.json'))) 'actual-final-validation-failure-agrees-with-written-suite-summary-and-exit'
- }finally{[IO.File]::WriteAllBytes($bEntryPath,$bEntryBytes)}
+ }finally{[IO.File]::WriteAllBytes($integrationPath,$integrationBytes)}
  $different=Join-Path $temp 'coverage-other-root';$moved=RunCoverage 'coverage-explicit-other' @($freshA) $different -Selected @('proof.a')
- Check ($moved.Code-eq0-and$moved.Transcript.Contains('GROUP|proof.a|START')-and-not$moved.Transcript.Contains('GROUP|proof.a|REVALIDATED')) 'explicit-other-root-preserves-strict-fresh-input-identity'
+ NeedPrelaunchStop $moved 'coverage-explicit-other' NEEDS_IMPACT_ASSESSMENT
  $ownerPath=$stable+'.owner.json';$ownerBytes=[IO.File]::ReadAllBytes($ownerPath);$owner=Read-AiwTestJson $ownerPath
  $sidParts=$principal.Split('-');$sidParts[-1]=if($sidParts[-1]-ceq'0'){'1'}else{'0'};$foreignSid=[Security.Principal.SecurityIdentifier]::new(($sidParts-join'-')).Value
  $owner.owner=$foreignSid+'|fixture-foreign';ReplaceCoverageFixtureJson $ownerPath $owner
@@ -1251,7 +1605,7 @@ Write-Output 'RESULT|same-instance-same-path-current-verifier|PASS'
    $harnessText=[Text.UTF8Encoding]::new($false,$true).GetString($harnessBytes).Replace('function Enter-AiwTestSourceView {','function Enter-CoverageOriginalSourceView {')
    $leaseWrapper=@'
 function Enter-AiwTestSourceView {
- [CmdletBinding()]param([Parameter(Mandatory)][string]$SourceRoot,[Parameter(Mandatory)][string]$DestinationRoot,[Parameter(Mandatory)]$Definition,[Parameter(Mandatory)][string]$EvidenceRoot,[string[]]$ResumeEvidence=@())
+ [CmdletBinding()]param([Parameter(Mandatory)][string]$SourceRoot,[Parameter(Mandatory)][string]$DestinationRoot,[Parameter(Mandatory)]$Definition,[Parameter(Mandatory)][string]$EvidenceRoot,[string[]]$ResumeEvidence=@(),[string[]]$ReadClosureGroupIds=@())
  $result=Enter-CoverageOriginalSourceView @PSBoundParameters
  $proxy=[pscustomobject]@{Original=$result.Lease;Lock=($DestinationRoot+'.lock');Root=$DestinationRoot;Probe=__PROBE__;Fail=__FAIL__}
  $proxy|Add-Member ScriptMethod Dispose {
@@ -1309,14 +1663,19 @@ function Enter-AiwTestSourceView {
  $rootNegativeManifest=Read-AiwTestJson (Join-Path $rootNegativeView.Root 'framework/versions/2.0.0/RELEASE_MANIFEST.json')
  $rootNegativeSnapshot=Get-AiwTestDependencySnapshot $rootNegativeView.Root $rootNegativeDefinitionPath $rootNegativeDefinition $rootNegativeDefinition.groups[0] ([ordered]@{})
  Check ($rootNegativeClosure.definitionIdentity-ceq(Get-AiwTestFileIdentity $rootNegativeDefinitionPath)-and$rootNegativeSnapshot.facts.inputView-ceq'SOURCE_PAYLOAD_V1'-and$rootNegativeManifest.sourceCandidate-ceq'SYNTHETIC_SOURCE_VIEW_ONLY'-and(Get-AiwTestFileIdentity (Join-Path $rootNegativeView.Root 'framework/versions/2.0.0/RELEASE_MANIFEST.json'))-ceq$rootNegativeView.ManifestIdentity) 'root-negative-valid-definition-closure-and-synthetic-inputs'
- $repair=RunCoverage 'coverage-repair' @($aPath,$bPath) ''
+ $refused=RunCoverage 'coverage-repair-rejects-b' @($aPath,$bPath) ''
+ NeedPrelaunchStop $refused 'coverage-repair-rejects-b' ORIGINAL_REJECTED
+ $newB=RunCoverage 'coverage-repair-fresh-b' -Selected @('proof.b')
+ Check ($newB.Code-eq0) 'complete-chain-explicitly-runs-repaired-b'
+ $goodB=Join-Path $rawRoot 'coverage-repair-fresh-b-groups/proof.b/executed.json'
+ $repair=RunCoverage 'coverage-repair' @($aPath,$goodB) ''
  if($repair.Code-ne0){Write-Output ('COVERAGE_EXIT_FAILURE|'+$repair.StdoutText+'|'+$repair.StderrText)}
- Check ($repair.Code-eq0-and$repair.StdoutText.Contains('GROUP|proof.a|REVALIDATED')-and$repair.StdoutText.Contains('GROUP|proof.b|START')-and$repair.StdoutText.Contains('GROUP|integration.full-source|START')) 'complete-chain-infers-owned-root-revalidates-a-and-executes-b-integration'
+ Check ($repair.Code-eq0-and$repair.StdoutText.Contains('GROUP|proof.a|REVALIDATED')-and$repair.StdoutText.Contains('GROUP|proof.b|REVALIDATED')-and$repair.StdoutText.Contains('GROUP|integration.full-source|START')) 'complete-chain-infers-owned-root-revalidates-a-b-and-executes-integration'
  $suitePath=Join-Path $rawRoot 'coverage-repair-groups/suite.json';$suite=Assert-AiwTestSuiteEvidence $suitePath $stable (Join-Path $stable 'framework/versions/2.0.0/tests/test-groups.json') -CurrentCoverage
  TestEvidenceGuardContracts $aPath (Join-Path $rawRoot 'coverage-repair-groups/proof.a/revalidation.json') $suitePath $d.groups[0]
  Check ($suite.coverage-ceq'COMPLETE'-and-not(Test-Path -LiteralPath (Join-Path $rawRoot 'coverage-repair-groups/proof.a/raw'))-and(Get-AiwTestFileIdentity $aPath)-ceq$aIdentity-and$suite.records.Count-eq3) 'complete-chain-zero-new-a-child-and-immutable-original'
  $proofPath=Join-Path $rawRoot 'coverage-repair-groups/prepackage-proof/validation-proof.json';$proof=Read-AiwTestJson $proofPath
- Check ($proof.schemaVersion-eq3-and$proof.mode-ceq'CURRENT_GROUP_COVERAGE'-and$null-eq$proof.baselineRef-and$proof.revalidationRefs.Count-eq1) 'complete-chain-export-v3-without-accepted-baseline'
+ Check ($proof.schemaVersion-eq3-and$proof.mode-ceq'CURRENT_GROUP_COVERAGE'-and$null-eq$proof.baselineRef-and$proof.revalidationRefs.Count-eq2) 'complete-chain-export-v3-without-accepted-baseline'
  $bundleRoot=Split-Path -Parent $proofPath
  Copy-AiwTestAllowlist $bundleRoot $version @((Get-AiwReleaseTreeMembers (Join-Path $bundleRoot 'validation-evidence'))|ForEach-Object{'validation-evidence/'+$_.path})
  $manifest=[pscustomobject]@{validationProof=$proof}
@@ -1500,9 +1859,11 @@ try{$null=& $module.ExportedCommands['Assert-AiwReleaseProof'] $Version ([pscust
  # full fresh run AFTER the local repair, under the same definition/env/root.
  $fresh=RunCoverage 'coverage-matched-fresh';Check ($fresh.Code-eq0) 'matched-current-candidate-real-fresh-complete-run'
  $costRepair=Read-AiwTestJson (Join-Path $rawRoot 'coverage-repair-groups/execution-cost.json');$costFresh=Read-AiwTestJson (Join-Path $rawRoot 'coverage-matched-fresh-groups/execution-cost.json')
- $saved=100*(1-$costRepair.totalMilliseconds/$costFresh.totalMilliseconds);$w=(Read-AiwTestJson $a.processResult.path).timing.wallMilliseconds
- Write-AiwTestJson (Join-Path $rawRoot 'coverage-cost-comparison.json') @{schemaVersion=1;scope='SYNTHETIC_COMPLETE_REQUIRED_SET_ONLY';fresh=$costFresh;repairResume=$costRepair;sampleImprovementPercent=$saved;sampleTargetPercent=20;sampleTargetMet=($saved-ge20);unchangedOriginalNativeMilliseconds=$w;counterfactualAvoidedMilliseconds=($w-$costRepair.preflightMilliseconds-$costRepair.revalidationMilliseconds);counterfactualSemantics='W minus planning/revalidation is an estimate, not measured net total savings';originalSlowGroupAndB3Targets='PENDING'}
- Check ($costRepair.newGroupChildCount-eq2-and$costFresh.newGroupChildCount-eq3) 'cost-records-real-starts-and-no-unexplained-a-reexecution'
+ $costExplicitB=Read-AiwTestJson (Join-Path $rawRoot 'coverage-repair-fresh-b-groups/execution-cost.json')
+ $repairWall=$costRepair.totalMilliseconds+$costExplicitB.totalMilliseconds
+ $saved=100*(1-$repairWall/$costFresh.totalMilliseconds);$w=(Read-AiwTestJson $a.processResult.path).timing.wallMilliseconds
+ Write-AiwTestJson (Join-Path $rawRoot 'coverage-cost-comparison.json') @{schemaVersion=1;scope='SYNTHETIC_COMPLETE_REQUIRED_SET_ONLY';fresh=$costFresh;repairResume=$costRepair;explicitFreshB=$costExplicitB;repairAndResumeMilliseconds=$repairWall;sampleImprovementPercent=$saved;sampleTargetPercent=20;sampleTargetMet=($saved-ge20);unchangedOriginalNativeMilliseconds=$w;counterfactualAvoidedMilliseconds=($w-$costRepair.preflightMilliseconds-$costRepair.revalidationMilliseconds);counterfactualSemantics='W minus planning/revalidation is an estimate, not measured net total savings';originalSlowGroupAndB3Targets='PENDING'}
+ Check ($costRepair.newGroupChildCount-eq1-and$costExplicitB.newGroupChildCount-eq1-and$costFresh.newGroupChildCount-eq3) 'cost-records-real-starts-and-no-unexplained-a-reexecution'
  $freshA=Join-Path $rawRoot 'coverage-matched-fresh-groups/proof.a/executed.json';$later=RunCoverage 'coverage-later-original' @($freshA,(Join-Path $rawRoot 'coverage-matched-fresh-groups/proof.b/executed.json')) -Summary
  Check ($later.Code-eq0-and$later.Transcript.Contains('GROUP|proof.a|REVALIDATED')-and$later.Transcript.Contains('GROUP|proof.b|REVALIDATED')) 'later-independent-original-executed-records-and-summary-use-complete-v3'
  TestFinalSuiteAndOwnership $freshA $aPath $aIdentity
@@ -1537,6 +1898,11 @@ if($result.Mode-cne'CURRENT_GROUP_COVERAGE'){throw 'CURRENT_READER_RESULT'}
  Write-Output ('CURRENT_COVERAGE_COST|sampleImprovementPercent='+$saved+'|targetMet='+($saved-ge20)+'|originalTargets=PENDING')
 }
 try{
+ if($FiniteEntryClosureOnly){
+  if($Group-cne'Core'-or$FixtureContractOnly-or$PublicSuiteConsumerContractOnly-or$FocusedReviewRepairOnly-or$ToolResolutionContractOnly-or$IntegrationConsumerContractOnly-or$GuardFixturePath-or$ExecutionTargetOnly-or$FailureTransportOnly-or$WorkerCompletionOnly){throw 'FINITE_ENTRY_CLOSURE_FLAGS'}
+  TestFiniteEntryClosures -ExecuteEntries
+  Write-Output ('PARTIAL|FINITE_ENTRY_CLOSURE_ONLY|checks='+$passed+'|formalGroupQualification=false');return
+ }
  if($ExecutionTargetOnly){TestActualTargetProducer;Write-Output ('PARTIAL|EXECUTION_TARGET_ONLY|checks='+$passed+'|fixture='+$temp);return}
  if($GuardFixturePath){
   $fixture=Read-AiwTestJson $GuardFixturePath
@@ -1559,6 +1925,7 @@ try{
   Write-Output ('PARTIAL|TOOL_RESOLUTION_CONTRACT_ONLY|code=0|status=PASS|scope=tool-path-restoration-and-allowlist|checks='+$passed);return
  }
  if($Group-ceq'CurrentCoverage'-and$FixtureContractOnly){TestSourceReadClosure}
+ if($Group-ceq'RouteEvidence'){TestCurrentCoverage -RouteOnly;Write-Output 'RELEASE_ROUTE_EVIDENCE_PASS|evidence.schema-resume';return}
  if($Group-cin@('CurrentCoverage','FinalSuiteAndOwnership')){TestCurrentCoverage -FinalSuiteAndOwnershipOnly:($Group-ceq'FinalSuiteAndOwnership');if($Group-ceq'FinalSuiteAndOwnership'){Write-Output ('PARTIAL|FINAL_SUITE_AND_OWNERSHIP_ONLY|checks='+$passed);return};if(-not($FixtureContractOnly-or$PublicSuiteConsumerContractOnly-or$FailureTransportOnly-or$WorkerCompletionOnly)){Write-Output ('RESULT|'+$passed+'/'+$passed+' passed|scope=test-group-evidence')};return}
  TestSourceReadClosure
  foreach($name in @('TestHarness.psm1','TestNativeOutput.psm1','TestExecutionRuntime.psm1','TestGroupEvidence.psm1')){[IO.File]::Copy((Join-Path $PSScriptRoot $name),(Join-Path $tests $name))}
@@ -1622,7 +1989,7 @@ try{
   try{
    [IO.File]::AppendAllText($process.Record.stdout.path,'actual raw drift after planning')
    $invalid=Select-AiwTestGroupExecution $fixtureGroup $after @($recordPath,$otherResume) -PlanOnly
-   Check ($invalid.selection-ceq'EXECUTE'-and$invalid.reason.Contains('RAW_CORRUPT')) 'resume-index-never-caches-pass-after-original-raw-drift'
+   Check ($invalid.selection-ceq'ORIGINAL_REJECTED'-and$invalid.reason.Contains('RAW_CORRUPT')) 'resume-index-never-caches-pass-after-original-raw-drift'
   }finally{[IO.File]::WriteAllBytes($process.Record.stdout.path,$rawBefore)}
  }finally{& $resumeOwner {param($previous)Exit-TestResumeReadScope $previous} $resumePrevious}
  try{

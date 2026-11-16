@@ -4,8 +4,8 @@
 Project ID=`{{PROJECT_ID}}`；repo-local control plane=`.ai-workspace/`；pinned Framework=`{{FRAMEWORK_VERSION}}`。本入口只导航当前项目固定合同；聊天、摘要、开发HEAD和网络仅可作定位材料。
 
 1. 从用户明确项目根或原任务已绑定controlRoot核对真实路径/保护，读取本根project、controller、corrections、process-policy及当前人类约定。普通非Git项目不要求Git。若初始指令明确原controlRoot和执行target，先核原任务descriptor，不把executionRoot的历史复制控制面当权威。
-2. 从project pin及原采用记录定位唯一固定runtimeRoot，验证原完成来源和TOOLCHAIN；未完事务沿原健康入口恢复，未知或漂移不转开发目录。具体恢复与来源消费取该固定版本RECOVERY_CORE，必要接入分支取根PROJECT_ADOPTION。
-3. 已知taskId直接读当前卡，未知才用tasks/README定位，STATUS按实际全局事实需要读取；绑定真实请求/责任/动作/范围。无适用任务的合法只读问题使用PROJECT_READ_ONLY，不造假卡。
+2. 从project pin及.ai-workspace/upgrade-recovery/<version>/state.json中的distributionBinding定位唯一固定runtimeRoot；按REGISTER origin及当前REGISTER/UPGRADE/REFRESH完成链核来源和TOOLCHAIN，不扫描历史找最新运行包。未完事务沿原健康入口恢复，未知或漂移不转开发目录。恢复取固定RECOVERY_CORE，具体接入分支取根PROJECT_ADOPTION。
+3. 已知taskId直接读原卡，未知任务才用tasks/README定位，STATUS按实际需要读。新请求先按稳定成果subject、项目卡/质量策略及当前人类决定选上下文：REQUIRED用TASK；OMIT且有成果门、有限写入或多步成果用PROJECT_WORK；无适用任务只读用PROJECT_READ_ONLY；只有无需卡/成果门且许可覆盖的普通工具用PROJECT_EXTERNAL。缺省LEGACY，已有TASK沿原卡完成。
 4. 读取固定TOOL_CONTRACT唯一IntentEnvelope构造段，从当前目标形成意图；调用前按预期完整正文为外层编排与内层命令都留足输出预算，提升内层不改变外层。通过TOOLCHAIN解析PROCESS_REQUIREMENTS_RESOLVE，按RECOVERY同次去重、组装全部当前必要完整正文和义务。只向模型输出一份官方text，不混入整份机器JSON或其他长输出；真实截断从同次返回或按需DisplayPath补缺失完整单元及义务，不重新选择。再读取必要支持材料，普通链接不自动成为规范依赖；具体宿主调用见EXAMPLES。
 5. 每个真实受治理动作满足授权checker及ADMIT；已证明等价的普通schema1由ADMIT内原完整checker满足，省外部重复命令，schema4/专门路径未证仍分别调用。正式结果按实际证据与消费者FINALIZE，只有RECOVERY_CORE的PR_PROCESS_REQUIREMENTS_PROGRESSIVE_BOUNDARIES所定义普通USER答复窄例外可省机械收口，不造收据；范围/权限/来源变化按命中规则处理。具体输入、schema、continuation、控制转换及临时生命周期唯一取TOOL_CONTRACT，不从模板推导权限。
 

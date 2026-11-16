@@ -171,10 +171,17 @@
       "targetFormat": 1,
       "storageClass": "IMMUTABLE_EVIDENCE",
       "supportedStarts": [
-        1
+        1,
+        2,
+        3
       ],
       "entries": [],
-      "adapters": []
+      "adapters": [],
+      "readFormats": [
+        1,
+        2,
+        3
+      ]
     },
     {
       "objectType": "CONTROLLER",

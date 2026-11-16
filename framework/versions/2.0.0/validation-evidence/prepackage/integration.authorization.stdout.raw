@@ -248,8 +248,10 @@ PASS|maintenance-process-native-full-discover-ascii-json
 PASS|maintenance-process-native-inprocess-complete-ordered-rule-bodies-and-writers
 PASS|maintenance-process-fulltext-matches-complete-display-parts-framework:PR_ACTION_AUTHORIZATION_INDEPENDENT
 PASS|maintenance-process-fulltext-matches-complete-display-parts-framework:PR_AUTHORITY_CONTEXT_INTENT_RECONCILIATION
+PASS|maintenance-process-fulltext-matches-complete-display-parts-framework:PR_BOUNDED_TASK_ACTIONS
 PASS|maintenance-process-fulltext-matches-complete-display-parts-framework:PR_CODEX_RESOURCE_ROUTE
 PASS|maintenance-process-fulltext-matches-complete-display-parts-framework:PR_CODEX_ROUTER_REACTIVATION
+PASS|maintenance-process-fulltext-matches-complete-display-parts-framework:PR_CODEX_SESSION_ORGANIZATION
 PASS|maintenance-process-fulltext-matches-complete-display-parts-framework:PR_CODEX_TOOL_OPERATION_RESOLUTION
 PASS|maintenance-process-fulltext-matches-complete-display-parts-framework:PR_COMPACT_NON_INTERRUPT_DELIVERY
 PASS|maintenance-process-fulltext-matches-complete-display-parts-framework:PR_CORRECTIONS_V2_COMPATIBILITY
@@ -265,11 +267,15 @@ PASS|maintenance-process-fulltext-matches-complete-display-parts-framework:PR_RE
 PASS|maintenance-process-fulltext-matches-complete-display-parts-framework:PR_RECOVERY_ROLE_REBIND
 PASS|maintenance-process-fulltext-matches-complete-display-parts-framework:PR_REVIEW_QUALIFICATION_AND_PLANNING
 PASS|maintenance-process-fulltext-matches-complete-display-parts-framework:PR_TASK_CHANGED_OUTPUT_DISPOSITION
+PASS|maintenance-process-fulltext-matches-complete-display-parts-framework:PR_TASK_CLOSURE_AND_ARCHIVAL
 PASS|maintenance-process-fulltext-matches-complete-display-parts-framework:PR_TASK_COLLABORATION_BOUNDARY
+PASS|maintenance-process-fulltext-matches-complete-display-parts-framework:PR_TASK_DESIGN_AND_SPECIFICATION
 PASS|maintenance-process-fulltext-matches-complete-display-parts-framework:PR_TASK_IMPLEMENTATION_JUDGMENT
 PASS|maintenance-process-fulltext-matches-complete-display-parts-framework:PR_TASK_LAUNCH_AND_ROUTE
+PASS|maintenance-process-fulltext-matches-complete-display-parts-framework:PR_TASK_PROBLEM_DRIVEN_IMPROVEMENT
 PASS|maintenance-process-fulltext-matches-complete-display-parts-framework:PR_TASK_RESOURCE_SELECTION
 PASS|maintenance-process-fulltext-matches-complete-display-parts-framework:PR_TASK_SCOPE_AND_FORBIDDEN
+PASS|maintenance-process-fulltext-matches-complete-display-parts-framework:PR_TASK_TERMINAL_DELIVERY
 PASS|maintenance-process-fulltext-matches-complete-display-parts-framework:PR_USER_DECISION_DRIFT
 PASS|maintenance-process-fulltext-matches-complete-display-parts-framework:PR_WORKFLOW_TRANSITION_MECHANICAL_BOUNDARY
 PASS|maintenance-process-fulltext-matches-complete-display-parts-project:framework-maintenance-fixture:FRAMEWORK_MAINTENANCE_SIBLING_TOPOLOGY
@@ -404,4 +410,4 @@ PASS|local-candidate-recovery-rejects-candidate-payload-drift
 PASS|local-candidate-recovery-payload-bytes-restored
 PASS|local-candidate-recovery-payload-drift-restored-baseline
 FIXTURE_CLEAN|integration-private-root
-RESULT|322/322 passed|scope=Framework-2.0.0-authorization|
+RESULT|328/328 passed|scope=Framework-2.0.0-authorization|

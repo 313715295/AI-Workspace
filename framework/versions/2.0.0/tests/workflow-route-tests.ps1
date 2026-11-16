@@ -69,7 +69,7 @@ $maintenanceOverlayRoot=Join-Path ([IO.Path]::GetFullPath((Join-Path $candidateR
 $workflowEntryDocuments = @(
     @{path=(Join-Path $candidateRoot 'TASK_AND_SCOPE.md');required=@('WORKFLOW_ROUTE_RESOLVE','TOOL_CONTRACT','必需输入缺失或冲突时停止该转换')},
     @{path=(Join-Path $candidateRoot 'HOST_CODEX.md');required=@('TOOLCHAIN','TOOL_CONTRACT','精确operation入口','失败停依赖链')},
-    @{path=(Join-Path $candidateRoot 'PROMPTS.md');required=@('WORKFLOW_ROUTE_RESOLVE','TOOL_CONTRACT','ephemeral','fail closed')},
+    @{path=(Join-Path $candidateRoot 'PROMPTS.md');required=@('WORKFLOW_ROUTE_RESOLVE','TOOL_CONTRACT','-InputJson','不落盘','最后消费者','缺失或冲突停止')},
     @{path=(Join-Path $candidateRoot 'project-starter/BOOTSTRAP.md');required=@('TOOLCHAIN','TOOL_CONTRACT','PROCESS_REQUIREMENTS_RESOLVE','具体输入、schema、continuation')},
     @{path=(Join-Path $maintenanceOverlayRoot 'BOOTSTRAP.md');required=@('TOOL_CONTRACT','resolve-framework-maintenance-process-requirements.ps1','临时材料的具体合同','不授予移动仓库或切换运行包权限')}
 )

@@ -30,13 +30,22 @@ try{
     $pending=$raw|ConvertFrom-Json -Depth 100;$fields=@('schemaVersion','delegationId','receiverRole','authorizationTemplate')
     if($pending-isnot[pscustomobject]-or@($pending.PSObject.Properties).Count-ne$fields.Count-or@($fields|Where-Object{$_-cnotin@($pending.PSObject.Properties.Name)}).Count-or[int]$pending.schemaVersion-ne1-or[string]$pending.delegationId-cne$ReceivedDelegationId-or[string]$pending.receiverRole-cnotin@('IMPLEMENTER','INVESTIGATOR','REVIEWER')){throw 'INITIAL_DELEGATION_MISMATCH'}
     $package=$pending.authorizationTemplate
-    if($package-isnot[pscustomobject]-or[int]$package.schemaVersion-notin@(1,2,4)-or[string]$package.grantee-cne'UNBOUND_RECEIVER'-or$null-ne$package.PSObject.Properties['receiverBinding']){throw 'PENDING_PACKAGE_NOT_TEMPLATE'}
+    if($package-isnot[pscustomobject]-or[int]$package.schemaVersion-notin@(1,2,4,5)-or[string]$package.grantee-cne'UNBOUND_RECEIVER'-or$null-ne$package.PSObject.Properties['receiverBinding']){throw 'PENDING_PACKAGE_NOT_TEMPLATE'}
     if($package.schemaVersion-eq4-and($package.controlRoot-cne$control-or$package.repositoryId-cne'PROJECT')){throw 'PENDING_EXECUTION_TARGET_BINDING'}
     $actions=@($package.actions)
     if(([string]$pending.receiverRole-ceq'REVIEWER'-and($actions.Count-ne1-or[string]$actions[0]-cne'REVIEW_EXECUTE'-or[string]$package.reviewIndependence-cne'INDEPENDENT'))-or([string]$pending.receiverRole-ceq'IMPLEMENTER'-and($actions.Count-eq0-or@($actions|Where-Object{$_-cnotin@('SOURCE_WRITE','TEST_WRITE','TEST_RUN','REVIEW_ROUTE')}).Count-gt0))-or([string]$pending.receiverRole-ceq'INVESTIGATOR'-and($actions.Count-ne1-or[string]$actions[0]-cnotin@('NONE','TEST_RUN')))){throw 'RECEIVER_ROLE_ACTION'}
     if('NONE'-cin$actions){foreach($field in @('continuationPlan','selfCheckRepairLimit','repairReviewPlan','repairReviewBinding','transitionPlan','acceptanceBinding','sourcePublicationBinding','externalBinding','gitPushBinding')){if($null-ne$package.PSObject.Properties[$field]){throw ('READER_ASSIGNMENT_EXTENSION|'+$field)}}}
-    if([string]$package.taskId-cnotmatch'^[A-Za-z0-9][A-Za-z0-9._-]*$'){throw 'PENDING_TASK_ID'}
-    $taskDir=Join-Path $runtime ([string]$package.taskId)
+    if($package.schemaVersion-eq5){
+        Import-Module (Join-Path $PSScriptRoot 'ProcessRequirementComposition.psm1')
+        if($package.requestContext.actor-cne'UNBOUND_RECEIVER'){throw 'PENDING_WORK_ACTOR'}
+        $package.requestContext.actor=$actor
+        Assert-AiwProjectWorkContext $package.requestContext
+        $segment='request-'+(Get-AiwWorkRequestKey $package.requestContext).Split('|')[1].Substring(0,32)
+    }else{
+        if([string]$package.taskId-cnotmatch'^[A-Za-z0-9][A-Za-z0-9._-]*$'){throw 'PENDING_TASK_ID'}
+        $segment=[string]$package.taskId
+    }
+    $taskDir=Join-Path $runtime $segment
     if(-not$pendingFull.StartsWith($taskDir+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)){throw 'PENDING_TASK_DIRECTORY_MISMATCH'}
     $package.grantee=$actor
     if($null-ne$package.PSObject.Properties['repairReviewPlan']){

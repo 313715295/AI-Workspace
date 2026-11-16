@@ -1,3 +1,12 @@
+WARNING: The names of some imported commands from the module 'IntegrationFixture' include unapproved verbs that might make them less discoverable. To find the commands with unapproved verbs, run the Import-Module command again with the Verbose parameter. For a list of approved verbs, type Get-Verb.
+PASS|git-isolation-removes-inherited-config-and-repository-overrides
+PASS|git-isolation-owns-empty-system-and-global-configs
+PASS|git-isolation-actual-init-and-commit-ignore-inherited-template-hooks-and-signing
+PASS|git-isolation-real-native-child-inherits-controlled-baseline
+PASS|git-isolation-deliberate-negative-override-still-injected-and-restored
+PASS|git-isolation-restores-exact-inherited-process-values
+PASS|git-isolation-preserves-inherited-config-bytes-and-unexecuted-hook
+PASS|tool-observation-binds-actual-physical-PS5-despite-PATH-homonym
 PASS|consumer-skip-owned-entry-integration.surface
 PASS|consumer-real-param-binding-integration.surface
 PASS|consumer-skip-owned-entry-integration.maintenance
@@ -138,8 +147,13 @@ PASS|read-closure-current-whole-factory-124-release.proof-schema
 PASS|read-closure-current-whole-factory-124-release.prepackage-readers
 PASS|read-closure-finite-consistent-declaration-before-construction
 PASS|read-closure-real-owned-view-projection
+PASS|read-closure-private-capture-does-not-hide-mid-preparation-source-drift|reason=TEST_SOURCE_PREPARATION_DRIFT|.gitattributes
+PASS|read-closure-constructor-captured-observation-shares-complete-finite-closure
+PASS|read-closure-private-shared-consumer-does-not-reopen-captured-source-bytes
+PASS|read-closure-public-before-export-independently-observes-locked-source
 PASS|read-closure-view-missing-attrs|reason=TEST_SOURCE_VIEW_INPUT_MISSING|.gitattributes
 PASS|read-closure-view-byte-drift|reason=TEST_SOURCE_VIEW_INPUT_DRIFT|.gitattributes
+PASS|read-closure-private-shared-consumer-checks-actual-view-readback|reason=TEST_SOURCE_VIEW_INPUT_DRIFT|.gitattributes
 PASS|read-closure-hidden-source-ci-at-terminal|reason=TEST_SOURCE_READ_FORBIDDEN_ROOT|.github/workflows/framework-toolchain-conformance.yml
 PASS|read-closure-unsealed-source-root-state|reason=TEST_SOURCE_READ_FORBIDDEN_ROOT|PACKAGE_MANIFEST.json
 PASS|read-closure-optional-present-unbound|reason=TEST_SOURCE_READ_OPTIONAL_UNBOUND|INITIALIZATION.md
@@ -160,6 +174,10 @@ PASS|read-closure-private-helper-required-integration.authorization|reason=TEST_
 PASS|read-closure-formal-domain-rejects-partial-arguments-integration.authorization|reason=TEST_SOURCE_READ_CONSUMER_ARGUMENTS
 PASS|read-closure-private-helper-required-integration.process|reason=TEST_SOURCE_READ_DEPENDENCY|integration.process|framework/versions/2.0.0/tests/IntegrationFixture.psm1
 PASS|read-closure-formal-domain-rejects-partial-arguments-integration.process|reason=TEST_SOURCE_READ_CONSUMER_ARGUMENTS
+PASS|read-closure-physical-PS5-tool-required-integration.surface|reason=TEST_SOURCE_READ_TOOL|integration.surface|powershell.exe
+PASS|read-closure-physical-PS5-root-required-integration.surface|reason=TEST_SOURCE_READ_ENVIRONMENT|integration.surface|SystemRoot
+PASS|read-closure-physical-PS5-tool-required-integration.maintenance|reason=TEST_SOURCE_READ_TOOL|integration.maintenance|powershell.exe
+PASS|read-closure-physical-PS5-root-required-integration.maintenance|reason=TEST_SOURCE_READ_ENVIRONMENT|integration.maintenance|SystemRoot
 PASS|read-closure-conflicting-real-entry-arguments|reason=TEST_SOURCE_READ_CONSUMER_ARGUMENTS
 PASS|read-closure-real-entry-required-tools|reason=TEST_SOURCE_READ_TOOL|integration.full-source|git
 PASS|read-closure-whole-view-factory-dependency|reason=TEST_SOURCE_READ_DEPENDENCY|release.proof-schema|framework/ROADMAP.md
@@ -352,4 +370,31 @@ PASS|mapping-restored-tool-path-governance-contract
 PASS|mapping-restored-tool-path-non-git.transactions
 PASS|mapping-allowlist-rejects-parent-path|reason=TEST_ALLOWLIST_PATH|../outside
 PASS|mapping-allowlist-rejects-reparse|reason=TEST_REPARSE_PATH
-RESULT|354/354 passed|scope=test-group-evidence
+PASS|finite-entry-explicit-contract-workflow-delivery
+PASS|finite-entry-unrelated-input-excluded-workflow-delivery
+PASS|finite-entry-explicit-contract-adoption.entry-templates
+PASS|finite-entry-unrelated-input-excluded-adoption.entry-templates
+PASS|finite-entry-explicit-contract-facets-selection
+PASS|finite-entry-unrelated-input-excluded-facets-selection
+PASS|finite-entry-mapping-unrelated-real-test-workflow-delivery
+PASS|finite-entry-mapping-unrelated-real-test-adoption.entry-templates
+PASS|finite-entry-mapping-unrelated-real-test-facets-selection
+PASS|finite-entry-mapping-prompts-actual-example-workflow-delivery
+PASS|finite-entry-mapping-prompts-actual-example-adoption.entry-templates
+PASS|finite-entry-mapping-prompts-actual-example-facets-selection
+PASS|finite-entry-mapping-catalog-workflow-delivery
+PASS|finite-entry-mapping-catalog-adoption.entry-templates
+PASS|finite-entry-mapping-catalog-facets-selection
+PASS|finite-entry-mapping-entry-template-workflow-delivery
+PASS|finite-entry-mapping-entry-template-adoption.entry-templates
+PASS|finite-entry-mapping-entry-template-facets-selection
+PASS|finite-entry-mapping-delivery-consumer-workflow-delivery
+PASS|finite-entry-mapping-delivery-consumer-adoption.entry-templates
+PASS|finite-entry-mapping-delivery-consumer-facets-selection
+PASS|finite-entry-mapping-root-state-workflow-delivery
+PASS|finite-entry-mapping-root-state-adoption.entry-templates
+PASS|finite-entry-mapping-root-state-facets-selection
+PASS|finite-entry-mapping-restored-workflow-delivery
+PASS|finite-entry-mapping-restored-adoption.entry-templates
+PASS|finite-entry-mapping-restored-facets-selection
+RESULT|398/398 passed|scope=test-group-evidence

@@ -171,5 +171,9 @@ PASS|owned-subset-rejects-duplicate-request-members|CONTENT_IDENTITY_DRIFT|POLIC
 PASS|owned-subset-rejects-changed-adopted-record|CONTENT_IDENTITY_DRIFT|POLICY_SOURCE_SET
 PASS|owned-batch-public-context-pollution-remains-rejected|CONTENT_IDENTITY_DRIFT|CONTEXT
 PASS|owned-batch-output-mutation-cannot-pollute-next-independent-call
+PASS|owned-reused-context-result-descriptor-and-permission-aliases-are-isolated
+PASS|owned-fast-context-still-rejects-nested-public-policy-mutation|CONTENT_IDENTITY_DRIFT|CONTEXT
+PASS|owned-fast-context-preserves-ordinal-equivalence-for-reordered-members
+PASS|owned-current-batch-does-not-deep-copy-whole-policy-or-canonicalize-unchanged-context
 PASS|owned-batch-mid-policy-drift-never-delivers-mixed-success
-CONTENT_SOURCES_LOCAL_TESTS|PASS|174
+CONTENT_SOURCES_LOCAL_TESTS|PASS|178

@@ -21,13 +21,13 @@
 <!-- AIW-REQUIREMENT:PR_PROCESS_REQUIREMENTS_THREE_SOURCE_COMPOSITION:BEGIN -->
 PROCESS_REQUIREMENTS_RESOLVE是唯一过程组合入口：组合当前固定原生规则、仍有效项目纠正及永久项目规则，各自保留来源权威；DISCOVER不授权，ADMIT与FINALIZE分别消费实际准备/结果。项目policy及规范custom按真实职责可并存，但同一义务只有一份有效完整正文，重复/冲突不能静默覆盖。
 
-先验证完整有效集合、来源许可与保护，再选择本次命中正文。项目可直接采用使用者维护的完整文档、唯一章节或已声明规范单元及其完整有序依赖；不得以摘要代规范、扫描普通链接扩依赖、越过来源许可或因未命中就忽略缺失的有效成员。SOURCE读取不授写权。
+日常先验证完整有效声明及来源许可、保护，再按当前意图选择，读取并验证命中正文的完整公共条件与有序依赖；注册、升级和规则采用/变更边界验证完整目标采用集合。项目可采用维护者提供的完整文档、唯一章节或已声明规范单元；保持声明成员完整，正文不以摘要替代，依赖不从普通链接推导，读取不扩大许可或授予写权。未命中正文不作为其健康证明。
 
 R2规范单元模式将物理raw观察与完整规范身份分开，绑定公共条件、例外、selector、义务及有序依赖；旧整文件模式仍严格。正文、采用、许可或完整闭包实变须重绑，不切最新来源救旧动作；同文件无关位置变化不冒充规范变化。精确字段/算法及FULL/REUSE显示取TOOL_CONTRACT和RECOVERY，固定运行包、授权对象与写入前像的整文件校验不放松。
 
 AI根据项目原决定准备policy/sourceBindings，用户无需手写JSON；直接引用已经可用，精炼、拆分和重排均为可选。替换规范须同次退出旧项、加入完整新项并完成原修改/验证门。随包standard/preset只提供来源，展开后不构成第四权威，也不自动抑制原生治理或更新其他项目。固定/跟随边界由原项目决定表达，不新增后台同步或中央采用登记。
 
-三源使用同一结构轴和四维facets。确定事实不符先排除，UNKNOWN只在其他已知边界内保守选择；提示词不能推翻实际action/role/scope。详细选择和格式迁移由TOOL_CONTRACT统一定义，不另设自然语言意图服务。
+三源使用同一结构轴及domain、workType、deliverableType三维核心；stage按当前合同可选，旧四维输入沿兼容分支。确定事实不符先排除，UNKNOWN只在其他已知边界内保守选择；提示词不能推翻实际action/role/scope。详细选择和格式迁移由TOOL_CONTRACT统一定义，不另设自然语言意图服务。
 <!-- AIW-REQUIREMENT:PR_PROCESS_REQUIREMENTS_THREE_SOURCE_COMPOSITION:END -->
 
 <!-- AIW-REQUIREMENT:PR_CONTROLLER_HANDOFF_DIRECTIONAL:BEGIN -->

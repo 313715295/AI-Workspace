@@ -63,14 +63,56 @@ if($ArchiveCasesOnly){
 }
 $temp=Join-Path ([IO.Path]::GetTempPath()) ('aiw-process-v2-'+[guid]::NewGuid().ToString('N'))
 $outsideTemp=Join-Path ([IO.Path]::GetTempPath()) ('aiw-process-v2-outside-'+[guid]::NewGuid().ToString('N'))
+$gitFixture=@(Import-Module (Join-Path $PSScriptRoot 'IntegrationFixture.psm1') -Prefix FixtureGit -PassThru)[0]
+$gitScope=$null
 try{
   New-Item -ItemType Directory -Path $temp -Force|Out-Null
+  $gitScope=& $gitFixture {param($r) Enter-IntegrationGitEnvironment $r} $temp
   foreach($templatePath in @((Join-Path $sourceFrameworkRoot 'framework\versions\2.0.0\project-starter\BOOTSTRAP.md'),(Join-Path $sourceFrameworkRoot 'framework\maintenance-overlay\BOOTSTRAP.md'))){$templateText=Get-Content -Raw -Encoding utf8 -LiteralPath $templatePath;$templateRegion=[regex]::Match($templateText,'(?s)<!-- PROJECT-CUSTOM:BEGIN -->(.*?)<!-- PROJECT-CUSTOM:END -->');Assert-True ($templateRegion.Success-and[string]::IsNullOrWhiteSpace($templateRegion.Groups[1].Value)) ('template-project-custom-region-structurally-empty-'+[IO.Path]::GetFileName((Split-Path -Parent $templatePath)))}
-  & git -C $temp init -q
+  & $gitFixture {param($root) New-GitRepo $root} $temp
   # Copy the declared runtime recipe, excluding historical Qpre attachments.
-  $fixtureDefinition=Get-Content -LiteralPath (Join-Path $PSScriptRoot 'test-groups.json') -Raw|ConvertFrom-Json -Depth 100
+  # Explicit conservative runtime members; no mutable test definition is consumed.
+$fixtureVersionPaths=@(
+ 'ACCEPTANCE_PLAN_SCHEMA.json','ADOPTION_PROFILE.json','AUTHORITY_CONTEXT_SCHEMA.json',
+ 'AUTHORIZATION_MODEL.md','CHANGELOG.md','CONTENT_CATALOG_SCHEMA.json',
+ 'CONTROL_TRANSITION_SCHEMA.json','CONTROLLER_SCHEMA.json','EVIDENCE_RECORD_SCHEMA.json',
+ 'EXAMPLES.md','GIT_AND_EXTERNAL.md','HOST_CODEX.md',
+ 'host/skills/ai-workspace-router-v2/SKILL.md','INTENT_ENVELOPE_SCHEMA.json','KNOWLEDGE_AND_REFERENCE.md',
+ 'KNOWLEDGE_SCHEMA.json','knowledge/cross-domain/ARTIFACT_CLASSIFICATION.md','knowledge/cross-domain/PROBLEM_DRIVEN_IMPROVEMENT.md',
+ 'knowledge/game/BEHAVIOR_AND_PERFORMANCE.md','knowledge/game/PRESENTATION_AUTHORITY.md','knowledge/game/UI_INPUT_CANCELLATION.md',
+ 'knowledge/index.json','knowledge/README.md','knowledge/software/BEHAVIOR_SPEC_CHANGE.md',
+ 'LOAD_MANIFEST.json','MIGRATION_MATRIX.md','NORMATIVE_SURFACE_INVENTORY.json',
+ 'object-formats/adapters/knowledge-index-1-to-2.ps1','object-formats/adapters/knowledge-index-2-to-3.ps1','object-formats/adapters/process-policy-1-to-2.ps1',
+ 'object-formats/adapters/project-config-4-to-5.ps1','object-formats/adapters/project-config-5-to-6.ps1','object-formats/adapters/project-corrections-1-to-2.ps1',
+ 'object-formats/adapters/project-corrections-2-to-3.ps1','object-formats/ASSEMBLY.json','PERSPECTIVE_LENSES.md',
+ 'PROCESS_POLICY_SCHEMA.json','PROCESS_REQUIREMENTS_EVALUATION.md','PROCESS_REQUIREMENTS.json',
+ 'PROJECT_CONFIG_SCHEMA.json','PROJECT_CONTROL.md','PROJECT_CORRECTIONS_SCHEMA.json',
+ 'project-starter/.gitattributes','project-starter/AGENTS.md','project-starter/BOOTSTRAP.md',
+ 'project-starter/controller.json','project-starter/corrections.json','project-starter/process-policy.json',
+ 'project-starter/project.json','project-starter/PROJECT.md','project-starter/STATUS.md',
+ 'project-starter/tasks/README.md','PROMPTS.md','README.md',
+ 'RECOVERY_CORE.md','requirements/fragments/AUTHORIZATION_MODEL.json','requirements/fragments/GIT_AND_EXTERNAL.json',
+ 'requirements/fragments/HOST_CODEX.json','requirements/fragments/KNOWLEDGE_AND_REFERENCE.json','requirements/fragments/PROJECT_CONTROL.json',
+ 'requirements/fragments/RECOVERY_CORE.json','requirements/fragments/REVIEW_AND_EVIDENCE.json','requirements/fragments/TASK_AND_SCOPE.json',
+ 'REVIEW_AND_EVIDENCE.md','scripts/AuthorizationCheck.psm1','scripts/bind-receiver-authorization.ps1',
+ 'scripts/build-process-requirements.ps1','scripts/check-authorization.ps1','scripts/check-knowledge-entry.ps1',
+ 'scripts/check-knowledge-impact.ps1','scripts/check-project-corrections.ps1','scripts/check-task-card.ps1',
+ 'scripts/ContentSources.psm1','scripts/ControlTransition.psm1','scripts/invoke-protected-safe-git.ps1',
+ 'scripts/KnowledgeSources.psm1','scripts/ObjectFormats.psm1','scripts/ProcessRequirementBoundary.psm1',
+ 'scripts/ProcessRequirementComposition.psm1','scripts/ProcessRequirementDisplay.psm1','scripts/ProjectSourcePublication.psm1',
+ 'scripts/resolve-control-transition.ps1','scripts/resolve-load-plan.ps1','scripts/resolve-process-requirements.ps1',
+ 'scripts/resolve-workflow-route.ps1','scripts/ResultEvidence.psm1','scripts/StrictJsonInput.psm1',
+ 'scripts/WorkflowDelivery.psm1','standards/presets/software.json','standards/README.md',
+ 'standards/software/DESIGN.md','standards/software/IMPLEMENTATION.md','standards/software/VALIDATION.md',
+ 'STATIC_COMPARISON.md','TASK_AND_SCOPE.md','TASK_TEMPLATE.md',
+ 'TOOL_CONTRACT.md','TOOLCHAIN.json','VERSION.json',
+ 'scripts/ReleaseValidation.psm1','tests/TestExecutionRuntime.psm1','scripts/TestEvidenceValidation.psm1',
+ 'scripts/ExecutionTargetContext.psm1','EXECUTION_TARGET_SCHEMA.json','object-formats/adapters/project-config-6-to-7.ps1',
+ 'object-formats/adapters/process-policy-2-to-3.ps1','tests/PROCESS_REQUIREMENTS_FIXTURES.json','tests/PROCESS_REQUIREMENTS_BUDGETS.json',
+ 'tests/measure-process-requirements.ps1','tests/TestNativeOutput.psm1'
+)
   $frameworkRoot=Join-Path $temp 'framework-root'
-  $fixtureVersion=New-AiwTestRuntimeFixture -SourceRoot $sourceFrameworkRoot -DestinationRoot $frameworkRoot -VersionPaths @($fixtureDefinition.mechanismVersionPaths)
+  $fixtureVersion=New-AiwTestRuntimeFixture -SourceRoot $sourceFrameworkRoot -DestinationRoot $frameworkRoot -VersionPaths $fixtureVersionPaths -RootPaths @()
   $control=Join-Path $temp '.ai-workspace';New-Item -ItemType Directory -Path (Join-Path $control 'tasks\active') -Force|Out-Null
   Write-Json (Join-Path $control 'project.json') ([ordered]@{schemaVersion=7;id='process-v2-fixture';displayName='Process V2 Fixture';controlPlaneLayout='repo-local';repositoryRoot='..';frameworkVersion='2.0.0';frameworkToolBackend='powershell7';routineExcludedPaths=@();frameworkCapabilities=[ordered]@{};sourceBindings=@();processPolicy=[ordered]@{schemaVersion=3;locator='.ai-workspace/process-policy.json'}})
   Write-Json (Join-Path $control 'controller.json') ([ordered]@{schemaVersion=1;projectId='process-v2-fixture';controllerId='controller-fixture';controllerEpoch=1;state='CURRENT'})
@@ -350,7 +392,7 @@ try{
   Import-Module (Join-Path $fixtureVersion 'scripts/ExecutionTargetContext.psm1') -Force
   $priorGitDir=$env:GIT_DIR
   try{$env:GIT_DIR=Join-Path $temp 'deliberately-missing-git';$same=Resolve-AiwExecutionTargetContext -ProjectRoot $temp -ProjectId 'process-v2-fixture' -TaskPath $taskPath}
-  finally{$env:GIT_DIR=$priorGitDir}
+  finally{[Environment]::SetEnvironmentVariable('GIT_DIR',$(if($null-eq$priorGitDir){[NullString]::Value}else{$priorGitDir}),'Process')}
   Assert-True ($same.targetKind-ceq'SAME_ROOT'-and$same.executionRoot-ceq$temp-and$null-eq$same.targetObservation) 'same-root-observer-never-probes-git'
 
   function TargetGit([string]$Root,[string[]]$Arguments){
@@ -378,7 +420,7 @@ try{
   $advanced=Resolve-AiwExecutionTargetContext -ProjectRoot $temp -ProjectId 'process-v2-fixture' -TaskPath $taskPath -ExecutionTargetRef $targetRef
   Assert-True ($advanced.targetObservation.head-cne$baseline-and$descriptor.gitBinding.baselineCommit-ceq$baseline) 'target-initial-baseline-and-current-head-are-separate-observations'
   RejectTarget {Resolve-AiwExecutionTargetContext -ProjectRoot $temp -ProjectId 'process-v2-fixture' -TaskPath $taskPath -ExecutionTargetRef $targetRef -ForbiddenPaths @('target-worktree')} 'EXECUTION_TARGET_PROTECTED_PATH' 'mapped-target-protection-rejects-before-candidate-metadata'
-  try{$env:GIT_DIR=Join-Path $temp 'override';RejectTarget {Resolve-AiwExecutionTargetContext -ProjectRoot $temp -ProjectId 'process-v2-fixture' -TaskPath $taskPath -ExecutionTargetRef $targetRef} 'EXECUTION_TARGET_GIT_OVERRIDE' 'worktree-observer-rejects-git-environment-override'}finally{$env:GIT_DIR=$priorGitDir}
+  try{$env:GIT_DIR=Join-Path $temp 'override';RejectTarget {Resolve-AiwExecutionTargetContext -ProjectRoot $temp -ProjectId 'process-v2-fixture' -TaskPath $taskPath -ExecutionTargetRef $targetRef} 'EXECUTION_TARGET_GIT_OVERRIDE' 'worktree-observer-rejects-git-environment-override'}finally{[Environment]::SetEnvironmentVariable('GIT_DIR',$(if($null-eq$priorGitDir){[NullString]::Value}else{$priorGitDir}),'Process')}
   Write-Utf8 $decisionPath 'Changed original selection decision.'
   RejectTarget {Resolve-AiwExecutionTargetContext -ProjectRoot $temp -ProjectId 'process-v2-fixture' -TaskPath $taskPath -ExecutionTargetRef $targetRef} 'EXECUTION_TARGET_EVIDENCE_DRIFT' 'target-original-decision-byte-drift-rejects'
   [IO.File]::WriteAllText($taskPath,$originalTargetTask,$utf8)
@@ -1048,8 +1090,10 @@ try{
     Move-Item -LiteralPath $heldGitDirectory -Destination $gitDirectory
   }
 }finally{
+ try{
   $docsLink=Join-Path $temp 'docs';$remainingDocsLink=Get-Item -LiteralPath $docsLink -Force -ErrorAction SilentlyContinue;if($null-ne$remainingDocsLink-and($remainingDocsLink.Attributes-band[IO.FileAttributes]::ReparsePoint)-ne0){Remove-FixtureJunction $docsLink $temp}
   if(Test-Path -LiteralPath $outsideTemp){$outsideRoot=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath([IO.Path]::GetTempPath()));$outsideResolved=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($outsideTemp));if(-not$outsideResolved.StartsWith($outsideRoot+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)-or[IO.Path]::GetFileName($outsideResolved)-cnotmatch'^aiw-process-v2-outside-[a-f0-9]{32}$'){throw 'OUTSIDE_TEMP_CLEANUP_BOUNDARY'};Remove-Item -LiteralPath $outsideResolved -Recurse -Force -ErrorAction SilentlyContinue}
   if(Test-Path -LiteralPath $temp){$tempRoot=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath([IO.Path]::GetTempPath()));$tempResolved=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($temp));$tempPrefix=$tempRoot+[IO.Path]::DirectorySeparatorChar;$tempLeaf=[IO.Path]::GetFileName($tempResolved);if(-not$tempResolved.StartsWith($tempPrefix,[StringComparison]::OrdinalIgnoreCase)-or$tempLeaf-cnotmatch'^aiw-process-v2-[a-f0-9]{32}$'){throw 'TEMP_CLEANUP_BOUNDARY'};Get-ChildItem -LiteralPath $tempResolved -Recurse -Force -ErrorAction SilentlyContinue|ForEach-Object{try{$_.Attributes=[IO.FileAttributes]::Normal}catch{}};Remove-Item -LiteralPath $tempResolved -Recurse -Force -ErrorAction SilentlyContinue}
+ }finally{& $gitFixture {param($scope) Restore-IntegrationGitEnvironment $scope} $gitScope}
 }
 Write-Output ('RESULT|'+$passed+'/'+$passed+' passed|scope=process-runtime-v2')

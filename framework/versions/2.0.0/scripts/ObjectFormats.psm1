@@ -48,7 +48,8 @@ function Get-AiwObjectFormatAssembly {
         $nativePlan=$null-ne$type.PSObject.Properties['readFormats']
         if($nativePlan){
             $fields+='readFormats'
-            if($type.objectType-cne'ACCEPTANCE_PLAN'-or$type.storageClass-cne'IMMUTABLE_EVIDENCE'-or$type.targetFormat-ne1-or$type.readFormats-isnot[Array]-or($type.readFormats-join'|')-cne'1|2'-or($type.supportedStarts-join'|')-cne'1|2'-or$type.entries.Count-or$type.adapters.Count){throw 'FORMAT_IMMUTABLE_READ_FORMATS'}
+            $readFormats=switch -CaseSensitive ($type.objectType){ACCEPTANCE_PLAN{'1|2'};TYPED_EVIDENCE{'1|2|3'};default{throw 'FORMAT_IMMUTABLE_READ_FORMATS'}}
+            if($type.storageClass-cne'IMMUTABLE_EVIDENCE'-or$type.targetFormat-ne1-or$type.readFormats-isnot[Array]-or($type.readFormats-join'|')-cne$readFormats-or($type.supportedStarts-join'|')-cne$readFormats-or$type.entries.Count-or$type.adapters.Count){throw 'FORMAT_IMMUTABLE_READ_FORMATS'}
         }
         Assert-OfFields $type $fields
         if($type.objectType-isnot[string]-or-not$types.Add($type.objectType)-or($type.targetFormat-isnot[int]-and$type.targetFormat-isnot[long])-or$type.targetFormat-lt1-or$type.storageClass-cnotin@('MUTABLE_PROJECT','IMMUTABLE_EVIDENCE','EXTERNAL_READ_ONLY')-or$type.supportedStarts-isnot[Array]-or$type.entries-isnot[Array]-or$type.adapters-isnot[Array]){throw 'FORMAT_ASSEMBLY_VALUES'}
@@ -94,7 +95,7 @@ function Read-AiwCurrentObject {
     if(($format-isnot[int]-and$format-isnot[long])-or$format-cnotin$type.supportedStarts){throw 'FORMAT_START_UNSUPPORTED'}
     $originalFormat=$format;$value=Copy-AiwFormatValue $read.Value;$segments=@();$seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     $next=$null
-    $preserveOriginal=$ObjectType-ceq'ACCEPTANCE_PLAN'-and$null-ne$type.PSObject.Properties['readFormats']
+    $preserveOriginal=$ObjectType-cin@('ACCEPTANCE_PLAN','TYPED_EVIDENCE')-and$null-ne$type.PSObject.Properties['readFormats']
     if(-not$preserveOriginal-and$format-ne$type.targetFormat){$entries=@($type.entries|Where-Object{$_.fromFormat-eq$format});if($entries.Count-ne1){throw 'FORMAT_ENTRY_AMBIGUOUS_OR_MISSING'};$next=$entries[0].adapterId}
     while(-not$preserveOriginal-and$format-ne$type.targetFormat){
         if([string]::IsNullOrWhiteSpace($next)){throw 'FORMAT_CHAIN_INCOMPLETE'}

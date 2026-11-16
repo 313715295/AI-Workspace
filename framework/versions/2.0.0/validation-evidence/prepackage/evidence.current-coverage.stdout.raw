@@ -14,6 +14,7 @@ PASS|context-git-shape-reject-OVERRIDES|reason=TEST_EXECUTION_TARGET_OBSERVATION
 PASS|context-git-shape-reject-COMMON|reason=TEST_EXECUTION_TARGET_BINDING
 PASS|context-git-shape-reject-DESCRIPTOR_TYPE|reason=TEST_EXECUTION_TARGET_BINDING
 PASS|context-observation-preserves-nested-original-string-token
+WARNING: The names of some imported commands from the module 'IntegrationFixture' include unapproved verbs that might make them less discoverable. To find the commands with unapproved verbs, run the Import-Module command again with the Verbose parameter. For a list of approved verbs, type Get-Verb.
 PASS|producer-snapshot-preserves-exact-original-observer-time-string
 PASS|producer-wrong-root-counterexample-has-identical-actual-candidate-bytes
 PASS|producer-equal-control-bytes-cannot-substitute-target-root|reason=TEST_EXECUTION_TARGET_SOURCE_ROOT
@@ -32,6 +33,20 @@ PASS|exact-environment-retains-path-temp-differences
 PASS|effective-tools-bind-actual-negative-resolution-change
 PASS|fixture-recipe-change-invalidates-behavior-reuse
 PASS|default-exact-location-rejects-moved-root
+PASS|exact-location-observes-six-real-source-and-temp-conditions-without-rewriting-command
+PASS|exact-location-real-owned-temp-acl-drift-invalidates-with-identical-environment-text
+PASS|exact-location-restored-owned-temp-acl-restores-behavior-identity
+PASS|exact-location-producer-rejects-missing|reason=TEST_LOCATION_CONDITIONS_DECLARATION
+PASS|exact-location-producer-rejects-duplicate|reason=TEST_LOCATION_CONDITIONS_DECLARATION
+PASS|exact-location-producer-rejects-unknown|reason=TEST_LOCATION_CONDITIONS_DECLARATION
+PASS|exact-location-producer-rejects-unobserved|reason=TEST_LOCATION_CONDITIONS_DECLARATION
+PASS|exact-location-producer-rejects-mapping|reason=TEST_LOCATION_MAP_DECLARATION
+PASS|exact-location-verifier-rejects-missing|reason=TEST_EXACT_LOCATION_UNPROVEN
+PASS|exact-location-verifier-rejects-duplicate|reason=TEST_EXACT_LOCATION_UNPROVEN
+PASS|exact-location-verifier-rejects-unknown|reason=TEST_EXACT_LOCATION_UNPROVEN
+PASS|exact-location-verifier-rejects-unobserved|reason=TEST_EXACT_LOCATION_UNPROVEN
+PASS|exact-location-verifier-rejects-malformed|reason=TEST_EXACT_LOCATION_UNPROVEN
+PASS|exact-location-verifier-rejects-mapping|reason=TEST_EXACT_LOCATION_UNPROVEN
 PASS|logical-location-uses-six-real-observations-and-retains-physical-facts
 PASS|complete-chain-real-a-pass-and-natural-b-fail
 PASS|failed-complete-suite-has-no-proof-export
@@ -128,13 +143,13 @@ PASS|native2-local-BEHAVIOR|reason=TEST_RECORD_FAILED_PARTIAL_OR_INPUT_DRIFT
 PASS|native2-portable-BEHAVIOR|reason=TEST_RECORD_FAILED_PARTIAL_OR_INPUT_DRIFT
 PASS|native2-local-CONTEXT|reason=TEST_EXECUTION_CONTEXT_BINDING
 PASS|native2-portable-CONTEXT|reason=TEST_EXECUTION_CONTEXT_BINDING
-PASS|current-reader-reject-missing|reason=RELEASE_CURRENT_SUITE_PROOF_PARTITION
-PASS|current-reader-reject-recursive|reason=RELEASE_CURRENT_SUITE_PROOF_PARTITION
-PASS|current-reader-reject-version|reason=RELEASE_FIELDS|validation-proof
-PASS|current-reader-reject-delete_rv|reason=RELEASE_CURRENT_SUITE_REVALIDATION_PARTITION
 PASS|current-reader-reject-unknown|reason=RELEASE_FIELDS|validation-proof
-PASS|current-reader-reject-wrong_suite|reason=RELEASE_CURRENT_SUITE_BINDING
+PASS|current-reader-reject-recursive|reason=RELEASE_CURRENT_SUITE_PROOF_PARTITION
 PASS|current-reader-reject-baseline|reason=RELEASE_CURRENT_COVERAGE_BASELINE_FORBIDDEN
+PASS|current-reader-reject-missing|reason=RELEASE_CURRENT_SUITE_PROOF_PARTITION
+PASS|current-reader-reject-version|reason=RELEASE_FIELDS|validation-proof
+PASS|current-reader-reject-wrong_suite|reason=RELEASE_CURRENT_SUITE_BINDING
+PASS|current-reader-reject-delete_rv|reason=RELEASE_CURRENT_SUITE_REVALIDATION_PARTITION
 PASS|local-v3-reject-failed|reason=RELEASE_CURRENT_REVALIDATION_SCALAR
 PASS|portable-v3-reject-failed|reason=RELEASE_CURRENT_REVALIDATION_SCALAR
 PASS|local-v3-reject-schema|reason=RELEASE_CURRENT_REVALIDATION_SCALAR
@@ -254,13 +269,13 @@ PASS|cleanup-public-data-retained-with-native-success-visible
 PASS|cleanup-public-nonempty-data-was-not-deleted
 PASS|cleanup-public-reparse-retained-with-native-success-visible
 PASS|cleanup-public-reparse-and-target-were-not-followed-or-deleted
-PASS|exact-public-original-graph-unchanged-integration.full-source-0
-PASS|exact-public-original-graph-unchanged-integration.full-source-1
+PASS|exact-public-original-graph-unchanged-proof.b-0
+PASS|exact-public-original-graph-unchanged-proof.a-1
 PASS|exact-public-original-graph-unchanged-proof.b-2
-PASS|exact-public-original-graph-unchanged-proof.a-3
+PASS|exact-public-original-graph-unchanged-integration.full-source-3
 PASS|exact-public-original-graph-unchanged-proof.a-4
 PASS|exact-public-original-graph-unchanged-proof.b-5
-PASS|exact-public-original-graph-unchanged-proof.b-6
-PASS|exact-public-original-graph-unchanged-proof.a-7
-CURRENT_COVERAGE_COST|sampleImprovementPercent=-27.6136428691279|targetMet=False|originalTargets=PENDING
-RESULT|264/264 passed|scope=test-group-evidence
+PASS|exact-public-original-graph-unchanged-proof.a-6
+PASS|exact-public-original-graph-unchanged-integration.full-source-7
+CURRENT_COVERAGE_COST|sampleImprovementPercent=-9.34448586988825|targetMet=False|originalTargets=PENDING
+RESULT|278/278 passed|scope=test-group-evidence

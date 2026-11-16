@@ -889,6 +889,35 @@
                         "minItems": 1
                       }
                     }
+                  },
+                  "contextTypes": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {
+                      "enum": [
+                        "*",
+                        "TASK",
+                        "PROJECT_READ_ONLY",
+                        "PROJECT_EXTERNAL",
+                        "PROJECT_WORK"
+                      ]
+                    },
+                    "oneOf": [
+                      {
+                        "items": {
+                          "const": "*"
+                        },
+                        "maxItems": 1
+                      },
+                      {
+                        "not": {
+                          "contains": {
+                            "const": "*"
+                          }
+                        }
+                      }
+                    ]
                   }
                 }
               },
@@ -999,7 +1028,8 @@
                         "*",
                         "TASK",
                         "PROJECT_READ_ONLY",
-                        "PROJECT_EXTERNAL"
+                        "PROJECT_EXTERNAL",
+                        "PROJECT_WORK"
                       ]
                     },
                     "oneOf": [
@@ -1052,10 +1082,26 @@
                           "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*:[A-Za-z0-9][A-Za-z0-9._-]*$"
                         },
                         "minItems": 1
+                      },
+                      "deliverableType": {
+                        "type": "array",
+                        "uniqueItems": true,
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*:[A-Za-z0-9][A-Za-z0-9._-]*$"
+                        },
+                        "minItems": 1
                       }
                     }
                   }
                 }
+              },
+              "taskCardMode": {
+                "enum": [
+                  "REQUIRED",
+                  "OMIT"
+                ]
               }
             },
             "oneOf": [
@@ -1091,6 +1137,7 @@
                           "propertyNames": {
                             "enum": [
                               "domain",
+                              "workType",
                               "deliverableType"
                             ]
                           }
@@ -1123,7 +1170,8 @@
                             "const": "*"
                           }
                         },
-                        "deterministicTriggers": false
+                        "deterministicTriggers": false,
+                        "contextTypes": false
                       }
                     }
                   }
@@ -1131,6 +1179,61 @@
                 "if": {
                   "required": [
                     "qualityStages"
+                  ]
+                }
+              },
+              {
+                "then": {
+                  "properties": {
+                    "selectors": {
+                      "properties": {
+                        "facets": {
+                          "type": "object",
+                          "propertyNames": {
+                            "enum": [
+                              "domain",
+                              "workType",
+                              "deliverableType"
+                            ]
+                          }
+                        },
+                        "actionKinds": {
+                          "items": {
+                            "const": "*"
+                          }
+                        },
+                        "capabilities": {
+                          "items": {
+                            "const": "*"
+                          }
+                        },
+                        "roles": {
+                          "items": {
+                            "const": "*"
+                          }
+                        },
+                        "semanticTerms": {
+                          "maxItems": 0
+                        },
+                        "resultKinds": {
+                          "items": {
+                            "const": "*"
+                          }
+                        },
+                        "phases": {
+                          "items": {
+                            "const": "*"
+                          }
+                        },
+                        "deterministicTriggers": false,
+                        "contextTypes": false
+                      }
+                    }
+                  }
+                },
+                "if": {
+                  "required": [
+                    "taskCardMode"
                   ]
                 }
               }
@@ -1195,7 +1298,10 @@
               "uniqueItems": true
             },
             "schemaVersion": {
-              "const": 1
+              "enum": [
+                1,
+                2
+              ]
             }
           },
           "additionalProperties": false
@@ -1245,6 +1351,25 @@
               }
             }
           ]
+        },
+        "taskCards": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schemaVersion",
+            "defaultMode"
+          ],
+          "properties": {
+            "schemaVersion": {
+              "const": 1
+            },
+            "defaultMode": {
+              "enum": [
+                "REQUIRED",
+                "OMIT"
+              ]
+            }
+          }
         }
       },
       "allOf": [
@@ -1264,6 +1389,69 @@
                 }
               }
             }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "qualityAssurance"
+            ],
+            "properties": {
+              "qualityAssurance": {
+                "properties": {
+                  "schemaVersion": {
+                    "const": 1
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "rules": {
+                "items": {
+                  "if": {
+                    "required": [
+                      "qualityStages"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "selectors": {
+                        "properties": {
+                          "facets": {
+                            "propertyNames": {
+                              "enum": [
+                                "domain",
+                                "deliverableType"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "rules": {
+                "contains": {
+                  "required": [
+                    "taskCardMode"
+                  ]
+                }
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "taskCards"
+            ]
           }
         }
       ]

@@ -82,12 +82,16 @@ function Resolve-AiwFacetToken {
 }
 
 function ConvertTo-AiwIntentFacets {
-    [CmdletBinding()]param([Parameter(Mandatory)]$Facets,[Parameter(Mandatory)]$Vocabulary)
+    [CmdletBinding()]param([Parameter(Mandatory)]$Facets,[Parameter(Mandatory)]$Vocabulary,[int]$SchemaVersion=2)
+    if($SchemaVersion-notin@(2,3)){throw 'FACET_INTENT_SCHEMA_VERSION'}
     $dimensions=@('domain','workType','deliverableType','stage')
-    Assert-CsFields $Facets $dimensions
+    if($SchemaVersion-eq2){Assert-CsFields $Facets $dimensions}
+    else{Assert-CsFields $Facets @('domain','workType','deliverableType') @('stage')}
     $normalized=[ordered]@{}
     foreach($dimension in $dimensions){
-        $value=$Facets.$dimension;Assert-CsFields $value @('state','values')
+        # Missing legacy stage is unknown, never an instruction to drop rules.
+        $value=if($null-ne$Facets.PSObject.Properties[$dimension]){$Facets.$dimension}else{[pscustomobject]@{state='UNKNOWN';values=@()}}
+        Assert-CsFields $value @('state','values')
         if($value.state-isnot[string]-or$value.state-cnotin@('KNOWN','UNKNOWN','NOT_APPLICABLE')-or$value.values-isnot[Array]){throw ('FACET_STATE_OR_VALUES|'+$dimension)}
         if(($value.state-ceq'KNOWN'-and$value.values.Count-eq0)-or($value.state-cne'KNOWN'-and$value.values.Count-ne0)){throw ('FACET_STATE_VALUES_CONTRADICTION|'+$dimension)}
         $seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal);$values=[Collections.Generic.List[string]]::new()
@@ -283,11 +287,20 @@ function Copy-CsValue($Value){
     $copy=$copyRoot.value
     return ,$copy
 }
-function Get-CsContextSignature($Context){
+function Get-CsContextSignature($Context,[switch]$Canonical){
     $projected=@(foreach($key in @($Context.ProjectedSources.Keys|Sort-Object -CaseSensitive)){
         [ordered]@{origin=[string]$key;path=[string]$Context.ProjectedSources[$key].Path;identity=[string]$Context.ProjectedSources[$key].Identity}
     })
-    return Get-AiwContentDescriptorIdentity ([ordered]@{projectRoot=$Context.ProjectRoot;configRoot=$Context.ConfigRoot;configPath=$Context.ConfigPath;config=$Context.Config;configIdentity=$Context.ConfigIdentity;policyPath=$Context.PolicyPath;policy=$Context.Policy;policyIdentity=$Context.PolicyIdentity;forbidden=@($Context.Forbidden);implementationIdentity=$Context.ImplementationIdentity;cacheRoot=$Context.CacheRoot;projected=$projected})
+    $material=[ordered]@{projectRoot=$Context.ProjectRoot;configRoot=$Context.ConfigRoot;configPath=$Context.ConfigPath;config=$Context.Config;configIdentity=$Context.ConfigIdentity;policyPath=$Context.PolicyPath;policy=$Context.Policy;policyIdentity=$Context.PolicyIdentity;forbidden=@($Context.Forbidden);implementationIdentity=$Context.ImplementationIdentity;cacheRoot=$Context.CacheRoot;projected=$projected}
+    if($Canonical){return Get-AiwContentDescriptorIdentity $material}
+    return Get-CsObservedByteIdentity $script:ContentUtf8.GetBytes((ConvertTo-Json -InputObject $material -Compress -Depth 100))
+}
+function Assert-CsContextUnchanged($Context,$Inputs){
+    # The common path serializes once without recursively sorting the entire
+    # policy in PowerShell. A different representation still gets the original
+    # ordinal comparison, so harmless member ordering remains equivalent.
+    if((Get-CsContextSignature $Context)-cne$Inputs.signature-and
+        (Get-CsContextSignature $Context -Canonical)-cne(Get-CsContextSignature $Inputs.context -Canonical)){throw 'CONTENT_IDENTITY_DRIFT|CONTEXT'}
 }
 function Register-CsContextInputs($Context){
     # Parsed data belongs to this actual context, not to a path/global cache.
@@ -318,12 +331,12 @@ function Get-CsContextInputs($Context){
         }
         $fresh=New-AiwContentContext @parameters
         if(-not$script:ContentContexts.TryGetValue($fresh,[ref]$inputs)){throw 'SOURCE_DENIED|CONTEXT_OWNER'}
-        if((Get-CsContextSignature $Context)-cne$inputs.signature){throw 'CONTENT_IDENTITY_DRIFT|CONTEXT'}
+        Assert-CsContextUnchanged $Context $inputs
         $inputs.context.QueryBytes=$Context.QueryBytes
         $script:ContentContexts.Add($Context,$inputs)
     }
     Assert-CsCurrent $inputs.context
-    if((Get-CsContextSignature $Context)-cne$inputs.signature){throw 'CONTENT_IDENTITY_DRIFT|CONTEXT'}
+    Assert-CsContextUnchanged $Context $inputs
     return $inputs
 }
 function Get-CsBinding($Context,[string]$Id) {
@@ -1066,7 +1079,9 @@ function Copy-CsOwnedContext($Context){
     $inputs=Get-CsContextInputs $Context;$source=$inputs.context
     $projected=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::OrdinalIgnoreCase)
     foreach($key in $source.ProjectedSources.Keys){$projected.Add($key,[pscustomobject]@{Path=[string]$source.ProjectedSources[$key].Path;Identity=[string]$source.ProjectedSources[$key].Identity})}
-    return [pscustomobject]@{ProjectRoot=[string]$source.ProjectRoot;ConfigRoot=[string]$source.ConfigRoot;ProjectedSources=$projected;QueryBytes=[Collections.Generic.Dictionary[string,byte[]]]::new([StringComparer]::Ordinal);ConfigPath=[string]$source.ConfigPath;Config=(Copy-CsValue $source.Config);ConfigIdentity=[string]$source.ConfigIdentity;PolicyPath=[string]$source.PolicyPath;Policy=(Copy-CsValue $source.Policy);PolicyIdentity=[string]$source.PolicyIdentity;Forbidden=@($source.Forbidden);ImplementationIdentity=[string]$source.ImplementationIdentity;CacheRoot=[string]$source.CacheRoot}
+    # Inputs are privately owned and read-only. Only this batch owns mutable
+    # query/read state; no configuration or adopted descriptor alias escapes.
+    return [pscustomobject]@{ProjectRoot=[string]$source.ProjectRoot;ConfigRoot=[string]$source.ConfigRoot;ProjectedSources=$projected;QueryBytes=[Collections.Generic.Dictionary[string,byte[]]]::new([StringComparer]::Ordinal);ConfigPath=[string]$source.ConfigPath;Config=$source.Config;ConfigIdentity=[string]$source.ConfigIdentity;PolicyPath=[string]$source.PolicyPath;Policy=$source.Policy;PolicyIdentity=[string]$source.PolicyIdentity;Forbidden=@($source.Forbidden);ImplementationIdentity=[string]$source.ImplementationIdentity;CacheRoot=[string]$source.CacheRoot}
 }
 function Resolve-CsOwnedDocument($Owner,$Document){
     if(-not$Owner.bindings.ContainsKey([string]$Document.bindingId)){throw 'DEPENDENCY_NOT_ADOPTED|BINDING'}
@@ -1224,7 +1239,7 @@ function Invoke-CsOwnedStandardsBatch {
         }
         $owner=[pscustomobject]@{context=$context;bindings=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal);permissionIdentity=(Get-AiwContentDescriptorIdentity $context.Config.sourceBindings);units=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal);raw=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal);remoteRaw=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal);text=[Collections.Generic.Dictionary[string,string]]::new([StringComparer]::Ordinal);resolved=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal)}
         foreach($binding in $context.Config.sourceBindings){$owner.bindings.Add([string]$binding.id,[pscustomobject]@{value=$binding;identity=(Get-AiwContentDescriptorIdentity $binding)})}
-        $adopted=@(foreach($rule in $context.Policy.rules){if($requestedIds.Contains([string]$rule.ruleId)-and$null-ne$rule.PSObject.Properties['source']){[pscustomobject]@{ruleId=[string]$rule.ruleId;descriptor=$rule.source;identity=(Get-AiwContentDescriptorIdentity $rule.source)}}})
+        $adopted=@(foreach($rule in $requestedRules){if($null-ne$rule.PSObject.Properties['source']){[pscustomobject]@{ruleId=[string]$rule.ruleId;descriptor=$rule.source;identity=(Get-AiwContentDescriptorIdentity $rule.source)}}})
         $result=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal)
         foreach($item in $adopted){
             try{
@@ -1243,6 +1258,6 @@ function Invoke-CsOwnedStandardsBatch {
         Assert-CsCurrent $context
         # Materialize the complete batch before exposing any output. The
         # compositor's trace callbacks cannot mutate an active private owner.
-        return [pscustomobject]@{rules=$result;contextFacts=[pscustomobject]@{ProjectRoot=$context.ProjectRoot;Config=[pscustomobject]@{sourceBindings=$context.Config.sourceBindings};ConfigIdentity=$context.ConfigIdentity;PolicyIdentity=$context.PolicyIdentity;ImplementationIdentity=$context.ImplementationIdentity}}
+        return [pscustomobject]@{rules=$result;contextFacts=[pscustomobject]@{ProjectRoot=$context.ProjectRoot;Config=[pscustomobject]@{sourceBindings=(Copy-CsValue $context.Config.sourceBindings)};ConfigIdentity=$context.ConfigIdentity;PolicyIdentity=$context.PolicyIdentity;ImplementationIdentity=$context.ImplementationIdentity}}
     }finally{Exit-AiwProjectSourceScope $aiwPublicationScopeLease}
 }

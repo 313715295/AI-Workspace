@@ -112,11 +112,22 @@ function ConvertTo-AiwReleaseEvidenceTime($Value,[string]$Label,[switch]$Nullabl
 function Assert-AiwReleaseCurrentSuiteShape($Suite,[string]$DefinitionIdentity,[string[]]$Required,[switch]$Complete){
  Assert-AiwReleaseFields $Suite (@('schemaVersion','phase','definitionIdentity','requestedGroupIds','requiredGroupIds','records','outcome','coverage','options','startedUtc','endedUtc','qualification','sourceRoot','sourceInputsRef')+$(if($Suite.schemaVersion-eq3){@('verifierRef')}else{@()})) 'current-suite'
  Assert-AiwReleaseStringFields $Suite @('phase','definitionIdentity','outcome','coverage','qualification','sourceRoot') 'current-suite'
- if($Suite.schemaVersion-isnot[long]-and$Suite.schemaVersion-isnot[int]-or$Suite.schemaVersion-notin@(2,3)-or$Suite.phase-cne'PREPACKAGE'-or$Suite.definitionIdentity-cne$DefinitionIdentity-or$Suite.qualification-cne'SOURCE_VALIDATION_ONLY'-or$Suite.records-isnot[Array]-or$Suite.requestedGroupIds-isnot[Array]-or$Suite.requiredGroupIds-isnot[Array]-or[IO.Path]::IsPathFullyQualified($Suite.sourceRoot)-eq$false){throw 'RELEASE_CURRENT_SUITE_BINDING'}
- Assert-AiwReleaseFields $Suite.sourceInputsRef @('path','identity') 'current-suite-inputs'
- Assert-AiwReleaseStringFields $Suite.sourceInputsRef @('path','identity') 'current-suite-inputs'
- Assert-AiwReleaseFields $Suite.options @('SkipManifest','SkipBaseline','SkipPerformanceSmoke','MaintenanceFixture') 'current-suite-options'
- foreach($field in $Suite.options.PSObject.Properties){if($field.Value-isnot[bool]){throw 'RELEASE_CURRENT_SUITE_OPTIONS'}}
+ $postbuild=$Suite.schemaVersion-eq3-and$Suite.phase-ceq'POSTBUILD'
+ if($Suite.schemaVersion-isnot[long]-and$Suite.schemaVersion-isnot[int]-or$Suite.schemaVersion-notin@(2,3)-or$Suite.definitionIdentity-cne$DefinitionIdentity-or$Suite.records-isnot[Array]-or$Suite.requestedGroupIds-isnot[Array]-or$Suite.requiredGroupIds-isnot[Array]-or-not[IO.Path]::IsPathFullyQualified($Suite.sourceRoot)){throw 'RELEASE_CURRENT_SUITE_BINDING'}
+ $flags=@('SkipManifest','SkipBaseline','SkipPerformanceSmoke','MaintenanceFixture')
+ if($postbuild){
+  if($Suite.qualification-cne'PACKAGE_VALIDATION_ONLY'-or$null-ne$Suite.sourceInputsRef){throw 'RELEASE_POSTBUILD_SUITE_BINDING'}
+  Assert-AiwReleaseFields $Suite.options ($flags+@('PackagePath','ExtractedPackagePath','BuildCommandPath','PackageIdentity','ExtractedTreeCanonical','BuildCommandIdentity')) 'postbuild-suite-options'
+  Assert-AiwReleaseStringFields $Suite.options @('PackagePath','ExtractedPackagePath','BuildCommandPath','PackageIdentity','ExtractedTreeCanonical','BuildCommandIdentity') 'postbuild-suite-options'
+  foreach($name in @('PackagePath','ExtractedPackagePath','BuildCommandPath')){if(-not[IO.Path]::IsPathFullyQualified($Suite.options.$name)-or(Assert-AiwReleasePath $Suite.options.$name)-cne$Suite.options.$name){throw 'RELEASE_POSTBUILD_SUITE_OPTIONS'}}
+  if($Suite.options.ExtractedPackagePath-cne$Suite.sourceRoot-or$Suite.options.PackageIdentity-cnotmatch'^\d+\|[A-F0-9]{64}$'-or$Suite.options.BuildCommandIdentity-cnotmatch'^\d+\|[A-F0-9]{64}$'-or$Suite.options.ExtractedTreeCanonical-cnotmatch'^[A-F0-9]{64}$'){throw 'RELEASE_POSTBUILD_SUITE_OPTIONS'}
+ }else{
+  if($Suite.phase-cne'PREPACKAGE'-or$Suite.qualification-cne'SOURCE_VALIDATION_ONLY'){throw 'RELEASE_CURRENT_SUITE_BINDING'}
+  Assert-AiwReleaseFields $Suite.sourceInputsRef @('path','identity') 'current-suite-inputs'
+  Assert-AiwReleaseStringFields $Suite.sourceInputsRef @('path','identity') 'current-suite-inputs'
+  Assert-AiwReleaseFields $Suite.options $flags 'current-suite-options'
+ }
+ foreach($name in $flags){if($Suite.options.$name-isnot[bool]-or($postbuild-and$Suite.options.$name)){throw 'RELEASE_CURRENT_SUITE_OPTIONS'}}
  $start=ConvertTo-AiwReleaseEvidenceTime $Suite.startedUtc 'suite-start';$end=ConvertTo-AiwReleaseEvidenceTime $Suite.endedUtc 'suite-end'
  if($end-lt$start){throw 'RELEASE_CURRENT_SUITE_WINDOW'}
  if((Get-AiwReleaseValueIdentity @($Suite.requiredGroupIds))-cne(Get-AiwReleaseValueIdentity @($Required))){throw 'RELEASE_CURRENT_SUITE_REQUIRED'}
@@ -200,13 +211,26 @@ function Get-AiwReleaseMemberFacts($Members){
  foreach($path in $paths){$member=$byPath[$path];$bytes+=[long]$member.identity.Split('|')[0];$rows+=($path+'|'+$member.identity)}
  return [pscustomobject]@{FileCount=$paths.Count;TotalBytes=$bytes;Canonical=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($script:ReleaseUtf8.GetBytes($rows-join"`n")));Files=$paths;Rows=$rows;Members=@($Members)}
 }
-function Get-AiwReleasePayloadFacts([string]$VersionRoot,[string[]]$EvidenceMembers=@(),[switch]$SourceView){
- if($SourceView){
-  $inventory=Read-AiwReleaseJson (Get-AiwReleaseChild $VersionRoot 'NORMATIVE_SURFACE_INVENTORY.json');$members=@();$seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-  $paths=@(@($inventory.runtimeNormativeModules|ForEach-Object{$_.document;$_.fragment})+@($inventory.actionRequiredArtifacts)+@($inventory.schemaAndMechanicalInputs)+@($inventory.explanationAndHistory)|Where-Object{$_-cne'RELEASE_MANIFEST.json'})
-  foreach($path in $paths){Assert-AiwReleaseLocator $path;if(-not$seen.Add($path)-or$path.StartsWith('validation-evidence/',[StringComparison]::Ordinal)){throw 'RELEASE_SOURCE_VIEW_INVENTORY'};$members+=@{path=$path;identity=(Get-AiwReleaseFileIdentity (Get-AiwReleaseChild $VersionRoot $path))}}
-  return Get-AiwReleaseMemberFacts $members
+function Get-ReleaseSourcePayloadSnapshot([string]$VersionRoot,[switch]$CaptureBytes){
+ # Constructor-owned bytes, never a public caller-supplied qualification.
+ $inventoryName='NORMATIVE_SURFACE_INVENTORY.json'
+ $inventoryBytes=[IO.File]::ReadAllBytes((Get-AiwReleaseChild $VersionRoot $inventoryName))
+ $inventory=ConvertFrom-AiwReleaseBytes $inventoryBytes
+ $members=@();$seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+ $bytesByPath=[Collections.Generic.Dictionary[string,byte[]]]::new([StringComparer]::Ordinal)
+ $paths=@(@($inventory.runtimeNormativeModules|ForEach-Object{$_.document;$_.fragment})+@($inventory.actionRequiredArtifacts)+@($inventory.schemaAndMechanicalInputs)+@($inventory.explanationAndHistory)|Where-Object{$_-cne'RELEASE_MANIFEST.json'})
+ foreach($path in $paths){
+  Assert-AiwReleaseLocator $path
+  if(-not$seen.Add($path)-or$path.StartsWith('validation-evidence/',[StringComparison]::Ordinal)){throw 'RELEASE_SOURCE_VIEW_INVENTORY'}
+  $full=Get-AiwReleaseChild $VersionRoot $path
+  if($path-ceq$inventoryName){$bytes=$inventoryBytes}else{$bytes=[IO.File]::ReadAllBytes($full)}
+  $members+=@{path=$path;identity=(Get-AiwReleaseByteIdentity $bytes)}
+  if($CaptureBytes){$bytesByPath.Add($path,$bytes)}
  }
+ return [pscustomobject]@{Facts=(Get-AiwReleaseMemberFacts $members);Bytes=$bytesByPath}
+}
+function Get-AiwReleasePayloadFacts([string]$VersionRoot,[string[]]$EvidenceMembers=@(),[switch]$SourceView){
+ if($SourceView){return (Get-ReleaseSourcePayloadSnapshot $VersionRoot).Facts}
  $members=@(Get-AiwReleaseTreeMembers $VersionRoot -ExcludePaths @('RELEASE_MANIFEST.json'));$seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
  foreach($path in $EvidenceMembers){Assert-AiwReleaseLocator $path;if(-not$path.StartsWith('validation-evidence/prepackage/',[StringComparison]::Ordinal)-or-not$seen.Add($path)){throw 'RELEASE_ATTACHMENT_SET'}}
  foreach($member in $members){if($member.path.StartsWith('validation-evidence/',[StringComparison]::Ordinal)-and-not$seen.Contains($member.path)){throw 'RELEASE_UNDECLARED_ATTACHMENT'}}
@@ -222,12 +246,12 @@ function Get-AiwReleaseBundle([string]$VersionRoot,$Proof){
  if((Get-AiwReleaseByteIdentity $indexBytes)-cne$Proof.proofBundleRef.identity){throw 'RELEASE_BUNDLE_INDEX_DRIFT'}
  $index=ConvertFrom-AiwReleaseBytes $indexBytes
  Assert-AiwReleaseFields $index @('schemaVersion','kind','members','aliases','inputBindings','sourceInputClosureMemberId') 'bundle-index'
- if($index.schemaVersion-ne$(if($Proof.schemaVersion-eq3){2}else{1})-or$index.kind-cne'PREPACKAGE_EVIDENCE_BUNDLE'-or$index.members-isnot[Array]-or$index.aliases-isnot[Array]-or$index.inputBindings-isnot[Array]){throw 'RELEASE_BUNDLE_SCHEMA'}
+ if($index.schemaVersion-ne$(if($Proof.schemaVersion-ge3){$Proof.schemaVersion-1}else{1})-or$index.kind-cne'PREPACKAGE_EVIDENCE_BUNDLE'-or$index.members-isnot[Array]-or$index.aliases-isnot[Array]-or$index.inputBindings-isnot[Array]){throw 'RELEASE_BUNDLE_SCHEMA'}
  $byId=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal);$byPath=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal);$bytesById=[Collections.Generic.Dictionary[string,byte[]]]::new([StringComparer]::Ordinal);$paths=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase);$members=@(@{path=$Proof.proofBundleRef.path;identity=$Proof.proofBundleRef.identity})
  foreach($member in $index.members){
   Assert-AiwReleaseFields $member @('id','kind','path','identity') 'bundle-member'
   Assert-AiwReleaseLocator $member.path
-  if($member.id-cnotmatch'^[a-zA-Z0-9.-]+$'-or$byId.ContainsKey($member.id)-or-not$paths.Add($member.path)-or$member.path-ceq$Proof.proofBundleRef.path-or-not$member.path.StartsWith('validation-evidence/prepackage/',[StringComparison]::Ordinal)-or$member.kind-cnotin@('GROUP_RECORD','PROCESS_RESULT','PROCESS_LAUNCH','STDOUT','STDERR','PHASE_EVENTS','INPUT_CLOSURE','REVALIDATION','BASELINE_CLOSURE','CURRENT_SUITE','EXECUTION_TARGET_DESCRIPTOR')-or($member.kind-ceq'CURRENT_SUITE'-and$Proof.schemaVersion-notin@(2,3))-or($member.kind-ceq'EXECUTION_TARGET_DESCRIPTOR'-and$Proof.schemaVersion-ne3)){throw 'RELEASE_BUNDLE_MEMBER'}
+  if($member.id-cnotmatch'^[a-zA-Z0-9.-]+$'-or$byId.ContainsKey($member.id)-or-not$paths.Add($member.path)-or$member.path-ceq$Proof.proofBundleRef.path-or-not$member.path.StartsWith('validation-evidence/prepackage/',[StringComparison]::Ordinal)-or$member.kind-cnotin@('GROUP_RECORD','PROCESS_RESULT','PROCESS_LAUNCH','STDOUT','STDERR','PHASE_EVENTS','INPUT_CLOSURE','REVALIDATION','BASELINE_CLOSURE','CURRENT_SUITE','EXECUTION_TARGET_DESCRIPTOR','HISTORICAL_PROOF','CHANGE_PLAN')-or($member.kind-ceq'CURRENT_SUITE'-and$Proof.schemaVersion-notin@(2,3,4))-or($member.kind-ceq'EXECUTION_TARGET_DESCRIPTOR'-and$Proof.schemaVersion-notin@(3,4))-or($member.kind-cin@('HISTORICAL_PROOF','CHANGE_PLAN')-and$Proof.schemaVersion-ne4)){throw 'RELEASE_BUNDLE_MEMBER'}
   $relative=$member.path.Substring('validation-evidence/prepackage/'.Length)
   if(-not$tree.Bytes.ContainsKey($relative)){throw 'RELEASE_BUNDLE_MEMBER_DRIFT'}
   $raw=$tree.Bytes[$relative]
@@ -238,7 +262,7 @@ function Get-AiwReleaseBundle([string]$VersionRoot,$Proof){
  if($actual.Count-ne$members.Count-or@($actual|Where-Object{$_-cnotin$members.path}).Count-or(Get-AiwReleaseMemberFacts $members).Canonical-cne$Proof.proofBundleIdentity){throw 'RELEASE_BUNDLE_SET_OR_CANONICAL'}
  $aliases=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal)
  foreach($alias in $index.aliases){Assert-AiwReleaseFields $alias @('ownerMemberId','slot','originalLocator','originalIdentity','targetMemberId') 'alias';$key=$alias.ownerMemberId+'|'+$alias.slot;if($aliases.ContainsKey($key)-or-not$byId.ContainsKey($alias.ownerMemberId)-or-not$byId.ContainsKey($alias.targetMemberId)){throw 'RELEASE_ALIAS_DUPLICATE_DANGLING'};$aliases[$key]=$alias}
- return [pscustomobject]@{Root=$VersionRoot;Index=$index;ById=$byId;ByPath=$byPath;Bytes=$bytesById;Parsed=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal);Aliases=$aliases;Members=$members;UsedAliases=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal);Reached=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal);CurrentSnapshots=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal)}
+ return [pscustomobject]@{Root=$VersionRoot;Index=$index;ById=$byId;ByPath=$byPath;Bytes=$bytesById;Parsed=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal);Aliases=$aliases;Members=$members;UsedAliases=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal);Reached=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal);CurrentSnapshots=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal);UsedBindings=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)}
 }
 function Read-AiwReleaseBundleMember($Bundle,[string]$Id,[string]$Kind,[switch]$CurrentCoverage){
  if(-not$Bundle.ById.ContainsKey($Id)-or$Bundle.ById[$Id].kind-cne$Kind){throw 'RELEASE_MEMBER_KIND'}
@@ -272,11 +296,11 @@ function Get-AiwReleaseObservedCases([string]$Stdout,[string]$GroupId){
  $counts=@{};$cases=@();foreach($line in $Stdout-split'\r?\n'){if($line-cmatch'^PASS\|(.+)$'){$name=$Matches[1].Split('|')[0];if(-not$counts.ContainsKey($name)){$counts[$name]=0};$counts[$name]++;$cases+=@{id=$GroupId+'/'+$name+'#'+$counts[$name].ToString('D4');name=$name;occurrence=$counts[$name];outcome='PASS'}}};return @($cases)
 }
 function Get-AiwReleaseGroupBehaviorIdentity($Definition,$Group){ return Get-AiwEvidenceGroupBehaviorIdentity $Definition $Group }
-function Assert-AiwReleaseBehaviorSnapshot($Snapshot,$Definition,$Group,$Suite,[string]$VersionRoot){
+function Assert-AiwReleaseBehaviorSnapshot($Snapshot,$Definition,$Group,$Suite,[string]$VerifierIdentity){
  Assert-AiwReleaseFields $Snapshot @('facts','identity') 'snapshot'
  $f=$Snapshot.facts
  if($f.root-cne$Suite.sourceRoot-or(Get-AiwReleaseValueIdentity $f.options)-cne(Get-AiwReleaseValueIdentity $Suite.options)){throw 'RELEASE_CURRENT_EXECUTION_ROOT_OPTIONS'}
- if((Get-AiwReleaseValueIdentity $f)-cne$Snapshot.identity-or$f.definitionIdentity-cne$Suite.definitionIdentity-or$f.groupIdentity-cne(Get-AiwReleaseGroupBehaviorIdentity $Definition $Group)-or$f.verifierIdentity-cne(Get-AiwReleaseFileIdentity (Get-AiwReleaseChild $VersionRoot 'scripts/TestEvidenceValidation.psm1'))-or$f.root-cne$Suite.sourceRoot-or(Get-AiwReleaseValueIdentity $f.options)-cne(Get-AiwReleaseValueIdentity $Suite.options)-or$f.behaviorContractIdentity-cne(Get-AiwEvidenceBehaviorIdentity $f)){throw 'RELEASE_CURRENT_REVALIDATION_INPUT_DRIFT'}
+ if((Get-AiwReleaseValueIdentity $f)-cne$Snapshot.identity-or$f.definitionIdentity-cne$Suite.definitionIdentity-or$f.groupIdentity-cne(Get-AiwReleaseGroupBehaviorIdentity $Definition $Group)-or$f.verifierIdentity-cne$VerifierIdentity-or$f.root-cne$Suite.sourceRoot-or(Get-AiwReleaseValueIdentity $f.options)-cne(Get-AiwReleaseValueIdentity $Suite.options)-or$f.behaviorContractIdentity-cne(Get-AiwEvidenceBehaviorIdentity $f)){throw 'RELEASE_CURRENT_REVALIDATION_INPUT_DRIFT'}
 }
 function Assert-AiwReleasePortableGroup2($Bundle,[string]$MemberId,$Group,$Suite,[string]$ExecutionKind){
  $record=Read-AiwReleaseBundleMember $Bundle $MemberId GROUP_RECORD -CurrentCoverage
@@ -370,11 +394,20 @@ function Get-AiwReleaseRuntimeToolPaths([string]$VersionRoot,[switch]$Maintenanc
  if($Maintenance){$paths+=@($d.maintenancePaths|Where-Object{$_-clike'scripts/*'-or$_-clike'framework/maintenance-overlay/*'})}
  return @($paths)
 }
-function Assert-AiwReleaseSourceInputs($Bundle,$Facts,$Definition,[string]$SourceRoot,[string]$RuntimeRoot,[switch]$Maintenance){
- $closure=Read-AiwReleaseBundleMember $Bundle $Bundle.Index.sourceInputClosureMemberId INPUT_CLOSURE
+function Assert-AiwReleaseInputClosure($Closure,$Facts,$Definition,[string]$VersionRoot,[string]$SourceRoot,[string]$RuntimeRoot,[switch]$Maintenance,[switch]$Historical){
  Assert-AiwReleaseFields $closure (@('schemaVersion','kind','inputView','sourceRoot','definitionIdentity','payloadCanonical','inputs','syntheticInputs')+$(if($closure.schemaVersion-eq2){@('recipeIdentity','locationPolicy')}else{@()})) 'input-closure'
- if($closure.schemaVersion-notin@(1,2)-or$closure.kind-cne'SOURCE_INPUT_CLOSURE'-or$closure.inputView-cne'SOURCE_PAYLOAD_V1'-or$closure.definitionIdentity-cne(Get-AiwReleaseFileIdentity (Get-AiwReleaseChild $Bundle.Root 'tests/test-groups.json'))-or$closure.payloadCanonical-cne$Facts.Canonical){throw 'RELEASE_INPUT_CLOSURE_BINDING'}
- $sourcePaths=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase);$payload=@();$tools=Get-AiwReleaseRuntimeToolPaths $Bundle.Root -Maintenance:$Maintenance;$allTools=Get-AiwReleaseRuntimeToolPaths $Bundle.Root -Maintenance
+ if($closure.inputs-isnot[Array]-or$closure.syntheticInputs-isnot[Array]-or$closure.schemaVersion-notin@(1,2)-or$closure.kind-cne'SOURCE_INPUT_CLOSURE'-or$closure.inputView-cne'SOURCE_PAYLOAD_V1'-or$closure.definitionIdentity-cne(Get-AiwReleaseFileIdentity (Get-AiwReleaseChild $VersionRoot 'tests/test-groups.json'))-or(-not$Historical-and$closure.payloadCanonical-cne$Facts.Canonical)){throw 'RELEASE_INPUT_CLOSURE_BINDING'}
+ if($Historical){
+  $prefix='framework/versions/2.0.0/'
+  $historicalPayload=@($closure.inputs|Where-Object logicalRole -CEQ CURRENT_PAYLOAD|ForEach-Object{
+   Assert-AiwReleaseLocator $_.path
+   if(-not$_.path.StartsWith($prefix,[StringComparison]::Ordinal)){throw 'RELEASE_INPUT_ROLE_DOWNGRADE'}
+   @{path=$_.path.Substring($prefix.Length);identity=$_.identity}
+  })
+  $Facts=Get-AiwReleaseMemberFacts $historicalPayload
+  if($Facts.Canonical-cne$closure.payloadCanonical){throw 'RELEASE_INPUT_CLOSURE_BINDING'}
+ }
+ $sourcePaths=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase);$payload=@();$tools=Get-AiwReleaseRuntimeToolPaths $VersionRoot -Maintenance:$Maintenance;$allTools=Get-AiwReleaseRuntimeToolPaths $VersionRoot -Maintenance
  foreach($input in $closure.inputs){
   Assert-AiwReleaseFields $input @('path','identity','logicalRole','distributionLocator') 'source-input';Assert-AiwReleaseLocator $input.path
   if(-not$sourcePaths.Add($input.path)-or$input.identity-cnotmatch'^\d+\|[A-F0-9]{64}$'){throw 'RELEASE_INPUT_DUPLICATE_IDENTITY'}
@@ -384,32 +417,20 @@ function Assert-AiwReleaseSourceInputs($Bundle,$Facts,$Definition,[string]$Sourc
   elseif($expected-ceq'CURRENT_RUNTIME_TOOL'){if($input.distributionLocator-cne$input.path){throw 'RELEASE_RUNTIME_MAPPING'}}
   elseif($null-ne$input.distributionLocator){throw 'RELEASE_SOURCE_ONLY_DISTRIBUTION_MAPPING'}
   if($SourceRoot){if((Get-AiwReleaseFileIdentity (Get-AiwReleaseChild $SourceRoot $input.path))-cne$input.identity){throw 'RELEASE_CURRENT_SOURCE_INPUT_DRIFT'}}
-  elseif($expected-ceq'CURRENT_RUNTIME_TOOL'-and$input.path-cin$tools){if(-not$RuntimeRoot-or(Get-AiwReleaseFileIdentity (Get-AiwReleaseChild $RuntimeRoot $input.distributionLocator))-cne$input.identity){throw 'RELEASE_CURRENT_RUNTIME_TOOL_DRIFT'}}
+  elseif(-not$Historical-and$expected-ceq'CURRENT_RUNTIME_TOOL'-and$input.path-cin$tools){if(-not$RuntimeRoot-or(Get-AiwReleaseFileIdentity (Get-AiwReleaseChild $RuntimeRoot $input.distributionLocator))-cne$input.identity){throw 'RELEASE_CURRENT_RUNTIME_TOOL_DRIFT'}}
  }
  if((Get-AiwReleaseValueIdentity @($payload|Sort-Object path))-cne(Get-AiwReleaseValueIdentity @($Facts.Members|Sort-Object path))){throw 'RELEASE_COMPLETE_PAYLOAD_INPUTS'}
  foreach($tool in $tools){if(-not$sourcePaths.Contains($tool)){throw 'RELEASE_REQUIRED_RUNTIME_TOOL_MISSING'}}
  [string[]]$expectedPaths=@(@($Definition.sourceViewPaths)+@($Facts.Files|ForEach-Object{'framework/versions/2.0.0/'+$_})|Where-Object{$_-cne'framework/versions/2.0.0/RELEASE_MANIFEST.json'}|Select-Object -Unique);[Array]::Sort($expectedPaths,[StringComparer]::Ordinal)
  [string[]]$actualPaths=@($closure.inputs.path);[Array]::Sort($actualPaths,[StringComparer]::Ordinal)
  if((Get-AiwReleaseValueIdentity $actualPaths)-cne(Get-AiwReleaseValueIdentity $expectedPaths)-or@($closure.syntheticInputs).Count-ne1){throw 'RELEASE_SOURCE_INPUT_SET'}
- $closureByPath=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal)
- foreach($input in @($closure.inputs)+@($closure.syntheticInputs)){if($closureByPath.ContainsKey($input.path)){throw 'RELEASE_INPUT_BINDING_ROLE'};$closureByPath.Add($input.path,$input)}
- $bindingKeys=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
- foreach($binding in $Bundle.Index.inputBindings){
-  Assert-AiwReleaseFields $binding @('ownerMemberId','inputOrdinal','logicalRole','sourceRelativePath','identity','distributionLocator','provenanceRef') 'input-binding'
-  $key=$binding.ownerMemberId+'|'+$binding.inputOrdinal;if(-not$bindingKeys.Add($key)){throw 'RELEASE_INPUT_BINDING_DUPLICATE'}
-  $record=Read-AiwReleaseBundleMember $Bundle $binding.ownerMemberId GROUP_RECORD
-  if($binding.inputOrdinal-isnot[long]-and$binding.inputOrdinal-isnot[int]-or$binding.inputOrdinal-lt0-or$binding.inputOrdinal-ge@($record.after.facts.inputs).Count){throw 'RELEASE_INPUT_ORDINAL'}
-  $actual=@($record.after.facts.inputs)[$binding.inputOrdinal]
-  if($actual.path-cne$binding.sourceRelativePath-or$actual.identity-cne$binding.identity){throw 'RELEASE_INPUT_BINDING_DRIFT'}
-  if(-not$closureByPath.ContainsKey($binding.sourceRelativePath)){throw 'RELEASE_INPUT_BINDING_ROLE'}
-  $known=$closureByPath[$binding.sourceRelativePath]
-  if($known.logicalRole-cne$binding.logicalRole-or$known.identity-cne$binding.identity-or$known.distributionLocator-cne$binding.distributionLocator-or$binding.provenanceRef-cne$Bundle.Index.sourceInputClosureMemberId){throw 'RELEASE_INPUT_BINDING_ROLE'}
- }
+ $constructor=if($Historical){
+  @($closure.inputs|Where-Object path -CEQ 'framework/versions/2.0.0/tests/TestHarness.psm1')[0].identity
+ }else{Get-AiwReleaseFileIdentity (Get-AiwReleaseChild $VersionRoot 'tests/TestHarness.psm1')}
  foreach($synthetic in $closure.syntheticInputs){
   Assert-AiwReleaseFields $synthetic @('path','identity','logicalRole','distributionLocator','constructorIdentity') 'synthetic-input'
-  if($synthetic.path-cne'framework/versions/2.0.0/RELEASE_MANIFEST.json'-or$synthetic.logicalRole-cne'SYNTHETIC_FIXTURE_INPUT'-or$null-ne$synthetic.distributionLocator-or$synthetic.identity-cnotmatch'^\d+\|[A-F0-9]{64}$'-or$synthetic.constructorIdentity-cne(Get-AiwReleaseFileIdentity (Get-AiwReleaseChild $Bundle.Root 'tests/TestHarness.psm1'))){throw 'RELEASE_SYNTHETIC_CONSTRUCTOR'}
+  if($synthetic.path-cne'framework/versions/2.0.0/RELEASE_MANIFEST.json'-or$synthetic.logicalRole-cne'SYNTHETIC_FIXTURE_INPUT'-or$null-ne$synthetic.distributionLocator-or$synthetic.identity-cnotmatch'^\d+\|[A-F0-9]{64}$'-or$synthetic.constructorIdentity-cne$constructor){throw 'RELEASE_SYNTHETIC_CONSTRUCTOR'}
  }
- foreach($member in $Bundle.Index.members|Where-Object kind -CEQ GROUP_RECORD){$record=Read-AiwReleaseBundleMember $Bundle $member.id GROUP_RECORD;for($i=0;$i -lt @($record.after.facts.inputs).Count;$i++){if(-not$bindingKeys.Contains($member.id+'|'+$i)){throw 'RELEASE_INPUT_BINDING_MISSING'}}}
  if($closure.schemaVersion-eq2){
   $expectedRecipe=Get-AiwReleaseValueIdentity @{constructorIdentity=$closure.syntheticInputs[0].constructorIdentity;definitionIdentity=$closure.definitionIdentity;payloadCanonical=$closure.payloadCanonical;inputs=$closure.inputs;syntheticInputs=$closure.syntheticInputs;locationPolicy=$closure.locationPolicy}
   if($closure.recipeIdentity-cne$expectedRecipe){throw 'RELEASE_FIXTURE_RECIPE_DRIFT'}
@@ -418,52 +439,55 @@ function Assert-AiwReleaseSourceInputs($Bundle,$Facts,$Definition,[string]$Sourc
  }
  return $closure
 }
-function Assert-AiwReleaseProof([string]$VersionRoot,$Manifest,[string]$SourceRoot,[string]$RuntimeRoot,[switch]$Maintenance){
- Assert-AiwReleaseLoadedInputs
- Write-AiwReleaseDiagnostic 'deep-reader-start' @{versionRoot=$VersionRoot;sourceRoot=$SourceRoot;runtimeRoot=$RuntimeRoot;maintenance=[bool]$Maintenance}
- $proof=$Manifest.validationProof
- if($proof.schemaVersion-isnot[long]-and$proof.schemaVersion-isnot[int]){throw 'RELEASE_PROOF_SCHEMA_INTEGER'}
- $proofFields=@('schemaVersion','phase','mode','status','currentPayloadCanonical','suiteDefinitionIdentity','proofBundleRef','proofBundleIdentity','requiredGroupIds','groupRecordRefs','baselineRef','revalidationRefs','prepackageIntegrationRefs');if($proof.schemaVersion-in@(2,3)){$proofFields+='currentSuiteRef'};if($proof.schemaVersion-eq3){$proofFields+='verifierRef'}
- Assert-AiwReleaseFields $proof $proofFields 'validation-proof'
- if($proof.schemaVersion-isnot[long]-and$proof.schemaVersion-isnot[int]){throw 'RELEASE_PROOF_SCHEMA_INTEGER'}
- Assert-AiwReleaseStringFields $proof @('phase','mode','status','currentPayloadCanonical','suiteDefinitionIdentity') 'validation-proof'
- $v1=$proof.schemaVersion-eq1-and$proof.mode-cin@('FULL_RUN','VERIFIED_GROUP_COVERAGE');$v2=$proof.schemaVersion-in@(2,3)-and$proof.mode-ceq'CURRENT_GROUP_COVERAGE'
- if((-not$v1-and-not$v2)-or$proof.phase-cne'PREPACKAGE'-or$proof.status-cne'PASS'){throw 'RELEASE_PROOF_NOT_PASS'}
- if($v2-and$null-ne$proof.baselineRef){throw 'RELEASE_CURRENT_COVERAGE_BASELINE_FORBIDDEN'}
- Assert-AiwReleaseStringFields $proof @('proofBundleIdentity') 'qualified-proof'
- $bundle=Get-AiwReleaseBundle $VersionRoot $proof;$facts=Get-AiwReleasePayloadFacts $VersionRoot @($bundle.Members.path)
- Write-AiwReleaseDiagnostic 'metadata-and-index-complete' @{members=$bundle.Members.Count}
- $inventory=Read-AiwReleaseJson (Get-AiwReleaseChild $VersionRoot 'NORMATIVE_SURFACE_INVENTORY.json')
- [string[]]$expectedPayload=@(@($inventory.runtimeNormativeModules|ForEach-Object{$_.document;$_.fragment})+@($inventory.actionRequiredArtifacts)+@($inventory.schemaAndMechanicalInputs)+@($inventory.explanationAndHistory)|Where-Object{$_-cne'RELEASE_MANIFEST.json'});[Array]::Sort($expectedPayload,[StringComparer]::Ordinal)
- if((Get-AiwReleaseValueIdentity $expectedPayload)-cne(Get-AiwReleaseValueIdentity @($facts.Files))){throw 'RELEASE_PAYLOAD_INVENTORY_SET'}
- if($proof.currentPayloadCanonical-cne$facts.Canonical-or$proof.suiteDefinitionIdentity-cne(Get-AiwReleaseFileIdentity (Get-AiwReleaseChild $VersionRoot 'tests/test-groups.json'))){throw 'RELEASE_PROOF_CURRENT_INPUT_DRIFT'}
- $definition=Read-AiwReleaseJson (Get-AiwReleaseChild $VersionRoot 'tests/test-groups.json');$required=@($definition.groups|Where-Object{$_.phase-ceq'PREPACKAGE'-and'FULL'-cin$_.requiredFor}|ForEach-Object id)
- $groupsById=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal)
- foreach($group in $definition.groups){if($group.id-is[string]){if(-not$groupsById.ContainsKey($group.id)){$groupsById.Add($group.id,[Collections.Generic.List[object]]::new())};$groupsById[$group.id].Add($group)}}
- if((Get-AiwReleaseValueIdentity $required)-cne(Get-AiwReleaseValueIdentity @($proof.requiredGroupIds))){throw 'RELEASE_PROOF_REQUIRED_GROUPS'}
+function Assert-AiwReleaseIndexedInputs($Bundle,$Closure,[string]$ClosureId,[string[]]$GroupMemberIds){
+ $closureByPath=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal)
+ foreach($input in @($closure.inputs)+@($closure.syntheticInputs)){if($closureByPath.ContainsKey($input.path)){throw 'RELEASE_INPUT_BINDING_ROLE'};$closureByPath.Add($input.path,$input)}
+ $bindingKeys=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+ foreach($binding in $Bundle.Index.inputBindings|Where-Object provenanceRef -CEQ $ClosureId){
+  Assert-AiwReleaseFields $binding @('ownerMemberId','inputOrdinal','logicalRole','sourceRelativePath','identity','distributionLocator','provenanceRef') 'input-binding'
+  $key=$binding.ownerMemberId+'|'+$binding.inputOrdinal;if(-not$bindingKeys.Add($key)-or-not$Bundle.UsedBindings.Add($key)){throw 'RELEASE_INPUT_BINDING_DUPLICATE'}
+  if($binding.ownerMemberId-cnotin$GroupMemberIds){throw 'RELEASE_INPUT_BINDING_ROLE'}
+  $record=Read-AiwReleaseBundleMember $Bundle $binding.ownerMemberId GROUP_RECORD
+  if($binding.inputOrdinal-isnot[long]-and$binding.inputOrdinal-isnot[int]-or$binding.inputOrdinal-lt0-or$binding.inputOrdinal-ge@($record.after.facts.inputs).Count){throw 'RELEASE_INPUT_ORDINAL'}
+  $actual=@($record.after.facts.inputs)[$binding.inputOrdinal]
+  if($actual.path-cne$binding.sourceRelativePath-or$actual.identity-cne$binding.identity){throw 'RELEASE_INPUT_BINDING_DRIFT'}
+  if(-not$closureByPath.ContainsKey($binding.sourceRelativePath)){throw 'RELEASE_INPUT_BINDING_ROLE'}
+  $known=$closureByPath[$binding.sourceRelativePath]
+  if($known.logicalRole-cne$binding.logicalRole-or$known.identity-cne$binding.identity-or$known.distributionLocator-cne$binding.distributionLocator-or$binding.provenanceRef-cne$ClosureId){throw 'RELEASE_INPUT_BINDING_ROLE'}
+ }
+ foreach($member in $GroupMemberIds){$record=Read-AiwReleaseBundleMember $Bundle $member GROUP_RECORD;for($i=0;$i -lt @($record.after.facts.inputs).Count;$i++){if(-not$bindingKeys.Contains($member+'|'+$i)){throw 'RELEASE_INPUT_BINDING_MISSING'}}}
+}
+function Assert-AiwReleaseSourceInputs($Bundle,$Facts,$Definition,[string]$SourceRoot,[string]$RuntimeRoot,[switch]$Maintenance){
+ $closure=Read-AiwReleaseBundleMember $Bundle $Bundle.Index.sourceInputClosureMemberId INPUT_CLOSURE
+ $null=Assert-AiwReleaseInputClosure $closure $Facts $Definition $Bundle.Root $SourceRoot $RuntimeRoot -Maintenance:$Maintenance
+ $ids=@($Bundle.Index.members|Where-Object kind -CEQ GROUP_RECORD|ForEach-Object id)
+ Assert-AiwReleaseIndexedInputs $Bundle $closure $Bundle.Index.sourceInputClosureMemberId $ids
+ return $closure
+}
+function Assert-AiwReleaseSuitePartition($Bundle,$Proof,$Definition,$GroupsById,[string[]]$Required,[string[]]$Expected,[string]$ClosureId,[string]$VerifierIdentity,[switch]$CurrentCoverage,[switch]$Complete,[switch]$UniqueSuite){
+ $v2=[bool]$CurrentCoverage
  $currentSuite=$null;$suiteEntries=@{}
  if($v2){
   if($proof.requiredGroupIds-isnot[Array]-or$proof.groupRecordRefs-isnot[Array]-or$proof.revalidationRefs-isnot[Array]-or$proof.prepackageIntegrationRefs-isnot[Array]){throw 'RELEASE_CURRENT_PROOF_ARRAYS'}
   Assert-AiwReleaseRef $proof.currentSuiteRef 'current-suite-ref'
   $sm=@($bundle.Index.members|Where-Object{$_.kind-ceq'CURRENT_SUITE'-and$_.path-ceq$proof.currentSuiteRef.path-and$_.identity-ceq$proof.currentSuiteRef.identity})
-  if($sm.Count-ne1-or@($bundle.Index.members|Where-Object kind -CEQ CURRENT_SUITE).Count-ne1){throw 'RELEASE_CURRENT_SUITE_BINDING'}
+  if($sm.Count-ne1-or($UniqueSuite-and@($bundle.Index.members|Where-Object kind -CEQ CURRENT_SUITE).Count-ne1)){throw 'RELEASE_CURRENT_SUITE_BINDING'}
   $currentSuite=Read-AiwReleaseBundleMember $bundle $sm[0].id CURRENT_SUITE -CurrentCoverage
-  Assert-AiwReleaseCurrentSuiteShape $currentSuite $proof.suiteDefinitionIdentity $required -Complete
+  Assert-AiwReleaseCurrentSuiteShape $currentSuite $proof.suiteDefinitionIdentity $required -Complete:$Complete
   if($proof.schemaVersion-eq3){
-   if($proof.verifierRef.identity-cne(Get-AiwReleaseFileIdentity (Join-Path $PSScriptRoot 'TestEvidenceValidation.psm1'))){throw 'RELEASE_CURRENT_VERIFIER_BINDING'}
    Assert-AiwReleaseRef $proof.verifierRef 'current-verifier';Assert-AiwReleaseRef $currentSuite.verifierRef 'suite-verifier'
-   if($currentSuite.schemaVersion-ne3-or$definition.schemaVersion-ne3-or$proof.verifierRef.path-cne'scripts/TestEvidenceValidation.psm1'-or$proof.verifierRef.identity-cne(Get-AiwReleaseFileIdentity (Get-AiwReleaseChild $VersionRoot $proof.verifierRef.path))-or(Get-AiwReleaseValueIdentity $proof.verifierRef)-cne(Get-AiwReleaseValueIdentity $currentSuite.verifierRef)){throw 'RELEASE_CURRENT_VERIFIER_BINDING'}
+   if($currentSuite.schemaVersion-ne3-or$definition.schemaVersion-ne3-or$proof.verifierRef.path-cne'scripts/TestEvidenceValidation.psm1'-or$proof.verifierRef.identity-cne$VerifierIdentity-or(Get-AiwReleaseValueIdentity $proof.verifierRef)-cne(Get-AiwReleaseValueIdentity $currentSuite.verifierRef)){throw 'RELEASE_CURRENT_VERIFIER_BINDING'}
   }elseif($currentSuite.schemaVersion-ne2){throw 'RELEASE_CURRENT_SUITE_BINDING'}
   $inputMember=Resolve-AiwReleaseAlias $bundle $sm[0].id '/sourceInputsRef' $currentSuite.sourceInputsRef INPUT_CLOSURE
-  if($inputMember.id-cne$bundle.Index.sourceInputClosureMemberId){throw 'RELEASE_CURRENT_SUITE_INPUTS'}
+  if($inputMember.id-cne$ClosureId){throw 'RELEASE_CURRENT_SUITE_INPUTS'}
   $rvUsed=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
   for($i=0;$i-lt$currentSuite.records.Count;$i++){
    $entry=$currentSuite.records[$i];$group=@(if($groupsById.ContainsKey($entry.groupId)){$groupsById[$entry.groupId].ToArray()})
-   if($group.Count-ne1-or$entry.groupId-cnotin$required){throw 'RELEASE_CURRENT_SUITE_PARTITION'}
+   if($group.Count-ne1-or$entry.groupId-cnotin$Expected){throw 'RELEASE_CURRENT_SUITE_PARTITION'}
    $member=Resolve-AiwReleaseAlias $bundle $sm[0].id ('/records/'+$i.ToString()+'/original') ([pscustomobject]@{path=$entry.path;identity=$entry.identity}) GROUP_RECORD
    if(@($proof.groupRecordRefs|Where-Object{$_.groupId-ceq$entry.groupId-and$_.path-ceq$member.path-and$_.identity-ceq$member.identity}).Count-ne1){throw 'RELEASE_CURRENT_SUITE_PROOF_PARTITION'}
    $suiteEntries[$entry.groupId]=$entry
-   if($proof.schemaVersion-eq3-and$entry.executionKind-ceq'EXECUTED'){$fresh=Read-AiwReleaseBundleMember $bundle $member.id GROUP_RECORD -CurrentCoverage;if($fresh.schemaVersion-ne2){throw 'RELEASE_EXECUTION2_SUITE3_REQUIRED'};Assert-AiwReleaseBehaviorSnapshot $fresh.after $definition $group[0] $currentSuite $VersionRoot;$bundle.CurrentSnapshots[$entry.groupId]=$fresh.after}
+   if($proof.schemaVersion-eq3-and$entry.executionKind-ceq'EXECUTED'){$fresh=Read-AiwReleaseBundleMember $bundle $member.id GROUP_RECORD -CurrentCoverage;if($fresh.schemaVersion-ne2){throw 'RELEASE_EXECUTION2_SUITE3_REQUIRED'};Assert-AiwReleaseBehaviorSnapshot $fresh.after $definition $group[0] $currentSuite $VerifierIdentity;$bundle.CurrentSnapshots[$entry.groupId]=$fresh.after}
    if($entry.executionKind-ceq'REVALIDATED'){
     $rm=Resolve-AiwReleaseAlias $bundle $sm[0].id ('/records/'+$i.ToString()+'/revalidation') $entry.revalidation REVALIDATION
     if(-not$rvUsed.Add($rm.id)-or@($proof.revalidationRefs|Where-Object{$_.path-ceq$rm.path-and$_.identity-ceq$rm.identity}).Count-ne1){throw 'RELEASE_CURRENT_SUITE_REVALIDATION_PARTITION'}
@@ -471,7 +495,7 @@ function Assert-AiwReleaseProof([string]$VersionRoot,$Manifest,[string]$SourceRo
     $record=Read-AiwReleaseBundleMember $bundle $member.id GROUP_RECORD -CurrentCoverage
     if($proof.schemaVersion-eq3-and$record.schemaVersion-ne2){throw 'RELEASE_EXECUTION2_SUITE3_REQUIRED'}
     $currentSnapshot=if($proof.schemaVersion-eq3){$rv.currentSnapshot}else{$record.after}
-    if($proof.schemaVersion-eq3){Assert-AiwReleaseBehaviorSnapshot $currentSnapshot $definition $group[0] $currentSuite $VersionRoot;$bundle.CurrentSnapshots[$entry.groupId]=$currentSnapshot}
+    if($proof.schemaVersion-eq3){Assert-AiwReleaseBehaviorSnapshot $currentSnapshot $definition $group[0] $currentSuite $VerifierIdentity;$bundle.CurrentSnapshots[$entry.groupId]=$currentSnapshot}
     Assert-AiwReleaseCurrentRevalidation $rv ([pscustomobject]@{path=$entry.path;identity=$entry.identity}) $group[0] $currentSnapshot $currentSuite
     $original=Resolve-AiwReleaseAlias $bundle $rm.id '/original' $rv.original GROUP_RECORD
     if($original.id-cne$member.id){throw 'RELEASE_CURRENT_SUITE_REVALIDATION_ORIGINAL'}
@@ -480,9 +504,228 @@ function Assert-AiwReleaseProof([string]$VersionRoot,$Manifest,[string]$SourceRo
   if($proof.groupRecordRefs.Count-ne$currentSuite.records.Count-or$proof.revalidationRefs.Count-ne$rvUsed.Count){throw 'RELEASE_CURRENT_SUITE_PROOF_PARTITION'}
  }
  $seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
- foreach($ref in $proof.groupRecordRefs){Assert-AiwReleaseFields $ref @('groupId','path','identity') 'group-ref';$group=@(if($groupsById.ContainsKey($ref.groupId)){$groupsById[$ref.groupId].ToArray()});$member=@(if($bundle.ByPath.ContainsKey($ref.path)){$bundle.ByPath[$ref.path]|Where-Object{$_.identity-ceq$ref.identity-and$_.kind-ceq'GROUP_RECORD'}});if($group.Count-ne1-or$member.Count-ne1-or-not$seen.Add($ref.groupId)-or$ref.groupId-cnotin$required){throw 'RELEASE_PROOF_GROUP_BINDING'};$kind=if($v2){$suiteEntries[$ref.groupId].executionKind}else{'EXECUTED'};$null=Assert-AiwReleasePortableGroup $bundle $member[0].id $group[0] -CurrentCoverage:$v2 -Suite $currentSuite -ExecutionKind $kind}
- if($seen.Count-ne$required.Count){throw 'RELEASE_PROOF_MISSING_GROUP'}
+ $groupMemberIds=[Collections.Generic.List[string]]::new()
+ foreach($ref in $proof.groupRecordRefs){Assert-AiwReleaseFields $ref @('groupId','path','identity') 'group-ref';$group=@(if($groupsById.ContainsKey($ref.groupId)){$groupsById[$ref.groupId].ToArray()});$member=@(if($bundle.ByPath.ContainsKey($ref.path)){$bundle.ByPath[$ref.path]|Where-Object{$_.identity-ceq$ref.identity-and$_.kind-ceq'GROUP_RECORD'}});if($group.Count-ne1-or$member.Count-ne1-or-not$seen.Add($ref.groupId)-or$ref.groupId-cnotin$Expected){throw 'RELEASE_PROOF_GROUP_BINDING'};$groupMemberIds.Add($member[0].id);$kind=if($v2){$suiteEntries[$ref.groupId].executionKind}else{'EXECUTED'};$null=Assert-AiwReleasePortableGroup $bundle $member[0].id $group[0] -CurrentCoverage:$v2 -Suite $currentSuite -ExecutionKind $kind}
+ if($seen.Count-ne$Expected.Count){throw 'RELEASE_PROOF_MISSING_GROUP'}
  Write-AiwReleaseDiagnostic 'group-proof-complete' @{groups=$seen.Count}
+
+ return [pscustomobject]@{Suite=$currentSuite;GroupMemberIds=$groupMemberIds.ToArray()}
+}
+function Get-AiwReleaseChangeGroup($Group,[string[]]$TargetedGroupIds){
+ if($Group.id-cnotin$TargetedGroupIds){return $Group}
+ # A focused execution retains the D3 dependency recipe, but has its own
+ # arguments and completion requirement. It never replaces the full group.
+ $test=@{
+  'evidence.schema-resume'=@{entry='test-group-evidence-tests.ps1'; case='release-route-selector-and-original'}
+  'release.prepackage-readers'=@{entry='release-validation-tests.ps1'; case='release-route-consumer-and-delta'}
+ }[$Group.id]
+ if($null-eq$test-or$Group.entry-cne('framework/versions/2.0.0/tests/'+$test.entry)){throw 'RELEASE_CHANGE_TARGET_UNKNOWN'}
+ $target=[ordered]@{}
+ foreach($property in $Group.PSObject.Properties){$target[$property.Name]=$property.Value}
+ $target.arguments=@('-Group','RouteEvidence')
+ $target.requiredCaseIds=@($test.case)
+ $target.completionPattern='^RELEASE_ROUTE_EVIDENCE_PASS\|'+$Group.id.Replace('.','\.')+'$'
+ return [pscustomobject]$target
+}
+function Get-AiwReleaseInputChanges($Original,$Current){
+ $before=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal)
+ $after=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal)
+ foreach($row in $Original.inputs){$before.Add($row.path,$row)}
+ foreach($row in $Current.inputs){$after.Add($row.path,$row)}
+ $paths=[Collections.Generic.HashSet[string]]::new($before.Keys,[StringComparer]::Ordinal)
+ $paths.UnionWith($after.Keys)
+ [string[]]$sorted=@($paths)
+ [Array]::Sort($sorted,[StringComparer]::Ordinal)
+ foreach($path in $sorted){
+  $old=$before[$path];$new=$after[$path]
+  if((Get-AiwReleaseValueIdentity $old)-cne(Get-AiwReleaseValueIdentity $new)){
+   [pscustomobject]@{path=$path;before=$old;after=$new}
+  }
+ }
+}
+function Assert-AiwReleaseChangePlan($Plan,$Original,$Current,$Definition,[string]$HistoricalIdentity){
+ Assert-AiwReleaseFields $Plan @('schemaVersion','kind','historicalProofRef','candidatePayloadCanonical','definitionIdentity','changes','freshGroupIds','targetedGroupIds','assessment') 'change-plan'
+ Assert-AiwEvidenceReference $Plan.historicalProofRef 'change-historical-proof'
+ if($Plan.schemaVersion-isnot[int]-and$Plan.schemaVersion-isnot[long]-or$Plan.schemaVersion-ne1-or$Plan.kind-cne'PREPACKAGE_CHANGE_PLAN'-or$Plan.historicalProofRef.identity-cne$HistoricalIdentity-or-not[IO.Path]::IsPathFullyQualified($Plan.historicalProofRef.path)-or$Definition.schemaVersion-ne3-or$Original.schemaVersion-ne2-or$Current.schemaVersion-ne2-or$Original.definitionIdentity-cne$Current.definitionIdentity-or$Plan.definitionIdentity-cne$Current.definitionIdentity-or$Plan.candidatePayloadCanonical-cne$Current.payloadCanonical){throw 'RELEASE_CHANGE_PLAN_BINDING'}
+ if($Plan.assessment-isnot[string]-or[string]::IsNullOrWhiteSpace($Plan.assessment)-or$Plan.changes-isnot[Array]-or-not$Plan.changes.Count-or$Plan.freshGroupIds-isnot[Array]-or$Plan.targetedGroupIds-isnot[Array]){throw 'RELEASE_CHANGE_IMPACT_UNASSESSED'}
+ if((Get-AiwReleaseValueIdentity @($Plan.changes))-cne(Get-AiwReleaseValueIdentity @(Get-AiwReleaseInputChanges $Original $Current))){throw 'RELEASE_CHANGE_INPUT_DELTA'}
+ $required=@($Definition.groups|Where-Object{$_.phase-ceq'PREPACKAGE'-and'FULL'-cin$_.requiredFor})
+ $requested=@($Plan.freshGroupIds)+@($Plan.targetedGroupIds)
+ $seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+ if(-not$requested.Count-or$Plan.freshGroupIds.Count-ge$required.Count){throw 'RELEASE_CHANGE_VALIDATION_SCOPE'}
+ foreach($id in $requested){
+  if($id-isnot[string]-or$id-cnotin$required.id-or-not$seen.Add($id)){throw 'RELEASE_CHANGE_VALIDATION_SCOPE'}
+  if($id-cin$Plan.targetedGroupIds){$null=Get-AiwReleaseChangeGroup @($required|Where-Object id -CEQ $id)[0] $Plan.targetedGroupIds}
+ }
+ foreach($group in $required){
+  if(($group.alwaysFresh-or@($group.unknownDependencies).Count)-and$group.id-cnotin$Plan.freshGroupIds){throw 'RELEASE_CHANGE_FRESH_REQUIRED'}
+ }
+}
+function Assert-AiwReleaseIntegrationRef($Proof){
+ if(@($Proof.prepackageIntegrationRefs).Count-ne1){throw 'RELEASE_PREPACKAGE_INTEGRATION_MISSING'}
+ $integration=$Proof.prepackageIntegrationRefs[0]
+ Assert-AiwReleaseRef $integration 'prepackage-integration-ref'
+ if(@($Proof.groupRecordRefs|Where-Object{$_.groupId-ceq'integration.full-source'-and$_.path-ceq$integration.path-and$_.identity-ceq$integration.identity}).Count-ne1){throw 'RELEASE_PREPACKAGE_INTEGRATION_BINDING'}
+}
+function Assert-AiwReleaseHistoricalCoverage($Bundle,$Proof,$Definition,$GroupsById,[string[]]$Required,[string]$ClosureId){
+ Assert-AiwReleaseFields $Proof @('schemaVersion','phase','mode','status','currentPayloadCanonical','suiteDefinitionIdentity','proofBundleRef','proofBundleIdentity','requiredGroupIds','groupRecordRefs','baselineRef','revalidationRefs','prepackageIntegrationRefs','currentSuiteRef','verifierRef') 'historical-proof3'
+ if($Proof.schemaVersion-isnot[int]-and$Proof.schemaVersion-isnot[long]-or$Proof.schemaVersion-ne3-or$Proof.mode-cne'CURRENT_GROUP_COVERAGE'-or$Proof.phase-cne'PREPACKAGE'-or$Proof.status-cne'PASS'-or$null-ne$Proof.baselineRef-or$Proof.requiredGroupIds-isnot[Array]-or(Get-AiwReleaseValueIdentity $Proof.requiredGroupIds)-cne(Get-AiwReleaseValueIdentity $Required)){throw 'RELEASE_HISTORICAL_PROOF_REQUIRED'}
+ Assert-AiwReleaseRef $Proof.proofBundleRef 'historical-index'
+ if($Proof.proofBundleRef.path-cne'validation-evidence/prepackage/index.json'){throw 'RELEASE_BUNDLE_INDEX_LOCATOR'}
+ $closure=Read-AiwReleaseBundleMember $Bundle $ClosureId INPUT_CLOSURE
+ $null=Assert-AiwReleaseInputClosure $closure $null $Definition $Bundle.Root -Historical
+ if($closure.schemaVersion-ne2-or$closure.payloadCanonical-cne$Proof.currentPayloadCanonical-or$closure.definitionIdentity-cne$Proof.suiteDefinitionIdentity){throw 'RELEASE_HISTORICAL_CLOSURE_BINDING'}
+ $prefix='framework/versions/2.0.0/'
+ $verifier=@($closure.inputs|Where-Object path -CEQ ($prefix+'scripts/TestEvidenceValidation.psm1'))[0].identity
+ $partition=Assert-AiwReleaseSuitePartition $Bundle $Proof $Definition $GroupsById $Required $Required $ClosureId $verifier -CurrentCoverage -Complete
+ Assert-AiwReleaseIntegrationRef $Proof
+ Assert-AiwReleaseIndexedInputs $Bundle $closure $ClosureId $partition.GroupMemberIds
+ $available=@($closure.inputs)+@($closure.syntheticInputs)
+ foreach($id in $Required){Assert-AiwEvidenceSnapshotInputs $Bundle.CurrentSnapshots[$id].facts $Definition $GroupsById[$id][0] $available}
+ # The original EXECUTED input rows were verified above. Recompute each
+ # complete closure as well, even when the old suite revalidated that record.
+ foreach($memberId in $partition.GroupMemberIds){
+  $record=Read-AiwReleaseBundleMember $Bundle $memberId GROUP_RECORD -CurrentCoverage
+  Assert-AiwEvidenceSnapshotInputs $record.after.facts $Definition $GroupsById[$record.groupId][0] $available
+ }
+ return $closure
+}
+function Get-AiwReleaseGroupsById($Definition){
+ $groups=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal)
+ foreach($group in $Definition.groups){
+  if($group.id-is[string]){
+   if(-not$groups.ContainsKey($group.id)){$groups.Add($group.id,[Collections.Generic.List[object]]::new())}
+   $groups[$group.id].Add($group)
+  }
+ }
+ return $groups
+}
+function Get-AiwReleaseHistoricalPrepackage([string]$ProofPath,[string]$ExpectedIdentity,[string]$VersionRoot){
+ Assert-AiwReleaseLoadedInputs
+ $bytes=[IO.File]::ReadAllBytes((Assert-AiwReleasePath $ProofPath))
+ if((Get-AiwReleaseByteIdentity $bytes)-cne$ExpectedIdentity){throw 'RELEASE_HISTORICAL_PROOF_DRIFT'}
+ $proof=ConvertFrom-AiwReleaseBytes $bytes
+ if($proof.schemaVersion-ne3){throw 'RELEASE_HISTORICAL_PROOF_REQUIRED'}
+ $bundle=Get-AiwReleaseBundle ([IO.Path]::GetDirectoryName($ProofPath)) $proof
+ # Historical members come from this one flat original archive. D and the
+ # original closure still provide the contract used to validate their contents.
+ $bundle.Root=$VersionRoot
+ $definition=Read-AiwReleaseJson (Get-AiwReleaseChild $VersionRoot 'tests/test-groups.json')
+ $required=@($definition.groups|Where-Object{$_.phase-ceq'PREPACKAGE'-and'FULL'-cin$_.requiredFor}|ForEach-Object id)
+ $closure=Assert-AiwReleaseHistoricalCoverage $bundle $proof $definition (Get-AiwReleaseGroupsById $definition) $required $bundle.Index.sourceInputClosureMemberId
+ if($bundle.UsedAliases.Count-ne$bundle.Aliases.Count-or$bundle.Reached.Count-ne$bundle.ById.Count-or$bundle.UsedBindings.Count-ne$bundle.Index.inputBindings.Count){throw 'RELEASE_UNUSED_ALIAS_OR_MEMBER'}
+ if((Get-AiwReleaseFileIdentity $ProofPath)-cne$ExpectedIdentity){throw 'RELEASE_HISTORICAL_PROOF_DRIFT'}
+ $bundle.Parsed.Clear()
+ return [pscustomobject]@{Proof=$proof;Bytes=$bytes;Index=$bundle.Index;MemberBytes=$bundle.Bytes;Closure=$closure;Identity=$ExpectedIdentity}
+}
+function Assert-AiwReleaseChangedCoverage($Bundle,$Proof,$Facts,$Definition,$GroupsById,[string[]]$Required,[string]$SourceRoot,[string]$RuntimeRoot,[switch]$Maintenance){
+ if($Proof.requiredGroupIds-isnot[Array]-or$Proof.groupRecordRefs-isnot[Array]-or$Proof.revalidationRefs-isnot[Array]-or$Proof.revalidationRefs.Count-or$Proof.prepackageIntegrationRefs-isnot[Array]){throw 'RELEASE_CURRENT_PROOF_ARRAYS'}
+ foreach($ref in @($Proof.baselineRef,$Proof.changePlanRef,$Proof.currentSuiteRef)){Assert-AiwReleaseRef $ref 'change-coverage-ref'}
+ $historicalMember=$Bundle.ByPath[$Proof.baselineRef.path]
+ $planMember=$Bundle.ByPath[$Proof.changePlanRef.path]
+ if($historicalMember.identity-cne$Proof.baselineRef.identity-or$planMember.identity-cne$Proof.changePlanRef.identity){throw 'RELEASE_CHANGE_COVERAGE_REFERENCE'}
+ $plan=Read-AiwReleaseBundleMember $Bundle $planMember.id CHANGE_PLAN
+ # Resolve original members first so their canonical set can be checked
+ # without serializing or carrying a second index.
+ $baseline=Read-AiwReleaseBundleMember $Bundle $historicalMember.id HISTORICAL_PROOF
+ $before=[Collections.Generic.HashSet[string]]::new($Bundle.Reached,[StringComparer]::Ordinal)
+ Assert-AiwReleaseRef $baseline.currentSuiteRef 'historical-suite'
+ $oldSuite=$Bundle.ByPath[$baseline.currentSuiteRef.path]
+ $oldInputAlias=$Bundle.Aliases[$oldSuite.id+'|/sourceInputsRef']
+ $oldClosureId=$oldInputAlias.targetMemberId
+ $currentClosureId=$Bundle.Index.sourceInputClosureMemberId
+ if($oldClosureId-ceq$currentClosureId){throw 'RELEASE_CHANGE_CLOSURE_PARTITION'}
+ $original=Assert-AiwReleaseHistoricalCoverage $Bundle $baseline $Definition $GroupsById $Required $oldClosureId
+ $oldMembers=@(@{path=$baseline.proofBundleRef.path;identity=$baseline.proofBundleRef.identity})+@(
+  foreach($id in $Bundle.Reached){
+   if(-not$before.Contains($id)){$obj=$Bundle.ById[$id];@{path=$obj.path;identity=$obj.identity}}
+  }
+ )
+ if((Get-AiwReleaseMemberFacts $oldMembers).Canonical-cne$baseline.proofBundleIdentity){throw 'RELEASE_HISTORICAL_BUNDLE_CANONICAL'}
+ $closure=Read-AiwReleaseBundleMember $Bundle $currentClosureId INPUT_CLOSURE
+ $null=Assert-AiwReleaseInputClosure $closure $Facts $Definition $Bundle.Root $SourceRoot $RuntimeRoot -Maintenance:$Maintenance
+ Assert-AiwReleaseChangePlan $plan $original $closure $Definition $historicalMember.identity
+ $verifier=Get-AiwReleaseFileIdentity (Join-Path $PSScriptRoot 'TestEvidenceValidation.psm1')
+ if($verifier-cne(Get-AiwReleaseFileIdentity (Get-AiwReleaseChild $Bundle.Root 'scripts/TestEvidenceValidation.psm1'))){throw 'RELEASE_CURRENT_VERIFIER_BINDING'}
+ $sm=$Bundle.ByPath[$Proof.currentSuiteRef.path]
+ if($sm.identity-cne$Proof.currentSuiteRef.identity){throw 'RELEASE_CURRENT_SUITE_BINDING'}
+ $suite=Read-AiwReleaseBundleMember $Bundle $sm.id CURRENT_SUITE -CurrentCoverage
+ Assert-AiwReleaseCurrentSuiteShape $suite $Proof.suiteDefinitionIdentity $Required
+ $requested=@($plan.freshGroupIds)+@($plan.targetedGroupIds)
+ if($suite.schemaVersion-ne3-or$suite.phase-cne'PREPACKAGE'-or$suite.outcome-cne'PASS'-or$suite.coverage-cne'PARTIAL'-or@($suite.options.PSObject.Properties|Where-Object Value).Count-or$requested.Count-ne$suite.requestedGroupIds.Count-or@($requested|Where-Object{$_-cnotin$suite.requestedGroupIds}).Count){throw 'RELEASE_CHANGE_CURRENT_EXECUTION_MISSING'}
+ Assert-AiwReleaseRef $Proof.verifierRef 'change-current-verifier'
+ Assert-AiwReleaseRef $suite.verifierRef 'change-suite-verifier'
+ if($Proof.verifierRef.path-cne'scripts/TestEvidenceValidation.psm1'-or$Proof.verifierRef.identity-cne$verifier-or(Get-AiwReleaseValueIdentity $Proof.verifierRef)-cne(Get-AiwReleaseValueIdentity $suite.verifierRef)){throw 'RELEASE_CURRENT_VERIFIER_BINDING'}
+ $member=Resolve-AiwReleaseAlias $Bundle $sm.id '/sourceInputsRef' $suite.sourceInputsRef INPUT_CLOSURE
+ if($member.id-cne$currentClosureId){throw 'RELEASE_CURRENT_SUITE_INPUTS'}
+ $current=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal)
+ $available=@($closure.inputs)+@($closure.syntheticInputs)
+ $producer=@($closure.inputs|Where-Object path -CEQ 'framework/versions/2.0.0/tests/TestGroupEvidence.psm1')[0].identity
+ $Bundle.CurrentSnapshots.Clear()
+ for($i=0;$i-lt$suite.records.Count;$i++){
+  $entry=$suite.records[$i]
+  if($entry.executionKind-cne'EXECUTED'){throw 'RELEASE_CHANGE_CURRENT_EXECUTION_MISSING'}
+  $group=Get-AiwReleaseChangeGroup $GroupsById[$entry.groupId][0] $plan.targetedGroupIds
+  $member=Resolve-AiwReleaseAlias $Bundle $sm.id ('/records/'+$i+'/original') ([pscustomobject]@{path=$entry.path;identity=$entry.identity}) GROUP_RECORD
+  $record=Read-AiwReleaseBundleMember $Bundle $member.id GROUP_RECORD -CurrentCoverage
+  if($record.schemaVersion-ne2-or$record.validatorIdentity-cne$producer){throw 'RELEASE_CHANGE_EXECUTION_PRODUCER'}
+  Assert-AiwReleaseBehaviorSnapshot $record.after $Definition $group $suite $verifier
+  Assert-AiwEvidenceSnapshotInputs $record.after.facts $Definition $group $available
+  $expectedArgs=@(Get-AiwEvidenceGroupArguments $suite.sourceRoot $group $suite.options)
+  if((Get-AiwReleaseValueIdentity $record.after.facts.commandArguments)-cne(Get-AiwReleaseValueIdentity $expectedArgs)){throw 'RELEASE_PROCESS_COMMAND'}
+  $Bundle.CurrentSnapshots[$entry.groupId]=$record.after
+  $null=Assert-AiwReleasePortableGroup2 $Bundle $member.id $group $suite 'EXECUTED'
+  $current.Add($entry.groupId,$member)
+ }
+ Assert-AiwReleaseIndexedInputs $Bundle $closure $currentClosureId @($current.Values.id)
+ $expectedRefs=@(foreach($ref in $baseline.groupRecordRefs){
+  if($ref.groupId-cin$plan.freshGroupIds){
+   $member=$current[$ref.groupId]
+   @{groupId=$ref.groupId;path=$member.path;identity=$member.identity}
+  }else{$ref}
+ })
+ if((Get-AiwReleaseValueIdentity $expectedRefs)-cne(Get-AiwReleaseValueIdentity $Proof.groupRecordRefs)){throw 'RELEASE_CHANGE_COVERAGE_PARTITION'}
+ Assert-AiwReleaseIntegrationRef $Proof
+ return $closure
+}
+
+function Assert-AiwReleaseProof([string]$VersionRoot,$Manifest,[string]$SourceRoot,[string]$RuntimeRoot,[switch]$Maintenance,[string]$EvidenceRoot){
+ Assert-AiwReleaseLoadedInputs
+ Write-AiwReleaseDiagnostic 'deep-reader-start' @{versionRoot=$VersionRoot;sourceRoot=$SourceRoot;runtimeRoot=$RuntimeRoot;maintenance=[bool]$Maintenance}
+ $proof=$Manifest.validationProof
+ if($proof.schemaVersion-isnot[long]-and$proof.schemaVersion-isnot[int]){throw 'RELEASE_PROOF_SCHEMA_INTEGER'}
+ $proofFields=@('schemaVersion','phase','mode','status','currentPayloadCanonical','suiteDefinitionIdentity','proofBundleRef','proofBundleIdentity','requiredGroupIds','groupRecordRefs','baselineRef','revalidationRefs','prepackageIntegrationRefs');if($proof.schemaVersion-in@(2,3,4)){$proofFields+='currentSuiteRef'};if($proof.schemaVersion-in@(3,4)){$proofFields+='verifierRef'};if($proof.schemaVersion-eq4){$proofFields+='changePlanRef'}
+ Assert-AiwReleaseFields $proof $proofFields 'validation-proof'
+ if($proof.schemaVersion-isnot[long]-and$proof.schemaVersion-isnot[int]){throw 'RELEASE_PROOF_SCHEMA_INTEGER'}
+ Assert-AiwReleaseStringFields $proof @('phase','mode','status','currentPayloadCanonical','suiteDefinitionIdentity') 'validation-proof'
+ $v1=$proof.schemaVersion-eq1-and$proof.mode-cin@('FULL_RUN','VERIFIED_GROUP_COVERAGE');$v2=$proof.schemaVersion-in@(2,3)-and$proof.mode-ceq'CURRENT_GROUP_COVERAGE'
+ $v4=$proof.schemaVersion-eq4-and$proof.mode-ceq'CHANGE_VALIDATED_COVERAGE'
+ if((-not$v1-and-not$v2-and-not$v4)-or$proof.phase-cne'PREPACKAGE'-or$proof.status-cne'PASS'){throw 'RELEASE_PROOF_NOT_PASS'}
+ if($v2-and$null-ne$proof.baselineRef){throw 'RELEASE_CURRENT_COVERAGE_BASELINE_FORBIDDEN'}
+ Assert-AiwReleaseStringFields $proof @('proofBundleIdentity') 'qualified-proof'
+ if($EvidenceRoot-and(-not$v4-or-not$SourceRoot)){throw 'RELEASE_DETACHED_CHANGE_EVIDENCE_ONLY'}
+ $bundleRoot=if($EvidenceRoot){$EvidenceRoot}else{$VersionRoot}
+ $bundle=Get-AiwReleaseBundle $bundleRoot $proof
+ $bundle.Root=$VersionRoot
+ $evidencePaths=if(-not$EvidenceRoot){@($bundle.Members.path)}else{@()}
+ $facts=Get-AiwReleasePayloadFacts $VersionRoot @($evidencePaths)
+ Write-AiwReleaseDiagnostic 'metadata-and-index-complete' @{members=$bundle.Members.Count}
+ $inventory=Read-AiwReleaseJson (Get-AiwReleaseChild $VersionRoot 'NORMATIVE_SURFACE_INVENTORY.json')
+ [string[]]$expectedPayload=@(@($inventory.runtimeNormativeModules|ForEach-Object{$_.document;$_.fragment})+@($inventory.actionRequiredArtifacts)+@($inventory.schemaAndMechanicalInputs)+@($inventory.explanationAndHistory)|Where-Object{$_-cne'RELEASE_MANIFEST.json'});[Array]::Sort($expectedPayload,[StringComparer]::Ordinal)
+ if((Get-AiwReleaseValueIdentity $expectedPayload)-cne(Get-AiwReleaseValueIdentity @($facts.Files))){throw 'RELEASE_PAYLOAD_INVENTORY_SET'}
+ if($proof.currentPayloadCanonical-cne$facts.Canonical-or$proof.suiteDefinitionIdentity-cne(Get-AiwReleaseFileIdentity (Get-AiwReleaseChild $VersionRoot 'tests/test-groups.json'))){throw 'RELEASE_PROOF_CURRENT_INPUT_DRIFT'}
+ $definition=Read-AiwReleaseJson (Get-AiwReleaseChild $VersionRoot 'tests/test-groups.json');$required=@($definition.groups|Where-Object{$_.phase-ceq'PREPACKAGE'-and'FULL'-cin$_.requiredFor}|ForEach-Object id)
+ $groupsById=Get-AiwReleaseGroupsById $definition
+ if((Get-AiwReleaseValueIdentity $required)-cne(Get-AiwReleaseValueIdentity @($proof.requiredGroupIds))){throw 'RELEASE_PROOF_REQUIRED_GROUPS'}
+ if($v4){
+  $closure=Assert-AiwReleaseChangedCoverage $bundle $proof $facts $definition $groupsById $required $SourceRoot $RuntimeRoot -Maintenance:$Maintenance
+ }else{
+ $verifier=if($proof.schemaVersion-eq3){
+  $identity=Get-AiwReleaseFileIdentity (Join-Path $PSScriptRoot 'TestEvidenceValidation.psm1')
+  if($identity-cne(Get-AiwReleaseFileIdentity (Get-AiwReleaseChild $VersionRoot 'scripts/TestEvidenceValidation.psm1'))){throw 'RELEASE_CURRENT_VERIFIER_BINDING'}
+  $identity
+ }
+ $null=Assert-AiwReleaseSuitePartition $bundle $proof $definition $groupsById $required $required $bundle.Index.sourceInputClosureMemberId $verifier -CurrentCoverage:$v2 -Complete -UniqueSuite
  if($proof.mode-ceq'FULL_RUN'){if($null-ne$proof.baselineRef-or@($proof.revalidationRefs).Count){throw 'RELEASE_FULL_RUN_BASELINE_CYCLE'}}elseif($proof.mode-ceq'VERIFIED_GROUP_COVERAGE'){
   # A portable hash alone cannot independently prove accepted baseline authority.
   # Require the finite accepted FULL_RUN closure and each current local revalidation.
@@ -507,8 +750,7 @@ function Assert-AiwReleaseProof([string]$VersionRoot,$Manifest,[string]$SourceRo
    if($group.Count-ne1-or$group[0].alwaysFresh-or@($group[0].unknownDependencies).Count-or$rec.groupId-cne$rv.groupId-or@($proof.groupRecordRefs|Where-Object{$_.groupId-ceq$rv.groupId-and$_.identity-ceq$rv.original.identity}).Count-ne1-or$rec.after.identity-cne$rv.currentSnapshot.identity-or$rv.validatorIdentity-cne$rec.validatorIdentity){throw 'RELEASE_REVALIDATION_INPUT_DRIFT'}
   }
  }
- if(@($proof.prepackageIntegrationRefs).Count-ne1){throw 'RELEASE_PREPACKAGE_INTEGRATION_MISSING'}
- $integration=$proof.prepackageIntegrationRefs[0];if(@($proof.groupRecordRefs|Where-Object{$_.groupId-ceq'integration.full-source'-and$_.path-ceq$integration.path-and$_.identity-ceq$integration.identity}).Count-ne1){throw 'RELEASE_PREPACKAGE_INTEGRATION_BINDING'}
+ Assert-AiwReleaseIntegrationRef $proof
  $closure=Assert-AiwReleaseSourceInputs $bundle $facts $definition $SourceRoot $RuntimeRoot -Maintenance:$Maintenance
  if($proof.schemaVersion-eq3){
   $available=@($closure.inputs)+@($closure.syntheticInputs)
@@ -516,12 +758,13 @@ function Assert-AiwReleaseProof([string]$VersionRoot,$Manifest,[string]$SourceRo
  }
  Write-AiwReleaseDiagnostic 'source-bindings-complete' @{bindings=$bundle.Index.inputBindings.Count}
  if($v2){foreach($ref in $proof.groupRecordRefs){$member=@($bundle.Index.members|Where-Object path -CEQ $ref.path)[0];$record=Read-AiwReleaseBundleMember $bundle $member.id GROUP_RECORD;$paths=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal);foreach($input in $record.after.facts.inputs){$null=$paths.Add($input.path)};$subset=@(@($closure.inputs)+@($closure.syntheticInputs)|Where-Object{$paths.Contains($_.path)});if($record.after.facts.rootSensitive-isnot[bool]-or-not$record.after.facts.rootSensitive-or$record.after.facts.sourceInputsIdentity-cne(Get-AiwReleaseValueIdentity $subset)){throw 'RELEASE_CURRENT_COVERAGE_SNAPSHOT_CLOSURE'}}}
- if($bundle.UsedAliases.Count-ne$bundle.Aliases.Count-or$bundle.Reached.Count-ne$bundle.ById.Count){throw 'RELEASE_UNUSED_ALIAS_OR_MEMBER'}
+ }
+ if($bundle.UsedAliases.Count-ne$bundle.Aliases.Count-or$bundle.Reached.Count-ne$bundle.ById.Count-or$bundle.UsedBindings.Count-ne$bundle.Index.inputBindings.Count){throw 'RELEASE_UNUSED_ALIAS_OR_MEMBER'}
  # Observations are not a filesystem lock. Recheck the exact finite set and
  # every relevant byte after all consumers, including paths and reparse guards.
- $live=@(Get-AiwReleaseTreeMembers (Get-AiwReleaseChild $VersionRoot 'validation-evidence/prepackage')|ForEach-Object{@{path=('validation-evidence/prepackage/'+$_.path);identity=$_.identity}})
+ $live=@(Get-AiwReleaseTreeMembers (Get-AiwReleaseChild $bundleRoot 'validation-evidence/prepackage')|ForEach-Object{@{path=('validation-evidence/prepackage/'+$_.path);identity=$_.identity}})
  if((Get-AiwReleaseMemberFacts $live).Canonical-cne(Get-AiwReleaseMemberFacts $bundle.Members).Canonical){throw 'RELEASE_BUNDLE_FINAL_DRIFT'}
- if((Get-AiwReleasePayloadFacts $VersionRoot @($bundle.Members.path)).Canonical-cne$facts.Canonical){throw 'RELEASE_PAYLOAD_DRIFT'}
+ if((Get-AiwReleasePayloadFacts $VersionRoot @($evidencePaths)).Canonical-cne$facts.Canonical){throw 'RELEASE_PAYLOAD_DRIFT'}
  $finalRuntimeTools=@(Get-AiwReleaseRuntimeToolPaths $VersionRoot -Maintenance:$Maintenance)
  foreach($input in $closure.inputs){
   if($SourceRoot){if((Get-AiwReleaseFileIdentity (Get-AiwReleaseChild $SourceRoot $input.path))-cne$input.identity){throw 'RELEASE_CURRENT_SOURCE_INPUT_DRIFT'}}
@@ -529,7 +772,7 @@ function Assert-AiwReleaseProof([string]$VersionRoot,$Manifest,[string]$SourceRo
  }
  Write-AiwReleaseDiagnostic 'deep-reader-complete' @{memberParseCount=$bundle.Parsed.Count;groupRecordCount=@($bundle.Index.members|Where-Object kind -CEQ GROUP_RECORD).Count;inputBindingCount=$bundle.Index.inputBindings.Count}
  $bundle.Bytes.Clear();$bundle.Parsed.Clear()
- return [pscustomobject]@{Facts=$facts;Bundle=$bundle;Inputs=$closure;Mode=$proof.mode;BaselineAuthority=$(if($v2){'CURRENT_FINITE_GROUP_COVERAGE'}else{'SOURCE_REVIEW_BOUND_PROVENANCE'});ExecutionReusable=$false}
+ return [pscustomobject]@{Facts=$facts;Bundle=$bundle;Inputs=$closure;Mode=$proof.mode;BaselineAuthority=$(if($v4){'HISTORICAL_NATIVE_FACTS_AND_CURRENT_CHANGE_VALIDATION'}elseif($v2){'CURRENT_FINITE_GROUP_COVERAGE'}else{'SOURCE_REVIEW_BOUND_PROVENANCE'});ExecutionReusable=$false}
 }
 function Assert-AiwReleaseReviewProjection($Manifest){
  $review=$Manifest.sourceReviewEvidence
@@ -552,11 +795,11 @@ function Assert-AiwReleaseManifestShape($Manifest){
  if($Manifest.schemaVersion-isnot[long]-and$Manifest.schemaVersion-isnot[int]){throw 'RELEASE_SCHEMA_INTEGER'}
  $base=@('schemaVersion','version','lifecycle','releaseClass','scope','algorithm','fileCount','totalBytes','canonical','baseline','sourceReview','sourceCandidate','releaseIntegration','sourceReviewEvidence')
  if($Manifest.schemaVersion-eq2){Assert-AiwReleaseFields $Manifest ($base+@('completeSuite')) 'manifest2';Assert-AiwReleaseFields $Manifest.completeSuite @('status','passed','total','payloadCanonical','evidenceIdentity') 'suite2';Assert-AiwReleaseFields $Manifest.sourceReviewEvidence @('status','reviewer','packageIdentity','reviewedPayloadCanonical','reviewedManifestIdentity') 'review2'}
- elseif($Manifest.schemaVersion-eq3){if($Manifest.validationProof.schemaVersion-isnot[long]-and$Manifest.validationProof.schemaVersion-isnot[int]){throw 'RELEASE_PROOF_SCHEMA_INTEGER'};Assert-AiwReleaseFields $Manifest ($base+@('validationProof')) 'manifest3';Assert-AiwReleaseFields $Manifest.sourceReviewEvidence @('status','reviewer','packageIdentity','reviewedPayloadCanonical','reviewedManifestIdentity','reviewedManifestBase64') 'review3';Assert-AiwReleaseFields $Manifest.validationProof (@('schemaVersion','phase','mode','status','currentPayloadCanonical','suiteDefinitionIdentity','proofBundleRef','proofBundleIdentity','requiredGroupIds','groupRecordRefs','baselineRef','revalidationRefs','prepackageIntegrationRefs')+$(if($Manifest.validationProof.schemaVersion-in@(2,3)){@('currentSuiteRef')}else{@()})+$(if($Manifest.validationProof.schemaVersion-eq3){@('verifierRef')}else{@()})) 'proof3'}else{throw 'RELEASE_SCHEMA_UNSUPPORTED'}
+ elseif($Manifest.schemaVersion-eq3){if($Manifest.validationProof.schemaVersion-isnot[long]-and$Manifest.validationProof.schemaVersion-isnot[int]){throw 'RELEASE_PROOF_SCHEMA_INTEGER'};Assert-AiwReleaseFields $Manifest ($base+@('validationProof')) 'manifest3';Assert-AiwReleaseFields $Manifest.sourceReviewEvidence @('status','reviewer','packageIdentity','reviewedPayloadCanonical','reviewedManifestIdentity','reviewedManifestBase64') 'review3';Assert-AiwReleaseFields $Manifest.validationProof (@('schemaVersion','phase','mode','status','currentPayloadCanonical','suiteDefinitionIdentity','proofBundleRef','proofBundleIdentity','requiredGroupIds','groupRecordRefs','baselineRef','revalidationRefs','prepackageIntegrationRefs')+$(if($Manifest.validationProof.schemaVersion-in@(2,3,4)){@('currentSuiteRef')}else{@()})+$(if($Manifest.validationProof.schemaVersion-in@(3,4)){@('verifierRef')}else{@()})+$(if($Manifest.validationProof.schemaVersion-eq4){@('changePlanRef')}else{@()})) 'proof3'}else{throw 'RELEASE_SCHEMA_UNSUPPORTED'}
  Assert-AiwReleaseStringFields $Manifest @('version','lifecycle','releaseClass','scope','algorithm','canonical','baseline','sourceReview','sourceCandidate','releaseIntegration') 'manifest'
  Assert-AiwReleaseStringFields $Manifest.sourceReviewEvidence @('status') 'review-state'
  if($Manifest.schemaVersion-eq2){Assert-AiwReleaseStringFields $Manifest.completeSuite @('status') 'suite-state'}else{
-  if($Manifest.validationProof.schemaVersion-isnot[long]-and$Manifest.validationProof.schemaVersion-isnot[int]){throw 'RELEASE_PROOF_SCHEMA_INTEGER'}
+  if($Manifest.validationProof.schemaVersion-isnot[long]-and$Manifest.validationProof.schemaVersion-isnot[int]-or$Manifest.validationProof.schemaVersion-notin@(1,2,3,4)){throw 'RELEASE_PROOF_SCHEMA_INTEGER'}
   Assert-AiwReleaseStringFields $Manifest.validationProof @('phase','mode','status','currentPayloadCanonical','suiteDefinitionIdentity') 'proof-state'
  }
  if($Manifest.version-cne'2.0.0'-or$Manifest.lifecycle-cnotin@('CANDIDATE','STABLE')-or$Manifest.canonical-cnotmatch'^[A-F0-9]{64}$'-or($Manifest.fileCount-isnot[long]-and$Manifest.fileCount-isnot[int])-or($Manifest.totalBytes-isnot[long]-and$Manifest.totalBytes-isnot[int])-or$Manifest.fileCount-lt1-or$Manifest.totalBytes-lt1-or$Manifest.algorithm-cne$script:ReleaseAlgorithm){throw 'RELEASE_MANIFEST_VALUES'}
@@ -683,10 +926,16 @@ function Get-AiwFixedReleaseProjection([string]$VersionRoot,[string]$RuntimeRoot
   $facts=Get-AiwReleasePayloadFacts $VersionRoot -SourceView
   $proof=$manifest.validationProof
   $v1=$proof.schemaVersion-eq1-and$proof.mode-cin@('FULL_RUN','VERIFIED_GROUP_COVERAGE');$v2=$proof.schemaVersion-in@(2,3)-and$proof.mode-ceq'CURRENT_GROUP_COVERAGE'
-  if((-not$v1-and-not$v2)-or$manifest.sourceReview-cne'APPROVED'-or$proof.proofBundleIdentity-isnot[string]-or$proof.proofBundleIdentity-cnotmatch'^[A-F0-9]{64}$'-or$proof.revalidationRefs-isnot[Array]-or$proof.prepackageIntegrationRefs-isnot[Array]){throw 'RELEASE_FIXED_QUALIFICATION_SHAPE'}
-  if($proof.schemaVersion-eq3){Assert-AiwReleaseRef $proof.verifierRef 'fixed-verifier';if($proof.verifierRef.path-cne'scripts/TestEvidenceValidation.psm1'-or$proof.verifierRef.identity-cne(Get-AiwReleaseFileIdentity (Get-AiwReleaseChild $VersionRoot $proof.verifierRef.path))){throw 'RELEASE_FIXED_QUALIFICATION_SHAPE'}}
+  $v4=$proof.schemaVersion-eq4-and$proof.mode-ceq'CHANGE_VALIDATED_COVERAGE'
+  if((-not$v1-and-not$v2-and-not$v4)-or$manifest.sourceReview-cne'APPROVED'-or$proof.proofBundleIdentity-isnot[string]-or$proof.proofBundleIdentity-cnotmatch'^[A-F0-9]{64}$'-or$proof.revalidationRefs-isnot[Array]-or$proof.prepackageIntegrationRefs-isnot[Array]){throw 'RELEASE_FIXED_QUALIFICATION_SHAPE'}
+  if($proof.schemaVersion-in@(3,4)){Assert-AiwReleaseRef $proof.verifierRef 'fixed-verifier';if($proof.verifierRef.path-cne'scripts/TestEvidenceValidation.psm1'-or$proof.verifierRef.identity-cne(Get-AiwReleaseFileIdentity (Get-AiwReleaseChild $VersionRoot $proof.verifierRef.path))){throw 'RELEASE_FIXED_QUALIFICATION_SHAPE'}}
   Assert-AiwReleaseRef $proof.proofBundleRef 'fixed-proof-bundle'
   if($v2){Assert-AiwReleaseRef $proof.currentSuiteRef 'fixed-current-suite';if($null-ne$proof.baselineRef){throw 'RELEASE_FIXED_QUALIFICATION_SHAPE'}}
+  elseif($v4){
+   Assert-AiwReleaseRef $proof.currentSuiteRef 'fixed-current-suite'
+   Assert-AiwReleaseRef $proof.baselineRef 'fixed-historical-proof'
+   Assert-AiwReleaseRef $proof.changePlanRef 'fixed-change-plan'
+  }
   elseif($proof.mode-ceq'FULL_RUN'){if($null-ne$proof.baselineRef-or$proof.revalidationRefs.Count){throw 'RELEASE_FIXED_QUALIFICATION_SHAPE'}}
   else{Assert-AiwReleaseRef $proof.baselineRef 'fixed-baseline'}
   if($manifest.scope-cne$script:ReleaseScope-or$proof.status-cne'PASS'-or$proof.phase-cne'PREPACKAGE'-or$proof.currentPayloadCanonical-cne$facts.Canonical-or$proof.suiteDefinitionIdentity-cne(Get-AiwReleaseFileIdentity (Get-AiwReleaseChild $VersionRoot 'tests/test-groups.json'))-or$manifest.releaseIntegration-cne'PREPACKAGE_PASS'-or$proof.groupRecordRefs-isnot[Array]-or$proof.requiredGroupIds-isnot[Array]-or$proof.groupRecordRefs.Count-lt1-or$proof.requiredGroupIds.Count-ne$proof.groupRecordRefs.Count){throw 'RELEASE_FIXED_QUALIFICATION_SHAPE'}
@@ -815,6 +1064,67 @@ function Expand-AiwReleasePackage {
  }finally{$archive.Dispose()}
  return Get-AiwReleasePackageFacts $destination
 }
+function Get-AiwReleasePostbuildQualification {
+ [CmdletBinding()]param([Parameter(Mandatory)][string]$Path,[Parameter(Mandatory)][string]$PackagePath,[Parameter(Mandatory)][string]$ExtractedPackagePath,[Parameter(Mandatory)][string]$BuildCommandPath,[switch]$AllowPartial)
+ Assert-AiwReleaseLoadedInputs
+ $postPath=Assert-AiwReleasePath $Path;$identity=Get-AiwReleaseFileIdentity $postPath;$post=Read-AiwReleaseJson $postPath
+ $fields=@('schemaVersion','phase','packageRef','packageManifestRef','extractedTreeCanonical','sourceManifestRef','prepackageProofRef','buildCommandRef','postBuildDefinitionIdentity','requiredGroupIds','groupRecordRefs','runtime','options','outcome','rawRefs')
+ if($post.schemaVersion-isnot[int]-and$post.schemaVersion-isnot[long]-or$post.schemaVersion-notin@(1,2)){throw 'RELEASE_POSTBUILD_SCHEMA'}
+ if($post.schemaVersion-eq2){$fields+=@('currentSuiteRef','verifierRef')}
+ Assert-AiwReleaseFields $post $fields 'postbuild-proof'
+ if($post.phase-cne'POSTBUILD'-or$post.requiredGroupIds-isnot[Array]-or$post.groupRecordRefs-isnot[Array]-or$post.rawRefs-isnot[Array]){throw 'RELEASE_POSTBUILD_BINDING'}
+ $zip=Assert-AiwReleasePath $PackagePath;$root=[IO.Path]::TrimEndingDirectorySeparator((Assert-AiwReleasePath $ExtractedPackagePath));$build=Assert-AiwReleasePath $BuildCommandPath
+ $package=Get-AiwReleasePackageFacts $root;$null=Assert-AiwReleaseZipRuntime $zip $root
+ $version=Join-Path $root 'framework/versions/2.0.0';$qualified=Get-AiwReleaseQualification -VersionRoot $version -RuntimeRoot $root
+ $null=Assert-AiwReleaseBuildEvidence $build $zip $package $qualified
+ $expected=@{packageRef=@{path=$zip;identity=(Get-AiwReleaseFileIdentity $zip)};packageManifestRef=@{path=(Join-Path $root 'PACKAGE_MANIFEST.json');identity=$package.ManifestIdentity};sourceManifestRef=@{path=(Join-Path $version 'RELEASE_MANIFEST.json');identity=$qualified.ManifestIdentity};prepackageProofRef=@{path=(Join-Path $version $qualified.Manifest.validationProof.proofBundleRef.path);identity=$qualified.Manifest.validationProof.proofBundleRef.identity};buildCommandRef=@{path=$build;identity=(Get-AiwReleaseFileIdentity $build)}}
+ foreach($name in $expected.Keys){
+  Assert-AiwEvidenceReference $post.$name ('postbuild-'+$name)
+  if((Get-AiwReleaseValueIdentity $post.$name)-cne(Get-AiwReleaseValueIdentity $expected[$name])-or(Get-AiwReleaseFileIdentity $post.$name.path)-cne$post.$name.identity){throw 'RELEASE_POSTBUILD_INPUT_DRIFT'}
+ }
+ if($qualified.Manifest.schemaVersion-ne3-or$post.extractedTreeCanonical-cne$package.Canonical){throw 'RELEASE_POSTBUILD_INPUT_DRIFT'}
+ $definitionPath=Join-Path $version 'tests/test-groups.json';$definition=Read-AiwReleaseJson $definitionPath
+ $required=@($definition.groups|Where-Object{$_.phase-ceq'POSTBUILD'-and'FULL'-cin$_.requiredFor}|ForEach-Object id)
+ if($post.postBuildDefinitionIdentity-cne(Get-AiwReleaseFileIdentity $definitionPath)-or(Get-AiwReleaseValueIdentity @($post.requiredGroupIds))-cne(Get-AiwReleaseValueIdentity $required)){throw 'RELEASE_POSTBUILD_DEFINITION_DRIFT'}
+ # Import only at this consumer boundary: ReleaseValidation and the suite
+ # adapter intentionally share the native/revalidation validator, without an
+ # initialization cycle or caller-provided PASS object.
+ $ownerPath=Assert-AiwReleasePath (Join-Path $PSScriptRoot '../tests/TestGroupEvidence.psm1');$ownerIdentity=Get-AiwReleaseFileIdentity $ownerPath
+ $owner=@(Import-Module $ownerPath -PassThru)[0]
+ foreach($name in @('Assert-AiwTestSuiteEvidence','Get-AiwTestDependencySnapshot','Assert-AiwTestGroupEvidence','Read-AiwTestJson','Get-AiwTestEnvironment')){if(-not$owner.ExportedCommands.ContainsKey($name)-or$owner.ExportedCommands[$name].Module.Path-cne$ownerPath){throw 'RELEASE_POSTBUILD_READER_OWNER'}}
+ $suite=$null;$complete=$true
+ if($post.schemaVersion-eq2){
+  foreach($relative in @('scripts/ReleaseValidation.psm1','scripts/StrictJsonInput.psm1','scripts/TestEvidenceValidation.psm1','tests/TestGroupEvidence.psm1','tests/TestHarness.psm1','tests/TestExecutionRuntime.psm1')){
+   if((Get-AiwReleaseFileIdentity (Join-Path (Split-Path -Parent $PSScriptRoot) $relative))-cne(Get-AiwReleaseFileIdentity (Join-Path $version $relative))){throw 'RELEASE_POSTBUILD_READER_DRIFT'}
+  }
+  Assert-AiwEvidenceReference $post.currentSuiteRef 'postbuild-suite';Assert-AiwEvidenceReference $post.verifierRef 'postbuild-verifier'
+  if($post.verifierRef.path-cne'scripts/TestEvidenceValidation.psm1'-or$post.verifierRef.identity-cne(& $script:ReleaseEvidenceOwner.ExportedCommands['Get-AiwEvidenceLoadedIdentity'])-or(Get-AiwReleaseFileIdentity $post.currentSuiteRef.path)-cne$post.currentSuiteRef.identity){throw 'RELEASE_POSTBUILD_VERIFIER_OR_SUITE_DRIFT'}
+  $suite=& $owner.ExportedCommands['Assert-AiwTestSuiteEvidence'] -Path $post.currentSuiteRef.path -SourceRoot $root -DefinitionPath $definitionPath -AllowPartial:$AllowPartial
+  if($suite.schemaVersion-ne3-or$suite.phase-cne'POSTBUILD'-or$suite.sourceRoot-cne$root-or(Get-AiwReleaseValueIdentity $suite.verifierRef)-cne(Get-AiwReleaseValueIdentity $post.verifierRef)-or(Get-AiwReleaseValueIdentity @($suite.records))-cne(Get-AiwReleaseValueIdentity @($post.groupRecordRefs))-or(Get-AiwReleaseValueIdentity $suite.options)-cne(Get-AiwReleaseValueIdentity $post.options)){throw 'RELEASE_POSTBUILD_SUITE_BINDING'}
+  if($post.options.PackagePath-cne$zip-or$post.options.ExtractedPackagePath-cne$root-or$post.options.BuildCommandPath-cne$build-or$post.options.PackageIdentity-cne$expected.packageRef.identity-or$post.options.BuildCommandIdentity-cne$expected.buildCommandRef.identity-or$post.options.ExtractedTreeCanonical-cne$package.Canonical){throw 'RELEASE_POSTBUILD_OPTIONS_BINDING'}
+  if(@($definition.groups|Where-Object{$_.phase-ceq'POSTBUILD'-and$_.groupContractVersion-lt2}).Count){throw 'RELEASE_POSTBUILD_CURRENT_CONTRACT_REQUIRED'}
+  $complete=$suite.outcome-ceq'PASS'-and$suite.coverage-ceq'COMPLETE'
+  if(($complete-and$post.outcome-cne'PASS')-or(-not$complete-and(-not$AllowPartial-or$suite.outcome-cnotin@('PASS','PARTIAL')-or$post.outcome-cne'INCOMPLETE'))){throw 'RELEASE_POSTBUILD_NOT_PASS'}
+  if((Get-AiwReleaseValueIdentity $post.runtime)-cne(Get-AiwReleaseValueIdentity (& $owner.ExportedCommands['Get-AiwTestEnvironment']))){throw 'RELEASE_POSTBUILD_RUNTIME_DRIFT'}
+ }else{
+  if($post.outcome-cne'PASS'-or$post.groupRecordRefs.Count-ne$required.Count-or@($post.groupRecordRefs.groupId|Select-Object -Unique).Count-ne$required.Count){throw 'RELEASE_POSTBUILD_NOT_PASS'}
+  foreach($ref in $post.groupRecordRefs){
+   Assert-AiwReleaseFields $ref @('groupId','path','identity','executionKind','revalidation') 'postbuild-record'
+   if($ref.groupId-cnotin$required-or$ref.executionKind-cne'EXECUTED'-or$null-ne$ref.revalidation-or(Get-AiwReleaseFileIdentity $ref.path)-cne$ref.identity){throw 'RELEASE_POSTBUILD_LEGACY_FRESH_REQUIRED'}
+   $group=@($definition.groups|Where-Object id -CEQ $ref.groupId)[0];$record=& $owner.ExportedCommands['Read-AiwTestJson'] $ref.path -StringFields @('startedUtc','endedUtc');$native=@{}
+   if($record.schemaVersion-eq2){foreach($property in $record.after.facts.nativeEnvironment.PSObject.Properties){$native[$property.Name]=$property.Value}}
+   $snapshot=& $owner.ExportedCommands['Get-AiwTestDependencySnapshot'] $root $definitionPath $definition $group $post.options -NativeEnvironment $native
+   $null=& $owner.ExportedCommands['Assert-AiwTestGroupEvidence'] $record $group $snapshot
+  }
+ }
+ $raw=@(foreach($ref in $post.groupRecordRefs){(& $owner.ExportedCommands['Read-AiwTestJson'] $ref.path).processResult})
+ if((Get-AiwReleaseValueIdentity @($post.rawRefs))-cne(Get-AiwReleaseValueIdentity $raw)){throw 'RELEASE_POSTBUILD_RAW_PARTITION'}
+ if((Get-AiwReleaseFileIdentity $postPath)-cne$identity-or(Get-AiwReleaseFileIdentity $ownerPath)-cne$ownerIdentity){throw 'RELEASE_POSTBUILD_INPUT_DRIFT'}
+ foreach($name in $expected.Keys){if((Get-AiwReleaseFileIdentity $expected[$name].path)-cne$expected[$name].identity){throw 'RELEASE_POSTBUILD_INPUT_DRIFT'}}
+ $null=Get-AiwReleasePackageFacts $root;Assert-AiwReleaseLoadedInputs
+ return [pscustomobject]@{State=$(if($complete){'PACKAGE_VALIDATED'}else{'PACKAGE_VALIDATION_PARTIAL'});Postbuild=$post;PostbuildIdentity=$identity;Suite=$suite;SourceQualification=$qualified;PackageFacts=$package}
+}
+
 function Assert-AiwReleaseLoadedInputs {
  foreach($input in $script:ReleaseLoadedInputs){if((Get-AiwReleaseFileIdentity $input.path)-cne$input.identity){throw 'RELEASE_READER_MODULE_DRIFT'}}
  if($null-ne$script:ReleaseNavigationOwner){
@@ -827,4 +1137,4 @@ function Assert-AiwReleaseLoadedInputs {
  $null=& $script:ReleaseEvidenceOwner.ExportedCommands['Get-AiwEvidenceLoadedIdentity']
 }
 $script:ReleaseLoadedInputs=@(foreach($path in @($script:ReleaseModulePath,(Join-Path $PSScriptRoot 'StrictJsonInput.psm1'),(Join-Path $PSScriptRoot 'TestEvidenceValidation.psm1'))){@{path=$path;identity=(Get-AiwReleaseFileIdentity $path)}})
-Export-ModuleMember -Function ConvertTo-AiwReleaseEvidenceTime,Assert-AiwReleaseCurrentSuiteShape,Assert-AiwReleaseCurrentRevalidation,Assert-AiwReleaseCurrentExecution,Assert-AiwReleasePath,Assert-AiwReleaseLocator,Get-AiwReleaseChild,Get-AiwReleaseFileIdentity,Get-AiwReleaseByteIdentity,Read-AiwReleaseJson,Get-AiwReleaseCanonical,Get-AiwReleaseValueIdentity,Get-AiwReleaseTreeMembers,Get-AiwReleaseMemberFacts,Get-AiwReleasePayloadFacts,Get-AiwReleaseRuntimeToolPaths,Get-AiwReleaseQualification,Invoke-AiwReleaseQualificationScope,Get-AiwReleaseSchema2State,Assert-AiwReleaseManifestShape,Assert-AiwReleaseReviewProjection,Assert-AiwReleaseProof,Get-AiwReleasePackageFacts,Assert-AiwReleaseZipRuntime,Assert-AiwReleaseBuildEvidence,Expand-AiwReleasePackage
+Export-ModuleMember -Function Get-AiwReleaseChangeGroup,Get-AiwReleaseInputChanges,Assert-AiwReleaseChangePlan,Get-AiwReleaseHistoricalPrepackage,ConvertTo-AiwReleaseEvidenceTime,Assert-AiwReleaseCurrentSuiteShape,Assert-AiwReleaseCurrentRevalidation,Assert-AiwReleaseCurrentExecution,Assert-AiwReleasePath,Assert-AiwReleaseLocator,Get-AiwReleaseChild,Get-AiwReleaseFileIdentity,Get-AiwReleaseByteIdentity,Read-AiwReleaseJson,Get-AiwReleaseCanonical,Get-AiwReleaseValueIdentity,Get-AiwReleaseTreeMembers,Get-AiwReleaseMemberFacts,Get-AiwReleasePayloadFacts,Get-AiwReleaseRuntimeToolPaths,Get-AiwReleaseQualification,Invoke-AiwReleaseQualificationScope,Get-AiwReleaseSchema2State,Assert-AiwReleaseManifestShape,Assert-AiwReleaseReviewProjection,Assert-AiwReleaseProof,Get-AiwReleasePackageFacts,Assert-AiwReleaseZipRuntime,Assert-AiwReleaseBuildEvidence,Expand-AiwReleasePackage,Get-AiwReleasePostbuildQualification

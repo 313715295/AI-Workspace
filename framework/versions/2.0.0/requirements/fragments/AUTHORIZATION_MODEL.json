@@ -39,7 +39,11 @@
         "pathPrefixes": [],
         "capabilities": [],
         "semanticTerms": [],
-        "facets": {}
+        "facets": {},
+        "contextTypes": [
+          "TASK",
+          "PROJECT_WORK"
+        ]
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_ACTION_AUTHORIZATION_INDEPENDENT",
       "preparationRequirements": [
@@ -48,7 +52,19 @@
       ],
       "resultRequirements": [
         "ACTION_RESULT_OBSERVED"
-      ]
+      ],
+      "bodySelectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "contextTypes": [
+          "PROJECT_EXTERNAL"
+        ],
+        "facets": {}
+      }
     },
     {
       "requirementId": "PR_PROTECTED_PATH_FAIL_CLOSED",
@@ -157,7 +173,17 @@
         "pathPrefixes": [],
         "capabilities": [],
         "semanticTerms": [],
-        "facets": {}
+        "facets": {
+          "workType": [
+            "aiw:task-organization",
+            "aiw:collaboration",
+            "aiw:review",
+            "aiw:acceptance",
+            "aiw:recovery",
+            "aiw:controller-handoff",
+            "aiw:closure"
+          ]
+        }
       },
       "exactBlockLocator": "AIW-REQUIREMENT:PR_DYNAMIC_ROLE_DIRECT_ISSUANCE",
       "preparationRequirements": [
@@ -165,7 +191,20 @@
       ],
       "resultRequirements": [
         "ISSUER_ROUTE_VALIDATED"
-      ]
+      ],
+      "bodySelectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "contextTypes": [
+          "TASK",
+          "PROJECT_WORK"
+        ],
+        "facets": {}
+      }
     },
     {
       "requirementId": "PR_USER_DECISION_DRIFT",
@@ -210,6 +249,52 @@
       "resultRequirements": [
         "DECISION_DRIFT_CLASSIFIED"
       ]
+    },
+    {
+      "requirementId": "PR_BOUNDED_TASK_ACTIONS",
+      "legacyAliases": [],
+      "title": "Bounded task action packages",
+      "description": "Bind actual task or work packages, finite production and review continuation, professional dual actions and their real result boundaries.",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "*"
+        ],
+        "actionKinds": [
+          "CONTROL_WRITE",
+          "SOURCE_WRITE",
+          "TEST_WRITE",
+          "TEST_RUN",
+          "REVIEW_ROUTE",
+          "REVIEW_EXECUTE",
+          "RESULT_ACCEPT",
+          "GIT_STAGE",
+          "GIT_COMMIT",
+          "PUSH",
+          "BROWSER_RUN",
+          "DEVICE_RUN",
+          "EXTERNAL"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": [],
+        "facets": {},
+        "contextTypes": [
+          "TASK",
+          "PROJECT_WORK"
+        ]
+      },
+      "exactBlockLocator": "AIW-REQUIREMENT:PR_BOUNDED_TASK_ACTIONS",
+      "preparationRequirements": [],
+      "resultRequirements": []
     }
   ],
   "facetVocabulary": []

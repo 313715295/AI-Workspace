@@ -1,18 +1,55 @@
-function Assert-EvArchiveClosedRecord([string]$Text){
-    if($Text-cnotmatch'(?m)^- Range summary:[^\r\n]*lifecycle=CLOSED;'){throw 'ACCEPTANCE_CLOSE_NOT_CLOSED'}
-    foreach($name in @('Closure outcome','Closure basis','Output disposition','Git disposition','Unresolved obligations','Writer','Reviewer','Authorization')){
-        $m=[regex]::Matches($Text,('(?m)^- '+[regex]::Escape($name)+':[ \t]*(?<value>[^\r\n]+)$'))
-        if($m.Count-ne1-or[string]::IsNullOrWhiteSpace($m[0].Groups['value'].Value)){throw ('ACCEPTANCE_CLOSE_FIELD|'+$name)}
-        $value=$m[0].Groups['value'].Value.Trim()
-        switch($name){
-            'Closure outcome' {if($value-cnotin@('SUCCESS','CANCELLED','SUPERSEDED')){throw 'ACCEPTANCE_CLOSE_OUTCOME'};$outcome=$value}
-            'Git disposition' {if($value-cnotmatch'^(READY|DEFERRED|EXCLUDED)(?:[; :].+)?$'){throw 'ACCEPTANCE_CLOSE_GIT_DISPOSITION'}}
-            'Unresolved obligations' {if($value-cne'NONE'-and$value-cnotmatch'^TRANSFERRED: .+'){throw 'ACCEPTANCE_CLOSE_OBLIGATION_TRANSFER'}}
-            {$_-in@('Writer','Reviewer','Authorization')} {if($value-cne'RELEASED'){throw 'ACCEPTANCE_CLOSE_LEASE_RELEASE'}}
-        }
+# Shared by the structural card checker and semantic result consumers. Only
+# line interpretation is normalized; callers retain original bytes/identities.
+function Get-AiwTaskClosureFields([string]$Text,[switch]$RequireComplete){
+    $lines=$Text.Replace("`r`n","`n").Replace("`r","`n")
+    if($lines-cnotmatch'(?m)^- Range summary:[^\n]*lifecycle=CLOSED;'){throw 'ACCEPTANCE_CLOSE_NOT_CLOSED'}
+    $canonical=@('Closure basis','Output disposition','Git disposition','Unresolved obligations','Writer','Reviewer','Authorization')
+    $legacy=@('Closure evidence','Artifact disposition','Remaining obligations','Writer / reviewer / authorization')
+    $values=[Collections.Generic.Dictionary[string,string]]::new([StringComparer]::Ordinal)
+    foreach($name in @('Closure outcome','Closure decision','Unfinished work')+$canonical+$legacy){
+        $entries=[regex]::Matches($lines,('(?m)^- '+[regex]::Escape($name)+':[ \t]*(?<value>[^\n]*)$'))
+        if($entries.Count-gt1){throw ('ACCEPTANCE_CLOSE_FIELD|'+$name)}
+        if($entries.Count-eq0){continue}
+        $value=$entries[0].Groups['value'].Value.Trim()
+        if([string]::IsNullOrWhiteSpace($value)-or$value.StartsWith('<')-or$value-cmatch'^(PENDING|WAITING|BLOCKED|NOT_DELIVERED)$'){throw ('ACCEPTANCE_CLOSE_FIELD|'+$name)}
+        $values.Add($name,$value)
     }
-    if($outcome-cin@('CANCELLED','SUPERSEDED')-and$Text-cnotmatch'(?m)^- Closure decision: .+#[0-9]+\|[A-F0-9]{64}[ \t]*$'){throw 'ACCEPTANCE_CLOSE_DECISION_REQUIRED'}
+    $hasCanonical=@($canonical|Where-Object{$values.ContainsKey($_)}).Count-gt0
+    $hasLegacy=@($legacy|Where-Object{$values.ContainsKey($_)}).Count-gt0
+    if($hasCanonical){foreach($name in @('Closure outcome')+$canonical){if(-not$values.ContainsKey($name)){throw ('ACCEPTANCE_CLOSE_FIELD|'+$name)}}}
+    if($hasLegacy){foreach($name in $legacy){if(-not$values.ContainsKey($name)){throw ('ACCEPTANCE_CLOSE_FIELD|'+$name)}}}
+    if(-not$hasCanonical-and-not$hasLegacy-and($RequireComplete-or$values.ContainsKey('Closure outcome'))){throw 'ACCEPTANCE_CLOSE_FIELD|Closure basis'}
+    $outcome=if($values.ContainsKey('Closure outcome')){$values['Closure outcome']}else{'LEGACY_SUCCESS'}
+    if($values.ContainsKey('Closure outcome')-and$outcome-cnotin@('SUCCESS','CANCELLED','SUPERSEDED')){throw 'ACCEPTANCE_CLOSE_OUTCOME'}
+    if($hasCanonical){
+        if($values['Git disposition']-cnotmatch'^(READY|DEFERRED|EXCLUDED)(?:[; :].+)?$'){throw 'ACCEPTANCE_CLOSE_GIT_DISPOSITION'}
+        if($values['Unresolved obligations']-cne'NONE'-and$values['Unresolved obligations']-cnotmatch'^TRANSFERRED: .+'){throw 'ACCEPTANCE_CLOSE_OBLIGATION_TRANSFER'}
+        foreach($name in @('Writer','Reviewer','Authorization')){if($values[$name]-cne'RELEASED'){throw 'ACCEPTANCE_CLOSE_LEASE_RELEASE'}}
+    }
+    if($hasLegacy-and$values['Writer / reviewer / authorization']-cne'NONE / NONE / NONE'){throw 'ACCEPTANCE_CLOSE_LEASE_RELEASE'}
+    $basis=[Collections.Generic.List[string]]::new();$outputs=[Collections.Generic.List[string]]::new();$obligations=[Collections.Generic.List[string]]::new()
+    if($hasCanonical){$basis.Add($values['Closure basis']);$outputs.Add($values['Output disposition']);$obligations.Add($values['Unresolved obligations'])}
+    if($hasLegacy){
+        $basis.Add($values['Closure evidence']);$outputs.Add($values['Artifact disposition'])
+        $oldObligation=$values['Remaining obligations']
+        if($oldObligation-cne'NONE'-and-not$oldObligation.StartsWith('TRANSFERRED: ')){$oldObligation='TRANSFERRED: '+$oldObligation}
+        if($hasCanonical-and(($oldObligation-ceq'NONE')-ne($values['Unresolved obligations']-ceq'NONE'))){throw 'ACCEPTANCE_CLOSE_OBLIGATION_CONFLICT'}
+        if(-not$obligations.Contains($oldObligation)){$obligations.Add($oldObligation)}
+    }
+    if($outcome-ceq'SUPERSEDED'-and($obligations.Count-eq0-or$obligations.Contains('NONE'))){throw 'ACCEPTANCE_CLOSE_OBLIGATION_TRANSFER'}
+    $decision=$null;$unfinished=$null
+    if($outcome-cin@('CANCELLED','SUPERSEDED')){
+        if(-not$values.ContainsKey('Closure decision')){throw 'ACCEPTANCE_CLOSE_DECISION_REQUIRED'}
+        $match=[regex]::Match($values['Closure decision'],'^(?<path>.+)#(?<identity>\d+\|[A-F0-9]{64})$')
+        if(-not$match.Success){throw 'ACCEPTANCE_CLOSE_DECISION_REQUIRED'}
+        if(-not$values.ContainsKey('Unfinished work')){throw 'ACCEPTANCE_CLOSE_UNFINISHED_WORK_REQUIRED'}
+        $decision=[pscustomobject]@{path=$match.Groups['path'].Value;identity=$match.Groups['identity'].Value};$unfinished=$values['Unfinished work']
+    }
+    $format=if($hasCanonical-and$hasLegacy){'LEGACY_DUAL'}elseif($hasCanonical){'CANONICAL'}elseif($hasLegacy-and$values.ContainsKey('Closure outcome')){'LEGACY_TEMPLATE'}else{'LEGACY_NO_OUTCOME'}
+    [pscustomobject]@{Format=$format;Outcome=$outcome;Basis=@($basis.ToArray());OutputDisposition=@($outputs.ToArray());GitDisposition=$(if($hasCanonical){$values['Git disposition']}else{$null});UnresolvedObligations=@($obligations.ToArray());ClosureDecision=$decision;UnfinishedWork=$unfinished}
 }
+Export-ModuleMember -Function Get-AiwTaskClosureFields
+function Assert-EvArchiveClosedRecord([string]$Text){$null=Get-AiwTaskClosureFields $Text -RequireComplete}
 # Narrow actual postimage observation for the original current-task action.
 # It neither rewrites the receipt nor substitutes arbitrary missing task files.
 function Get-EvTaskArchiveObservation($Receipt,$Boundary){
@@ -42,13 +79,18 @@ function Get-EvTaskArchiveObservation($Receipt,$Boundary){
     $facts=& $transition {param($text) Get-TransitionTaskFacts $text} $document.Text
     $expected=@{TaskId=$Receipt.taskId;Owner=$Receipt.taskOwner;TaskActor=$Receipt.taskActor;Role=$Receipt.role;Phase=$Receipt.phase;Profile=$Receipt.profile}
     foreach($name in $expected.Keys){if($facts.$name-cne$expected[$name]){throw ('CONTROL_TASK_POSTIMAGE_BINDING_DRIFT|'+$name)}}
-    $ctx|Add-Member TaskPath $archive
-    Assert-AiwTaskClosure $ctx $document.Text $Receipt.taskId $Boundary -RequireExplicitClosure -ExcludedReviewActors @($package.issuer)
+    # Location is not a second result-acceptance consumer. The dedicated
+    # closure pass below owns the finite outcome graph.
+    Assert-EvArchiveClosedRecord $document.Text
     return [pscustomobject]@{TaskRelativePath=$archive;Identity=$document.Identity;Text=$document.Text}
 }
 
 function Resolve-EvRecordTarget($Context,$Record,[switch]$FrozenCandidateEvidence){
     $hasTarget=$null-ne$Context.PSObject.Properties['ExecutionContext']-and$null-ne$Context.ExecutionContext
+    if($Record.schemaVersion-eq3){
+        if($null-ne$Record.PSObject.Properties['executionTargetRef']-or$null-ne$Record.PSObject.Properties['candidateTargetState']-or($hasTarget-and$Context.ExecutionContext.targetKind-cne'SAME_ROOT')){throw 'EVIDENCE_WORK_TARGET_UNSUPPORTED'}
+        return $Context
+    }
     if($Record.schemaVersion-eq1){
         if($null-ne$Record.PSObject.Properties['executionTargetRef']-or$null-ne$Record.PSObject.Properties['candidateTargetState']){throw 'EVIDENCE_SCHEMA1_TARGET_FIELDS'}
         if($hasTarget){throw 'EVIDENCE_ISOLATED_TARGET_REQUIRES_SCHEMA2'}
@@ -75,16 +117,18 @@ function Resolve-EvRecordTarget($Context,$Record,[switch]$FrozenCandidateEvidenc
     $null=Assert-AiwExecutionTargetState $Context.ExecutionContext $Record.candidateTargetState
     return $Context
 }
-function Assert-AiwTaskClosure($Context,[string]$Text,[string]$TaskId,$Boundary,[switch]$RequireExplicitClosure,[string[]]$ExcludedReviewActors=@()) {
-    if($RequireExplicitClosure){
-        Assert-EvArchiveClosedRecord $Text
-        $outcome=[regex]::Matches($Text,'(?m)^- Closure outcome:[ \t]*(?<value>[^\r\n]+)$')
-        if($outcome.Count-ne1-or$outcome[0].Groups['value'].Value-cnotin@('SUCCESS','CANCELLED','SUPERSEDED')){throw 'ACCEPTANCE_CLOSURE_OUTCOME'}
-        if($outcome[0].Groups['value'].Value-cin@('CANCELLED','SUPERSEDED')){
-            if($Text-cnotmatch'(?m)^- Unfinished work: .+'){throw 'ACCEPTANCE_CLOSE_UNFINISHED_WORK_REQUIRED'}
-            $decision=[regex]::Matches($Text,'(?m)^- Closure decision: (?<path>.+)#(?<identity>\d+\|[A-F0-9]{64})[ \t]*$')
-            if($decision.Count-ne1){throw 'ACCEPTANCE_CLOSE_DECISION_REQUIRED'}
-            $null=Read-EvRef $Context ([pscustomobject]@{path=$decision[0].Groups['path'].Value;identity=$decision[0].Groups['identity'].Value})
+function Assert-EvTaskClosureCore($Context,[string]$Text,[string]$TaskId,$Boundary,[switch]$RequireExplicitClosure,[string[]]$ExcludedReviewActors=@()) {
+    $Text=$Text.Replace("`r`n","`n").Replace("`r","`n")
+    $closure=$null
+    if($RequireExplicitClosure-or$Text-cmatch'(?m)^- (?:Closure basis|Output disposition|Unresolved obligations|Closure evidence|Artifact disposition|Remaining obligations):'){
+        $closure=Get-AiwTaskClosureFields $Text -RequireComplete:$RequireExplicitClosure
+        if($closure.Outcome-cin@('CANCELLED','SUPERSEDED')){
+            $decision=Read-EvSupersessionDecision $Context $closure.ClosureDecision
+            if($closure.Outcome-ceq'SUPERSEDED'-and$null-ne$decision){
+                $source=Read-EvProcessOperation $Context $Boundary
+                if($source.binding.taskId-cne$TaskId-or$source.intentEnvelope.requestedActionKind-cne'CONTROL_WRITE'){throw 'WORK_PREDECESSOR_CLOSE_BINDING'}
+                $null=Get-EvSupersessionFacts $Context $decision $source
+            }
             return
         }
     }
@@ -112,24 +156,13 @@ function Assert-AiwTaskClosure($Context,[string]$Text,[string]$TaskId,$Boundary,
         $ids=[regex]::Matches($Text,'(?m)^#\s+(?<id>[A-Za-z0-9][A-Za-z0-9._-]*)\s+(?:\u2014|-)')
         if($ids.Count-ne1){throw 'ACCEPTANCE_CLOSURE_TASK_ID'}
         $closedTaskId=$ids[0].Groups['id'].Value
-        $userRefs=@()
-        foreach($stage in $closedPlan.stages){
-            if($stage.kind-ceq'USER_DECISION'){foreach($ref in $stage.candidateRef){if($ref.identity-ceq$Boundary.publicDecisionIdentity){$userRefs+=$ref}}}
-            if($stage.kind-ceq'RESULT_ACCEPT'){
-                $consumption=Get-EvConsumption $stage evidenceConsumption
-                foreach($ref in $stage.evidenceRefs){
-                    $record=Read-AiwResultEvidence $Context $ref $closedTaskId $stage.candidateRef $stage.requiredBy -RequireSuccess -EvidencePurpose $consumption.purpose -OriginalFinalize $consumption.originalFinalize -AcceptancePlan $closedPlan
-                    $original=Read-EvRef $Context $record.authorizationRef -Json
-                    if($null-ne$original.PSObject.Properties['acceptanceBinding']){$userRefs+=@($original.acceptanceBinding.reservedUserDecisionRefs)}
-                }
-            }
-        }
-        $unique=@($userRefs|Group-Object path,identity|ForEach-Object{$_.Group[0]})
+        $userRefs=@(foreach($stage in $closedPlan.stages){if($stage.kind-ceq'USER_DECISION'){foreach($ref in $stage.candidateRef){if($ref.identity-ceq$Boundary.publicDecisionIdentity){$ref}}}})
         $criticalClosure=if($closedPlan.schemaVersion-eq2){'RESULT_REVIEW'-cin$closedPlan.qualityBinding.effectiveStages}else{$Text-cmatch '(?m)^- (?:Profile: CRITICAL;|Range summary: profile=CRITICAL;)'}
         $closedOwner=[regex]::Match($Text,'(?m)^- Owner:\s*(?<owner>[^\s]+)\s*$').Groups['owner'].Value
         if($closedTaskId-cne$TaskId){throw 'ACCEPTANCE_CLOSURE_TASK_ID'}
         $excluded=@($closedOwner)+@($ExcludedReviewActors)
-        Assert-AiwAcceptanceStages $Context $closedPlan $closedTaskId '' $unique -RequireIndependentReview:$criticalClosure -ExcludedReviewActors $excluded
+        $basis=if($null-ne$closure){@($closure.Basis)}else{@()}
+        Assert-EvCompletedStages $Context $closedPlan $closedTaskId $userRefs -RequireIndependentReview:$criticalClosure -ExcludedReviewActors $excluded -ClosureBasis $basis -TaskOwner $closedOwner
 }
 Export-ModuleMember -Function Assert-AiwTaskClosure
 Set-StrictMode -Version Latest
@@ -296,7 +329,7 @@ function Get-EvAbsoluteRestrictions($Paths,$Roots) {
 # caller-supplied success flag nor a persisted producer/cleanup registry.
 function Get-EvReadState($Context) {
     if($null-eq$Context.PSObject.Properties['RetentionReadState']){
-        $Context|Add-Member RetentionReadState ([pscustomobject]@{producers=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::OrdinalIgnoreCase);guards=[Collections.Generic.List[object]]::new()})
+        $Context|Add-Member RetentionReadState ([pscustomobject]@{producers=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::OrdinalIgnoreCase);guards=[Collections.Generic.List[object]]::new();references=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::OrdinalIgnoreCase);observations=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal);captureObservations=$false})
     }
     return $Context.RetentionReadState
 }
@@ -321,7 +354,7 @@ function Get-EvRetentionHandoff($Context) {
     $guard.Roots=@($roots|Select-Object -Unique);$guard.ForbiddenPaths=@($denied|Select-Object -Unique)
     $historicalGuards=@(foreach($original in $state.guards){if($null-ne$original.ExecutionContext){$copy=$original|Select-Object *;$copy.ForbiddenPaths=$guard.ForbiddenPaths;$copy}})
     $guard|Add-Member HistoricalPathGuards $historicalGuards -Force
-    return [pscustomobject]@{context=$guard;producers=@($state.producers.Values)}
+    return [pscustomobject]@{context=$guard;producers=@($state.producers.Values);references=@($state.references.Values)}
 }
 function New-AiwEvidenceContext([string]$ProjectRoot,[string]$RepositoryRoot='', [string]$FrameworkRoot='', [string[]]$ForbiddenPaths=@(),[string[]]$ProtectedPaths=@()) {
     # An optional empty list may arrive as null through a PowerShell pipeline.
@@ -346,7 +379,7 @@ function New-AiwEvidenceContext([string]$ProjectRoot,[string]$RepositoryRoot='',
     $ctx.ForbiddenPaths=@($excluded|Select-Object -Unique)
     return $ctx
 }
-function Resolve-EvPath($Context,[string]$Path,[switch]$Candidate,[switch]$AllowMissing,[switch]$AllowDirectory,[switch]$Observation) {
+function Get-EvLogicalPath($Context,[string]$Path,[switch]$Candidate,[switch]$Observation) {
     Assert-EvString $Path
     if([IO.Path]::IsPathRooted($Path)-and-not[IO.Path]::IsPathFullyQualified($Path)){throw 'EVIDENCE_PATH_INVALID'}
     $value=$Path.Replace('\','/')
@@ -355,20 +388,8 @@ function Resolve-EvPath($Context,[string]$Path,[switch]$Candidate,[switch]$Allow
         if($Observation-and-not$Candidate-and$part-in@('.','..')){continue}
         if($part-in@('.','..')-or$part.EndsWith('.')-or$part.EndsWith(' ')-or$part-match '^(?i:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)'){throw 'EVIDENCE_PATH_INVALID'}
     }
-    if($Candidate-and$null-ne$Context.PSObject.Properties['ExecutionContext']-and$null-ne$Context.ExecutionContext){
-        Import-Module (Join-Path $PSScriptRoot 'ExecutionTargetContext.psm1')
-        if([IO.Path]::IsPathRooted($Path)){
-            $relative=[IO.Path]::GetRelativePath($Context.RepositoryRoot,[IO.Path]::GetFullPath($Path)).Replace('\','/')
-        }else{$relative=$Path}
-        return Resolve-AiwExecutionTargetCandidatePath $Context.ExecutionContext $relative $Context.ForbiddenPaths $Context.CandidateProtectedPaths
-    }
     $base=if($Candidate){$Context.RepositoryRoot}else{$Context.ProjectRoot}
     $full=[IO.Path]::GetFullPath($(if([IO.Path]::IsPathRooted($Path)){$Path}else{Join-Path $base $Path}))
-    if($null-ne$Context.PSObject.Properties['ExecutionContext']-and$null-ne$Context.ExecutionContext-and$full.StartsWith($Context.RepositoryRoot+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)){
-        Import-Module (Join-Path $PSScriptRoot 'ExecutionTargetContext.psm1')
-        $relative=[IO.Path]::GetRelativePath($Context.RepositoryRoot,$full).Replace('\','/')
-        $full=Resolve-AiwExecutionTargetCandidatePath $Context.ExecutionContext $relative $Context.ForbiddenPaths $Context.CandidateProtectedPaths
-    }
     $root=@($Context.Roots|Where-Object{$full.StartsWith($_+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)}|Sort-Object Length -Descending|Select-Object -First 1)
     if($root.Count-ne1){throw 'EVIDENCE_PATH_OUTSIDE_BOUND_ROOTS'}
     # Protected candidates and forbidden references are rejected before metadata.
@@ -386,6 +407,42 @@ function Resolve-EvPath($Context,[string]$Path,[switch]$Candidate,[switch]$Allow
     $cursor=[IO.Path]::GetPathRoot($full)
     $parts=$full.Substring($cursor.Length).Split([IO.Path]::DirectorySeparatorChar)
     foreach($part in $parts){if($part.Contains(':')){throw 'EVIDENCE_PATH_INVALID'}}
+    if($Candidate-and$null-ne$Context.PSObject.Properties['ExecutionContext']-and$null-ne$Context.ExecutionContext-and$Context.ExecutionContext.targetKind-ceq'GIT_WORKTREE'){
+        $relative=[IO.Path]::GetRelativePath($Context.RepositoryRoot,$full).Replace('\','/')
+        if($relative-match'(?i)^(\.ai-workspace|\.git)(/|$)'){throw 'EXECUTION_TARGET_CONTROL_OBJECT_DENIED'}
+    }
+    return $full
+}
+function New-EvLogicalContext($Context) {
+    $logical=$Context|Select-Object *
+    if($null-ne$Context.PSObject.Properties['ExecutionContext']-and$null-ne$Context.ExecutionContext){
+        Import-Module (Join-Path $PSScriptRoot 'ExecutionTargetContext.psm1')
+        # The original-top projection is obtained once for a logical comparison,
+        # never by observing each unselected candidate.
+        $projected=@(Get-AiwExecutionTargetDeniedPaths $Context.ExecutionContext $Context.ForbiddenPaths $Context.CandidateProtectedPaths)
+        $logical.ForbiddenPaths=@($Context.ForbiddenPaths)+$projected
+        $logical.CandidateProtectedPaths=@($Context.CandidateProtectedPaths)+$projected
+    }
+    return $logical
+}
+function New-EvCandidateIndex($Context,$Candidates) {
+    Assert-EvRefs $Candidates -Candidate -Nonempty
+    $index=[Collections.Generic.Dictionary[string,object]]::new($(if($IsWindows){[StringComparer]::OrdinalIgnoreCase}else{[StringComparer]::Ordinal}))
+    foreach($candidate in $Candidates){
+        $path=Get-EvLogicalPath $Context $candidate.path -Candidate
+        if(-not$index.TryAdd($path,$candidate)){throw 'EVIDENCE_DUPLICATE_REF'}
+    }
+    return ,$index
+}
+function Resolve-EvPath($Context,[string]$Path,[switch]$Candidate,[switch]$AllowMissing,[switch]$AllowDirectory,[switch]$Observation) {
+    $full=Get-EvLogicalPath $Context $Path -Candidate:$Candidate -Observation:$Observation
+    if($null-ne$Context.PSObject.Properties['ExecutionContext']-and$null-ne$Context.ExecutionContext-and($Candidate-or$full.StartsWith($Context.RepositoryRoot+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase))){
+        Import-Module (Join-Path $PSScriptRoot 'ExecutionTargetContext.psm1')
+        $relative=[IO.Path]::GetRelativePath($Context.RepositoryRoot,$full).Replace('\','/')
+        return Resolve-AiwExecutionTargetCandidatePath $Context.ExecutionContext $relative $Context.ForbiddenPaths $Context.CandidateProtectedPaths
+    }
+    $cursor=[IO.Path]::GetPathRoot($full)
+    $parts=$full.Substring($cursor.Length).Split([IO.Path]::DirectorySeparatorChar)
     foreach($part in $parts){
         $cursor=Join-Path $cursor $part
         $errors=@();$item=Get-Item -LiteralPath $cursor -Force -ErrorAction SilentlyContinue -ErrorVariable errors
@@ -405,34 +462,48 @@ function Get-EvCandidateIdentity([string]$ResolvedPath) {
     $bytes=[IO.File]::ReadAllBytes($ResolvedPath)
     return $bytes.Length.ToString()+'|'+[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes))
 }
-function Read-EvRef($Context,$Ref,[switch]$Candidate,[switch]$Section,[switch]$Json) {
+function Read-EvRef($Context,$Ref,[switch]$Candidate,[switch]$Section,[switch]$Json,$ReadDocuments=$null) {
     Assert-EvRef $Ref -Section:$Section -Candidate:$Candidate
     $full=Resolve-EvPath $Context $Ref.path -Candidate:$Candidate
     if($Candidate){
         if((Get-EvCandidateIdentity $full)-cne$Ref.identity){throw ('EVIDENCE_IDENTITY_DRIFT|'+$Ref.path)}
+        Add-EvReadObservation $Context ([pscustomobject]@{path=$full;identity=$Ref.identity}) $true
         if(-not$Json-and-not$Section){return $full}
         if($Ref.identity-ceq'MISSING'){throw 'EVIDENCE_OBJECT_MISSING'}
     }
+    # Bytes belong only to this private acquisition. Every logical reference
+    # still resolves its own roots, restrictions, target and section first.
+    $document=if($null-ne$ReadDocuments-and$ReadDocuments.ContainsKey($full)){$ReadDocuments[$full]}else{$null}
+    if($null-eq$document){
     $bytes=[IO.File]::ReadAllBytes($full)
     $identity=$bytes.Length.ToString()+'|'+[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes))
+    $document=[pscustomobject]@{bytes=$bytes;identity=$identity;text=$null;json=$null;jsonRead=$false}
+    if($null-ne$ReadDocuments){$ReadDocuments.Add($full,$document)}
+    }
+    $bytes=$document.bytes;$identity=$document.identity
     if($identity-cne$Ref.identity){throw ('EVIDENCE_IDENTITY_DRIFT|'+$Ref.path)}
+    $state=Get-EvReadState $Context
+    $state.references[$full+'|'+$identity]=[pscustomobject]@{path=$full;identity=$identity}
+    Add-EvReadObservation $Context ([pscustomobject]@{path=$full;identity=$identity})
     if(-not$Json-and-not$Section){return $full}
     if($bytes.Length-ge3-and$bytes[0]-eq239-and$bytes[1]-eq187-and$bytes[2]-eq191){throw 'EVIDENCE_UTF8_BOM'}
-    $text=[Text.UTF8Encoding]::new($false,$true).GetString($bytes)
+    if($null-eq$document.text){$document.text=[Text.UTF8Encoding]::new($false,$true).GetString($bytes)}
+    $text=$document.text
     if($text.Contains([char]0)){throw 'EVIDENCE_NUL'}
     if($Section-and$null-ne$Ref.PSObject.Properties['section']){
         $tag=[regex]::Escape($Ref.section)
         if([regex]::Matches($text,'<!-- '+$tag+':BEGIN -->').Count-ne1-or[regex]::Matches($text,'<!-- '+$tag+':END -->').Count-ne1-or-not[regex]::IsMatch($text,'(?s)<!-- '+$tag+':BEGIN -->.+?<!-- '+$tag+':END -->')){throw 'EVIDENCE_SECTION_UNBOUND'}
     }
-    if($Json){return ConvertFrom-EvJson $text}
+    if($Json){if(-not$document.jsonRead){$document.json=ConvertFrom-EvJson $text;$document.jsonRead=$true};return $document.json}
     return $full
 }
 function Test-EvSameRef($A,$B,$Context=$null,[switch]$Candidate) {
     # Equality is root-bound. Resolve both operands before comparing identities,
     # so a mismatching hash cannot hide an unsafe locator.
     if($null-ne$Context){
-        $aPath=Resolve-EvPath $Context $A.path -Candidate:$Candidate -AllowMissing
-        $bPath=Resolve-EvPath $Context $B.path -Candidate:$Candidate -AllowMissing
+        $logical=New-EvLogicalContext $Context
+        $aPath=Get-EvLogicalPath $logical $A.path -Candidate:$Candidate
+        $bPath=Get-EvLogicalPath $logical $B.path -Candidate:$Candidate
         $comparison=if($IsWindows){[StringComparison]::OrdinalIgnoreCase}else{[StringComparison]::Ordinal}
         if(-not$aPath.Equals($bPath,$comparison)){return $false}
     }elseif($A.path-cne$B.path){return $false}
@@ -444,14 +515,15 @@ function Test-EvSameRef($A,$B,$Context=$null,[switch]$Candidate) {
 function Assert-EvSameCandidates($Actual,$Expected,$Context=$null) {
     Assert-EvRefs $Actual -Nonempty -Candidate;Assert-EvRefs $Expected -Nonempty -Candidate
     if($Actual.Count-ne$Expected.Count){throw 'EVIDENCE_CANDIDATE_SET'}
-    # Normalize every member safely before comparing identities. These indexes
-    # exist only for this comparison; matching never repeats physical path IO.
+    # Equality checks syntax, roots and protection without filesystem probing.
+    # Actual current-candidate readers still verify every required live member.
+    $logical=if($null-ne$Context){New-EvLogicalContext $Context}else{$null}
     $comparer=if($null-ne$Context-and$IsWindows){[StringComparer]::OrdinalIgnoreCase}else{[StringComparer]::Ordinal}
     $indexes=[Collections.Generic.List[object]]::new()
     foreach($set in @(@{refs=$Actual},@{refs=$Expected})){
         $index=[Collections.Generic.Dictionary[string,object]]::new($comparer)
         foreach($ref in $set.refs){
-            $path=if($null-ne$Context){Resolve-EvPath $Context $ref.path -Candidate}else{$ref.path}
+            $path=if($null-ne$logical){Get-EvLogicalPath $logical $ref.path -Candidate}else{$ref.path}
             if(-not$index.TryAdd($path,$ref)){throw 'EVIDENCE_DUPLICATE_REF'}
         }
         $indexes.Add($index)
@@ -467,14 +539,13 @@ function Assert-EvSameCandidates($Actual,$Expected,$Context=$null) {
 function Test-EvSameCandidates($Actual,$Expected,$Context=$null) {
     try{Assert-EvSameCandidates $Actual $Expected $Context;return $true}catch{return $false}
 }
-function Read-EvObservationLocator($Context,$Reference,$Candidates,[switch]$FrozenCandidateEvidence,[switch]$HistoricalSuccess) {
+function Read-EvObservationLocator($Context,$Reference,$Candidates,[switch]$FrozenCandidateEvidence,[switch]$HistoricalSuccess,$CandidateIndex=$null) {
     if($FrozenCandidateEvidence-or$HistoricalSuccess){
         $full=Resolve-EvPath $Context $Reference.path -AllowMissing
         $comparison=if($IsWindows){[StringComparison]::OrdinalIgnoreCase}else{[StringComparison]::Ordinal}
-        foreach($candidate in $Candidates){
-            $candidatePath=Resolve-EvPath $Context $candidate.path -Candidate
-            if($candidate.identity-ceq$Reference.identity-and$candidatePath.Equals($full,$comparison)){return}
-        }
+        if($null-eq$CandidateIndex){$CandidateIndex=New-EvCandidateIndex (New-EvLogicalContext $Context) $Candidates}
+        $candidate=$null
+        if($CandidateIndex.TryGetValue($full,[ref]$candidate)-and$candidate.identity-ceq$Reference.identity){$null=Resolve-EvPath $Context $candidate.path -Candidate;return}
         if($HistoricalSuccess-and$null-ne$Context.PSObject.Properties['HistoricalInputObservations']){
             foreach($originalInput in $Context.HistoricalInputObservations){
                 # Unreferenced input carriers are not reads. Validate only the
@@ -496,13 +567,13 @@ function Get-AiwPlannedReviewFlatVerdict($Context,$Package,$Record){
         if([IO.Path]::GetExtension($ref.path)-ine'.json'){continue}
         $value=Read-EvRef $Context $ref -Json
         if($null-eq$value.PSObject.Properties['verdict']){continue}
-        Assert-EvFields $value @('taskId','owner','reviewer','writer','cycle','verdict','exactPaths','objectIdentities','findingPaths','scopeChanged','decisionChanged')
+        $fields=@('owner','reviewer','writer','cycle','verdict','exactPaths','objectIdentities','findingPaths','scopeChanged','decisionChanged');$fields+=if($Package.schemaVersion-eq5){'context'}else{'taskId'};Assert-EvFields $value $fields
         $found+=[pscustomobject]@{reference=$ref;value=$value}
     }
     if($found.Count-ne1){throw 'EVIDENCE_PLANNED_FLAT_VERDICT_REQUIRED'}
     $flat=$found[0].value
     Assert-EvInteger $flat.cycle;Assert-EvArray $flat.exactPaths;Assert-EvArray $flat.findingPaths
-    if($flat.taskId-cne$Package.taskId-or$flat.owner-cne$Package.owner-or$flat.reviewer-cne$Record.actor-or$flat.reviewer-cne$Package.grantee-or$flat.writer-cne$plan.writer-or$Package.candidateWriter-cne$plan.writer-or$flat.cycle-ne$binding.cycle-or$flat.verdict-cne$Record.outcome-or$flat.scopeChanged-isnot[bool]-or$flat.decisionChanged-isnot[bool]){throw 'EVIDENCE_FLAT_TYPED_VERDICT_DRIFT'}
+    if(-not(Test-AiwSameResultContext $(if($Package.schemaVersion-eq5){$flat.context}else{$flat}) $Package)-or$flat.owner-cne$Package.owner-or$flat.reviewer-cne$Record.actor-or$flat.reviewer-cne$Package.grantee-or$flat.writer-cne$plan.writer-or$Package.candidateWriter-cne$plan.writer-or$flat.cycle-ne$binding.cycle-or$flat.verdict-cne$Record.outcome-or$flat.scopeChanged-isnot[bool]-or$flat.decisionChanged-isnot[bool]){throw 'EVIDENCE_FLAT_TYPED_VERDICT_DRIFT'}
     if((@($flat.exactPaths|Sort-Object)-join'|')-cne(@($Package.exactPaths|Sort-Object)-join'|')){throw 'EVIDENCE_FLAT_VERDICT_SCOPE'}
     Assert-EvSameCandidates @(Get-AiwPackageCandidateReferences $flat) $Record.candidateObjects $Context
     $seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
@@ -520,19 +591,52 @@ function Get-AiwReviewExcludedActors([string]$Owner,[string]$Issuer,[string]$Wri
     return @($excluded)
 }
 Export-ModuleMember -Function Get-AiwReviewExcludedActors
+
+function Convert-EvOperationCompact($Context,$Raw){
+ if($Raw.schemaVersion-ne5){throw 'EVIDENCE_OPERATION_CONTRACT'}
+ $codec=@(Import-Module (Join-Path $PSScriptRoot 'ProcessRequirementComposition.psm1') -PassThru)[0]
+ return & $codec {param($raw,$ctx)ConvertFrom-AiwOperationCompact $raw -EvidenceContext $ctx} $Raw $Context
+}
+function Read-EvProcessOperation($Context,$Boundary,$Result=$null,$ReadDocuments=$null){
+ if($Boundary.schemaVersion-eq4){
+  if($null-ne$Boundary.PSObject.Properties['operationRef']){$ref=$Boundary.operationRef}
+  elseif($null-ne$Boundary.PSObject.Properties['currentOperation']-and$null-ne$Result-and$null-ne$Result.PSObject.Properties['operationRef']){$ref=$Result.operationRef}
+  else{throw 'EVIDENCE_OPERATION_REF_REQUIRED'}
+  $raw=Read-EvRef -ReadDocuments $ReadDocuments $Context $ref -Json
+  return Convert-EvOperationCompact $Context $raw
+ }
+ return Read-EvRef -ReadDocuments $ReadDocuments $Context ([pscustomobject]@{path=$Boundary.discoverReceiptPath;identity=$Boundary.expectedDiscoverReceiptIdentity}) -Json
+}
+
+
 function Assert-AiwFinalizedReviewFinding($Context,$Parent,$Binding,[switch]$FrozenCandidates){
+    Import-Module (Join-Path $PSScriptRoot 'ProcessRequirementComposition.psm1')
+    if($Parent.schemaVersion-in@(1,2)-and$null-ne$Context.PSObject.Properties['WorkRequest']){
+        # Every consumer reads old TASK findings with the same verified
+        # predecessor task plan, never the current WORK no-task marker.
+        $predecessor=Get-EvWorkReviewRoot $Context $Context.WorkRequest ([pscustomobject]@{path=$Binding.parentPackagePath;identity=$Binding.parentPackageIdentity})
+        $originalContext=$Context|Select-Object *
+        $originalContext|Add-Member TaskPath (Read-EvRef $Context $predecessor.decision.predecessorTaskRef) -Force
+        $Context=$originalContext
+    }
     foreach($name in @('verdictFinalizeInputPath','verdictFinalizeInputIdentity','verdictFinalizeResultPath','verdictFinalizeResultIdentity')){if($null-eq$Binding.PSObject.Properties[$name]-or$Binding.$name-isnot[string]-or$Binding.$name-ceq'NOT_APPLICABLE'){throw 'REPAIR_REVIEW_FINALIZED_TYPED_VERDICT_REQUIRED'}}
     $input=Read-EvRef $Context ([pscustomobject]@{path=$Binding.verdictFinalizeInputPath;identity=$Binding.verdictFinalizeInputIdentity}) -Json
     $result=Read-EvRef $Context ([pscustomobject]@{path=$Binding.verdictFinalizeResultPath;identity=$Binding.verdictFinalizeResultIdentity}) -Json
     if($input.mode-cne'FINALIZE_OUTPUT'-or$result.mode-cne'FINALIZE_OUTPUT'-or$result.status-cne'PASS'-or@($result.missingPreparation).Count-or@($result.missingResult).Count-or$null-ne$result.PSObject.Properties['sourcePostimageTransition']){throw 'REPAIR_REVIEW_VERDICT_FINALIZE_REQUIRED'}
-    $source=Read-EvRef $Context ([pscustomobject]@{path=$input.discoverReceiptPath;identity=$input.expectedDiscoverReceiptIdentity}) -Json
-    if($source.schemaVersion-notin@(3,4)-or$source.status-cne'PASS'-or$source.intentEnvelope.requestedActionKind-cne'REVIEW_EXECUTE'-or$source.intentEnvelope.requestedResultKind-cne'REVIEW_VERDICT'){throw 'REPAIR_REVIEW_VERDICT_SOURCE'}
+    $source=Read-EvProcessOperation $Context $input $result
+    if($source.schemaVersion-notin@(3,4,5)-or$source.status-cne'PASS'-or$source.intentEnvelope.requestedActionKind-cne'REVIEW_EXECUTE'-or$source.intentEnvelope.requestedResultKind-cne'REVIEW_VERDICT'){throw 'REPAIR_REVIEW_VERDICT_SOURCE'}
     $authority=$source.binding
     $review=Read-EvRef $Context ([pscustomobject]@{path=$source.sourceLocators.authorizationPackagePath;identity=$authority.authorizationIdentity}) -Json
-    if($authority.actor-cne$review.grantee-or$authority.taskId-cne$review.taskId-or$authority.taskOwner-cne$review.owner-or$authority.taskIdentity-cne$review.taskIdentity-or$authority.userDecision-cne$review.userConfirmation-or@($review.actions).Count-ne1-or$review.actions[0]-cne'REVIEW_EXECUTE'-or(@($authority.exactScope|Sort-Object)-join'|')-cne(@($review.exactPaths|Sort-Object)-join'|')){throw 'REPAIR_REVIEW_VERDICT_AUTHORITY_DRIFT'}
+    if($Parent.schemaVersion-eq5-and$review.schemaVersion-eq5-and(Get-AiwWorkPlanDefinitionKey $review.requestContext)-cne(Get-AiwWorkPlanDefinitionKey $Parent.requestContext)){throw 'REPAIR_REVIEW_PARENT_PLAN_DRIFT'}
+    if($authority.actor-cne$review.grantee-or$(if($review.schemaVersion-eq5){-not(Test-AiwSameResultContext $authority $review)}else{$authority.taskId-cne$review.taskId-or$authority.taskOwner-cne$review.owner-or$authority.taskIdentity-cne$review.taskIdentity})-or$authority.userDecision-cne$review.userConfirmation-or@($review.actions).Count-ne1-or$review.actions[0]-cne'REVIEW_EXECUTE'-or(@($authority.exactScope|Sort-Object)-join'|')-cne(@($review.exactPaths|Sort-Object)-join'|')){throw 'REPAIR_REVIEW_VERDICT_AUTHORITY_DRIFT'}
+    $crossReview=$Parent.schemaVersion-ne5-and$review.schemaVersion-eq5
+    if($crossReview){
+        $null=Get-EvWorkReviewRoot $Context $review.requestContext ([pscustomobject]@{path=$Binding.parentPackagePath;identity=$Binding.parentPackageIdentity})
+    }
+    $parentContextMatches=if($Parent.schemaVersion-eq5){$review.schemaVersion-eq5-and(Test-AiwSameResultContext $review $Parent)}elseif($crossReview){$true}else{$review.taskId-ceq$Parent.taskId-and$review.taskIdentity-ceq$Parent.taskIdentity}
+    $parentDecisionMatches=$crossReview-or$review.userConfirmation-ceq$Parent.userConfirmation
     $cycle=[int]$Binding.cycle-1
-    if($null-eq$review.PSObject.Properties['repairReviewBinding']-or$review.repairReviewBinding.parentPackageIdentity-cne$Binding.parentPackageIdentity-or$review.repairReviewBinding.cycle-ne$cycle-or$review.repairReviewBinding.phase-cne$(if($cycle-eq0){'INITIAL_REVIEW'}else{'REREVIEW'})-or$review.owner-cne$Parent.owner-or$review.taskId-cne$Parent.taskId-or$review.taskIdentity-cne$Parent.taskIdentity-or$review.userConfirmation-cne$Parent.userConfirmation){throw 'REPAIR_REVIEW_VERDICT_PARENT_CYCLE'}
-    Import-Module (Join-Path $PSScriptRoot 'ProcessRequirementComposition.psm1')
+    if($null-eq$review.PSObject.Properties['repairReviewBinding']-or$review.repairReviewBinding.parentPackageIdentity-cne$Binding.parentPackageIdentity-or$review.repairReviewBinding.cycle-ne$cycle-or$review.repairReviewBinding.phase-cne$(if($cycle-eq0){'INITIAL_REVIEW'}else{'REREVIEW'})-or$review.owner-cne$Parent.owner-or(-not$parentContextMatches)-or(-not$parentDecisionMatches)){throw 'REPAIR_REVIEW_VERDICT_PARENT_CYCLE'}
     if($result.selectionIdentity-cne$source.selectionIdentity-or$result.decisionIdentity-cne(Get-AiwProcessDecisionIdentity $source $input)){throw 'REPAIR_REVIEW_VERDICT_FINALIZE_DECISION'}
     $refs=@($input.evidenceRefs|Where-Object kind -CEQ 'REVIEW_VERDICT')
     if($refs.Count-ne1){throw 'REPAIR_REVIEW_FINALIZED_TYPED_VERDICT_REQUIRED'}
@@ -540,14 +644,19 @@ function Assert-AiwFinalizedReviewFinding($Context,$Parent,$Binding,[switch]$Fro
     $candidates=@(Get-AiwPackageCandidateReferences $review)
     $post=@(Get-AiwPackageCandidateReferences ([pscustomobject]@{objectIdentities=@(Get-AiwFinalizedObjectPostimages $input @($review.exactPaths))}))
     Assert-EvSameCandidates $post $candidates $Context
-    $record=Read-AiwResultEvidence $Context $refs[0] $Parent.taskId $candidates $raw.requirementsRef -ExpectedActor $review.grantee -AuthorizationIdentity $authority.authorizationIdentity -RequireIndependentReview -ExcludedReviewActors (@($Parent.owner,$Parent.issuer,$Parent.repairReviewPlan.writer)+@($Parent.repairReviewPlan.materialContributors)) -FrozenCandidateEvidence:$FrozenCandidates
+    $record=Read-AiwResultEvidence $Context $refs[0] (Get-EvExpectedResultContext $review) $candidates $raw.requirementsRef -ExpectedActor $review.grantee -AuthorizationIdentity $authority.authorizationIdentity -RequireIndependentReview -ExcludedReviewActors (@($Parent.owner,$Parent.issuer,$Parent.repairReviewPlan.writer)+@($Parent.repairReviewPlan.materialContributors)) -FrozenCandidateEvidence:$FrozenCandidates
     $flat=Get-AiwPlannedReviewFlatVerdict $Context $review $record
     if($record.outcome-cne'CHANGES_REQUESTED'-or$flat.reference.path-cne$Binding.verdictPath-or$flat.reference.identity-cne$Binding.verdictIdentity-or$flat.value.scopeChanged-or$flat.value.decisionChanged){throw 'REPAIR_REVIEW_VERDICT_FLAT_LINK'}
     $allRefs=@($input.evidenceRefs);$allRecords=@()
     foreach($ref in $allRefs){
         if($ref.kind-ceq'REVIEW_VERDICT'){$allRecords+=$record;continue}
         $other=Read-EvRef $Context ([pscustomobject]@{path=$ref.path;identity=$ref.identity}) -Json
-        $allRecords+=Read-AiwResultEvidence $Context $ref $Parent.taskId $candidates $other.requirementsRef -FrozenCandidateEvidence:($FrozenCandidates-and$ref.kind-ceq'SELF_CHECK')
+        if($review.schemaVersion-eq5-and$other.schemaVersion-ne3){
+            $origin=Get-EvPredecessorResultBinding $Context $review.requestContext $ref $other $candidates $other.requirementsRef
+            $allRecords+=Read-AiwResultEvidence $Context $ref $origin.taskId $candidates $other.requirementsRef -EvidencePurpose HISTORICAL_SUCCESS -OriginalFinalize $origin.originalFinalize
+        }else{
+            $allRecords+=Read-AiwResultEvidence $Context $ref (Get-EvExpectedResultContext $review) $candidates $other.requirementsRef -FrozenCandidateEvidence:($FrozenCandidates-and$ref.kind-ceq'SELF_CHECK')
+        }
     }
     $prep=@($input.preparationReceipts|Where-Object{$_-cne'SELF_CHECK_BOUND'});if(@($allRefs|Where-Object kind -CEQ 'SELF_CHECK').Count){$prep+='SELF_CHECK_BOUND'}
     $results=@($input.resultReceipts|Where-Object{$_-cnotin@('REVIEW_VERDICT_BOUND','RESULT_ACCEPT_RECORDED','DELIVERY_RECEIPT')})+@('REVIEW_VERDICT_BOUND')
@@ -561,40 +670,77 @@ function Assert-AiwFinalizedReviewFinding($Context,$Parent,$Binding,[switch]$Fro
     return $flat
 }
 Export-ModuleMember -Function Get-AiwPlannedReviewFlatVerdict,Assert-AiwFinalizedReviewFinding
-function Get-EvHistoricalFinalize($Context,$Reference,$Record,$OriginalFinalize) {
+function Get-EvProducerActions([string]$Kind) {
+    switch($Kind){'SELF_CHECK'{@('SOURCE_WRITE','CONTROL_WRITE','TEST_WRITE','TEST_RUN','REVIEW_ROUTE')};'REVIEW_VERDICT'{@('REVIEW_EXECUTE')};'RESULT_ACCEPTANCE'{@('RESULT_ACCEPT')}}
+}
+function Get-EvTypedKey($Context,$Reference) {
+    Assert-EvRef $Reference -Typed
+    (Get-EvLogicalPath $Context $Reference.path)+'|'+$Reference.identity+'|'+$Reference.kind
+}
+function Add-EvCompletionFinalizes($Context,$Completion,$Pairs) {
+    $readDocuments=if($null-ne$Completion){$Completion.readDocuments}else{$null}
+    Assert-EvArray $Pairs
+    foreach($pair in $Pairs){
+        Assert-EvFields $pair @('inputRef','resultRef');Assert-EvRef $pair.inputRef;Assert-EvRef $pair.resultRef
+        $key=(Get-EvLogicalPath $Context $pair.inputRef.path)+'|'+$pair.inputRef.identity+'|'+(Get-EvLogicalPath $Context $pair.resultRef.path)+'|'+$pair.resultRef.identity
+        if(-not$Completion.pairs.Add($key)){continue}
+        $Completion.originalFinalize.Add($pair)
+        $input=Read-EvRef -ReadDocuments $readDocuments $Context $pair.inputRef -Json
+        if($null-eq$input.PSObject.Properties['evidenceRefs']){throw 'EVIDENCE_HISTORICAL_FINALIZE_INCOMPLETE'}
+        Assert-EvRefs $input.evidenceRefs -Typed
+        $operationResult=if($input.schemaVersion-eq4-and$null-ne$input.PSObject.Properties['currentOperation']){Read-EvRef -ReadDocuments $readDocuments $Context $pair.resultRef -Json}else{$null}
+        $source=Read-EvProcessOperation $Context $input $operationResult $readDocuments
+        if($source.schemaVersion-notin@(3,4,5)-or$source.status-cne'PASS'-or($source.schemaVersion-ne5-and($source.mode-cne'DISCOVER'-or$source.receiptType-cne'PROCESS_REQUIREMENTS_DISCOVER'))){throw 'EVIDENCE_HISTORICAL_SOURCE_UNSUPPORTED'}
+        $Completion.finalizeFacts.Add($key,[pscustomobject]@{input=$input;source=$source;package=$null;installation=$null})
+        foreach($reference in $input.evidenceRefs){
+            if($source.intentEnvelope.requestedActionKind-cnotin@(Get-EvProducerActions $reference.kind)){continue}
+            $typedKey=Get-EvTypedKey $Context $reference
+            if(-not$Completion.producers.ContainsKey($typedKey)){$Completion.producers.Add($typedKey,[Collections.Generic.List[object]]::new())}
+            $Completion.producers[$typedKey].Add([pscustomobject]@{input=$input;pair=$pair;source=$source})
+        }
+    }
+}
+function Get-EvHistoricalFinalize($Context,$Reference,$Record,$OriginalFinalize,$Completion=$null) {
+    $readDocuments=if($null-ne$Completion){$Completion.readDocuments}else{$null}
     # Original inputs/results are supplied by the finite consumer, never found
     # by scanning or written back into a typed record (which would form a cycle).
     Assert-EvArray $OriginalFinalize
-    $allowed=switch($Reference.kind){'SELF_CHECK'{@('SOURCE_WRITE','CONTROL_WRITE','TEST_WRITE','TEST_RUN','REVIEW_ROUTE')};'REVIEW_VERDICT'{@('REVIEW_EXECUTE')};'RESULT_ACCEPTANCE'{@('RESULT_ACCEPT')}}
+    $allowed=@(Get-EvProducerActions $Reference.kind)
     $matches=@()
+    if($null-ne$Completion){
+        $key=Get-EvTypedKey $Context $Reference
+        if($Completion.producers.ContainsKey($key)){$matches=@($Completion.producers[$key].ToArray())}
+    }else{
     foreach($pair in $OriginalFinalize){
         Assert-EvFields $pair @('inputRef','resultRef')
-        $input=Read-EvRef $Context $pair.inputRef -Json
+        $input=Read-EvRef -ReadDocuments $readDocuments $Context $pair.inputRef -Json
         if($null-eq$input.PSObject.Properties['evidenceRefs']){continue}
         Assert-EvRefs $input.evidenceRefs -Typed
         if(@($input.evidenceRefs|Where-Object{$_.kind-ceq$Reference.kind-and(Test-EvSameRef $_ $Reference $Context)}).Count){
-            $source=Read-EvRef $Context ([pscustomobject]@{path=$input.discoverReceiptPath;identity=$input.expectedDiscoverReceiptIdentity}) -Json
-            if($source.schemaVersion-notin@(3,4)-or$source.status-cne'PASS'-or$source.mode-cne'DISCOVER'-or$source.receiptType-cne'PROCESS_REQUIREMENTS_DISCOVER'){throw 'EVIDENCE_HISTORICAL_SOURCE_UNSUPPORTED'}
+            $operationResult=if($input.schemaVersion-eq4-and$null-ne$input.PSObject.Properties['currentOperation']){Read-EvRef -ReadDocuments $readDocuments $Context $pair.resultRef -Json}else{$null}
+        $source=Read-EvProcessOperation $Context $input $operationResult $readDocuments
+            if($source.schemaVersion-notin@(3,4,5)-or$source.status-cne'PASS'-or($source.schemaVersion-ne5-and($source.mode-cne'DISCOVER'-or$source.receiptType-cne'PROCESS_REQUIREMENTS_DISCOVER'))){throw 'EVIDENCE_HISTORICAL_SOURCE_UNSUPPORTED'}
             # A downstream acceptance can cite the same evidence without
             # producing it. Only producer actions participate in uniqueness.
             if($source.intentEnvelope.requestedActionKind-cin$allowed){$matches+=@([pscustomobject]@{input=$input;pair=$pair;source=$source})}
         }
     }
+    }
     if($matches.Count-ne1){throw 'EVIDENCE_HISTORICAL_FINALIZE_UNBOUND'}
-    $input=$matches[0].input;$originalPair=$matches[0].pair;$result=Read-EvRef $Context $originalPair.resultRef -Json
-    if($input.schemaVersion-ne3-or$input.mode-cne'FINALIZE_OUTPUT'-or$result.mode-cne'FINALIZE_OUTPUT'-or$result.status-cne'PASS'-or@($result.missingPreparation).Count-or@($result.missingResult).Count){throw 'EVIDENCE_HISTORICAL_FINALIZE_INCOMPLETE'}
+    $input=$matches[0].input;$originalPair=$matches[0].pair;$result=Read-EvRef -ReadDocuments $readDocuments $Context $originalPair.resultRef -Json
+    if($input.schemaVersion-notin@(3,4)-or$input.mode-cne'FINALIZE_OUTPUT'-or$result.mode-cne'FINALIZE_OUTPUT'-or$result.status-cne'PASS'-or@($result.missingPreparation).Count-or@($result.missingResult).Count){throw 'EVIDENCE_HISTORICAL_FINALIZE_INCOMPLETE'}
     $source=$matches[0].source
     $a=$source.binding;$action=$source.intentEnvelope.requestedActionKind
     $packageRef=[pscustomobject]@{path=$source.sourceLocators.authorizationPackagePath;identity=$a.authorizationIdentity}
-    $package=Read-EvRef $Context $packageRef -Json
+    $package=Read-EvRef -ReadDocuments $readDocuments $Context $packageRef -Json
     if($null-ne$package.PSObject.Properties['qualityBinding']){
         Import-Module (Join-Path $PSScriptRoot 'ProcessRequirementComposition.psm1')
         Assert-AiwQualityBinding $package.qualityBinding
         if($null-eq$source.sourceBindings.PSObject.Properties['policyIdentity']-or$package.qualityBinding.policyRef.identity-cne$source.sourceBindings.policyIdentity){throw 'QUALITY_HISTORICAL_POLICY_UNBOUND'}
-        $repo=if($package.schemaVersion-in@(2,4)){$package.repositoryId}else{'REPO_LOCAL'}
+        $repo=if($package.schemaVersion-in@(2,4,5)){$package.repositoryId}else{'REPO_LOCAL'}
         if($package.qualityBinding.subject.repositoryId-cne$repo-or@($package.exactPaths|Where-Object{$_-cnotin$package.qualityBinding.subject.exactPaths}).Count){throw 'QUALITY_HISTORICAL_SUBJECT_DRIFT'}
     }
-    if($action-cnotin$allowed-or$action-cnotin$package.actions-or$action-cnotin$a.authorizedActions-or($action-cne'REVIEW_ROUTE'-and$a.actor-cne$Record.actor)-or$a.actor-cne$package.grantee-or$a.taskId-cne$Record.taskId-or$a.taskId-cne$package.taskId-or$a.taskOwner-cne$package.owner-or$a.taskIdentity-cne$package.taskIdentity-or$a.userDecision-cne$package.userConfirmation-or$a.projectConfigIdentity-cne$package.projectConfigIdentity){throw 'EVIDENCE_HISTORICAL_AUTHORITY_DRIFT'}
+    if($action-cnotin$allowed-or$action-cnotin$package.actions-or$action-cnotin$a.authorizedActions-or($action-cne'REVIEW_ROUTE'-and$a.actor-cne$Record.actor)-or$a.actor-cne$package.grantee-or$(if($package.schemaVersion-eq5){$Record.schemaVersion-ne3-or-not(Test-AiwSameResultContext $a $package)-or-not(Test-AiwSameResultContext $Record $package)}else{$a.taskId-cne$Record.taskId-or$a.taskId-cne$package.taskId-or$a.taskOwner-cne$package.owner-or$a.taskIdentity-cne$package.taskIdentity})-or$a.userDecision-cne$package.userConfirmation-or$a.projectConfigIdentity-cne$package.projectConfigIdentity){throw 'EVIDENCE_HISTORICAL_AUTHORITY_DRIFT'}
     if($package.issuerRole-ceq'TASK_OWNER'-and$package.issuer-cne$package.owner){throw 'EVIDENCE_HISTORICAL_AUTHORITY_DRIFT'}
     if($package.issuerRole-ceq'PROJECT_CONTROLLER'-and($package.issuer-cne$package.issuerControllerId-or$package.controllerControlIdentity-cne$a.controllerIdentity-or$package.issuerControllerEpoch-lt1)){throw 'EVIDENCE_HISTORICAL_AUTHORITY_DRIFT'}
     if($package.issuerRole-cnotin@('TASK_OWNER','PROJECT_CONTROLLER')){throw 'EVIDENCE_HISTORICAL_AUTHORITY_DRIFT'}
@@ -615,12 +761,12 @@ function Get-EvHistoricalFinalize($Context,$Reference,$Record,$OriginalFinalize)
     $originalRestrictions=@(Get-EvAbsoluteRestrictions (@($a.forbiddenScope)+@($a.protectedScope)) @($historical.ProjectRoot,$historical.RepositoryRoot))
     $historical.ForbiddenPaths=@(@($historical.ForbiddenPaths)+$originalRestrictions|Select-Object -Unique)
     $historical.CandidateProtectedPaths=@($historical.ForbiddenPaths)
-    if($source.schemaVersion-eq4){
-        $repositoryId=if($package.schemaVersion-in@(2,4)){$package.repositoryId}else{'PROJECT'}
+    if($source.schemaVersion-in@(4,5)){
+        $repositoryId=if($package.schemaVersion-in@(2,4,5)){$package.repositoryId}else{'PROJECT'}
         if(-not[IO.Path]::IsPathFullyQualified($a.controlRoot)-or-not([IO.Path]::GetFullPath($a.controlRoot)).Equals($Context.ProjectRoot,[StringComparison]::OrdinalIgnoreCase)-or$a.repositoryId-cne$repositoryId-or-not[IO.Path]::IsPathFullyQualified($a.objectRoot)-or-not([IO.Path]::GetFullPath($a.objectRoot)).Equals($historical.RepositoryRoot,[StringComparison]::OrdinalIgnoreCase)){throw 'EVIDENCE_HISTORICAL_ROOT_DRIFT'}
         if($a.executionContext.targetKind-ceq'GIT_WORKTREE'){
             if($Record.schemaVersion-ne2){throw 'EVIDENCE_ISOLATED_TARGET_REQUIRES_SCHEMA2'}
-            $descriptor=Read-EvRef $historical $a.executionContext.executionTargetRef -Json
+            $descriptor=Read-EvRef -ReadDocuments $readDocuments $historical $a.executionContext.executionTargetRef -Json
             if($descriptor.taskId-cne$Record.taskId-or$descriptor.controlRoot-cne$a.controlRoot-or$descriptor.targetRoot-cne$a.executionContext.executionRoot-or$descriptor.gitBinding.commonGitDir-cne$a.executionContext.targetObservation.commonGitDir-or$descriptor.gitBinding.worktreeGitDir-cne$a.executionContext.targetObservation.worktreeGitDir){throw 'EVIDENCE_EXECUTION_TARGET_DRIFT'}
             if(-not(Test-EvSameRef $Record.executionTargetRef $a.executionContext.executionTargetRef $historical)){throw 'EVIDENCE_EXECUTION_TARGET_DRIFT'}
             Import-Module (Join-Path $PSScriptRoot 'ExecutionTargetContext.psm1')
@@ -631,7 +777,7 @@ function Get-EvHistoricalFinalize($Context,$Reference,$Record,$OriginalFinalize)
             # That helper observes control Git-top for protection projection;
             # it does not compare the current target HEAD with the old state.
             $historical|Add-Member ExecutionContext $a.executionContext
-        }elseif($a.executionContext.targetKind-cne'SAME_ROOT'-or$package.schemaVersion-eq4-or$Record.schemaVersion-ne1){throw 'EVIDENCE_HISTORICAL_TARGET_UNBOUND'}
+        }elseif($a.executionContext.targetKind-cne'SAME_ROOT'-or$package.schemaVersion-eq4-or$Record.schemaVersion-notin@(1,3)){throw 'EVIDENCE_HISTORICAL_TARGET_UNBOUND'}
     }else{
         if($Record.schemaVersion-ne1-or$package.schemaVersion-eq4){throw 'EVIDENCE_HISTORICAL_TARGET_UNBOUND'}
         $originalRoot=if($package.schemaVersion-eq2){$a.repositoryGitTop}else{$a.projectRoot}
@@ -653,33 +799,18 @@ function Get-EvHistoricalFinalize($Context,$Reference,$Record,$OriginalFinalize)
         $routeRecipient=& $deliveryModule {param($s,$c,$p,$r) Get-DeliveryReviewRouteRecipient $s $c $p $r} $source $input.deliveryContext $package $routeQualification.review
     }
     Import-Module (Join-Path $PSScriptRoot 'ProcessRequirementComposition.psm1')
-    $postSource='NO_SOURCE_POSTIMAGE_TRANSITION';$changed=@()
-    if($null-ne$result.PSObject.Properties['sourcePostimageTransition']){
-        $transition=$result.sourcePostimageTransition
-        Assert-EvFields $transition @('status','previousSourceCompositionIdentity','currentSourceCompositionIdentity','changedBindings','selectedPackBytes','selectedRequirementCount')
-        Assert-EvArray $transition.changedBindings
-        if($transition.status-cne'PASS'-or$transition.previousSourceCompositionIdentity-cne$source.sourceCompositionIdentity-or$transition.currentSourceCompositionIdentity-cnotmatch'^[A-F0-9]{64}$'-or$null-ne$result.PSObject.Properties['controlTransitionCompletion']){throw 'EVIDENCE_HISTORICAL_SOURCE_TRANSITION_UNPROVEN'}
-        # Ordinary source postimage transitions record their complete changed
-        # binding set. Task/controller transitions need their separate original
-        # completion chain; they are not silently inferred here.
-        $changed=@($transition.changedBindings)
-        $carriers=@{projectAgentsIdentity='AGENTS.md';projectCustomIdentity='.ai-workspace/BOOTSTRAP.md';correctionsIdentity='.ai-workspace/corrections.json';policyIdentity='.ai-workspace/process-policy.json';projectConfigIdentity='.ai-workspace/project.json'}
-        if($changed.Count-eq0-or@($changed|Select-Object -Unique).Count-ne$changed.Count-or@($changed|Where-Object{$_-cnotin(@($carriers.Keys)+@('projectStandardsIdentity','contentSnapshotIdentity','effectiveSetIdentity'))}).Count){throw 'EVIDENCE_HISTORICAL_SOURCE_TRANSITION_UNPROVEN'}
-        foreach($name in $changed){if($carriers.ContainsKey($name)-and$carriers[$name]-cnotin$a.exactScope){throw 'EVIDENCE_HISTORICAL_SOURCE_TRANSITION_UNPROVEN'}}
-        $postSource=$transition.currentSourceCompositionIdentity
-    }
-    if($result.selectionIdentity-cne$source.selectionIdentity-or$result.decisionIdentity-cne(Get-AiwProcessDecisionIdentity $source $input $postSource $changed)){throw 'EVIDENCE_HISTORICAL_FINALIZE_DECISION'}
+    Assert-EvOriginalFinalizeDecision $source $input $result
     if($null-eq$result.PSObject.Properties['actionOutcome']-or$result.actionOutcome-cne$(if($action-ceq'TEST_RUN'){'PASS'}else{'OBSERVED'})){throw 'EVIDENCE_HISTORICAL_ACTION_NOT_SUCCESSFUL'}
     $prep=@($input.preparationReceipts|Where-Object{$_-cne'SELF_CHECK_BOUND'})
     $results=@($input.resultReceipts|Where-Object{$_-cnotin@('REVIEW_VERDICT_BOUND','RESULT_ACCEPT_RECORDED','DELIVERY_RECEIPT')})
     foreach($ref in $input.evidenceRefs){
-        $raw=Read-EvRef $historical ([pscustomobject]@{path=$ref.path;identity=$ref.identity}) -Json
+        $raw=Read-EvRef -ReadDocuments $readDocuments $historical ([pscustomobject]@{path=$ref.path;identity=$ref.identity}) -Json
         # The matching record is validated by our caller; other original typed
         # records are still immutable and must have a successful outcome.
         $ok=@{SELF_CHECK='PASS';REVIEW_VERDICT='APPROVED';RESULT_ACCEPTANCE='ACCEPTED'}
         if($raw.outcome-cne$ok[$ref.kind]){throw 'EVIDENCE_HISTORICAL_ACTION_NOT_SUCCESSFUL'}
         if($action-ceq'REVIEW_ROUTE'-and$ref.kind-ceq'SELF_CHECK'){
-            if($raw.actor-cne$routeQualification.writer-or$raw.taskId-cne$Record.taskId){throw 'EVIDENCE_HISTORICAL_AUTHOR_DRIFT'}
+            if($raw.actor-cne$routeQualification.writer-or-not(Test-AiwSameResultContext $raw $Record)){throw 'EVIDENCE_HISTORICAL_AUTHOR_DRIFT'}
             Assert-EvSameCandidates $raw.candidateObjects $post $historical
         }
         switch($ref.kind){'SELF_CHECK'{$prep+='SELF_CHECK_BOUND'};'REVIEW_VERDICT'{$results+='REVIEW_VERDICT_BOUND'};'RESULT_ACCEPTANCE'{$results+='RESULT_ACCEPT_RECORDED'}}
@@ -691,7 +822,7 @@ function Get-EvHistoricalFinalize($Context,$Reference,$Record,$OriginalFinalize)
         if($action-ceq'REVIEW_ROUTE'){
             if($null-ne$input.deliveryContext.PSObject.Properties['userDecisionRef']){
                 if($input.publicDecisionIdentity-cne$input.deliveryContext.userDecisionRef.identity){throw 'DELIVERY_USER_DECISION_UNBOUND'}
-                $null=Read-EvRef $historical $input.deliveryContext.userDecisionRef
+                $null=Read-EvRef -ReadDocuments $readDocuments $historical $input.deliveryContext.userDecisionRef
                 $routeRecipient=[string]$input.deliveryContext.expectedRecipient
                 if([string]::IsNullOrWhiteSpace($routeRecipient)-or$routeRecipient-cne$routeRecipient.Trim()-or$routeRecipient-cin@('USER','NOT_APPLICABLE','NOT_REQUIRED','UNBOUND_RECEIVER','DEFERRED_VISIBLE_REVIEWER')){throw 'DELIVERY_EXPLICIT_TASK_RECIPIENT_REQUIRED'}
             }
@@ -699,7 +830,7 @@ function Get-EvHistoricalFinalize($Context,$Reference,$Record,$OriginalFinalize)
         }
         if($input.deliveryContext.channel-ceq'TASK_MESSAGE'){
             if(-not$observation.delivered-or$input.deliveryContext.evidence-cnotmatch'^(.+)#(\d+\|[A-F0-9]{64})$'){throw 'EVIDENCE_HISTORICAL_DELIVERY_UNPROVEN'}
-            $hostResult=Read-EvRef $historical ([pscustomobject]@{path=$Matches[1];identity=$Matches[2]}) -Json
+            $hostResult=Read-EvRef -ReadDocuments $readDocuments $historical ([pscustomobject]@{path=$Matches[1];identity=$Matches[2]}) -Json
             $delivery=Get-AiwCodexSendOutcome $hostResult $input.deliveryContext.expectedRecipient
             if($delivery.outcome-cne'SUCCESS'){throw 'EVIDENCE_HISTORICAL_DELIVERY_UNPROVEN'}
         }
@@ -717,38 +848,56 @@ function Get-EvHistoricalFinalize($Context,$Reference,$Record,$OriginalFinalize)
         if($null-ne$a.PSObject.Properties[$name]-and$a.$name-cne$identity){throw 'EVIDENCE_HISTORICAL_INPUT_BINDING_DRIFT'}
         [pscustomobject]@{path=(Join-Path $historical.ProjectRoot $inputPaths[$name]);identity=$identity}
     })
-    $historical|Add-Member HistoricalProducer ([pscustomobject]@{pair=$originalPair;source=$source;input=$input;result=$result})
+    $historical|Add-Member HistoricalProducer ([pscustomobject]@{pair=$originalPair;source=$source;input=$input;result=$result;package=$package})
     return $historical
 }
-function Read-AiwResultEvidence($Context,$Reference,[string]$TaskId,$CandidateObjects,$RequirementsRef,[switch]$RequireSuccess,[string]$ExpectedActor='',[string]$AuthorizationIdentity='',[switch]$RequireIndependentReview,[string[]]$ExcludedReviewActors=@(),[switch]$FrozenCandidateEvidence,[ValidateSet('CURRENT_CANDIDATE','HISTORICAL_SUCCESS')][string]$EvidencePurpose='CURRENT_CANDIDATE',[object[]]$OriginalFinalize=@(),[ValidateSet('CURRENT_CANDIDATE','HISTORICAL_SUCCESS')][string]$PrerequisiteEvidencePurpose='CURRENT_CANDIDATE',$AcceptancePlan=$null) {
+function Read-AiwResultEvidence($Context,$Reference,$TaskId,$CandidateObjects,$RequirementsRef,[switch]$RequireSuccess,[string]$ExpectedActor='',[string]$AuthorizationIdentity='',[switch]$RequireIndependentReview,[string[]]$ExcludedReviewActors=@(),[switch]$FrozenCandidateEvidence,[ValidateSet('CURRENT_CANDIDATE','HISTORICAL_SUCCESS')][string]$EvidencePurpose='CURRENT_CANDIDATE',[object[]]$OriginalFinalize=@(),[ValidateSet('CURRENT_CANDIDATE','HISTORICAL_SUCCESS')][string]$PrerequisiteEvidencePurpose='CURRENT_CANDIDATE',$AcceptancePlan=$null) {
+    Read-EvResultEvidenceCore @PSBoundParameters
+}
+function Read-EvResultEvidenceCore($Context,$Reference,$TaskId,$CandidateObjects,$RequirementsRef,[switch]$RequireSuccess,[string]$ExpectedActor='',[string]$AuthorizationIdentity='',[switch]$RequireIndependentReview,[string[]]$ExcludedReviewActors=@(),[switch]$FrozenCandidateEvidence,[string]$EvidencePurpose='CURRENT_CANDIDATE',[object[]]$OriginalFinalize=@(),[string]$PrerequisiteEvidencePurpose='CURRENT_CANDIDATE',$AcceptancePlan=$null,$Completion=$null,$ObservedRecord=$null) {
+    $readDocuments=if($null-ne$Completion){$Completion.readDocuments}else{$null}
     Assert-EvRef $Reference -Typed
     # Continuation history cannot satisfy a success gate. Historical success
     # separately requires the original completed action and its exact postimage.
     if($FrozenCandidateEvidence-and($Reference.kind-cnotin@('SELF_CHECK','REVIEW_VERDICT')-or$RequireSuccess-or$EvidencePurpose-ceq'HISTORICAL_SUCCESS')){throw 'EVIDENCE_FROZEN_SUCCESS_GATE_DENIED'}
     $historical=$EvidencePurpose-ceq'HISTORICAL_SUCCESS'
+    $ref=[pscustomobject]@{path=$Reference.path;identity=$Reference.identity}
+    if($null-ne$ObservedRecord-and$null-eq$Completion){throw 'EVIDENCE_OBSERVED_RECORD_CONTEXT'}
+    $record=if($null-ne$ObservedRecord){$ObservedRecord}else{Read-EvRef -ReadDocuments $readDocuments $Context $ref -Json}
+    Assert-EvInteger $record.schemaVersion;if($record.schemaVersion-notin@(1,2,3)){throw 'EVIDENCE_SCHEMA'}
+    if($record.schemaVersion-eq3){
+        Assert-EvFields $record @('schemaVersion','context','actor','candidateObjects','requirementsRef','outcome','checks','evidenceLocators') @('authorizationRef','acceptedCommit')
+    }else{Assert-EvFields $record @('schemaVersion','taskId','actor','candidateObjects','requirementsRef','outcome','checks','evidenceLocators') @('authorizationRef','acceptedCommit','executionTargetRef','candidateTargetState')}
+    $request=Get-EvWorkRequest $TaskId
+    if($record.schemaVersion-ne3-and$null-ne$request-and$null-ne$request.PSObject.Properties['predecessorRef']){
+        if($ExpectedActor-or$AuthorizationIdentity-or$FrozenCandidateEvidence){throw 'WORK_PREDECESSOR_NEW_OUTPUT_REQUIRES_SCHEMA3'}
+        $predecessor=Get-EvPredecessorResultBinding $Context $request $Reference $record $CandidateObjects $RequirementsRef
+        $TaskId=$predecessor.taskId;$AcceptancePlan=$predecessor.plan;$OriginalFinalize=$predecessor.originalFinalize
+        $historical=$true;$EvidencePurpose='HISTORICAL_SUCCESS'
+    }
+    # Resolve the original task edge before guarding this typed validation.
+    # Its finite predecessor graph validates the same record in its own context.
     $key=(Resolve-EvPath $Context $Reference.path)+'|'+$Reference.identity
     if($Context.Reading.Count-ge32-or-not$Context.Reading.Add($key)){throw 'EVIDENCE_REFERENCE_CYCLE'}
     try{
-        $ref=[pscustomobject]@{path=$Reference.path;identity=$Reference.identity}
-        $record=Read-EvRef $Context $ref -Json
-        Assert-EvFields $record @('schemaVersion','taskId','actor','candidateObjects','requirementsRef','outcome','checks','evidenceLocators') @('authorizationRef','acceptedCommit','executionTargetRef','candidateTargetState')
-        Assert-EvInteger $record.schemaVersion;if($record.schemaVersion-notin@(1,2)){throw 'EVIDENCE_SCHEMA'}
-        if($historical){$Context=Get-EvHistoricalFinalize $Context $Reference $record $OriginalFinalize}
+        Assert-EvResultContext $record $TaskId
+        if($historical){$Context=Get-EvHistoricalFinalize $Context $Reference $record $OriginalFinalize $Completion;if($record.schemaVersion-eq3){Assert-EvResultContext $Context.HistoricalProducer.package $TaskId}}
         else{$Context=Resolve-EvRecordTarget $Context $record -FrozenCandidateEvidence:$FrozenCandidateEvidence}
-        foreach($s in @('taskId','actor','outcome')){Assert-EvString $record.$s}
-        if($record.taskId-cne$TaskId){throw 'EVIDENCE_TASK_DRIFT'}
+        foreach($s in @('actor','outcome')){Assert-EvString $record.$s}
+        if($record.schemaVersion-ne3){Assert-EvString $record.taskId}
         if($ExpectedActor-and$record.actor-cne$ExpectedActor){throw 'EVIDENCE_ACTOR_DRIFT'}
         Assert-EvSameCandidates $record.candidateObjects $CandidateObjects $Context
-        if(-not($FrozenCandidateEvidence-or$historical)){foreach($candidate in $record.candidateObjects){$null=Read-EvRef $Context $candidate -Candidate}}
+        if(-not($FrozenCandidateEvidence-or$historical)){foreach($candidate in $record.candidateObjects){$null=Read-EvRef -ReadDocuments $readDocuments $Context $candidate -Candidate}}
         Assert-EvRef $record.requirementsRef -Section
         if(-not(Test-EvSameRef $record.requirementsRef $RequirementsRef $Context)){throw 'EVIDENCE_REQUIREMENTS_DRIFT'}
-        $null=Read-EvRef $Context $record.requirementsRef -Section
+        $null=Read-EvRef -ReadDocuments $readDocuments $Context $record.requirementsRef -Section
         $outcomes=@{SELF_CHECK=@('PASS','FAIL','INCOMPLETE');REVIEW_VERDICT=@('APPROVED','CHANGES_REQUESTED','REJECTED','INCOMPLETE');RESULT_ACCEPTANCE=@('ACCEPTED','REJECTED','INCOMPLETE')}
         if($record.outcome-cnotin$outcomes[$Reference.kind]){throw 'EVIDENCE_OUTCOME'}
         $success=$record.outcome-ceq$outcomes[$Reference.kind][0]
         if(($RequireSuccess-or$historical)-and-not$success){throw 'EVIDENCE_NOT_SUCCESSFUL'}
         Assert-EvRefs $record.evidenceLocators
-        foreach($locator in $record.evidenceLocators){Read-EvObservationLocator $Context $locator $CandidateObjects -FrozenCandidateEvidence:$FrozenCandidateEvidence -HistoricalSuccess:$historical}
+        $candidateIndex=if($null-eq$Completion-and($FrozenCandidateEvidence-or$historical)){New-EvCandidateIndex (New-EvLogicalContext $Context) $CandidateObjects}else{$null}
+        if($null-eq$Completion){foreach($locator in $record.evidenceLocators){Read-EvObservationLocator $Context $locator $CandidateObjects -FrozenCandidateEvidence:$FrozenCandidateEvidence -HistoricalSuccess:$historical -CandidateIndex $candidateIndex}}
         Assert-EvArray $record.checks;if($record.checks.Count-eq0){throw 'EVIDENCE_CHECKS_EMPTY'}
         $checks=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
         foreach($check in $record.checks){
@@ -760,23 +909,30 @@ function Read-AiwResultEvidence($Context,$Reference,[string]$TaskId,$CandidateOb
             Assert-EvRefs $check.evidenceLocators -Nonempty
             if($check.method-ceq'COMMAND'){
                 if($check.evidenceLocators.Count-ne1){throw 'EVIDENCE_COMMAND_LOCATOR_COUNT'}
-                $command=Read-EvRef $Context $check.evidenceLocators[0] -Json
-                Assert-EvFields $command @('command','exitCode','output')
-                Assert-EvString $command.command;Assert-EvInteger $command.exitCode
-                $null=Read-EvRef $Context $command.output
-                if($check.outcome-ceq'PASS'-and$command.exitCode-ne0){throw 'EVIDENCE_COMMAND_FAILURE'}
-            }else{foreach($locator in $check.evidenceLocators){Read-EvObservationLocator $Context $locator $CandidateObjects -FrozenCandidateEvidence:$FrozenCandidateEvidence -HistoricalSuccess:$historical}}
+                if($null-eq$Completion){
+                    $command=Read-EvRef -ReadDocuments $readDocuments $Context $check.evidenceLocators[0] -Json
+                    Assert-EvFields $command @('command','exitCode','output')
+                    Assert-EvString $command.command;Assert-EvInteger $command.exitCode
+                    $null=Read-EvRef -ReadDocuments $readDocuments $Context $command.output
+                    if($check.outcome-ceq'PASS'-and$command.exitCode-ne0){throw 'EVIDENCE_COMMAND_FAILURE'}
+                }
+            }elseif($null-eq$Completion){foreach($locator in $check.evidenceLocators){Read-EvObservationLocator $Context $locator $CandidateObjects -FrozenCandidateEvidence:$FrozenCandidateEvidence -HistoricalSuccess:$historical -CandidateIndex $candidateIndex}}
         }
         if($Reference.kind-ceq'SELF_CHECK'){
             if($null-ne$record.PSObject.Properties['authorizationRef']-or$null-ne$record.PSObject.Properties['acceptedCommit']){throw 'EVIDENCE_KIND_FIELDS'}
         }else{
             if($null-eq$record.PSObject.Properties['authorizationRef']){throw 'EVIDENCE_ORIGINAL_PACKAGE_REQUIRED'}
-            $package=Read-EvRef $Context $record.authorizationRef -Json
+            $package=Read-EvRef -ReadDocuments $readDocuments $Context $record.authorizationRef -Json
             if($package.schemaVersion-eq4-and$record.schemaVersion-ne2){throw 'EVIDENCE_ISOLATED_TARGET_REQUIRES_SCHEMA2'}
             $action=if($Reference.kind-ceq'REVIEW_VERDICT'){'REVIEW_EXECUTE'}else{'RESULT_ACCEPT'}
-            if($package.taskId-cne$TaskId-or$package.grantee-cne$record.actor-or@($package.actions).Count-ne1-or$package.actions[0]-cne$action){throw 'EVIDENCE_ORIGINAL_PACKAGE_DRIFT'}
+            if(-not(Test-AiwSameResultContext $package $TaskId)-or$package.grantee-cne$record.actor-or@($package.actions).Count-ne1-or$package.actions[0]-cne$action){throw 'EVIDENCE_ORIGINAL_PACKAGE_DRIFT'}
             if($AuthorizationIdentity-and$record.authorizationRef.identity-cne$AuthorizationIdentity){throw 'EVIDENCE_AUTHORIZATION_DRIFT'}
-            if(-not$historical-and$null-ne$package.PSObject.Properties['qualityBinding']){
+            if($package.schemaVersion-eq5){
+                if($record.schemaVersion-ne3){throw 'EVIDENCE_WORK_REQUIRES_SCHEMA3'}
+                $null=Get-EvWorkRecordRequirements $Context $package.requestContext $Reference.kind $record.candidateObjects $record.requirementsRef
+                if(-not$historical){$null=Get-AiwPackageQuality $Context $package (Get-AiwProjectWorkPlan $package.requestContext)}
+            }elseif($record.schemaVersion-eq3){throw 'EVIDENCE_WORK_PACKAGE5_REQUIRED'}
+            if($package.schemaVersion-ne5-and-not$historical-and$null-ne$package.PSObject.Properties['qualityBinding']){
                 $taskLocator=if($null-ne$Context.PSObject.Properties['TaskPath']-and$Context.TaskPath){$Context.TaskPath}else{'.ai-workspace/tasks/active/'+$package.taskId+'.md'}
                 $taskFull=Resolve-EvPath $Context $taskLocator
                 $activePlan=Get-AiwAcceptancePlan ([IO.File]::ReadAllText($taskFull))
@@ -786,21 +942,27 @@ function Read-AiwResultEvidence($Context,$Reference,[string]$TaskId,$CandidateOb
             if($Reference.kind-ceq'REVIEW_VERDICT'){
                 $null=Get-AiwPlannedReviewFlatVerdict $Context $package $record
                 if($null-ne$record.PSObject.Properties['acceptedCommit']){throw 'EVIDENCE_KIND_FIELDS'}
-                if($package.reviewIndependence-ceq'INDEPENDENT'-or$RequireIndependentReview-or$package.profile-ceq'CRITICAL'-or$null-ne$package.PSObject.Properties['candidateWriter']-or$null-ne$package.PSObject.Properties['materialContributors']){
-                    if($package.reviewIndependence-cne'INDEPENDENT'){throw 'EVIDENCE_REVIEW_INDEPENDENCE'}
-                    foreach($field in @('candidateWriter','materialContributors')){if($null-eq$package.PSObject.Properties[$field]){throw 'EVIDENCE_REVIEW_INDEPENDENCE'}}
-                    if($package.materialContributors-isnot[Array]){throw 'EVIDENCE_REVIEW_INDEPENDENCE'}
-                    $originalActors=@(Get-AiwReviewExcludedActors $package.owner $package.issuer $package.candidateWriter $package.materialContributors)
-                    if($record.actor-cin($originalActors+@($ExcludedReviewActors))){throw 'EVIDENCE_REVIEW_INDEPENDENCE'}
-                }
+                Assert-EvReviewIndependence $package $record -Required:$RequireIndependentReview -Excluded $ExcludedReviewActors
             }else{
                 $prerequisitePurpose=if($historical){'HISTORICAL_SUCCESS'}else{$PrerequisiteEvidencePurpose}
-                Assert-EvAcceptanceBinding $Context $package $AcceptancePlan -Historical -RequireIndependentReview:$RequireIndependentReview -ExcludedReviewActors $ExcludedReviewActors -EvidencePurpose $EvidencePurpose -OriginalFinalize $OriginalFinalize -PrerequisiteEvidencePurpose $prerequisitePurpose
+                Assert-EvAcceptanceBinding $Context $package $AcceptancePlan -Historical -RequireIndependentReview:$RequireIndependentReview -ExcludedReviewActors $ExcludedReviewActors -EvidencePurpose $EvidencePurpose -OriginalFinalize $OriginalFinalize -PrerequisiteEvidencePurpose $prerequisitePurpose -Completion $Completion
                 if($null-ne$package.PSObject.Properties['acceptanceBinding']-and-not(Test-EvSameRef $package.acceptanceBinding.requirementsRef $record.requirementsRef $Context)){throw 'EVIDENCE_REQUIREMENTS_DRIFT'}
                 if($null-ne$record.PSObject.Properties['acceptedCommit']-and$record.acceptedCommit-cnotmatch '^(?:[A-F0-9]{40}|[A-F0-9]{64})$'){throw 'EVIDENCE_ACCEPTED_COMMIT'}
             }
         }
-        if($historical){$producer=$Context.HistoricalProducer;Add-EvValidatedProducer $Context $producer.pair $producer.source $producer.input $producer.result}
+        if($historical){
+            $producer=$Context.HistoricalProducer;Add-EvValidatedProducer $Context $producer.pair $producer.source $producer.input $producer.result
+            if($null-ne$Completion){
+                $node=$Completion.nodes[(Get-EvTypedKey $Context $Reference)];$node.context=$Context
+                # All typed flags used by the original frozen obligations refer
+                # to real nodes; merely citing a successful outcome is insufficient.
+                foreach($other in $producer.input.evidenceRefs){
+                    if((Get-EvTypedKey $Context $other)-ceq(Get-EvTypedKey $Context $Reference)){continue}
+                    $raw=Read-EvRef -ReadDocuments $readDocuments $Context ([pscustomobject]@{path=$other.path;identity=$other.identity}) -Json
+                    Add-EvCompletionNode $Context $Completion $other $TaskId $raw.candidateObjects $raw.requirementsRef -RequireIndependentReview:$RequireIndependentReview -ExcludedReviewActors $ExcludedReviewActors -ObservedRecord $raw
+                }
+            }
+        }
         return $record
     }finally{$null=$Context.Reading.Remove($key)}
 }
@@ -856,7 +1018,138 @@ function Get-EvPrerequisites($Plan,[string]$StageId) {
     Add-StageDeps $StageId
     return @($Plan.stages|Where-Object{$ids.Contains($_.id)})
 }
-function Assert-AiwAcceptanceStages($Context,$Plan,[string]$TaskId,[string]$BeforeStage='', $UserDecisionRefs=@(),[switch]$RequireIndependentReview,[string[]]$ExcludedReviewActors=@(),[ValidateSet('CURRENT_CANDIDATE','HISTORICAL_SUCCESS')][string]$EvidencePurpose='CURRENT_CANDIDATE',[object[]]$OriginalFinalize=@(),$AcceptancePlan=$null) {
+function Add-EvCompletionNode($Context,$Completion,$Reference,$TaskId,$Candidates,$Requirements,[switch]$RequireIndependentReview,[string[]]$ExcludedReviewActors=@(),$ObservedRecord=$null) {
+    $key=Get-EvTypedKey $Context $Reference
+    if(-not$Completion.nodes.ContainsKey($key)){
+        $Completion.nodes.Add($key,[pscustomobject]@{reference=$Reference;constraints=[Collections.Generic.List[object]]::new();dependencies=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase);record=$null;context=$null;observedRecord=$ObservedRecord})
+        $Completion.pending.Enqueue($key)
+    }
+    $Completion.nodes[$key].constraints.Add([pscustomobject]@{taskId=$TaskId;candidates=$Candidates;requirements=$Requirements;independent=[bool]$RequireIndependentReview;excluded=@($ExcludedReviewActors)})
+}
+function Assert-EvReviewIndependence($Package,$Record,[switch]$Required,[string[]]$Excluded=@()) {
+    if($Package.reviewIndependence-ceq'INDEPENDENT'-or$Required-or$Package.profile-ceq'CRITICAL'-or$null-ne$Package.PSObject.Properties['candidateWriter']-or$null-ne$Package.PSObject.Properties['materialContributors']){
+        if($Package.reviewIndependence-cne'INDEPENDENT'){throw 'EVIDENCE_REVIEW_INDEPENDENCE'}
+        foreach($field in @('candidateWriter','materialContributors')){if($null-eq$Package.PSObject.Properties[$field]){throw 'EVIDENCE_REVIEW_INDEPENDENCE'}}
+        if($Package.materialContributors-isnot[Array]){throw 'EVIDENCE_REVIEW_INDEPENDENCE'}
+        $actors=@(Get-AiwReviewExcludedActors $Package.owner $Package.issuer $Package.candidateWriter $Package.materialContributors)
+        if($Record.actor-cin($actors+@($Excluded))){throw 'EVIDENCE_REVIEW_INDEPENDENCE'}
+    }
+}
+function New-EvCompletionGraph($ReadDocuments=$null) {
+    # Only actual consumers create this private, invocation-local graph. It is
+    # neither public input nor a reusable PASS; live targets belong to callers.
+    [pscustomobject]@{
+        nodes=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::OrdinalIgnoreCase)
+        producers=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::OrdinalIgnoreCase)
+        pairs=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+        originalFinalize=[Collections.Generic.List[object]]::new()
+        pending=[Collections.Generic.Queue[string]]::new()
+        userDecisions=[Collections.Generic.List[object]]::new()
+        installedStages=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal)
+        finalizeFacts=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::OrdinalIgnoreCase)
+        publicationInstallations=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::OrdinalIgnoreCase)
+        readDocuments=$ReadDocuments
+        currentKey=''
+    }
+}
+function Complete-EvCompletionGraph($Context,$Completion,$Plan=$null) {
+    $readDocuments=if($null-ne$Completion){$Completion.readDocuments}else{$null}
+    while($Completion.pending.Count){
+        $key=$Completion.pending.Dequeue();$node=$Completion.nodes[$key];$constraint=$node.constraints[0]
+        $Completion.currentKey=$key
+        $node.record=Read-EvResultEvidenceCore $Context $node.reference $constraint.taskId $constraint.candidates $constraint.requirements -RequireSuccess -RequireIndependentReview:$constraint.independent -ExcludedReviewActors $constraint.excluded -EvidencePurpose HISTORICAL_SUCCESS -OriginalFinalize $Completion.originalFinalize.ToArray() -AcceptancePlan $Plan -Completion $Completion -ObservedRecord $node.observedRecord
+        $node.observedRecord=$null
+    }
+    # Constraints can arrive after a shared ancestor was read. Validate their
+    # union without re-expanding that ancestor's production or acceptance.
+    foreach($node in $Completion.nodes.Values){
+        foreach($constraint in $node.constraints){
+            Assert-EvResultContext $node.record $constraint.taskId
+            Assert-EvSameCandidates $node.record.candidateObjects $constraint.candidates $node.context
+            if(-not(Test-EvSameRef $node.record.requirementsRef $constraint.requirements $node.context)){throw 'EVIDENCE_REQUIREMENTS_DRIFT'}
+            if($node.reference.kind-ceq'REVIEW_VERDICT'){
+                $package=Read-EvRef -ReadDocuments $readDocuments $node.context $node.record.authorizationRef -Json
+                Assert-EvReviewIndependence $package $node.record -Required:$constraint.independent -Excluded $constraint.excluded
+            }
+        }
+    }
+    $incoming=[Collections.Generic.Dictionary[string,int]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach($entry in $Completion.nodes.GetEnumerator()){$incoming.Add($entry.Key,$entry.Value.dependencies.Count)}
+    $ready=[Collections.Generic.Queue[string]]::new();foreach($key in $incoming.Keys){if($incoming[$key]-eq0){$ready.Enqueue($key)}}
+    $visited=0
+    while($ready.Count){$key=$ready.Dequeue();$visited++;foreach($entry in $Completion.nodes.GetEnumerator()){if($entry.Value.dependencies.Contains($key)){$incoming[$entry.Key]--;if($incoming[$entry.Key]-eq0){$ready.Enqueue($entry.Key)}}}}
+    if($visited-ne$Completion.nodes.Count){throw 'EVIDENCE_REFERENCE_CYCLE'}
+}
+function Assert-EvCurrentCompletedObjects($Context,$Plan,$Completion,[string[]]$ClosureBasis=@()) {
+    # A version is the entire original candidate mapping, never a bag of
+    # independently replaceable files. Equal path sets identify comparison
+    # families; partial overlap does not discard either delivery obligation.
+    $families=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach($stage in @($Plan.stages|Where-Object kind -CNE USER_DECISION)){
+        $stageContext=$Context
+        if($Completion.installedStages.ContainsKey($stage.id)){$stageContext=$Completion.installedStages[$stage.id].context}
+        elseif($stage.evidenceRefs.Count){$stageContext=$Completion.nodes[(Get-EvTypedKey $Context $stage.evidenceRefs[0])].context}
+        $logical=New-EvLogicalContext $stageContext
+        $memberMap=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::OrdinalIgnoreCase)
+        foreach($candidate in $stage.candidateRef){$path=Get-EvLogicalPath $logical $candidate.path -Candidate;$memberMap.Add($path,[pscustomobject]@{path=$path;reference=$candidate})}
+        $keys=[string[]]@($memberMap.Keys);[Array]::Sort($keys,[StringComparer]::OrdinalIgnoreCase)
+        $members=@(foreach($key in $keys){$memberMap[$key]})
+        $familyKey=(@($members.path|ForEach-Object{$_.ToUpperInvariant()})-join"`n")
+        $versionKey=(@($members|ForEach-Object{$_.path.ToUpperInvariant()+'|'+$_.reference.identity})-join"`n")
+        if(-not$families.ContainsKey($familyKey)){$families.Add($familyKey,[Collections.Generic.List[object]]::new())}
+        $bound=$false
+        $basisRefs=@($stage.evidenceRefs)
+        if($Completion.installedStages.ContainsKey($stage.id)){$basisRefs+=@($Completion.installedStages[$stage.id].originalRefs)}
+        foreach($reference in $basisRefs){
+            # Only known, already validated original refs are matched. Prose
+            # cannot introduce a new path to read or manufacture a candidate.
+            $locator=[regex]::Escape($reference.path+'#'+$reference.identity)
+            foreach($basis in $ClosureBasis){if([regex]::IsMatch($basis,'(?<![A-Za-z0-9_./\\:-])'+$locator+'(?![A-Za-z0-9_|])',[Text.RegularExpressions.RegexOptions]::IgnoreCase)){$bound=$true}}
+        }
+        $families[$familyKey].Add([pscustomobject]@{stage=$stage;context=$stageContext;members=$members;version=$versionKey;bound=$bound})
+    }
+    $current=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach($rows in $families.Values){
+        $versions=@($rows.version|Select-Object -Unique)
+        $selected=@($rows|Where-Object bound)
+        if($versions.Count-gt1){
+            if($selected.Count-eq0){throw 'ACCEPTANCE_CURRENT_DELIVERABLE_BINDING_REQUIRED'}
+            if(@($selected.version|Select-Object -Unique).Count-ne1){throw 'ACCEPTANCE_CURRENT_DELIVERABLE_BINDING_AMBIGUOUS'}
+        }else{$selected=@($rows[0])}
+        foreach($member in $selected[0].members){
+            if($current.ContainsKey($member.path)){
+                if($current[$member.path].reference.identity-cne$member.reference.identity){throw 'ACCEPTANCE_CURRENT_OBJECT_CONFLICT'}
+            }else{$current.Add($member.path,[pscustomobject]@{reference=$member.reference;context=$selected[0].context})}
+        }
+    }
+    foreach($member in $current.Values){$null=Read-EvRef $member.context $member.reference -Candidate}
+}
+function Assert-EvCompletedStages($Context,$Plan,[string]$TaskId,$UserDecisionRefs=@(),[switch]$RequireIndependentReview,[string[]]$ExcludedReviewActors=@(),[string[]]$ClosureBasis=@(),[string]$TaskOwner='') {
+    $completion=New-EvCompletionGraph
+    foreach($ref in $UserDecisionRefs){$completion.userDecisions.Add($ref)}
+    foreach($stage in $Plan.stages){
+        $null=Read-EvRef $Context $stage.requiredBy -Section
+        if($stage.candidateRef.Count-eq0){throw ('ACCEPTANCE_STAGE_INCOMPLETE|'+$stage.id)}
+        if($stage.kind-cin@('DESIGN','USER_DECISION')){continue}
+        $consumption=Get-EvConsumption $stage evidenceConsumption
+        Add-EvCompletionFinalizes $Context $completion $consumption.originalFinalize
+        $installed=Get-EvCompletedInstallationStage $Context $completion $stage $TaskId $TaskOwner -RequireIndependentReview:$RequireIndependentReview
+        if($null-ne$installed){$completion.installedStages.Add($stage.id,$installed);continue}
+        if($stage.evidenceRefs.Count-eq0){throw ('ACCEPTANCE_STAGE_INCOMPLETE|'+$stage.id)}
+        foreach($ref in $stage.evidenceRefs){Add-EvCompletionNode $Context $completion $ref $TaskId $stage.candidateRef $stage.requiredBy -RequireIndependentReview:$RequireIndependentReview -ExcludedReviewActors $ExcludedReviewActors}
+    }
+    Complete-EvCompletionGraph $Context $completion $Plan
+    # Only a bound original acceptance or the current explicit decision can
+    # satisfy user-reserved stages, including stages after final acceptance.
+    foreach($stage in @($Plan.stages|Where-Object kind -CEQ USER_DECISION)){
+        foreach($ref in $stage.candidateRef){
+            if(@($completion.userDecisions|Where-Object{Test-EvSameRef $_ $ref $Context}).Count-eq0){throw ('ACCEPTANCE_USER_DECISION_UNBOUND|'+$stage.id)}
+            $null=Read-EvRef $Context $ref
+        }
+    }
+    Assert-EvCurrentCompletedObjects $Context $Plan $completion $ClosureBasis
+}
+function Assert-AiwAcceptanceStages($Context,$Plan,$TaskId,[string]$BeforeStage='', $UserDecisionRefs=@(),[switch]$RequireIndependentReview,[string[]]$ExcludedReviewActors=@(),[ValidateSet('CURRENT_CANDIDATE','HISTORICAL_SUCCESS')][string]$EvidencePurpose='CURRENT_CANDIDATE',[object[]]$OriginalFinalize=@(),$AcceptancePlan=$null) {
     if($null-eq$AcceptancePlan){$AcceptancePlan=$Plan}
     $stages=if($BeforeStage){@(Get-EvPrerequisites $Plan $BeforeStage)}else{@($Plan.stages)}
     Assert-EvRefs $UserDecisionRefs
@@ -881,7 +1174,8 @@ function Assert-AiwAcceptanceBinding($Context,$Package,$Plan,[switch]$Historical
     # This public admission/acceptance gate always checks the current candidate.
     Assert-EvAcceptanceBinding $Context $Package $Plan -Historical:$Historical -RequireIndependentReview:$RequireIndependentReview -ExcludedReviewActors $ExcludedReviewActors -PrerequisiteEvidencePurpose $PrerequisiteEvidencePurpose -OriginalFinalize $OriginalFinalize
 }
-function Assert-EvAcceptanceBinding($Context,$Package,$Plan,[switch]$Historical,[switch]$RequireIndependentReview,[string[]]$ExcludedReviewActors=@(),[string]$EvidencePurpose='CURRENT_CANDIDATE',[object[]]$OriginalFinalize=@(),[string]$PrerequisiteEvidencePurpose='CURRENT_CANDIDATE') {
+function Assert-EvAcceptanceBinding($Context,$Package,$Plan,[switch]$Historical,[switch]$RequireIndependentReview,[string[]]$ExcludedReviewActors=@(),[string]$EvidencePurpose='CURRENT_CANDIDATE',[object[]]$OriginalFinalize=@(),[string]$PrerequisiteEvidencePurpose='CURRENT_CANDIDATE',$Completion=$null) {
+    $readDocuments=if($null-ne$Completion){$Completion.readDocuments}else{$null}
     if($null-eq$Package){throw 'RESULT_ACCEPT_AUTHORIZATION_REQUIRED'}
     $independentRequired=Test-AiwPackageReviewRequired $Package -ExplicitRequirement:$RequireIndependentReview
     $excluded=@($Package.owner,$Package.issuer)+@($ExcludedReviewActors)
@@ -895,16 +1189,18 @@ function Assert-EvAcceptanceBinding($Context,$Package,$Plan,[switch]$Historical,
     }
     Assert-EvFields $binding @('candidateObjects','requirementsRef','prerequisiteEvidenceRefs','reservedUserDecisionRefs') @('prerequisiteConsumption')
     $consumption=Get-EvConsumption $binding prerequisiteConsumption $PrerequisiteEvidencePurpose $OriginalFinalize
+    if($null-ne$Completion){Add-EvCompletionFinalizes $Context $Completion $consumption.originalFinalize}
     if($EvidencePurpose-ceq'HISTORICAL_SUCCESS'){
         # The parent has already proved its original successful FINALIZE. Its
         # old declaration cannot turn recursive history into a live recheck.
         $consumption=Get-EvConsumption $null '' HISTORICAL_SUCCESS $OriginalFinalize
     }
     Assert-EvSameCandidates $binding.candidateObjects @(Get-AiwPackageCandidateReferences $Package) $Context
-    if($EvidencePurpose-ceq'CURRENT_CANDIDATE'){foreach($candidate in $binding.candidateObjects){$null=Read-EvRef $Context $candidate -Candidate}}
-    $null=Read-EvRef $Context $binding.requirementsRef -Section
+    if($EvidencePurpose-ceq'CURRENT_CANDIDATE'){foreach($candidate in $binding.candidateObjects){$null=Read-EvRef -ReadDocuments $readDocuments $Context $candidate -Candidate}}
+    $null=Read-EvRef -ReadDocuments $readDocuments $Context $binding.requirementsRef -Section
     Assert-EvRefs $binding.prerequisiteEvidenceRefs -Typed;Assert-EvRefs $binding.reservedUserDecisionRefs
-    foreach($ref in $binding.reservedUserDecisionRefs){$null=Read-EvRef $Context $ref}
+    foreach($ref in $binding.reservedUserDecisionRefs){$null=Read-EvRef -ReadDocuments $readDocuments $Context $ref}
+    if($null-ne$Completion){foreach($ref in $binding.reservedUserDecisionRefs){$Completion.userDecisions.Add($ref)}}
     $prereqs=@();$stageId=''
     if($null-ne$Plan){
         $stages=@($Plan.stages|Where-Object{$_.kind-ceq'RESULT_ACCEPT'-and(Test-EvSameRef $_.requiredBy $binding.requirementsRef $Context)-and(Test-EvSameCandidates $_.candidateRef $binding.candidateObjects $Context)})
@@ -928,25 +1224,33 @@ function Assert-EvAcceptanceBinding($Context,$Package,$Plan,[switch]$Historical,
             $candidate=$matches[0].candidateRef;$requirements=$matches[0].requiredBy
             $selected=Get-EvConsumption $matches[0] evidenceConsumption $consumption.purpose $consumption.originalFinalize
         }else{$candidate=$binding.candidateObjects;$requirements=$binding.requirementsRef}
+        $observedPrerequisite=$null
         if($Historical-or$selected.purpose-ceq'HISTORICAL_SUCCESS'){
             # Historical acceptance retains the original typed evidence bindings;
             # subsequent task progress is not a new permanent hash dependency.
-            $raw=Read-EvRef $Context ([pscustomobject]@{path=$ref.path;identity=$ref.identity}) -Json
-            $candidate=$raw.candidateObjects;$requirements=$raw.requirementsRef
+            $raw=Read-EvRef -ReadDocuments $readDocuments $Context ([pscustomobject]@{path=$ref.path;identity=$ref.identity}) -Json
+            $candidate=$raw.candidateObjects;$requirements=$raw.requirementsRef;$observedPrerequisite=$raw
         }
-        $null=Read-AiwResultEvidence $Context $ref $Package.taskId $candidate $requirements -RequireSuccess -RequireIndependentReview:$independentRequired -ExcludedReviewActors $excluded -EvidencePurpose $selected.purpose -OriginalFinalize $selected.originalFinalize -AcceptancePlan $Plan
+        if($null-ne$Completion){
+            Add-EvCompletionFinalizes $Context $Completion $selected.originalFinalize
+            Add-EvCompletionNode $Context $Completion $ref (Get-EvExpectedResultContext $Package) $candidate $requirements -RequireIndependentReview:$independentRequired -ExcludedReviewActors $excluded -ObservedRecord $observedPrerequisite
+            $parent=$Completion.nodes[$Completion.currentKey]
+            $null=$parent.dependencies.Add((Get-EvTypedKey $Context $ref))
+        }else{
+            $null=Read-AiwResultEvidence $Context $ref (Get-EvExpectedResultContext $Package) $candidate $requirements -RequireSuccess -RequireIndependentReview:$independentRequired -ExcludedReviewActors $excluded -EvidencePurpose $selected.purpose -OriginalFinalize $selected.originalFinalize -AcceptancePlan $Plan
+        }
     }
     if($independentRequired){
         $reviewed=$false
         foreach($ref in @($binding.prerequisiteEvidenceRefs|Where-Object{$_.kind-ceq'REVIEW_VERDICT'})){
-            $raw=Read-EvRef $Context ([pscustomobject]@{path=$ref.path;identity=$ref.identity}) -Json
+            $raw=Read-EvRef -ReadDocuments $readDocuments $Context ([pscustomobject]@{path=$ref.path;identity=$ref.identity}) -Json
             if((Test-EvSameCandidates $raw.candidateObjects $binding.candidateObjects $Context)-and(Test-EvSameRef $raw.requirementsRef $binding.requirementsRef $Context)){$reviewed=$true}
         }
         if(-not$reviewed){throw 'RESULT_ACCEPT_CRITICAL_REVIEW_REQUIRED'}
     }
     if($null-ne$Plan){
         foreach($stage in $prereqs){foreach($ref in $stage.evidenceRefs){if(@($binding.prerequisiteEvidenceRefs|Where-Object{$_.kind-ceq$ref.kind-and(Test-EvSameRef $_ $ref $Context)}).Count-ne1){throw 'RESULT_ACCEPT_PREREQUISITE_UNBOUND'}}}
-        Assert-AiwAcceptanceStages $Context ([pscustomobject]@{stages=@($prereqs)}) $Package.taskId '' $binding.reservedUserDecisionRefs -RequireIndependentReview:$independentRequired -ExcludedReviewActors $excluded -EvidencePurpose $consumption.purpose -OriginalFinalize $consumption.originalFinalize -AcceptancePlan $Plan
+        if($null-eq$Completion){Assert-AiwAcceptanceStages $Context ([pscustomobject]@{stages=@($prereqs)}) (Get-EvExpectedResultContext $Package) '' $binding.reservedUserDecisionRefs -RequireIndependentReview:$independentRequired -ExcludedReviewActors $excluded -EvidencePurpose $consumption.purpose -OriginalFinalize $consumption.originalFinalize -AcceptancePlan $Plan}
     }
 }
 function New-AiwPackageEvidenceContext([string]$ProjectRoot,$Package,[string]$FrameworkRoot='', [string[]]$ForbiddenPaths=@(),[string]$TaskPath='',[object]$TargetState=$null,[string[]]$ProtectedPaths=@()) {
@@ -966,11 +1270,15 @@ function New-AiwPackageEvidenceContext([string]$ProjectRoot,$Package,[string]$Fr
         $repo=$target.executionRoot
     }
     $ctx=New-AiwEvidenceContext $ProjectRoot $repo $FrameworkRoot $ForbiddenPaths $ProtectedPaths
+    if($null-ne$Package-and$Package.schemaVersion-eq5-and$null-ne$Package.requestContext.PSObject.Properties['predecessorRef']){
+        # Private source data only; the finding reader validates its edge/root.
+        $ctx|Add-Member WorkRequest $Package.requestContext
+    }
     $ctx|Add-Member TaskPath $TaskPath
     $ctx|Add-Member ExecutionContext $target
     return $ctx
 }
-function Assert-AiwReviewSelfCheck($Context,$References,[string]$TaskId,$Candidates,$Plan=$null) {
+function Assert-AiwReviewSelfCheck($Context,$References,$TaskId,$Candidates,$Plan=$null) {
     Assert-EvRefs $References -Typed
     $refs=@($References|Where-Object{$_.kind-ceq'SELF_CHECK'})
     if($refs.Count-eq0){throw 'REVIEW_SELF_CHECK_REQUIRED'}
@@ -993,7 +1301,7 @@ function Get-AiwSelfCheckOutcome($References,$Records) {
     if('INCOMPLETE'-cin$outcomes){return 'INCOMPLETE'}
     return 'PASS'
 }
-function Get-AiwContinuationSelfCheckOutcome($Context,$References,[string]$TaskId,$Candidates,[string]$Actor,[switch]$FrozenCandidateEvidence) {
+function Get-AiwContinuationSelfCheckOutcome($Context,$References,$TaskId,$Candidates,[string]$Actor,[switch]$FrozenCandidateEvidence) {
     Assert-EvRefs $References -Typed
     $refs=@($References|Where-Object{$_.kind-ceq'SELF_CHECK'});$records=@()
     foreach($ref in $refs){
@@ -1003,20 +1311,32 @@ function Get-AiwContinuationSelfCheckOutcome($Context,$References,[string]$TaskI
     return Get-AiwSelfCheckOutcome $refs $records
 }
 function Get-AiwSelfRepairOriginCycle($Context,$Package) {
+    Import-Module (Join-Path $PSScriptRoot 'ProcessRequirementComposition.psm1')
+    if($Package.schemaVersion-eq5-and$null-ne$Package.requestContext.PSObject.Properties['predecessorRef']-and$null-ne$Package.PSObject.Properties['selfCheckRepairLimit']-and$null-eq$Package.PSObject.Properties['repairReviewBinding']){
+        $predecessor=Get-EvWorkPredecessor $Context $Package.requestContext
+        if($null-ne$predecessor.selfRoot){
+            if($Package.selfCheckRepairLimit-ne$predecessor.selfLimit){throw 'WORK_PREDECESSOR_SELF_LIMIT_DRIFT'}
+            return [int]$predecessor.selfCycle
+        }
+    }
     if($null-eq$Package.PSObject.Properties['selfCheckRepairLimit']-or$null-eq$Package.PSObject.Properties['repairReviewBinding']){return 0}
     $binding=$Package.repairReviewBinding
     if($binding.phase-cne'REPAIR'){return 0}
     $parent=Read-EvRef $Context ([pscustomobject]@{path=$binding.parentPackagePath;identity=$binding.parentPackageIdentity}) -Json
     $null=Assert-AiwFinalizedReviewFinding $Context $parent $binding -FrozenCandidates
     $findingInput=Read-EvRef $Context ([pscustomobject]@{path=$binding.verdictFinalizeInputPath;identity=$binding.verdictFinalizeInputIdentity}) -Json
-    $findingSource=Read-EvRef $Context ([pscustomobject]@{path=$findingInput.discoverReceiptPath;identity=$findingInput.expectedDiscoverReceiptIdentity}) -Json
+    $findingResult=Read-EvRef $Context ([pscustomobject]@{path=$binding.verdictFinalizeResultPath;identity=$binding.verdictFinalizeResultIdentity}) -Json
+    $findingSource=Read-EvProcessOperation $Context $findingInput $findingResult
     $review=Read-EvRef $Context ([pscustomobject]@{path=$findingSource.sourceLocators.authorizationPackagePath;identity=$findingSource.binding.authorizationIdentity}) -Json
     $productionInput=Read-EvRef $Context ([pscustomobject]@{path=$review.repairReviewBinding.repairFinalizeInputPath;identity=$review.repairReviewBinding.repairFinalizeInputIdentity}) -Json
     $productionResult=Read-EvRef $Context ([pscustomobject]@{path=$review.repairReviewBinding.repairFinalizeResultPath;identity=$review.repairReviewBinding.repairFinalizeResultIdentity}) -Json
-    $productionSource=Read-EvRef $Context ([pscustomobject]@{path=$productionInput.discoverReceiptPath;identity=$productionInput.expectedDiscoverReceiptIdentity}) -Json
+    $productionSource=Read-EvProcessOperation $Context $productionInput $productionResult
     $authority=if($productionSource.schemaVersion-eq1){$productionSource.authorityContext}else{$productionSource.binding}
     $producer=Read-EvRef $Context ([pscustomobject]@{path=$productionSource.sourceLocators.authorizationPackagePath;identity=$authority.authorizationIdentity}) -Json
-    if($productionResult.status-cne'PASS'-or$producer.taskIdentity-cne$Package.taskIdentity-or$producer.grantee-cne$Package.grantee-or$producer.selfCheckRepairLimit-ne$Package.selfCheckRepairLimit){throw 'SELF_REPAIR_ORIGIN_AUTHORITY_DRIFT'}
+    Assert-EvReviewProducerRelation $Context $Package $producer ([pscustomobject]@{path=$productionSource.sourceLocators.authorizationPackagePath;identity=$authority.authorizationIdentity})
+    if($Package.schemaVersion-ne5-and$producer.taskIdentity-cne$Package.taskIdentity){throw 'SELF_REPAIR_ORIGIN_AUTHORITY_DRIFT'}
+    if($Package.schemaVersion-eq5-and$producer.schemaVersion-eq5-and(Get-AiwWorkPlanDefinitionKey $producer.requestContext)-cne(Get-AiwWorkPlanDefinitionKey $Package.requestContext)){throw 'SELF_REPAIR_ORIGIN_PLAN_DRIFT'}
+    if($productionResult.status-cne'PASS'-or$(if($producer.schemaVersion-eq5){-not(Test-AiwSameResultContext $authority $producer)}else{$authority.taskId-cne$producer.taskId-or$authority.taskIdentity-cne$producer.taskIdentity})-or$producer.grantee-cne$Package.grantee-or$producer.selfCheckRepairLimit-ne$Package.selfCheckRepairLimit){throw 'SELF_REPAIR_ORIGIN_AUTHORITY_DRIFT'}
     if($null-ne$producer.PSObject.Properties['repairReviewBinding']){
         if($producer.repairReviewBinding.phase-cne'REPAIR'-or$producer.repairReviewBinding.parentPackageIdentity-cne$binding.parentPackageIdentity-or$producer.repairReviewBinding.cycle-ne($binding.cycle-1)){throw 'SELF_REPAIR_ORIGIN_REVIEW_CYCLE'}
     }elseif($authority.authorizationIdentity-cne$binding.parentPackageIdentity-or$binding.cycle-ne1){throw 'SELF_REPAIR_ORIGIN_PARENT'}
@@ -1032,15 +1352,22 @@ function Get-AiwSelfRepairOriginCycle($Context,$Package) {
 Export-ModuleMember -Function Get-AiwSelfRepairOriginCycle
 function Assert-AiwSelfRepairChain($Context,$Package,$Leaf) {
     $baseFields=@('schemaVersion','receiptType','status','evidenceGrade','authorityGranted','packageIdentity','taskIdentity','taskId','taskOwner','taskActor','actor','repositoryId','projectConfigIdentity','controllerIdentity','userDecision','protectionState','forbiddenScope','protectedScope','sourceDiscoverReceiptPath','sourceDiscoverReceiptIdentity','sourceSelectionIdentity','sourceContextIdentity','completedStepIndex','completedAction','nextStepIndex','nextAction','exactPaths','postObjectIdentities','evidenceRefs','transitionKind','selfRepairCycle')
+    $work=$Package.schemaVersion-eq5
+    if($work){Import-Module (Join-Path $PSScriptRoot 'ContentSources.psm1')}
+    if($work){$baseFields=@($baseFields|Where-Object{$_-cnotin@('taskIdentity','taskId','taskOwner','taskActor')})+@('requestContext')}
     $nodes=[Collections.Generic.List[object]]::new();$seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     $node=$Leaf;$limit=[int]$Package.selfCheckRepairLimit
     while($true){
         $fields=@($baseFields);if($node.schemaVersion-eq3){$fields+=@('executionTargetRef','observedTargetState','postTargetState')}
         Assert-EvFields $node $fields
-        if($node.schemaVersion-notin@(2,3)-or$node.receiptType-cne'AUTHORIZED_ACTION_CONTINUATION'-or$node.status-cne'PASS'-or$node.evidenceGrade-cne'INSTRUCTION_BOUND'-or$node.authorityGranted-isnot[bool]-or$node.authorityGranted){throw 'SELF_REPAIR_RECEIPT_TYPE'}
+        if($node.schemaVersion-notin@(2,3,4)-or$node.receiptType-cne'AUTHORIZED_ACTION_CONTINUATION'-or$node.status-cne'PASS'-or$node.evidenceGrade-cne'INSTRUCTION_BOUND'-or$node.authorityGranted-isnot[bool]-or$node.authorityGranted){throw 'SELF_REPAIR_RECEIPT_TYPE'}
         foreach($name in @('completedStepIndex','nextStepIndex','selfRepairCycle')){Assert-EvInteger $node.$name}
         if($node.selfRepairCycle-lt0-or$node.selfRepairCycle-gt$limit-or$node.transitionKind-cnotin@('ADVANCE','REPAIR','RETEST')){throw 'SELF_REPAIR_CYCLE'}
-        foreach($name in @('packageIdentity','taskIdentity','taskId','taskOwner','taskActor','actor','repositoryId','projectConfigIdentity','controllerIdentity','userDecision','protectionState')){if($node.$name-cne$Leaf.$name){throw ('SELF_REPAIR_AUTHORITY_DRIFT|'+$name)}}
+        if($work-ne($node.schemaVersion-eq4)){throw 'SELF_REPAIR_CONTEXT_SCHEMA'}
+        if($work){Assert-AiwWorkPackageContext $node.requestContext $Package $node.completedAction;Assert-EvResultContext $node $Leaf}
+        $authorityNames=@('packageIdentity','actor','repositoryId','projectConfigIdentity','controllerIdentity','userDecision','protectionState')
+        if(-not$work){$authorityNames+=@('taskIdentity','taskId','taskOwner','taskActor')}
+        foreach($name in $authorityNames){if($node.$name-cne$Leaf.$name){throw ('SELF_REPAIR_AUTHORITY_DRIFT|'+$name)}}
         foreach($name in @('forbiddenScope','protectedScope')){if($node.$name-isnot[Array]-or[string]::Join("`n",@($node.$name))-cne[string]::Join("`n",@($Leaf.$name))){throw 'SELF_REPAIR_SCOPE_DRIFT'}}
         $nextScope=@(Get-AiwActionScopeObjects $Package $node.nextAction $Context)
         if($node.exactPaths-isnot[Array]-or(@($node.exactPaths|Sort-Object)-join'|')-cne(@($nextScope.path|Sort-Object)-join'|')){throw 'SELF_REPAIR_SCOPE_DRIFT'}
@@ -1051,18 +1378,23 @@ function Assert-AiwSelfRepairChain($Context,$Package,$Leaf) {
         $sourceRef=[pscustomobject]@{path=$node.sourceDiscoverReceiptPath;identity=$node.sourceDiscoverReceiptIdentity}
         if(-not$seen.Add($sourceRef.path+'|'+$sourceRef.identity)){throw 'SELF_REPAIR_REFERENCE_CYCLE'}
         $source=Read-EvRef $Context $sourceRef -Json
+        if($source.schemaVersion-eq5){$source=Convert-EvOperationCompact $Context $source}
         $authority=if($source.schemaVersion-eq1){$source.authorityContext}else{$source.binding}
         $action=if($source.schemaVersion-eq1){$source.actionKind}else{$source.intentEnvelope.requestedActionKind}
         if(($Package.schemaVersion-eq4)-ne($node.schemaVersion-eq3)){throw 'SELF_REPAIR_TARGET_SCHEMA'}
         if($node.schemaVersion-eq3){
             Import-Module (Join-Path $PSScriptRoot 'ExecutionTargetContext.psm1')
-            if($source.schemaVersion-ne4-or-not(Test-EvSameRef $node.executionTargetRef $Package.executionTargetRef $Context)-or-not(Test-EvSameRef $node.executionTargetRef $authority.executionContext.executionTargetRef $Context)-or($node.observedTargetState|ConvertTo-Json -Compress)-cne((Get-AiwExecutionTargetState $authority.executionContext)|ConvertTo-Json -Compress)-or($node.postTargetState|ConvertTo-Json -Compress)-cne($node.observedTargetState|ConvertTo-Json -Compress)){throw 'SELF_REPAIR_TARGET_SOURCE_DRIFT'}
+            if($source.schemaVersion-notin@(4,5)-or-not(Test-EvSameRef $node.executionTargetRef $Package.executionTargetRef $Context)-or-not(Test-EvSameRef $node.executionTargetRef $authority.executionContext.executionTargetRef $Context)-or($node.observedTargetState|ConvertTo-Json -Compress)-cne((Get-AiwExecutionTargetState $authority.executionContext)|ConvertTo-Json -Compress)-or($node.postTargetState|ConvertTo-Json -Compress)-cne($node.observedTargetState|ConvertTo-Json -Compress)){throw 'SELF_REPAIR_TARGET_SOURCE_DRIFT'}
         }
 
-        if($source.schemaVersion-notin@(1,2,3,4)-or$source.status-cne'PASS'-or$source.receiptType-cne'PROCESS_REQUIREMENTS_DISCOVER'-or$source.mode-cne'DISCOVER'-or$source.selectionIdentity-cne$node.sourceSelectionIdentity-or$source.contextIdentity-cne$node.sourceContextIdentity-or$action-cne$node.completedAction-or$authority.continuationStepIndex-ne$node.completedStepIndex){throw 'SELF_REPAIR_SOURCE_LINK'}
+        $sourceFormat=if($source.schemaVersion-eq5){$source.receiptType-ceq'PROCESS_REQUIREMENTS_OPERATION'}else{$source.schemaVersion-in@(1,2,3,4)-and$source.receiptType-ceq'PROCESS_REQUIREMENTS_DISCOVER'-and$source.mode-ceq'DISCOVER'}
+        if(-not$sourceFormat-or$source.status-cne'PASS'-or$source.selectionIdentity-cne$node.sourceSelectionIdentity-or$source.contextIdentity-cne$node.sourceContextIdentity-or$action-cne$node.completedAction-or$authority.continuationStepIndex-ne$node.completedStepIndex){throw 'SELF_REPAIR_SOURCE_LINK'}
         $completedScope=@(Get-AiwActionScopeObjects $Package $action $Context)
         if((@($authority.exactScope|Sort-Object)-join'|')-cne(@($completedScope.path|Sort-Object)-join'|')){throw 'SELF_REPAIR_SOURCE_SCOPE_DRIFT'}
-        foreach($pair in @(@('authorizationIdentity','packageIdentity'),@('taskIdentity','taskIdentity'),@('taskId','taskId'),@('taskOwner','taskOwner'),@('taskActor','taskActor'),@('actor','actor'),@('projectConfigIdentity','projectConfigIdentity'),@('controllerIdentity','controllerIdentity'),@('userDecision','userDecision'))){if($authority.($pair[0])-cne$node.($pair[1])){throw 'SELF_REPAIR_SOURCE_AUTHORITY_DRIFT'}}
+        if($work-and($source.schemaVersion-ne5-or$authority.contextType-cne'PROJECT_WORK'-or(Get-AiwContentDescriptorIdentity $authority.context.requestContext)-cne(Get-AiwContentDescriptorIdentity $node.requestContext))){throw 'SELF_REPAIR_SOURCE_CONTEXT_DRIFT'}
+        $authorityPairs=@(@('authorizationIdentity','packageIdentity'),@('actor','actor'),@('projectConfigIdentity','projectConfigIdentity'),@('controllerIdentity','controllerIdentity'),@('userDecision','userDecision'))
+        if(-not$work){$authorityPairs+=@(@('taskIdentity','taskIdentity'),@('taskId','taskId'),@('taskOwner','taskOwner'),@('taskActor','taskActor'))}
+        foreach($pair in $authorityPairs){if($authority.($pair[0])-cne$node.($pair[1])){throw 'SELF_REPAIR_SOURCE_AUTHORITY_DRIFT'}}
         foreach($scope in @('forbiddenScope','protectedScope')){if([string]::Join("`n",@($authority.$scope))-cne[string]::Join("`n",@($node.$scope))){throw 'SELF_REPAIR_SOURCE_SCOPE_DRIFT'}}
         $nodes.Add($node)
         # A short write/test chain has at most two receipts per granted repair,
@@ -1093,7 +1425,7 @@ function Assert-AiwSelfRepairChain($Context,$Package,$Leaf) {
             $candidates=@(Get-AiwPackageCandidateReferences ([pscustomobject]@{objectIdentities=@($node.postObjectIdentities|Where-Object{$_.path-cin$Package.exactPaths})}))
             $priorCandidates=@(Get-AiwPackageCandidateReferences ([pscustomobject]@{objectIdentities=@($previous.postObjectIdentities|Where-Object{$_.path-cin$Package.exactPaths})}))
             Assert-EvSameCandidates $candidates $priorCandidates $Context
-            $outcome=Get-AiwContinuationSelfCheckOutcome $Context $node.evidenceRefs $Package.taskId $candidates $Package.grantee -FrozenCandidateEvidence
+            $outcome=Get-AiwContinuationSelfCheckOutcome $Context $node.evidenceRefs (Get-EvExpectedResultContext $Package) $candidates $Package.grantee -FrozenCandidateEvidence
             if($node.transitionKind-cin@('REPAIR','RETEST')-and$outcome-cne'FAIL'){throw 'SELF_REPAIR_ACTUAL_FAILURE_REQUIRED'}
             if($node.transitionKind-ceq'ADVANCE'-and($outcome-ceq'INCOMPLETE'-or($node.nextAction-ceq'REVIEW_ROUTE'-and$outcome-cne'PASS'))){throw 'SELF_REPAIR_SUCCESSOR_OUTCOME'}
         }
@@ -1137,6 +1469,9 @@ function Test-EvOriginalClosedCardMove($Context,$Receipt,$Boundary,$Package,[str
     return $true
 }
 function Get-AiwBoundaryEvidence($Receipt,$Boundary,$EvidenceContext=$null) {
+    Get-EvBoundaryEvidenceCore @PSBoundParameters
+}
+function Get-EvBoundaryEvidenceCore($Receipt,$Boundary,$EvidenceContext=$null,$PublicationMember=$null) {
     $refs=@()
     if($null-ne$Boundary.PSObject.Properties['evidenceRefs']){$refs=$Boundary.evidenceRefs}
     Assert-EvRefs $refs -Typed
@@ -1155,9 +1490,39 @@ function Get-AiwBoundaryEvidence($Receipt,$Boundary,$EvidenceContext=$null) {
     # Nested delivery supplies its already guarded original-root context.
     # Ordinary callers retain their current receipt-derived context.
     $ctx=if($null-ne$EvidenceContext){$EvidenceContext}else{New-AiwPackageEvidenceContext $Receipt.sourceLocators.projectRoot $package $Receipt.sourceLocators.frameworkRoot $Receipt.authorityContext.forbiddenScope -TaskPath $actualTaskPath -ProtectedPaths $protectedScope}
+    $workRequest=Get-EvWorkRequest $Receipt
+    if($null-ne$workRequest){Assert-AiwProjectWorkSources $ctx $workRequest}
+    $acceptedFacts=$null
+    if($null-ne$package-and$null-ne$package.PSObject.Properties['acceptedOutcomeBinding']){
+        $currentTask=Read-EvRef $ctx ([pscustomobject]@{path=$actualTaskPath;identity=(Get-EvCandidateIdentity (Resolve-EvPath $ctx $actualTaskPath))})
+        $currentPlan=Get-AiwAcceptancePlan ([IO.File]::ReadAllText($currentTask))
+        $stage=if($Boundary.mode-ceq'FINALIZE_OUTPUT'){'FINALIZE'}else{'ADMIT'}
+        $acceptedFacts=Get-EvOrdinaryAcceptedOutcome $ctx $package $stage $currentPlan
+    }elseif($null-ne$package-and$null-ne$package.PSObject.Properties['sourcePublicationBinding']){
+        $publication=@(Import-Module (Join-Path $PSScriptRoot 'ProjectSourcePublication.psm1') -PassThru)[0]
+        $eligibility=$null
+        $publicationPlan=if($null-ne$PublicationMember){
+            $eligibility=& $publication {param($member,$root,$package,$denied) Get-PubMemberEligibility $member $root $package $denied} $PublicationMember $ctx.ProjectRoot $package @(@($ctx.ForbiddenPaths)+@($ctx.CandidateProtectedPaths))
+            $null=Get-EvLogicalPath $ctx $package.sourcePublicationBinding.planRef.path
+            $eligibility.plan
+        }else{Read-EvRef $ctx $package.sourcePublicationBinding.planRef -Json}
+        if($publicationPlan.schemaVersion-eq2){
+            if($null-ne$PublicationMember){
+                $acceptedFacts=$eligibility.acceptedOutcome
+                $state=Get-EvReadState $ctx;$observed=$acceptedFacts.readState
+                foreach($reference in $observed.references.Values){$state.references[$reference.path+'|'+$reference.identity]=$reference}
+                foreach($producer in $observed.producers.Values){Add-EvValidatedProducer $ctx $producer.pair $producer.source $producer.input $producer.result}
+                foreach($guard in $observed.guards){$state.guards.Add($guard)}
+            }else{
+                $acceptedFacts=& $publication {param($root,$plan,$package,$denied,$context) Get-PubAcceptedOutcomeFacts $root $plan $package $denied $context} $ctx.ProjectRoot $publicationPlan $package @($ctx.ForbiddenPaths) $ctx
+            }
+        }
+    }
+    $acceptedCoverage=if($null-ne$acceptedFacts){@($acceptedFacts.coveredKinds)}else{@()}
     # Empty typed evidence still hands the last consumer the original full path guard.
-    if($skipTypedEvidence){$handoff=Get-EvRetentionHandoff $ctx;return [pscustomobject]@{references=@();records=@();evidenceCeiling='INSTRUCTION_BOUND';retentionValues=@();retentionContext=$handoff.context;retentionProducers=$handoff.producers}}
+    if($skipTypedEvidence){$handoff=Get-EvRetentionHandoff $ctx;$values=if($null-ne$workRequest){@($package,$workRequest)+@($handoff.references)}elseif($null-ne$acceptedFacts){@($package)+@($acceptedFacts.retentionValues)+@($handoff.references)}else{@()};return [pscustomobject]@{references=@();records=@();acceptedCoverage=$acceptedCoverage;evidenceCeiling='INSTRUCTION_BOUND';retentionValues=$values;retentionContext=$handoff.context;retentionProducers=$handoff.producers}}
     $taskText='';$plan=$null
+    if($null-ne$Receipt.authorityContext.PSObject.Properties['contextType']-and$Receipt.authorityContext.contextType-ceq'PROJECT_WORK'){$plan=Get-AiwProjectWorkPlan $Receipt.authorityContext.context.requestContext}
     if($Receipt.sourceLocators.taskRelativePath-cne'NOT_APPLICABLE'){
         Import-Module (Join-Path $PSScriptRoot 'ControlTransition.psm1')
         $taskText=(Read-AiwControlTransitionTask $ctx.ProjectRoot $actualTaskPath).Text
@@ -1167,6 +1532,7 @@ function Get-AiwBoundaryEvidence($Receipt,$Boundary,$EvidenceContext=$null) {
     # This is an in-memory handoff, not another closure validator or saved proof.
     $retentionValues=[Collections.Generic.List[object]]::new()
     if($null-ne$plan){$retentionValues.Add($plan)}
+    if($null-ne$package){$retentionValues.Add($package)}
     $records=@();$candidateObjects=@()
     if($null-ne$package-and($refs.Count-gt0-or$Receipt.actionKind-ceq'REVIEW_ROUTE')){
         foreach($path in $Receipt.exactPaths){
@@ -1181,10 +1547,11 @@ function Get-AiwBoundaryEvidence($Receipt,$Boundary,$EvidenceContext=$null) {
     foreach($ref in $refs){
         $raw=Read-EvRef $ctx ([pscustomobject]@{path=$ref.path;identity=$ref.identity}) -Json
         $requirements=$raw.requirementsRef
+        if($null-ne$Receipt.authorityContext.PSObject.Properties['contextType']-and$Receipt.authorityContext.contextType-ceq'PROJECT_WORK'){$requirements=Get-EvWorkRecordRequirements $ctx $Receipt.authorityContext.context.requestContext $ref.kind $candidateObjects $requirements}
         if($null-ne$package-and$null-ne$package.PSObject.Properties['acceptanceBinding']){$requirements=$package.acceptanceBinding.requirementsRef}
         $expectedActor=if($Boundary.mode-ceq'FINALIZE_OUTPUT'-and$ref.kind-ceq$needed){[string]$Receipt.actor}else{''}
         $auth=if($ref.kind-cin@('REVIEW_VERDICT','RESULT_ACCEPTANCE')-and$ref.kind-ceq$needed){[string]$Receipt.authorityContext.authorizationIdentity}else{''}
-        $records+=Read-AiwResultEvidence $ctx $ref $Receipt.taskId $candidateObjects $requirements -ExpectedActor $expectedActor -AuthorizationIdentity $auth
+        $records+=Read-AiwResultEvidence $ctx $ref (Get-EvExpectedResultContext $Receipt) $candidateObjects $requirements -ExpectedActor $expectedActor -AuthorizationIdentity $auth
     }
     if($Receipt.actionKind-ceq'TEST_RUN'-and$Boundary.mode-ceq'FINALIZE_OUTPUT'){
         foreach($record in $records){if(@($record.checks|Where-Object{$_.method-ceq'COMMAND'}).Count-eq0){throw 'TEST_RUN_COMMAND_REQUIRED'}}
@@ -1200,7 +1567,7 @@ function Get-AiwBoundaryEvidence($Receipt,$Boundary,$EvidenceContext=$null) {
                 $null=Read-EvRef $ctx $stage.requiredBy -Section
             }
         }
-        if(Test-AiwReviewSelfCheckRequired $plan){if($Boundary.mode-ceq'ADMIT_ACTION'){Assert-AiwReviewSelfCheck $ctx $refs $Receipt.taskId $candidateObjects $plan}}
+        if(Test-AiwReviewSelfCheckRequired $plan){if($Boundary.mode-ceq'ADMIT_ACTION'){Assert-AiwReviewSelfCheck $ctx $refs (Get-EvExpectedResultContext $Receipt) $candidateObjects $plan}}
         else{
             $null=Get-AiwPackageQuality $ctx $package $plan
             if($null-eq$Boundary.PSObject.Properties['productionFinalizeRef']){throw 'QUALITY_PRODUCTION_FINALIZE_REQUIRED'}
@@ -1257,7 +1624,7 @@ function Get-AiwBoundaryEvidence($Receipt,$Boundary,$EvidenceContext=$null) {
         if($null-ne$closedPlan){$retentionValues.Add($closedPlan)}
     }
     $handoff=Get-EvRetentionHandoff $ctx
-    return [pscustomobject]@{references=@($refs);records=@($records);evidenceCeiling='INSTRUCTION_BOUND';retentionValues=@($retentionValues.ToArray());retentionContext=$handoff.context;retentionProducers=$handoff.producers}
+    return [pscustomobject]@{references=@($refs);records=@($records);acceptedCoverage=$acceptedCoverage;evidenceCeiling='INSTRUCTION_BOUND';retentionValues=@($retentionValues.ToArray())+@($handoff.references)+$(if($null-ne$acceptedFacts){@($acceptedFacts.retentionValues)}else{@()});retentionContext=$handoff.context;retentionProducers=$handoff.producers}
 }
 function Assert-AiwPushAcceptance($Context,$Reference,[string]$TaskId,$Candidates,[string]$Commit,[switch]$RequireReview,[string[]]$ExcludedReviewActors=@()) {
     $raw=Read-EvRef $Context ([pscustomobject]@{path=$Reference.path;identity=$Reference.identity}) -Json
@@ -1291,8 +1658,8 @@ function Resolve-AiwEvidenceObservationPath($Context,[string]$Path) {
     }
     Resolve-EvPath $Context $Path -AllowMissing -AllowDirectory -Observation
 }
-function Read-AiwEvidenceReference($Context,$Reference,[switch]$Json,[switch]$Candidate) {
-    Read-EvRef $Context $Reference -Json:$Json -Candidate:$Candidate
+function Read-AiwEvidenceReference($Context,$Reference,[switch]$Json,[switch]$Candidate,[switch]$Section) {
+    Read-EvRef $Context $Reference -Json:$Json -Candidate:$Candidate -Section:$Section
 }
 Export-ModuleMember -Function Resolve-AiwEvidenceObservationPath,New-AiwEvidenceContext,New-AiwPackageEvidenceContext,Get-AiwPackageCandidateReferences,Read-AiwEvidenceReference,Read-AiwResultEvidence,Get-AiwAcceptancePlan,Assert-AiwAcceptanceStages,Assert-AiwAcceptanceBinding,Assert-AiwReviewSelfCheck,Get-AiwBoundaryEvidence,Assert-AiwPushAcceptance,Get-AiwSelfCheckOutcome,Get-AiwContinuationSelfCheckOutcome,Assert-AiwSelfRepairChain,Get-AiwPlannedReviewScope,Get-AiwActionScopeObjects,Get-AiwComposedReviewCandidate,Get-AiwFinalizedObjectPostimages
 
@@ -1329,7 +1696,7 @@ function Get-AiwPackageQuality($Context,$Package,$Plan=$null,[switch]$Management
     if((Get-AiwQualityBindingKey $selection.qualityBinding)-cne(Get-AiwQualityBindingKey $Plan.qualityBinding)){throw 'QUALITY_PLAN_DRIFT'}
     if(-not$Management-and-not$hasBinding){throw 'QUALITY_BINDING_REQUIRED'}
     if($hasBinding-and(Get-AiwQualityBindingKey $Package.qualityBinding)-cne(Get-AiwQualityBindingKey $Plan.qualityBinding)){throw 'QUALITY_BINDING_DRIFT'}
-    $repo=if($Package.schemaVersion-in@(2,4)){$Package.repositoryId}else{'REPO_LOCAL'}
+    $repo=if($Package.schemaVersion-in@(2,4,5)){$Package.repositoryId}else{'REPO_LOCAL'}
     if(-not$Management-and$Plan.qualityBinding.subject.repositoryId-cne$repo){throw 'QUALITY_SUBJECT_REPOSITORY_DRIFT'}
     if(-not$Management){
         foreach($path in $Package.exactPaths){if($path-cnotin$Plan.qualityBinding.subject.exactPaths){throw 'QUALITY_SCOPE_OUTSIDE_SUBJECT'}}
@@ -1348,7 +1715,7 @@ function Get-AiwPackageQuality($Context,$Package,$Plan=$null,[switch]$Management
 }
 function Test-AiwQualityManagementPackage($Package,[string]$TaskPath){
     if($Package.schemaVersion-notin@(1,2)-or($Package.schemaVersion-eq2-and$Package.repositoryId-cne'CONTROL')-or$Package.actions.Count-ne1-or$Package.actions[0]-cne'CONTROL_WRITE'){return $false}
-    foreach($field in @('continuationPlan','repairReviewPlan','repairReviewBinding','acceptanceBinding','externalBinding','gitPushBinding')){if($null-ne$Package.PSObject.Properties[$field]){return $false}}
+    foreach($field in @('continuationPlan','repairReviewPlan','repairReviewBinding','acceptanceBinding','externalBinding','gitPushBinding','acceptedOutcomeBinding')){if($null-ne$Package.PSObject.Properties[$field]){return $false}}
     if($Package.exactPaths.Count-eq1-and$Package.exactPaths[0]-ceq$TaskPath){return $true}
     if($TaskPath-cmatch'^\.ai-workspace/tasks/active/(?<name>[^/]+)\.md$'-and$Package.exactPaths.Count-eq2-and$TaskPath-cin$Package.exactPaths-and('.ai-workspace/tasks/archive/'+$Matches.name+'.md')-cin$Package.exactPaths){return $true}
     # This is the original bounded source-maintenance carrier set. Original
@@ -1369,29 +1736,33 @@ function Test-AiwPackageReviewRequired($Package,[switch]$ExplicitRequirement){
 function Assert-AiwProductionFinalize($Context,$Pair,$Package,$Candidates,[string]$Writer){
     Assert-EvFields $Pair @('inputRef','resultRef');Assert-EvRef $Pair.inputRef;Assert-EvRef $Pair.resultRef
     $input=Read-EvRef $Context $Pair.inputRef -Json;$result=Read-EvRef $Context $Pair.resultRef -Json
-    if($input.schemaVersion-ne3-or$input.mode-cne'FINALIZE_OUTPUT'-or$result.mode-cne'FINALIZE_OUTPUT'-or$result.status-cne'PASS'-or@($result.missingPreparation).Count-or@($result.missingResult).Count){throw 'QUALITY_PRODUCTION_FINALIZE_REQUIRED'}
-    $source=Read-EvRef $Context ([pscustomobject]@{path=$input.discoverReceiptPath;identity=$input.expectedDiscoverReceiptIdentity}) -Json
-    if($source.schemaVersion-notin@(3,4)-or$source.mode-cne'DISCOVER'-or$source.status-cne'PASS'-or$source.receiptType-cne'PROCESS_REQUIREMENTS_DISCOVER'){throw 'QUALITY_PRODUCTION_DISCOVER_REQUIRED'}
+    if($input.schemaVersion-notin@(3,4)-or$input.mode-cne'FINALIZE_OUTPUT'-or$result.mode-cne'FINALIZE_OUTPUT'-or$result.status-cne'PASS'-or@($result.missingPreparation).Count-or@($result.missingResult).Count){throw 'QUALITY_PRODUCTION_FINALIZE_REQUIRED'}
+    $source=Read-EvProcessOperation $Context $input $result
+    if($source.schemaVersion-notin@(3,4,5)-or$source.status-cne'PASS'-or($source.schemaVersion-ne5-and($source.mode-cne'DISCOVER'-or$source.receiptType-cne'PROCESS_REQUIREMENTS_DISCOVER'))){throw 'QUALITY_PRODUCTION_DISCOVER_REQUIRED'}
     $a=$source.binding;$action=$source.intentEnvelope.requestedActionKind
     $producer=Read-EvRef $Context ([pscustomobject]@{path=$source.sourceLocators.authorizationPackagePath;identity=$a.authorizationIdentity}) -Json
-    if($action-cnotin@('SOURCE_WRITE','TEST_WRITE','CONTROL_WRITE','TEST_RUN')-or$action-cnotin$producer.actions-or$action-cnotin$a.authorizedActions-or$producer.grantee-cne$Writer-or$a.actor-cne$Writer-or$producer.taskId-cne$Package.taskId-or$a.taskId-cne$Package.taskId-or$producer.owner-cne$Package.owner-or$a.taskOwner-cne$Package.owner-or$a.taskIdentity-cne$producer.taskIdentity-or$a.projectConfigIdentity-cne$producer.projectConfigIdentity-or$a.userDecision-cne$producer.userConfirmation){throw 'QUALITY_PRODUCTION_AUTHORITY_DRIFT'}
+    Assert-EvReviewProducerRelation $Context $Package $producer ([pscustomobject]@{path=$source.sourceLocators.authorizationPackagePath;identity=$a.authorizationIdentity})
+    if($action-cnotin@('SOURCE_WRITE','TEST_WRITE','CONTROL_WRITE','TEST_RUN')-or$action-cnotin$producer.actions-or$action-cnotin$a.authorizedActions-or$producer.grantee-cne$Writer-or$a.actor-cne$Writer-or$(if($producer.schemaVersion-eq5){-not(Test-AiwSameResultContext $a $producer)}else{$a.taskId-cne$producer.taskId-or$producer.owner-cne$Package.owner-or$a.taskOwner-cne$producer.owner-or$a.taskIdentity-cne$producer.taskIdentity})-or$a.projectConfigIdentity-cne$producer.projectConfigIdentity-or$a.userDecision-cne$producer.userConfirmation){throw 'QUALITY_PRODUCTION_AUTHORITY_DRIFT'}
     if($producer.issuerRole-ceq'TASK_OWNER'-and$producer.issuer-cne$producer.owner){throw 'QUALITY_PRODUCTION_AUTHORITY_DRIFT'}
     if($producer.issuerRole-ceq'PROJECT_CONTROLLER'-and($producer.issuer-cne$producer.issuerControllerId-or$a.controllerIdentity-cne$producer.controllerControlIdentity-or$producer.issuerControllerEpoch-lt1)){throw 'QUALITY_PRODUCTION_AUTHORITY_DRIFT'}
     if($producer.issuerRole-cnotin@('TASK_OWNER','PROJECT_CONTROLLER')){throw 'QUALITY_PRODUCTION_AUTHORITY_DRIFT'}
     if($result.actionOutcome-cne$(if($action-ceq'TEST_RUN'){'PASS'}else{'OBSERVED'})){throw 'QUALITY_PRODUCTION_NOT_SUCCESSFUL'}
     Import-Module (Join-Path $PSScriptRoot 'ProcessRequirementComposition.psm1')
-    if($result.decisionIdentity-cne(Get-AiwProcessDecisionIdentity $source $input)-or$result.selectionIdentity-cne$source.selectionIdentity){throw 'QUALITY_PRODUCTION_FINALIZE_DRIFT'}
+    Assert-EvOriginalFinalizeDecision $source $input $result -Failure QUALITY_PRODUCTION_FINALIZE_DRIFT
     if(-not([IO.Path]::GetFullPath($a.projectRoot)).Equals($Context.ProjectRoot,[StringComparison]::OrdinalIgnoreCase)){throw 'QUALITY_PRODUCTION_ROOT_DRIFT'}
     $guard=New-AiwPackageEvidenceContext $Context.ProjectRoot $producer $source.sourceLocators.frameworkRoot (@($Context.ForbiddenPaths)+@($a.forbiddenScope)) -TaskPath $source.sourceLocators.taskRelativePath -ProtectedPaths (@($Context.CandidateProtectedPaths)+@($a.protectedScope))
     Share-EvReadState $guard $Context
     if(-not$guard.RepositoryRoot.Equals($Context.RepositoryRoot,[StringComparison]::OrdinalIgnoreCase)){throw 'QUALITY_PRODUCTION_REPOSITORY_DRIFT'}
     $scope=@(Get-AiwActionScopeObjects $producer $action $guard)
     if((@($scope.path|Sort-Object)-join'|')-cne(@($a.exactScope|Sort-Object)-join'|')){throw 'QUALITY_PRODUCTION_SCOPE_DRIFT'}
-    $post=@(Get-AiwPackageCandidateReferences ([pscustomobject]@{objectIdentities=@(Get-AiwFinalizedObjectPostimages $input @($a.exactScope))}))
+    # Scope composition retains its original NEW sentinel. Normalize to the
+    # evidence MISSING state only after the strict production composition.
+    $productionPostimages=@(Get-AiwFinalizedObjectPostimages $input @($a.exactScope))
+    $post=@(Get-AiwPackageCandidateReferences ([pscustomobject]@{objectIdentities=$productionPostimages}))
     if($null-ne$producer.PSObject.Properties['qualityBinding']){
         Assert-AiwQualityBinding $producer.qualityBinding
         if($producer.qualityBinding.policyRef.identity-cne$source.sourceBindings.policyIdentity){throw 'QUALITY_HISTORICAL_POLICY_UNBOUND'}
-        $producerRepository=if($producer.schemaVersion-in@(2,4)){$producer.repositoryId}else{'REPO_LOCAL'}
+        $producerRepository=if($producer.schemaVersion-in@(2,4,5)){$producer.repositoryId}else{'REPO_LOCAL'}
         if($producer.qualityBinding.subject.repositoryId-cne$producerRepository){throw 'QUALITY_HISTORICAL_SUBJECT_DRIFT'}
         $declared=@($producer.qualityBinding.subject.exactPaths|Sort-Object -CaseSensitive)
         if(($declared-join'|')-cne(@($Candidates.path|Sort-Object -CaseSensitive)-join'|')){throw 'QUALITY_SUBJECT_INCOMPLETE'}
@@ -1401,8 +1772,14 @@ function Assert-AiwProductionFinalize($Context,$Pair,$Package,$Candidates,[strin
         # Existing explicit M/A plans retain their stronger unchanged-member
         # bindings. No write authority is inferred for those other members.
         $parent=Get-EvReviewParent $guard $producer
-        $complete=@(if($null-ne$parent.PSObject.Properties['repairReviewPlan']){Get-AiwComposedReviewCandidate $guard $producer $post}else{$Candidates})
-    }else{$complete=@(Get-AiwComposedReviewCandidate $guard $producer $post)}
+        $complete=@(if($null-ne$parent.PSObject.Properties['repairReviewPlan']){Get-AiwPackageCandidateReferences ([pscustomobject]@{objectIdentities=@(Get-AiwComposedReviewCandidate $guard $producer $productionPostimages)})}else{$Candidates})
+    }else{$complete=@(Get-AiwPackageCandidateReferences ([pscustomobject]@{objectIdentities=@(Get-AiwComposedReviewCandidate $guard $producer $productionPostimages)}))}
+    $acceptedOutcome=$null
+    if($null-ne$producer.PSObject.Properties['acceptedOutcomeBinding']){
+        # Only after original source/package/decision/root/scope and frozen
+        # quality-policy linkage are bound; today's policy is not substituted.
+        $acceptedOutcome=Get-EvOrdinaryAcceptedOutcome $guard $producer FINALIZE -Historical
+    }
     Assert-EvSameCandidates $complete $Candidates $guard
     foreach($ref in $Candidates){$null=Read-EvRef $guard $ref -Candidate}
     $typedPrep=@();$typedResult=@()
@@ -1410,11 +1787,27 @@ function Assert-AiwProductionFinalize($Context,$Pair,$Package,$Candidates,[strin
             $raw=Read-EvRef $guard ([pscustomobject]@{path=$ref.path;identity=$ref.identity}) -Json
             $purpose=if($ref.kind-ceq'SELF_CHECK'){'HISTORICAL_SUCCESS'}else{'CURRENT_CANDIDATE'}
             $history=if($purpose-ceq'HISTORICAL_SUCCESS'){@($Pair)}else{@()}
-            $null=Read-AiwResultEvidence $guard $ref $producer.taskId $raw.candidateObjects $raw.requirementsRef -RequireSuccess -ExpectedActor $(if($ref.kind-ceq'SELF_CHECK'){$Writer}else{''}) -EvidencePurpose $purpose -OriginalFinalize $history
+            $null=Read-AiwResultEvidence $guard $ref (Get-EvExpectedResultContext $producer) $raw.candidateObjects $raw.requirementsRef -RequireSuccess -ExpectedActor $(if($ref.kind-ceq'SELF_CHECK'){$Writer}else{''}) -EvidencePurpose $purpose -OriginalFinalize $history
             switch($ref.kind){SELF_CHECK{$typedPrep+='SELF_CHECK_BOUND'};REVIEW_VERDICT{$typedResult+='REVIEW_VERDICT_BOUND'};RESULT_ACCEPTANCE{$typedResult+='RESULT_ACCEPT_RECORDED'}}
     }
-    $providedPreparation=@($input.preparationReceipts)+$typedPrep
-    $providedResult=@($input.resultReceipts)+$typedResult
+    if($null-ne$acceptedOutcome){
+        if('SELF_CHECK'-cin$acceptedOutcome.coveredKinds){$typedPrep+='SELF_CHECK_BOUND'}
+        if('REVIEW_VERDICT'-cin$acceptedOutcome.coveredKinds){$typedResult+='REVIEW_VERDICT_BOUND'}
+        if('RESULT_ACCEPTANCE'-cin$acceptedOutcome.coveredKinds){$typedResult+='RESULT_ACCEPT_RECORDED'}
+    }
+    $providedPreparation=@($input.preparationReceipts|Where-Object{$_-cne'SELF_CHECK_BOUND'})+$typedPrep
+    $providedResult=@($input.resultReceipts|Where-Object{$_-cnotin@('REVIEW_VERDICT_BOUND','RESULT_ACCEPT_RECORDED','DELIVERY_RECEIPT')})+$typedResult
+    if($null-ne$input.PSObject.Properties['deliveryContext']){
+        Import-Module (Join-Path $PSScriptRoot 'WorkflowDelivery.psm1')
+        $observation=Get-AiwDeliveryObservation $input.deliveryContext
+        if($null-eq$result.PSObject.Properties['delivery']-or($result.delivery|ConvertTo-Json -Compress)-cne($observation|ConvertTo-Json -Compress)){throw 'QUALITY_PRODUCTION_DELIVERY_DRIFT'}
+        if($input.deliveryContext.channel-ceq'TASK_MESSAGE'){
+            if(-not$observation.delivered-or$input.deliveryContext.evidence-cnotmatch'^(.+)#(\d+\|[A-F0-9]{64})$'){throw 'QUALITY_PRODUCTION_DELIVERY_UNPROVEN'}
+            $hostResult=Read-EvRef $guard ([pscustomobject]@{path=$Matches[1];identity=$Matches[2]}) -Json
+            if((Get-AiwCodexSendOutcome $hostResult $input.deliveryContext.expectedRecipient).outcome-cne'SUCCESS'){throw 'QUALITY_PRODUCTION_DELIVERY_UNPROVEN'}
+        }
+        $providedResult+='DELIVERY_RECEIPT'
+    }elseif(@($input.deliveryReceipts).Count){$providedResult+='DELIVERY_RECEIPT'}
     foreach($obligation in $source.selectedObligations){
         if(@($obligation.preparationRequirements|Where-Object{$_-cnotin$providedPreparation}).Count-or@($obligation.resultRequirements|Where-Object{$_-cnotin$providedResult}).Count){throw 'QUALITY_PRODUCTION_FINALIZE_INCOMPLETE'}
     }
@@ -1428,7 +1821,7 @@ function Assert-AiwProductionFinalize($Context,$Pair,$Package,$Candidates,[strin
         }
     }
     Add-EvValidatedProducer $guard $Pair $source $input $result
-    [pscustomobject]@{writer=$Writer;source=$source;package=$producer;postimages=$complete;input=$input;result=$result}
+    [pscustomobject]@{writer=$Writer;source=$source;package=$producer;postimages=$complete;modifiedObjects=$post;acceptedOutcome=$acceptedOutcome;input=$input;result=$result}
 }
 Export-ModuleMember -Function Get-AiwPackageQuality,Test-AiwQualityManagementPackage,Test-AiwPackageReviewRequired,Assert-AiwProductionFinalize
 
@@ -1447,3 +1840,991 @@ function Get-AiwCurrentCandidateReferences($Context,[string[]]$Paths){
     }
 }
 Export-ModuleMember -Function Get-AiwCurrentCandidateReferences
+
+# Invocation-owned parsing reuse. Callers provide original references, never
+# a verified graph. Every use observes the necessary original bytes again.
+$script:CompletedEvidenceObservations=$null
+function Invoke-EvCompletedEvidenceScope([scriptblock]$Body,[object[]]$Arguments=@()){
+    $previous=$script:CompletedEvidenceObservations
+    if($null-eq$previous){$script:CompletedEvidenceObservations=@{}}
+    try{& $Body @Arguments}finally{$script:CompletedEvidenceObservations=$previous}
+}
+function Add-EvReadObservation($Context,$Reference,[bool]$Candidate=$false){
+    $state=Get-EvReadState $Context
+    if(-not$state.captureObservations){return}
+    $guard=$Context|Select-Object ProjectRoot,RepositoryRoot,Roots,ForbiddenPaths,CandidateProtectedPaths,ExecutionContext
+    $key=(@($Reference.path,$Reference.identity,$Candidate,$guard)|ConvertTo-Json -Depth 40 -Compress)
+    if(-not$state.observations.ContainsKey($key)){
+        $state.observations.Add($key,[pscustomobject]@{guard=$guard;reference=$Reference;candidate=$Candidate})
+    }
+}
+function Assert-EvAcceptedOutcomeBinding($Binding){
+    Assert-EvFields $Binding @('schemaVersion','useRef','additionalEvidence','additionalConsumption')
+    Assert-EvInteger $Binding.schemaVersion
+    if($Binding.schemaVersion-ne1){throw 'ACCEPTED_USE_BINDING_SCHEMA'}
+    Assert-EvRef $Binding.useRef
+    Assert-EvRefs $Binding.additionalEvidence -Typed
+    $consumption=Get-EvConsumption $Binding additionalConsumption
+    if($Binding.additionalEvidence.Count){
+        if($consumption.purpose-cne'HISTORICAL_SUCCESS'){throw 'ACCEPTED_USE_ADDITIONAL_NOT_COMPLETE'}
+    }elseif($consumption.purpose-cne'CURRENT_CANDIDATE'-or$consumption.originalFinalize.Count){
+        throw 'ACCEPTED_USE_EMPTY_ADDITIONAL_CONSUMPTION'
+    }
+}
+function Assert-EvUniqueEvidencePaths($Context,$References){
+    $paths=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach($reference in $References){
+        if(-not$paths.Add((Get-EvLogicalPath $Context $reference.path))){throw 'EVIDENCE_DUPLICATE_REF'}
+    }
+}
+function Read-EvAcceptedUse($Context,$Reference,$ReadDocuments=$null){
+    $use=Read-EvRef -ReadDocuments $ReadDocuments $Context $Reference -Json
+    Assert-EvFields $use @('schemaVersion','kind','requirementsRef','assuranceEvidence','assuranceConsumption','basisRefs','mappings')
+    Assert-EvInteger $use.schemaVersion
+    if($use.schemaVersion-ne1-or$use.kind-cne'ACCEPTED_OUTCOME_USE'){throw 'ACCEPTED_USE_SCHEMA'}
+    Assert-EvRef $use.requirementsRef -Section
+    Assert-EvRefs $use.assuranceEvidence -Typed -Nonempty
+    Assert-EvUniqueEvidencePaths $Context $use.assuranceEvidence
+    if(@($use.assuranceEvidence|Where-Object kind -CEQ RESULT_ACCEPTANCE).Count-ne1){throw 'ACCEPTED_USE_UNIQUE_ACCEPTANCE_REQUIRED'}
+    $consumption=Get-EvConsumption $use assuranceConsumption
+    if($consumption.purpose-cne'HISTORICAL_SUCCESS'){throw 'ACCEPTED_USE_ORIGINAL_SUCCESS_REQUIRED'}
+    Assert-EvArray $use.basisRefs
+    if($use.basisRefs.Count-eq0){throw 'EVIDENCE_REFS_EMPTY'}
+    $basisPaths=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach($basis in $use.basisRefs){
+        Assert-EvRef $basis -Section
+        if(-not$basisPaths.Add($basis.path)){throw 'EVIDENCE_DUPLICATE_REF'}
+    }
+    Assert-EvArray $use.mappings
+    if($use.mappings.Count-eq0){throw 'ACCEPTED_USE_MAPPING_EMPTY'}
+    $targets=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    $sources=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach($mapping in $use.mappings){
+        $fields=@('operation','sourcePath','targetPath','basisIndexes')
+        if($null-ne$mapping.PSObject.Properties['operation']-and$mapping.operation-ceq'WRITE'){$fields+='preparedRef'}
+        Assert-EvFields $mapping $fields
+        if($mapping.operation-cnotin@('WRITE','DELETE')){throw 'ACCEPTED_USE_MAPPING_OPERATION'}
+        foreach($name in @('sourcePath','targetPath')){
+            Assert-EvString $mapping.$name
+            if($name-ceq'targetPath'-and([IO.Path]::IsPathRooted($mapping.$name)-or$mapping.$name.Contains('\'))){throw 'ACCEPTED_USE_MAPPING_RELATIVE_PATH'}
+        }
+        $target=Get-EvLogicalPath $Context $mapping.targetPath -Candidate
+        if(-not$targets.Add($target)-or-not$sources.Add($mapping.sourcePath)){throw 'ACCEPTED_USE_MAPPING_DUPLICATE'}
+        if($mapping.operation-ceq'WRITE'){Assert-EvRef $mapping.preparedRef}
+        Assert-EvArray $mapping.basisIndexes
+        if($mapping.basisIndexes.Count-eq0){throw 'ACCEPTED_USE_MAPPING_BASIS'}
+        $indexes=[Collections.Generic.HashSet[int]]::new()
+        foreach($index in $mapping.basisIndexes){
+            Assert-EvInteger $index
+            if($index-lt0-or$index-ge$use.basisRefs.Count-or-not$indexes.Add([int]$index)){throw 'ACCEPTED_USE_MAPPING_BASIS'}
+        }
+    }
+    return $use
+}
+
+
+function Get-EvAcceptedGraph($Context,$Use,$UseRef,$ReadDocuments=$null){
+    $roots=@($Context.Roots|ForEach-Object{[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($_)).ToUpperInvariant()}|Sort-Object -Unique)
+    $forbidden=@(Get-EvAbsoluteRestrictions @($Context.ForbiddenPaths) $Context.Roots|ForEach-Object{$_.ToUpperInvariant()}|Sort-Object -Unique)
+    $protected=@(Get-EvAbsoluteRestrictions @($Context.CandidateProtectedPaths) $Context.Roots|ForEach-Object{$_.ToUpperInvariant()}|Sort-Object -Unique)
+    $execution=if($null-ne$Context.PSObject.Properties['ExecutionContext']){$Context.ExecutionContext}else{$null}
+    $key=(@($Context.ProjectRoot.ToUpperInvariant(),$Context.RepositoryRoot.ToUpperInvariant(),(Get-EvLogicalPath $Context $UseRef.path).ToUpperInvariant(),$UseRef.identity,$roots,$forbidden,$protected,$execution)|ConvertTo-Json -Depth 20 -Compress)
+    if($null-ne$script:CompletedEvidenceObservations-and$script:CompletedEvidenceObservations.ContainsKey($key)){
+        $saved=$script:CompletedEvidenceObservations[$key]
+        foreach($observation in $saved.observations){
+            # Guards are those of the actual original read, including original
+            # producer restrictions. The key independently binds today's guard.
+            $guard=$observation.guard|Select-Object *
+            $guard|Add-Member Reading $Context.Reading
+            Share-EvReadState $guard $Context
+            $null=Read-EvRef -ReadDocuments $ReadDocuments $guard $observation.reference -Candidate:$observation.candidate
+        }
+        foreach($producer in $saved.producers){Add-EvValidatedProducer $Context $producer.pair $producer.source $producer.input $producer.result}
+        foreach($guard in $saved.guards){(Get-EvReadState $Context).guards.Add($guard)}
+        return $saved
+    }
+    $graphContext=$Context|Select-Object * -ExcludeProperty RetentionReadState
+    (Get-EvReadState $graphContext).captureObservations=$true
+    $graph=New-EvCompletionGraph $ReadDocuments
+    $consumption=Get-EvConsumption $Use assuranceConsumption
+    Add-EvCompletionFinalizes $graphContext $graph $consumption.originalFinalize
+    $anchor=@($Use.assuranceEvidence|Where-Object kind -CEQ RESULT_ACCEPTANCE)[0]
+    $anchorRecord=Read-EvRef -ReadDocuments $ReadDocuments $graphContext ([pscustomobject]@{path=$anchor.path;identity=$anchor.identity}) -Json
+    foreach($reference in $Use.assuranceEvidence){
+        $record=if(Test-EvSameRef $reference $anchor $graphContext){$anchorRecord}else{Read-EvRef -ReadDocuments $ReadDocuments $graphContext ([pscustomobject]@{path=$reference.path;identity=$reference.identity}) -Json}
+        if($record.taskId-cne$anchorRecord.taskId){throw 'ACCEPTED_USE_ORIGINAL_TASK_DRIFT'}
+        Add-EvCompletionNode $graphContext $graph $reference $record.taskId $record.candidateObjects $record.requirementsRef -ObservedRecord $record
+    }
+    Complete-EvCompletionGraph $graphContext $graph
+    $graph.readDocuments=$null
+    (Get-EvReadState $graphContext).captureObservations=$false
+    $anchorNode=$graph.nodes[(Get-EvTypedKey $graphContext $anchor)]
+    if(-not$anchorNode.context.RepositoryRoot.Equals($Context.RepositoryRoot,[StringComparison]::OrdinalIgnoreCase)){
+        throw 'ACCEPTED_USE_SAME_REPOSITORY_REQUIRED'
+    }
+    foreach($node in $graph.nodes.Values){
+        if($null-ne$node.context.PSObject.Properties['ExecutionContext']-and$null-ne$node.context.ExecutionContext-and$node.context.ExecutionContext.targetKind-cne'SAME_ROOT'){
+            throw 'ACCEPTED_USE_SAME_ROOT_REQUIRED'
+        }
+    }
+    $index=New-EvCandidateIndex (New-EvLogicalContext $anchorNode.context) $anchorNode.record.candidateObjects
+    $trace=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach($node in $graph.nodes.Values){
+        $null=$trace.Add((Get-EvLogicalPath $node.context $node.reference.path)+'|'+$node.reference.identity)
+        $null=$trace.Add((Get-EvLogicalPath $node.context $node.record.requirementsRef.path)+'|'+$node.record.requirementsRef.identity)
+        foreach($candidate in $node.record.candidateObjects){
+            $null=$trace.Add((Get-EvLogicalPath $node.context $candidate.path -Candidate)+'|'+$candidate.identity)
+        }
+    }
+    $state=Get-EvReadState $graphContext
+    foreach($reference in $state.references.Values){$null=$trace.Add($reference.path+'|'+$reference.identity)}
+    $observations=@($state.observations.Values)
+    $saved=[pscustomobject]@{graph=$graph;anchor=$anchorNode;index=$index;trace=$trace;observations=$observations;producers=@($state.producers.Values);guards=$state.guards.ToArray()}
+    if($null-ne$script:CompletedEvidenceObservations){$script:CompletedEvidenceObservations[$key]=$saved}
+    foreach($observation in $observations){
+        $targetState=Get-EvReadState $Context
+        $targetState.references[$observation.reference.path+'|'+$observation.reference.identity]=$observation.reference
+    }
+    foreach($producer in $saved.producers){Add-EvValidatedProducer $Context $producer.pair $producer.source $producer.input $producer.result}
+    foreach($guard in $saved.guards){(Get-EvReadState $Context).guards.Add($guard)}
+    return $saved
+}
+function Get-EvAcceptedOutcomeCore($Context,$Binding,$Objects,[string[]]$RequiredKinds=@(),[string]$TaskId='',$RequirementsRef=$null,$CoverageObjects=@()){
+    $readDocuments=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::OrdinalIgnoreCase)
+    try{
+    Assert-EvAcceptedOutcomeBinding $Binding
+    Assert-EvUniqueEvidencePaths $Context $Binding.additionalEvidence
+    $use=Read-EvAcceptedUse $Context $Binding.useRef $readDocuments
+    return Get-EvAcceptedOutcomeFromUse $Context $Binding $Objects $RequiredKinds $TaskId $RequirementsRef $CoverageObjects $use $readDocuments
+    }finally{$readDocuments.Clear()}
+}
+
+# Only the strict readers above and the publication module's same-stack U
+# reader enter here. This private continuation is not exported and accepts
+# neither a PASS nor a graph; current requirements/objects and all originals
+# still pass through the ordinary consumers below.
+function Get-EvAcceptedOutcomeFromUse($Context,$Binding,$Objects,[string[]]$RequiredKinds,[string]$TaskId,$RequirementsRef,$CoverageObjects,$use,$ReadDocuments=$null){
+    $null=Read-EvRef -ReadDocuments $ReadDocuments $Context $use.requirementsRef -Section
+    if($null-ne$RequirementsRef-and-not(Test-EvSameRef $RequirementsRef $use.requirementsRef $Context)){throw 'ACCEPTED_USE_CURRENT_REQUIREMENTS_DRIFT'}
+    $original=Get-EvAcceptedGraph $Context $use $Binding.useRef $ReadDocuments
+    if($TaskId-and$original.anchor.record.taskId-ceq$TaskId){throw 'ACCEPTED_USE_DISTINCT_TASK_REQUIRED'}
+    $sourceContext=$original.anchor.context
+    $basisPaths=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach($basis in $use.basisRefs){
+        $path=Get-EvLogicalPath $sourceContext $basis.path -Observation
+        $candidatePath=Get-EvLogicalPath $sourceContext $basis.path -Candidate
+        $candidate=$original.index.ContainsKey($candidatePath)-and$original.index[$candidatePath].identity-ceq$basis.identity
+        if(-not$candidate-and-not$original.trace.Contains($path+'|'+$basis.identity)){throw ('ACCEPTED_USE_ORIGINAL_BASIS_UNBOUND|'+$basis.path)}
+        $basisPath=if($candidate){$candidatePath}else{$path}
+        if(-not$basisPaths.Add($basisPath)){throw 'EVIDENCE_DUPLICATE_REF'}
+        $null=Read-EvRef -ReadDocuments $ReadDocuments $sourceContext $basis -Candidate:$candidate -Section
+    }
+    $maps=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach($mapping in $use.mappings){
+        $source=Get-EvLogicalPath $sourceContext $mapping.sourcePath -Candidate
+        if(-not$original.index.ContainsKey($source)){throw ('ACCEPTED_USE_SOURCE_NOT_IN_Q|'+$mapping.sourcePath)}
+        if($mapping.sourcePath-cne$original.index[$source].path){throw 'ACCEPTED_USE_SOURCE_KEY_DRIFT'}
+        $expected=if($mapping.operation-ceq'DELETE'){'MISSING'}else{$mapping.preparedRef.identity}
+        if($original.index[$source].identity-cne$expected){throw ('ACCEPTED_USE_FROZEN_BYTES_DRIFT|'+$mapping.sourcePath)}
+        $maps.Add((Get-EvLogicalPath $Context $mapping.targetPath -Candidate),[pscustomobject]@{mapping=$mapping;source=$original.index[$source]})
+    }
+    $additional=$null
+    if($Binding.additionalEvidence.Count){
+        $additional=New-EvCompletionGraph $ReadDocuments
+        $consumption=Get-EvConsumption $Binding additionalConsumption
+        Add-EvCompletionFinalizes $Context $additional $consumption.originalFinalize
+        foreach($ref in $Binding.additionalEvidence){
+            $record=Read-EvRef -ReadDocuments $ReadDocuments $Context ([pscustomobject]@{path=$ref.path;identity=$ref.identity}) -Json
+            if($record.taskId-cne$TaskId-or-not(Test-EvSameRef $record.requirementsRef $use.requirementsRef $Context)){
+                throw 'ACCEPTED_USE_ADDITIONAL_PURPOSE_DRIFT'
+            }
+            $members=New-EvCandidateIndex (New-EvLogicalContext $Context) $record.candidateObjects
+            $usePath=Get-EvLogicalPath $Context $Binding.useRef.path
+            if(-not$members.ContainsKey($usePath)-or$members[$usePath].identity-cne$Binding.useRef.identity){throw 'ACCEPTED_USE_ADDITIONAL_U_UNBOUND'}
+            $prepared=@($use.mappings|Where-Object operation -CEQ WRITE|Where-Object{
+                $p=Get-EvLogicalPath $Context $_.preparedRef.path
+                $members.ContainsKey($p)-and$members[$p].identity-ceq$_.preparedRef.identity
+            })
+            if($prepared.Count-eq0){throw 'ACCEPTED_USE_ADDITIONAL_PREPARED_UNBOUND'}
+            Add-EvCompletionNode $Context $additional $ref $record.taskId $record.candidateObjects $record.requirementsRef
+        }
+        Complete-EvCompletionGraph $Context $additional
+        $additional.readDocuments=$null
+    }
+    $guaranteed=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $additionalIndexes=[Collections.Generic.List[object]]::new()
+    foreach($node in $original.graph.nodes.Values){
+        if(-not$node.context.RepositoryRoot.Equals($sourceContext.RepositoryRoot,[StringComparison]::OrdinalIgnoreCase)-or-not(Test-EvSameCandidates $node.record.candidateObjects $original.anchor.record.candidateObjects $sourceContext)){continue}
+        if($node.reference.kind-ceq'REVIEW_VERDICT'){
+            $producer=Read-EvRef -ReadDocuments $ReadDocuments $node.context $node.record.authorizationRef -Json
+            try{Assert-EvReviewIndependence $producer $node.record -Required}catch{if($_.Exception.Message-ceq'EVIDENCE_REVIEW_INDEPENDENCE'){continue};throw}
+        }
+        $null=$guaranteed.Add($node.reference.kind)
+    }
+    if($null-ne$additional){foreach($node in $additional.nodes.Values){
+        if($node.record.taskId-cne$TaskId-or-not(Test-EvSameRef $node.record.requirementsRef $use.requirementsRef $Context)){continue}
+        if($node.reference.kind-ceq'REVIEW_VERDICT'){
+            $producer=Read-EvRef -ReadDocuments $ReadDocuments $node.context $node.record.authorizationRef -Json
+            try{Assert-EvReviewIndependence $producer $node.record -Required}catch{if($_.Exception.Message-ceq'EVIDENCE_REVIEW_INDEPENDENCE'){continue};throw}
+        }
+        $members=New-EvCandidateIndex (New-EvLogicalContext $node.context) $node.record.candidateObjects
+        $usePath=Get-EvLogicalPath $Context $Binding.useRef.path
+        if($members.ContainsKey($usePath)-and$members[$usePath].identity-ceq$Binding.useRef.identity){
+            $additionalIndexes.Add([pscustomobject]@{kind=$node.reference.kind;members=$members})
+        }
+    }}
+    $selected=[Collections.Generic.List[object]]::new()
+    $covered=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach($kind in @('SELF_CHECK','REVIEW_VERDICT','RESULT_ACCEPTANCE')){$null=$covered.Add($kind)}
+    $currentTargets=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    $coverage=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach($object in $Objects){$null=$currentTargets.Add((Get-EvLogicalPath $Context $object.path -Candidate))}
+    # The actual consumer derives this logical assurance subject from current
+    # quality selection. It does not expand this action's physical write/read A.
+    foreach($object in @($Objects)+@($CoverageObjects)){
+        Assert-EvRef $object -Candidate
+        $path=Get-EvLogicalPath $Context $object.path -Candidate
+        if($coverage.ContainsKey($path)){if($coverage[$path].identity-cne$object.identity){throw 'ACCEPTED_USE_TARGET_POSTIMAGE_DRIFT'}}
+        else{$coverage.Add($path,$object)}
+    }
+    foreach($object in $coverage.Values){
+        Assert-EvRef $object -Candidate
+        $target=Get-EvLogicalPath $Context $object.path -Candidate
+        if(-not$maps.ContainsKey($target)){throw ('ACCEPTED_USE_TARGET_UNMAPPED|'+$object.path)}
+        $entry=$maps[$target];$mapping=$entry.mapping;$source=$entry.source
+        $expected=if($mapping.operation-ceq'DELETE'){'MISSING'}else{$mapping.preparedRef.identity}
+        if($object.identity-cne$expected){throw ('ACCEPTED_USE_TARGET_POSTIMAGE_DRIFT|'+$object.path)}
+        # Original Q is historical. Only selected prepared bytes are observed;
+        # the old production directory is not a second current-candidate gate.
+        if($currentTargets.Contains($target)-and$mapping.operation-ceq'WRITE'){$null=Read-EvRef -ReadDocuments $ReadDocuments $Context $mapping.preparedRef}
+        foreach($kind in @('SELF_CHECK','REVIEW_VERDICT','RESULT_ACCEPTANCE')){
+            $has=$guaranteed.Contains($kind)
+            if(-not$has-and$mapping.operation-ceq'WRITE'){
+                $p=Get-EvLogicalPath $Context $mapping.preparedRef.path
+                foreach($index in $additionalIndexes){if($index.kind-ceq$kind-and$index.members.ContainsKey($p)-and$index.members[$p].identity-ceq$mapping.preparedRef.identity){$has=$true;break}}
+            }
+            if(-not$has){
+                if($kind-cin$RequiredKinds){throw ('ACCEPTED_USE_REQUIRED_STAGE_UNCOVERED|'+$kind+'|'+$object.path)}
+                $null=$covered.Remove($kind)
+            }
+        }
+        if($currentTargets.Contains($target)){$selected.Add([pscustomobject]@{targetPath=$object.path;identity=$expected;mapping=$mapping;sourceRef=$source})}
+    }
+    $handoff=Get-EvRetentionHandoff $Context
+    [pscustomobject]@{use=$use;binding=$Binding;original=$original;additional=$additional;objects=$selected.ToArray();coveredKinds=@($covered);retentionValues=@($use,$Binding)+@($handoff.references)}
+}
+
+function Assert-EvAcceptedDeleteUnused($Context,$Package,$Objects){
+    $deletes=@($Objects|Where-Object{$_.mapping.operation-ceq'DELETE'})
+    if(-not$deletes.Count){return}
+    if($Package.schemaVersion-ne1-or$Package.actions.Count-ne1-or$Package.actions[0]-cne'SOURCE_WRITE'){
+        throw 'ACCEPTED_USE_DELETE_REPO_LOCAL_SOURCE_ONLY'
+    }
+    Import-Module (Join-Path $PSScriptRoot 'ProcessRequirementComposition.psm1')
+    $configPath=Resolve-EvPath $Context '.ai-workspace/project.json'
+    $config=Read-EvRef $Context ([pscustomobject]@{path=$configPath;identity=$Package.projectConfigIdentity}) -Json
+    $policyPath=Resolve-EvPath $Context '.ai-workspace/process-policy.json'
+    $policyRef=[pscustomobject]@{path=$policyPath;identity=(Get-EvCandidateIdentity $policyPath)}
+    $policy=Read-EvRef $Context $policyRef -Json
+    $denied=@(Get-EvAbsoluteRestrictions (@($Context.ForbiddenPaths)+@($Context.CandidateProtectedPaths)) $Context.Roots)
+    $key='ADOPTED|'+$Context.ProjectRoot+'|'+$Context.RepositoryRoot+'|'+$Package.projectConfigIdentity+'|'+$policyRef.identity+'|'+($denied-join'|')
+    $saved=if($null-ne$script:CompletedEvidenceObservations-and$script:CompletedEvidenceObservations.ContainsKey($key)){$script:CompletedEvidenceObservations[$key]}else{$null}
+    if($null-ne$saved){
+        Assert-AiwProjectPolicySourceClosure $saved.closure
+        # Knowledge indexes are actual adopted references. Reopen them through
+        # their owner so permissions and current index bytes remain fresh.
+    }else{
+        $closure=Get-AiwProjectPolicySourceClosure -ProjectRoot $Context.ProjectRoot -Rules @($policy.rules) -ForbiddenPaths $denied
+        $saved=[pscustomobject]@{closure=$closure}
+        if($null-ne$script:CompletedEvidenceObservations){$script:CompletedEvidenceObservations[$key]=$saved}
+    }
+    $adopted=[Collections.Generic.Dictionary[string,string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach($document in $saved.closure.Documents){$adopted[$document.sourcePath]='PROCESS_POLICY_SOURCE'}
+    if($null-ne$config.frameworkCapabilities.PSObject.Properties['KNOWLEDGE_REFERENCE']-and$config.frameworkCapabilities.KNOWLEDGE_REFERENCE.enabled){
+        $knowledge=@(Import-Module (Join-Path $PSScriptRoot 'KnowledgeSources.psm1') -PassThru)[0]
+        $references=& $knowledge {
+            param($root,$identity,$forbidden)
+            $context=New-KsContext $root $identity $forbidden
+            foreach($source in $context.sources){
+                $opened=Open-KsSource $context $source
+                if($opened.status-cne'CURRENT'){throw ('ACCEPTED_USE_KNOWLEDGE_UNPROVEN|'+$source.id+'|'+$opened.reason)}
+                if($source.root.kind-cnotin@('PROJECT','LOCAL_DIRECTORY')){continue}
+                $base=$source.root.locator
+                [pscustomobject]@{path=[IO.Path]::GetFullPath($source.indexLocator,$base);kind='KNOWLEDGE_INDEX'}
+                foreach($entry in $opened.entries){
+                    if($entry.state-cne'CURRENT'){continue}
+                    [pscustomobject]@{path=[IO.Path]::GetFullPath($entry.locator,$base);kind='KNOWLEDGE_REFERENCE'}
+                    if($null-ne$entry.PSObject.Properties['authorityDependencies']){
+                        foreach($dependency in $entry.authorityDependencies){
+                            [pscustomobject]@{path=[IO.Path]::GetFullPath($dependency.locator,$base);kind='KNOWLEDGE_AUTHORITY_DEPENDENCY'}
+                        }
+                    }
+                }
+            }
+        } $Context.ProjectRoot $Package.projectConfigIdentity $denied
+        foreach($reference in $references){$adopted[$reference.path]=$reference.kind}
+    }
+    foreach($object in $deletes){
+        $path=Get-EvLogicalPath $Context $object.targetPath -Candidate
+        if($adopted.ContainsKey($path)){throw ('ACCEPTED_USE_DELETE_STILL_ADOPTED|'+$object.targetPath+'|'+$adopted[$path])}
+    }
+}
+function Get-EvOrdinaryAcceptedOutcome($Context,$Package,[string]$Stage,$Plan=$null,[switch]$Historical){
+    if($null-eq$Package.PSObject.Properties['acceptedOutcomeBinding']){return $null}
+    if($Package.schemaVersion-notin@(1,2)-or($Package.schemaVersion-eq2-and$Package.repositoryId-cne'CONTROL')-or$Package.actions.Count-ne1-or$Package.actions[0]-cnotin@('SOURCE_WRITE','CONTROL_WRITE')){
+        throw 'ACCEPTED_USE_ORDINARY_SCOPE_UNSUPPORTED'
+    }
+    foreach($field in @('sourcePublicationBinding','continuationPlan','selfCheckRepairLimit','repairReviewPlan','repairReviewBinding','transitionPlan','acceptanceBinding','externalBinding','gitPushBinding','executionTargetRef')){
+        if($null-ne$Package.PSObject.Properties[$field]){throw 'ACCEPTED_USE_MIXED_PACKAGE'}
+    }
+    if($Package.schemaVersion-eq2-and$Package.actions[0]-cne'CONTROL_WRITE'){throw 'ACCEPTED_USE_CONTROL_SOURCE_DENIED'}
+    if($null-ne$Context.PSObject.Properties['ExecutionContext']-and$null-ne$Context.ExecutionContext-and$Context.ExecutionContext.targetKind-cne'SAME_ROOT'){throw 'ACCEPTED_USE_SAME_ROOT_REQUIRED'}
+    if($Stage-cnotin@('DISCOVER','ADMIT','FINALIZE','RESUME')){throw 'ACCEPTED_USE_CONSUMER_STAGE'}
+    $quality=Get-AiwPackageQuality $Context $Package $Plan -Historical:$Historical
+    $kinds=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $null=$kinds.Add('RESULT_ACCEPTANCE')
+    if(Test-AiwPackageReviewRequired $Package){$null=$kinds.Add('REVIEW_VERDICT')}
+    $stageKinds=@{SELF_CHECK='SELF_CHECK';RESULT_REVIEW='REVIEW_VERDICT';RESULT_ACCEPT='RESULT_ACCEPTANCE'}
+    foreach($stageKind in $quality.effectiveStages){$null=$kinds.Add($stageKinds[$stageKind])}
+    $use=Read-EvAcceptedUse $Context $Package.acceptedOutcomeBinding.useRef
+    $paths=if($quality.mode-ceq'EXPLICIT'){@($quality.qualityBinding.subject.exactPaths)}else{@($Package.exactPaths)}
+    $coverageObjects=@(foreach($path in $paths){
+        $mapping=@($use.mappings|Where-Object targetPath -CEQ $path)
+        if($mapping.Count-ne1){throw ('ACCEPTED_USE_TARGET_UNMAPPED|'+$path)}
+        [pscustomobject]@{path=$path;identity=$(if($mapping[0].operation-ceq'DELETE'){'MISSING'}else{$mapping[0].preparedRef.identity})}
+    })
+    $objects=@($coverageObjects|Where-Object{$_.path-cin$Package.exactPaths})
+    if($objects.Count-ne$Package.exactPaths.Count){throw 'ACCEPTED_USE_CURRENT_SCOPE_INCOMPLETE'}
+    $facts=Get-EvAcceptedOutcomeCore $Context $Package.acceptedOutcomeBinding $objects @($kinds) $Package.taskId -CoverageObjects $coverageObjects
+    if($null-ne$Plan){
+        foreach($planStage in @($Plan.stages|Where-Object{$_.kind-cin$quality.effectiveStages})){
+            if(-not(Test-EvSameRef $planStage.requiredBy $use.requirementsRef $Context)){throw 'ACCEPTED_USE_CURRENT_REQUIREMENTS_DRIFT'}
+        }
+    }
+    Assert-EvAcceptedDeleteUnused $Context $Package $facts.objects
+    foreach($object in $facts.objects){
+        # M is independently checked against the original action preimages.
+        # Unchanged A and final current A must already equal the selected image.
+        if($Stage-ceq'FINALIZE'-or$object.targetPath-cnotin$Package.exactPaths){
+            $null=Read-EvRef $Context ([pscustomobject]@{path=$object.targetPath;identity=$object.identity}) -Candidate
+        }elseif($Stage-ceq'RESUME'){
+            $pre=@($Package.objectIdentities|Where-Object path -CEQ $object.targetPath)
+            if($pre.Count-ne1){throw 'ACCEPTED_USE_ORIGINAL_PREIMAGE_UNBOUND'}
+            $live=Get-EvCandidateIdentity (Resolve-EvPath $Context $object.targetPath -Candidate -AllowMissing)
+            $old=if($pre[0].identity-ceq'NEW'){'MISSING'}else{$pre[0].identity}
+            if($live-cne$old-and$live-cne$object.identity){throw ('ACCEPTED_USE_RESUME_THIRD_PARTY_BYTES|'+$object.targetPath)}
+        }
+    }
+    return $facts
+}
+
+function Assert-EvOriginalFinalizeDecision($source,$finalInput,$result,[string]$Failure='EVIDENCE_HISTORICAL_FINALIZE_DECISION'){
+    Import-Module (Join-Path $PSScriptRoot 'ProcessRequirementComposition.psm1')
+    $a=$source.binding
+    $postSource='NO_SOURCE_POSTIMAGE_TRANSITION';$changed=@()
+    if($null-ne$result.PSObject.Properties['sourcePostimageTransition']){
+        $transition=$result.sourcePostimageTransition
+        Assert-EvFields $transition @('status','previousSourceCompositionIdentity','currentSourceCompositionIdentity','changedBindings','selectedPackBytes','selectedRequirementCount')
+        Assert-EvArray $transition.changedBindings
+        if($transition.status-cne'PASS'-or$transition.previousSourceCompositionIdentity-cne$source.sourceCompositionIdentity-or$transition.currentSourceCompositionIdentity-cnotmatch'^[A-F0-9]{64}$'-or$null-ne$result.PSObject.Properties['controlTransitionCompletion']){throw 'EVIDENCE_HISTORICAL_SOURCE_TRANSITION_UNPROVEN'}
+        # Ordinary source postimage transitions record their complete changed
+        # binding set. Task/controller transitions need their separate original
+        # completion chain; they are not silently inferred here.
+        $changed=@($transition.changedBindings)
+        $carriers=@{projectAgentsIdentity='AGENTS.md';projectCustomIdentity='.ai-workspace/BOOTSTRAP.md';correctionsIdentity='.ai-workspace/corrections.json';policyIdentity='.ai-workspace/process-policy.json';projectConfigIdentity='.ai-workspace/project.json'}
+        if($changed.Count-eq0-or@($changed|Select-Object -Unique).Count-ne$changed.Count-or@($changed|Where-Object{$_-cnotin(@($carriers.Keys)+@('projectStandardsIdentity','contentSnapshotIdentity','effectiveSetIdentity'))}).Count){throw 'EVIDENCE_HISTORICAL_SOURCE_TRANSITION_UNPROVEN'}
+        foreach($name in $changed){if($carriers.ContainsKey($name)-and$carriers[$name]-cnotin$a.exactScope){throw 'EVIDENCE_HISTORICAL_SOURCE_TRANSITION_UNPROVEN'}}
+        $postSource=$transition.currentSourceCompositionIdentity
+    }
+    if($result.selectionIdentity-cne$source.selectionIdentity-or$result.decisionIdentity-cne(Get-AiwProcessDecisionIdentity $source $finalInput $postSource $changed)){throw $Failure}
+}
+
+function Get-EvCompletedInstallationStage($Context,$Completion,$Stage,[string]$TaskId,[string]$TaskOwner,[switch]$RequireIndependentReview){
+    $consumption=Get-EvConsumption $Stage evidenceConsumption
+    $proofs=[Collections.Generic.List[object]]::new()
+    $originalRefs=[Collections.Generic.List[object]]::new()
+    $covered=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::OrdinalIgnoreCase)
+    $known=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    $publications=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    $useRef=$null
+    foreach($pair in $consumption.originalFinalize){
+        $key=(Get-EvLogicalPath $Context $pair.inputRef.path)+'|'+$pair.inputRef.identity+'|'+(Get-EvLogicalPath $Context $pair.resultRef.path)+'|'+$pair.resultRef.identity
+        $entry=$Completion.finalizeFacts[$key];$source=$entry.source
+        if($source.schemaVersion-notin@(3,4,5)-or$source.binding.taskId-cne$TaskId-or$source.intentEnvelope.requestedActionKind-cnotin@('SOURCE_WRITE','CONTROL_WRITE')){continue}
+        if($null-eq$entry.package){$entry.package=Read-EvRef $Context ([pscustomobject]@{path=$source.sourceLocators.authorizationPackagePath;identity=$source.binding.authorizationIdentity}) -Json}
+        $package=$entry.package
+        if($null-ne$package.PSObject.Properties['acceptedOutcomeBinding']){
+            if(-not$TaskOwner){throw 'ACCEPTANCE_INSTALLATION_OWNER_REQUIRED'}
+            $use=Read-EvAcceptedUse $Context $package.acceptedOutcomeBinding.useRef
+            $paths=if($null-ne$package.PSObject.Properties['qualityBinding']){@($package.qualityBinding.subject.exactPaths)}else{@($package.exactPaths)}
+            $candidates=@(foreach($path in $paths){
+                $mapping=@($use.mappings|Where-Object targetPath -CEQ $path)
+                if($mapping.Count-ne1){throw ('ACCEPTED_USE_TARGET_UNMAPPED|'+$path)}
+                [pscustomobject]@{path=$path;identity=$(if($mapping[0].operation-ceq'DELETE'){'MISSING'}else{$mapping[0].preparedRef.identity})}
+            })
+            $expected=[pscustomobject]@{schemaVersion=$package.schemaVersion;taskId=$TaskId;owner=$TaskOwner}
+            if($null-eq$entry.installation){$entry.installation=Assert-AiwProductionFinalize $Context $pair $expected $candidates $package.grantee}
+            $proof=$entry.installation
+            $refs=@($pair.inputRef,$pair.resultRef)
+        }elseif($null-ne$package.PSObject.Properties['sourcePublicationBinding']){
+            $planRef=$package.sourcePublicationBinding.planRef
+            $plan=Read-EvRef $Context $planRef -Json
+            if($plan.schemaVersion-ne2){continue}
+            if(-not$TaskOwner){throw 'ACCEPTANCE_INSTALLATION_OWNER_REQUIRED'}
+            $publicationKey=(Get-EvLogicalPath $Context $planRef.path)+'|'+$planRef.identity
+            if(-not$publications.Add($publicationKey)){continue}
+            if(-not$Completion.publicationInstallations.ContainsKey($publicationKey)){
+                $publication=@(Import-Module (Join-Path $PSScriptRoot 'ProjectSourcePublication.psm1') -PassThru)[0]
+                $verified=& $publication {param($c,$p,$pairs,$task,$owner) Get-PubCompletedAcceptedInstallation $c $p $pairs $task $owner} $Context $pair $consumption.originalFinalize $TaskId $TaskOwner
+                foreach($doc in $verified.history.documents){$null=Read-EvRef $Context ([pscustomobject]@{path=$doc.Path;identity=$doc.Identity})}
+                foreach($member in @('SOURCE','CONTROL')){
+                    $final=$verified.history.finals[$member]
+                    $producer=[pscustomobject]@{inputRef=[pscustomobject]@{path=$final.input.Path;identity=$final.input.Identity};resultRef=[pscustomobject]@{path=$final.result.Path;identity=$final.result.Identity}}
+                    Add-EvValidatedProducer $Context $producer $verified.original.receipts[$member] $final.input.Value $final.result.Value
+                }
+                $Completion.publicationInstallations.Add($publicationKey,$verified)
+            }
+            $proof=$Completion.publicationInstallations[$publicationKey]
+            $refs=@($proof.originalRefs)
+        }else{continue}
+        $facts=$proof.acceptedOutcome
+        if($null-eq$facts){throw 'ACCEPTANCE_INSTALLATION_FINALIZE_REQUIRED'}
+        if($null-ne$useRef-and-not(Test-EvSameRef $useRef $facts.binding.useRef $Context)){throw 'ACCEPTANCE_INSTALLATION_USE_CONFLICT'}
+        $useRef=$facts.binding.useRef
+        if(-not(Test-EvSameRef $Stage.requiredBy $facts.use.requirementsRef $Context)){throw 'ACCEPTED_USE_CURRENT_REQUIREMENTS_DRIFT'}
+        $kind=@{SELF_CHECK='SELF_CHECK';RESULT_REVIEW='REVIEW_VERDICT';RESULT_ACCEPT='RESULT_ACCEPTANCE'}[$Stage.kind]
+        if($kind-cnotin$facts.coveredKinds-or($RequireIndependentReview-and'REVIEW_VERDICT'-cnotin$facts.coveredKinds)){throw ('ACCEPTED_USE_REQUIRED_STAGE_UNCOVERED|'+$Stage.kind)}
+        foreach($node in $facts.original.graph.nodes.Values){$null=$known.Add((Get-EvTypedKey $Context $node.reference))}
+        if($null-ne$facts.additional){foreach($node in $facts.additional.nodes.Values){$null=$known.Add((Get-EvTypedKey $Context $node.reference))}}
+        # Full A is covered by the frozen U and this actual completion proof;
+        # M remains separately recorded and never expands write authority.
+        foreach($object in $proof.postimages){
+            $path=Get-EvLogicalPath $Context $object.path -Candidate
+            if($covered.ContainsKey($path)-and$covered[$path].identity-cne$object.identity){throw 'ACCEPTANCE_INSTALLATION_POSTIMAGE_CONFLICT'}
+            $covered[$path]=$object
+        }
+        $proofs.Add($proof);foreach($reference in $refs){$originalRefs.Add($reference)}
+    }
+    if($proofs.Count-eq0){return $null}
+    foreach($reference in $Stage.evidenceRefs){if(-not$known.Contains((Get-EvTypedKey $Context $reference))){throw 'ACCEPTANCE_INSTALLATION_ASSURANCE_UNBOUND'}}
+    foreach($candidate in $Stage.candidateRef){
+        $path=Get-EvLogicalPath $Context $candidate.path -Candidate
+        if(-not$covered.ContainsKey($path)-or$covered[$path].identity-cne$candidate.identity){throw ('ACCEPTANCE_INSTALLATION_STAGE_INCOMPLETE|'+$Stage.id+'|'+$candidate.path)}
+        $null=Read-EvRef $Context $candidate -Candidate
+    }
+    [pscustomobject]@{context=$Context;proofs=$proofs.ToArray();originalRefs=$originalRefs.ToArray()}
+}
+
+function Assert-AiwTaskClosure($Context,[string]$Text,[string]$TaskId,$Boundary,[switch]$RequireExplicitClosure,[string[]]$ExcludedReviewActors=@()){
+    Invoke-EvCompletedEvidenceScope -Body {
+        param($parameters)
+        Assert-EvTaskClosureCore @parameters
+    } -Arguments @($PSBoundParameters)
+}
+Export-ModuleMember -Function Assert-AiwTaskClosure
+function Get-EvWorkRequest($Value){
+    if($null-eq$Value){return $null}
+    if($null-ne$Value.PSObject.Properties['requestRef']-and$null-ne$Value.PSObject.Properties['subject']-and$null-ne$Value.PSObject.Properties['requirementsRef']){return $Value}
+    if($null-ne$Value.PSObject.Properties['requestContext']-and$null-ne$Value.PSObject.Properties['schemaVersion']-and$Value.schemaVersion-eq5){return $Value.requestContext}
+    if($null-ne$Value.PSObject.Properties['requestContext']-and$null-ne$Value.PSObject.Properties['receiptType']-and$Value.receiptType-ceq'AUTHORIZED_ACTION_CONTINUATION'-and$Value.schemaVersion-eq4){return $Value.requestContext}
+    if($null-ne$Value.PSObject.Properties['authorityContext']){return Get-EvWorkRequest $Value.authorityContext}
+    if($null-ne$Value.PSObject.Properties['contextType']-and$Value.contextType-ceq'PROJECT_WORK'){return $Value.context.requestContext}
+    return $null
+}
+function Get-EvExpectedResultContext($Value){
+    $request=Get-EvWorkRequest $Value
+    if($null-ne$request){return $request}
+    return Get-AiwEvidenceSubject $Value
+}
+function Get-AiwEvidenceSubject($Value){
+    $request=Get-EvWorkRequest $Value
+    if($null-ne$request){
+        Import-Module (Join-Path $PSScriptRoot 'ProcessRequirementComposition.psm1')
+        return Get-AiwWorkEvidenceBinding $request
+    }
+    if($Value-is[string]){Assert-EvString $Value;return $Value}
+    if($null-ne$Value.PSObject.Properties['schemaVersion']-and$Value.schemaVersion-eq3-and$null-ne$Value.PSObject.Properties['context']){return $Value.context}
+    if($null-ne$Value.PSObject.Properties['kind']-and$Value.kind-ceq'PROJECT_WORK'){return $Value}
+    if($null-eq$Value.PSObject.Properties['taskId']){throw 'EVIDENCE_RESULT_CONTEXT_REQUIRED'}
+    Assert-EvString $Value.taskId
+    return $Value.taskId
+}
+function Assert-EvResultContext($Value,$Expected){
+    $actual=Get-AiwEvidenceSubject $Value;$expectedSubject=Get-AiwEvidenceSubject $Expected
+    if($actual-is[string]-or$expectedSubject-is[string]){
+        if($actual-isnot[string]-or$expectedSubject-isnot[string]-or$actual-cne$expectedSubject){throw 'EVIDENCE_TASK_DRIFT'}
+        return
+    }
+    Import-Module (Join-Path $PSScriptRoot 'ContentSources.psm1')
+    Import-Module (Join-Path $PSScriptRoot 'ProcessRequirementComposition.psm1')
+    foreach($context in @($actual,$expectedSubject)){
+        Assert-EvFields $context @('kind','requestRef','owner')
+        Assert-AiwRequestReference $context.requestRef;Assert-EvString $context.owner
+        if($context.kind-cne'PROJECT_WORK'-or$context.owner-cin@('UNKNOWN','NOT_REQUIRED','NOT_APPLICABLE','USER','UNBOUND_RECEIVER')){throw 'EVIDENCE_WORK_CONTEXT'}
+    }
+    if((Get-AiwContentDescriptorIdentity $actual)-cne(Get-AiwContentDescriptorIdentity $expectedSubject)){throw 'EVIDENCE_WORK_CONTEXT_DRIFT'}
+    $left=Get-EvWorkRequest $Value;$right=Get-EvWorkRequest $Expected
+    if($null-ne$left-and$null-ne$right-and(Get-AiwWorkRequestKey $left)-cne(Get-AiwWorkRequestKey $right)){throw 'EVIDENCE_WORK_SUBJECT_DRIFT'}
+}
+function Test-AiwSameResultContext($Left,$Right){
+    try{Assert-EvResultContext $Left $Right;return $true}catch{return $false}
+}
+function Get-EvWorkRecordRequirements($Context,$Request,[string]$Kind,$Candidates,$Requirements){
+    if(Test-EvSameRef $Request.requirementsRef $Requirements $Context){return $Request.requirementsRef}
+    $plan=Get-AiwProjectWorkPlan $Request
+    $stageKind=@{SELF_CHECK='SELF_CHECK';REVIEW_VERDICT='RESULT_REVIEW';RESULT_ACCEPTANCE='RESULT_ACCEPT'}[$Kind]
+    if($null-ne$plan){
+        foreach($stage in $plan.stages){
+            if($stage.kind-ceq$stageKind-and(Test-EvSameRef $stage.requiredBy $Requirements $Context)-and(Test-EvSameCandidates $stage.candidateRef $Candidates $Context)){return $stage.requiredBy}
+        }
+    }
+    throw 'EVIDENCE_WORK_REQUIREMENTS_UNBOUND'
+}
+Export-ModuleMember -Function Get-AiwEvidenceSubject,Test-AiwSameResultContext
+
+
+# @design-contract UNIFIED-INTENT-LOADING-PLAN.md sections 4.1-4.3.
+# These are finite original-action readers. No current TASK permission is
+# inferred from a historical action, nor is a failed result a success stage.
+function Get-EvFinalizeKey($Context,$Pair){
+    Assert-EvFields $Pair @('inputRef','resultRef')
+    foreach($name in @('inputRef','resultRef')){Assert-EvRef $Pair.$name}
+    return (Get-EvLogicalPath $Context $Pair.inputRef.path)+'|'+$Pair.inputRef.identity+'|'+(Get-EvLogicalPath $Context $Pair.resultRef.path)+'|'+$Pair.resultRef.identity
+}
+function Assert-EvCompletedTaskFinalizeDecision($Context,$Source,$FinalBoundary,$Result,$Package,$Postimages){
+    $a=$Source.binding;$relative=$Source.sourceLocators.taskRelativePath
+    if($Source.intentEnvelope.requestedActionKind-cne'CONTROL_WRITE'-or$relative-cnotin$a.exactScope){
+        Assert-EvOriginalFinalizeDecision $Source $FinalBoundary $Result
+        return
+    }
+    # Ordinary own-card FINALIZE hashes the observed taskIdentity change too.
+    # Derive it from the exact original scope and real closed postimage; no
+    # caller-supplied changed-binding set or exception to decision equality.
+    $archive=$relative.Replace('/active/','/archive/')
+    if($Source.schemaVersion-ne5-or$relative-cnotmatch'^\.ai-workspace/tasks/active/[^/]+\.md$'-or$Package.schemaVersion-ne1-or@($Package.actions).Count-ne1-or$Package.actions[0]-cne'CONTROL_WRITE'-or@($Package.exactPaths|Where-Object{$_-cnotin@($relative,$archive)}).Count-or$a.actor-cne$a.taskActor-or$a.actor-cne$a.taskOwner){throw 'WORK_PREDECESSOR_CLOSE_SCOPE'}
+    if($null-ne$Result.PSObject.Properties['sourcePostimageTransition']-or$null-ne$Result.PSObject.Properties['controlTransitionCompletion']){throw 'WORK_PREDECESSOR_CLOSE_SCOPE'}
+    $posts=@($Postimages|Where-Object path -CEQ $relative)
+    if($posts.Count-ne1-or$posts[0].identity-ceq$a.taskIdentity){throw 'WORK_PREDECESSOR_CLOSE_POSTIMAGE'}
+    $post=$posts[0]
+    if($post.identity-ceq'MISSING'){
+        $posts=@($Postimages|Where-Object path -CEQ $archive)
+        if($posts.Count-ne1-or$posts[0].identity-ceq'MISSING'){throw 'WORK_PREDECESSOR_CLOSE_ARCHIVE'}
+        $post=$posts[0]
+    }elseif(-not[IO.File]::Exists((Resolve-EvPath $Context $relative -Candidate -AllowMissing))){$post=[pscustomobject]@{path=$archive;identity=$post.identity}}
+    $path=Read-EvRef $Context $post -Candidate
+    $text=[Text.UTF8Encoding]::new($false,$true).GetString([IO.File]::ReadAllBytes($path))
+    $closure=Get-AiwTaskClosureFields $text -RequireComplete
+    $module=@(Import-Module (Join-Path $PSScriptRoot 'ControlTransition.psm1') -PassThru)[0]
+    $task=& $module {param($text)Get-TransitionTaskFacts $text} $text
+    if($closure.Outcome-cne'SUPERSEDED'-or$task.TaskId-cne$a.taskId-or$task.Owner-cne$a.taskOwner-or$task.TaskActor-cne$a.taskActor-or$task.Role-cne$a.context.workRoute.role-or$task.Phase-cne$a.context.workRoute.phase-or$task.Profile-cne$a.profile){throw 'WORK_PREDECESSOR_CLOSE_POSTIMAGE_BINDING'}
+    if($Result.selectionIdentity-cne$Source.selectionIdentity-or$Result.decisionIdentity-cne(Get-AiwProcessDecisionIdentity $Source $FinalBoundary 'NO_SOURCE_POSTIMAGE_TRANSITION' @('taskIdentity'))){throw 'EVIDENCE_HISTORICAL_FINALIZE_DECISION'}
+}
+function Read-EvCompletedTaskAction($Context,$Pair,[string]$TaskId,[string]$Owner,[object[]]$OriginalFinalize=@(),$OriginalTaskRef=$null){
+    $null=Get-EvFinalizeKey $Context $Pair
+    $input=Read-EvRef $Context $Pair.inputRef -Json
+    $result=Read-EvRef $Context $Pair.resultRef -Json
+    if($input.schemaVersion-notin@(3,4)-or$input.mode-cne'FINALIZE_OUTPUT'-or$result.mode-cne'FINALIZE_OUTPUT'-or$result.status-cne'PASS'-or@($result.missingPreparation).Count-or@($result.missingResult).Count){throw 'WORK_PREDECESSOR_ACTION_NOT_FINALIZED'}
+    $source=Read-EvProcessOperation $Context $input $result
+    if($source.schemaVersion-notin@(3,4,5)-or$source.status-cne'PASS'){throw 'WORK_PREDECESSOR_ACTION_SOURCE'}
+    $a=$source.binding;$action=$source.intentEnvelope.requestedActionKind
+    $packageRef=[pscustomobject]@{path=$source.sourceLocators.authorizationPackagePath;identity=$a.authorizationIdentity}
+    $package=Read-EvRef $Context $packageRef -Json
+    if($package.schemaVersion-notin@(1,2)-or$a.taskId-cne$TaskId-or$package.taskId-cne$TaskId-or$a.taskOwner-cne$Owner-or$package.owner-cne$Owner-or$a.taskIdentity-cne$package.taskIdentity-or$a.actor-cne$package.grantee-or$a.projectConfigIdentity-cne$package.projectConfigIdentity-or$a.userDecision-cne$package.userConfirmation-or$action-cnotin$package.actions-or$action-cnotin$a.authorizedActions){throw 'WORK_PREDECESSOR_ACTION_AUTHORITY'}
+    if($package.issuerRole-ceq'TASK_OWNER'){
+        if($package.issuer-cne$Owner){throw 'WORK_PREDECESSOR_ACTION_ISSUER'}
+    }elseif($package.issuerRole-ceq'PROJECT_CONTROLLER'){
+        if($package.issuer-cne$package.issuerControllerId-or$package.issuerControllerEpoch-lt1-or$package.controllerControlIdentity-cne$a.controllerIdentity){throw 'WORK_PREDECESSOR_ACTION_ISSUER'}
+    }else{throw 'WORK_PREDECESSOR_ACTION_ISSUER'}
+    if(-not([IO.Path]::GetFullPath($a.projectRoot)).Equals($Context.ProjectRoot,[StringComparison]::OrdinalIgnoreCase)-or($source.schemaVersion-in@(4,5)-and($a.executionContext.targetKind-cne'SAME_ROOT'-or-not([IO.Path]::GetFullPath($a.controlRoot)).Equals($Context.ProjectRoot,[StringComparison]::OrdinalIgnoreCase)))){throw 'WORK_PREDECESSOR_SAME_ROOT_REQUIRED'}
+    # The supersession graph supplies its strictly bound original task plan.
+    # Historical findings must not depend on today's active/archive location.
+    $originalTaskPath=if($null-ne$OriginalTaskRef){Read-EvRef $Context $OriginalTaskRef}else{''}
+    $guard=New-AiwPackageEvidenceContext $Context.ProjectRoot $package $source.sourceLocators.frameworkRoot (@($Context.ForbiddenPaths)+@($a.forbiddenScope)) -TaskPath $originalTaskPath -ProtectedPaths (@($Context.CandidateProtectedPaths)+@($a.protectedScope))
+    Share-EvReadState $guard $Context
+    if(-not$guard.RepositoryRoot.Equals($Context.RepositoryRoot,[StringComparison]::OrdinalIgnoreCase)){throw 'WORK_PREDECESSOR_REPOSITORY_DRIFT'}
+    $scope=@(Get-AiwActionScopeObjects $package $action $guard)
+    if((@($scope.path|Sort-Object -CaseSensitive)-join'|')-cne(@($a.exactScope|Sort-Object -CaseSensitive)-join'|')){throw 'WORK_PREDECESSOR_ACTION_SCOPE'}
+    $post=@(Get-AiwPackageCandidateReferences ([pscustomobject]@{objectIdentities=@(Get-AiwFinalizedObjectPostimages $input @($a.exactScope))}))
+    Assert-EvCompletedTaskFinalizeDecision $guard $source $input $result $package $post
+    # A review can consume a successful SELF without producing it. Keep the
+    # finite consumer-declared pairs and the review's actual production edge;
+    # the historical reader still selects and validates the unique producer.
+    $history=@($Pair)+@($OriginalFinalize)
+    if($null-ne$package.PSObject.Properties['repairReviewBinding']){
+        $binding=$package.repairReviewBinding
+        if($binding.phase-cin@('INITIAL_REVIEW','REREVIEW')){
+            $history+=,[pscustomobject]@{inputRef=[pscustomobject]@{path=$binding.repairFinalizeInputPath;identity=$binding.repairFinalizeInputIdentity};resultRef=[pscustomobject]@{path=$binding.repairFinalizeResultPath;identity=$binding.repairFinalizeResultIdentity}}
+        }
+    }
+    $historicalPairs=@();$historyKeys=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach($original in $history){if($historyKeys.Add((Get-EvFinalizeKey $guard $original))){$historicalPairs+=,$original}}
+    $records=@();$typedPrep=@();$typedResult=@()
+    Assert-EvRefs $input.evidenceRefs -Typed
+    foreach($ref in $input.evidenceRefs){
+        $raw=Read-EvRef $guard ([pscustomobject]@{path=$ref.path;identity=$ref.identity}) -Json
+        if($raw.schemaVersion-notin@(1,2)-or$raw.taskId-cne$TaskId){throw 'WORK_PREDECESSOR_TYPED_TASK_DRIFT'}
+        if($action-cin@(Get-EvProducerActions $ref.kind)){Assert-EvSameCandidates $raw.candidateObjects $post $guard}
+        $success=$raw.outcome-ceq@{SELF_CHECK='PASS';REVIEW_VERDICT='APPROVED';RESULT_ACCEPTANCE='ACCEPTED'}[$ref.kind]
+        if($success){
+            $records+=Read-EvResultEvidenceCore $guard $ref $TaskId $raw.candidateObjects $raw.requirementsRef -EvidencePurpose HISTORICAL_SUCCESS -OriginalFinalize $historicalPairs
+        }else{
+            if($ref.kind-ceq'RESULT_ACCEPTANCE'){throw 'WORK_PREDECESSOR_UNFINISHED_ACCEPTANCE'}
+            $records+=Read-EvResultEvidenceCore $guard $ref $TaskId $raw.candidateObjects $raw.requirementsRef -FrozenCandidateEvidence
+        }
+        switch($ref.kind){SELF_CHECK{$typedPrep+='SELF_CHECK_BOUND'};REVIEW_VERDICT{$typedResult+='REVIEW_VERDICT_BOUND'};RESULT_ACCEPTANCE{$typedResult+='RESULT_ACCEPT_RECORDED'}}
+    }
+    $self=Get-AiwSelfCheckOutcome $input.evidenceRefs $records
+    $expectedOutcome=if($action-ceq'TEST_RUN'){
+        if($self-ceq'NOT_APPLICABLE'-or@($records|Where-Object{@($_.checks|Where-Object method -CEQ 'COMMAND').Count-eq0}).Count){throw 'WORK_PREDECESSOR_TEST_COMMAND_REQUIRED'}
+        $self
+    }elseif($null-ne$input.PSObject.Properties['continuationDisposition']-and$input.continuationDisposition-ceq'STOP'-and$self-cin@('FAIL','INCOMPLETE')){$self}else{'OBSERVED'}
+    if($result.actionOutcome-cne$expectedOutcome){throw 'WORK_PREDECESSOR_ACTION_OUTCOME'}
+    $prep=@($input.preparationReceipts|Where-Object{$_-cne'SELF_CHECK_BOUND'})+$typedPrep
+    $results=@($input.resultReceipts|Where-Object{$_-cnotin@('REVIEW_VERDICT_BOUND','RESULT_ACCEPT_RECORDED','DELIVERY_RECEIPT')})+$typedResult
+    if($null-ne$input.PSObject.Properties['deliveryContext']){
+        Import-Module (Join-Path $PSScriptRoot 'WorkflowDelivery.psm1')
+        $observation=Get-AiwDeliveryObservation $input.deliveryContext
+        if($null-eq$result.PSObject.Properties['delivery']-or($result.delivery|ConvertTo-Json -Compress)-cne($observation|ConvertTo-Json -Compress)){throw 'WORK_PREDECESSOR_DELIVERY_DRIFT'}
+        if($input.deliveryContext.channel-ceq'TASK_MESSAGE'){
+            if(-not$observation.delivered-or$input.deliveryContext.evidence-cnotmatch'^(.+)#(\d+\|[A-F0-9]{64})$'){throw 'WORK_PREDECESSOR_OBSERVE_REQUIRED'}
+            $hostResult=Read-EvRef $guard ([pscustomobject]@{path=$Matches[1];identity=$Matches[2]}) -Json
+            if((Get-AiwCodexSendOutcome $hostResult $input.deliveryContext.expectedRecipient).outcome-cne'SUCCESS'){throw 'WORK_PREDECESSOR_OBSERVE_REQUIRED'}
+            if($input.schemaVersion-eq4){
+                if($null-eq$result.PSObject.Properties['consumer']-or$result.consumer.recipient-cne$input.deliveryContext.expectedRecipient-or$result.consumer.channel-cne'TASK_MESSAGE'-or$result.consumer.authorizationIdentity-cne$packageRef.identity){throw 'WORK_PREDECESSOR_CONSUMER_DRIFT'}
+                $deliveryModule=(Get-Command Get-AiwBoundDelivery).Module
+                & $deliveryModule {param($s,$b,$ctx,$consumer)Assert-AiwPreparedOperationDelivery $s $b $ctx $consumer} $source $input $guard $result.consumer
+            }
+        }
+        $results+='DELIVERY_RECEIPT'
+    }elseif(@($input.deliveryReceipts).Count){$results+='DELIVERY_RECEIPT'}
+    foreach($obligation in $source.selectedObligations){if(@($obligation.preparationRequirements|Where-Object{$_-cnotin$prep}).Count-or@($obligation.resultRequirements|Where-Object{$_-cnotin$results}).Count){throw 'WORK_PREDECESSOR_ACTION_INCOMPLETE'}}
+    Add-EvValidatedProducer $guard $Pair $source $input $result
+    return [pscustomobject]@{pair=$Pair;source=$source;input=$input;result=$result;package=$package;packageRef=$packageRef;context=$guard;postimages=$post;records=$records}
+}
+function Read-EvSupersessionDecision($Context,$Reference){
+    Import-Module (Join-Path $PSScriptRoot 'ProcessRequirementComposition.psm1')
+    Import-Module (Join-Path $PSScriptRoot 'ContentSources.psm1')
+    $path=Read-EvRef $Context $Reference
+    $text=[Text.UTF8Encoding]::new($false,$true).GetString([IO.File]::ReadAllBytes($path))
+    # Old free-text decisions still close old tasks. Only this complete shape
+    # establishes the finite migration edge.
+    if(-not$text.TrimStart().StartsWith('{',[StringComparison]::Ordinal)){return $null}
+    $value=ConvertFrom-EvJson $text
+    $fields=@('userDecisionRef','predecessorTaskRef','successorRequest','completedActionRefs','repairHeads')
+    if(@($fields|Where-Object{$null-ne$value.PSObject.Properties[$_]}).Count-eq0){return $null}
+    Assert-EvFields $value $fields
+    Assert-AiwRequestReference $value.userDecisionRef;Assert-EvRef $value.predecessorTaskRef
+    Assert-EvFields $value.successorRequest @('requestRef','owner','subject','requirementsRef')
+    Assert-AiwRequestReference $value.successorRequest.requestRef;Assert-EvString $value.successorRequest.owner
+    Assert-AiwQualitySubject $value.successorRequest.subject 2;Assert-EvRef $value.successorRequest.requirementsRef -Section
+    Assert-EvArray $value.completedActionRefs
+    Assert-EvFields $value.repairHeads @('selfCheck','review')
+    $keys=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach($pair in $value.completedActionRefs){if(-not$keys.Add((Get-EvFinalizeKey $Context $pair))){throw 'WORK_PREDECESSOR_DUPLICATE_TAIL'}}
+    foreach($name in @('selfCheck','review')){
+        $head=$value.repairHeads.$name
+        if($head-is[string]){if($head-cne'NOT_APPLICABLE'){throw 'WORK_PREDECESSOR_REPAIR_HEAD'};continue}
+        if(-not$keys.Contains((Get-EvFinalizeKey $Context $head))){throw 'WORK_PREDECESSOR_HEAD_NOT_TAIL'}
+    }
+    return $value
+}
+function Get-EvSelfHeadSourceKeys($Head){
+    $seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $source=$Head.source;$result=$Head.result;$node=$null
+    $null=$seen.Add($source.contextIdentity+'|'+$source.selectionIdentity)
+    if($null-ne$result.PSObject.Properties['continuationReceipt']-and$null-ne$result.continuationReceipt){$node=$result.continuationReceipt}
+    elseif($null-ne$source.binding.PSObject.Properties['continuationReceiptPath']-and$source.binding.continuationReceiptPath-cne'NOT_REQUIRED'){
+        $node=Read-EvRef $Head.context ([pscustomobject]@{path=$source.binding.continuationReceiptPath;identity=$source.binding.continuationReceiptIdentity}) -Json
+    }
+    $references=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    while($null-ne$node){
+        $reference=[pscustomobject]@{path=$node.sourceDiscoverReceiptPath;identity=$node.sourceDiscoverReceiptIdentity}
+        if(-not$references.Add((Get-EvLogicalPath $Head.context $reference.path)+'|'+$reference.identity)){throw 'WORK_PREDECESSOR_SELF_REFERENCE_CYCLE'}
+        $source=Read-EvRef $Head.context $reference -Json
+        if($source.schemaVersion-eq5){$source=Convert-EvOperationCompact $Head.context $source}
+        $null=$seen.Add($source.contextIdentity+'|'+$source.selectionIdentity)
+        if($source.binding.continuationReceiptPath-ceq'NOT_REQUIRED'){break}
+        $node=Read-EvRef $Head.context ([pscustomobject]@{path=$source.binding.continuationReceiptPath;identity=$source.binding.continuationReceiptIdentity}) -Json
+    }
+    return ,$seen
+}
+function Get-EvSupersessionReviewFacts($Context,$Authority,$Tails,$Head,$SelfRoot,$OriginalTaskRef){
+    $relevant=@($Tails|Where-Object{$null-ne$_.package.PSObject.Properties['repairReviewPlan']-or$null-ne$_.package.PSObject.Properties['repairReviewBinding']})
+    if($relevant.Count-eq0){if($null-ne$Head){throw 'WORK_PREDECESSOR_REVIEW_HEAD_INVALID'};return $null}
+    if($null-eq$Head){throw 'WORK_PREDECESSOR_REVIEW_HEAD_REQUIRED'}
+    $rootRef=$null
+    foreach($tail in $relevant){
+        $ref=$tail.packageRef
+        if($null-ne$tail.package.PSObject.Properties['repairReviewBinding']){$ref=[pscustomobject]@{path=$tail.package.repairReviewBinding.parentPackagePath;identity=$tail.package.repairReviewBinding.parentPackageIdentity}}
+        if($null-ne$rootRef-and-not(Test-EvSameRef $rootRef $ref $Context)){throw 'WORK_PREDECESSOR_REVIEW_ROOT_AMBIGUOUS'}
+        $rootRef=$ref
+    }
+    $parent=Read-EvRef $Context $rootRef -Json
+    if($parent.schemaVersion-notin@(1,2)-or$parent.taskId-cne$Authority.taskId-or$parent.owner-cne$Authority.taskOwner-or$parent.profile-cne$Authority.profile-or$null-eq$parent.PSObject.Properties['repairReviewPlan']-or$null-ne$parent.PSObject.Properties['repairReviewBinding']){throw 'WORK_PREDECESSOR_REVIEW_ROOT_INVALID'}
+    $plan=$parent.repairReviewPlan
+    Assert-EvFields $plan @('writer','reviewer','maxCycles','materialContributors') @('reviewScope')
+    Assert-EvString $plan.writer;Assert-EvString $plan.reviewer;Assert-EvInteger $plan.maxCycles
+    if($plan.maxCycles-lt1-or$plan.maxCycles-gt[int]::MaxValue-or$plan.writer-cne$parent.grantee-or'REVIEW_ROUTE'-cnotin$parent.actions-or$null-eq$parent.PSObject.Properties['continuationPlan']-or$parent.continuationPlan[-1]-cne'REVIEW_ROUTE'){throw 'WORK_PREDECESSOR_REVIEW_PLAN_INVALID'}
+    $excluded=@(Get-AiwReviewExcludedActors $parent.owner $parent.issuer $plan.writer $plan.materialContributors)
+    if($plan.reviewer-cin$excluded){throw 'REPAIR_REVIEW_INDEPENDENCE'}
+    $null=@(Get-AiwPlannedReviewScope $parent)
+    if($null-ne$SelfRoot-and-not(Test-EvSameRef $SelfRoot $rootRef $Context)){throw 'WORK_PREDECESSOR_SELF_REVIEW_ROOT_DRIFT'}
+    # Only this call's explicit original pairs form the graph. The head must
+    # account for every declared tail; no history discovery or new authority.
+    $known=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal)
+    foreach($tail in $Tails){$known.Add((Get-EvFinalizeKey $Context $tail.pair),$tail)}
+    $visiting=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $done=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $sources=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    function Visit-EvOriginalReviewPair($Pair){
+        $key=Get-EvFinalizeKey $Context $Pair
+        if($done.Contains($key)){return}
+        if(-not$visiting.Add($key)){throw 'WORK_PREDECESSOR_REVIEW_REFERENCE_CYCLE'}
+        try{
+            $tail=$null
+            if(-not$known.TryGetValue($key,[ref]$tail)){$tail=Read-EvCompletedTaskAction $Context $Pair $Authority.taskId $Authority.taskOwner -OriginalTaskRef $OriginalTaskRef;$known.Add($key,$tail)}
+            foreach($sourceKey in (Get-EvSelfHeadSourceKeys $tail)){$null=$sources.Add($sourceKey)}
+            $package=$tail.package
+            if($null-ne$package.PSObject.Properties['repairReviewBinding']){
+                $binding=$package.repairReviewBinding
+                if(-not(Test-EvSameRef ([pscustomobject]@{path=$binding.parentPackagePath;identity=$binding.parentPackageIdentity}) $rootRef $Context)){throw 'WORK_PREDECESSOR_REVIEW_ROOT_AMBIGUOUS'}
+                Assert-EvInteger $binding.cycle
+                if($binding.phase-ceq'INITIAL_REVIEW'){
+                    if($binding.cycle-ne0-or$tail.source.intentEnvelope.requestedActionKind-cne'REVIEW_EXECUTE'){throw 'WORK_PREDECESSOR_REVIEW_CYCLE'}
+                }elseif($binding.phase-cin@('REPAIR','REREVIEW')){
+                    if($binding.cycle-lt1-or$binding.cycle-gt$plan.maxCycles){throw 'WORK_PREDECESSOR_REVIEW_CYCLE'}
+                    $null=Assert-AiwFinalizedReviewFinding $tail.context $parent $binding -FrozenCandidates
+                    Visit-EvOriginalReviewPair ([pscustomobject]@{inputRef=[pscustomobject]@{path=$binding.verdictFinalizeInputPath;identity=$binding.verdictFinalizeInputIdentity};resultRef=[pscustomobject]@{path=$binding.verdictFinalizeResultPath;identity=$binding.verdictFinalizeResultIdentity}})
+                }else{throw 'WORK_PREDECESSOR_REVIEW_PHASE'}
+                if($binding.phase-cin@('INITIAL_REVIEW','REREVIEW')){
+                    if($tail.source.intentEnvelope.requestedActionKind-cne'REVIEW_EXECUTE'){throw 'WORK_PREDECESSOR_REVIEW_PHASE'}
+                    Visit-EvOriginalReviewPair ([pscustomobject]@{inputRef=[pscustomobject]@{path=$binding.repairFinalizeInputPath;identity=$binding.repairFinalizeInputIdentity};resultRef=[pscustomobject]@{path=$binding.repairFinalizeResultPath;identity=$binding.repairFinalizeResultIdentity}})
+                    $reviews=@($tail.records|Where-Object outcome -CIN @('APPROVED','CHANGES_REQUESTED'))
+                    if($reviews.Count-ne1){throw 'WORK_PREDECESSOR_REVIEW_TYPED_REQUIRED'}
+                    Assert-EvReviewIndependence $package $reviews[0] -Required -Excluded $excluded
+                    $null=Get-AiwPlannedReviewFlatVerdict $tail.context $package $reviews[0]
+                }
+            }elseif(-not(Test-EvSameRef $tail.packageRef $rootRef $Context)){throw 'WORK_PREDECESSOR_REVIEW_PRODUCER_ROOT_DRIFT'}
+            $null=$done.Add($key)
+        }finally{$null=$visiting.Remove($key)}
+    }
+    Visit-EvOriginalReviewPair $Head.pair
+    foreach($tail in $relevant){if(-not$sources.Contains($tail.source.contextIdentity+'|'+$tail.source.selectionIdentity)){throw 'WORK_PREDECESSOR_REVIEW_HEAD_FORK'}}
+    $state='INITIAL_READY';$cycle=0
+    if($null-ne$Head.package.PSObject.Properties['repairReviewBinding']){
+        $binding=$Head.package.repairReviewBinding;$cycle=[int]$binding.cycle
+        if($binding.phase-ceq'REPAIR'){$state='REREVIEW_READY'}
+        else{$state=[string]@($Head.records|Where-Object outcome -CIN @('APPROVED','CHANGES_REQUESTED'))[0].outcome}
+    }
+    if($state-cin@('INITIAL_READY','REREVIEW_READY')-and$Head.result.actionOutcome-cnotin@('PASS','OBSERVED')){throw 'WORK_PREDECESSOR_REVIEW_PRODUCTION_NOT_SUCCESSFUL'}
+    return [pscustomobject]@{rootRef=$rootRef;parent=$parent;head=$Head;cycle=$cycle;state=$state}
+}
+function Get-EvWorkReviewRoot($Context,$Request,$ParentRef){
+    $facts=Get-EvWorkPredecessor $Context $Request
+    if($null-eq$facts-or$null-eq$facts.review-or-not(Test-EvSameRef $facts.review.rootRef $ParentRef $Context)){throw 'WORK_PREDECESSOR_REVIEW_ROOT_DRIFT'}
+    return $facts
+}
+function Assert-EvReviewProducerRelation($Context,$Current,$Producer,$ProducerRef){
+    if($Current.schemaVersion-ne5-or$Producer.schemaVersion-eq5){
+        if($Current.schemaVersion-eq5){
+            if(-not(Test-AiwSameResultContext $Producer $Current)){throw 'REPAIR_REVIEW_PARENT_CONTEXT_DRIFT'}
+        }elseif($Producer.taskId-cne$Current.taskId-or$Producer.owner-cne$Current.owner){throw 'REPAIR_REVIEW_PARENT_CONTEXT_DRIFT'}
+        return
+    }
+    if($null-eq$Current.PSObject.Properties['repairReviewBinding']){throw 'WORK_PREDECESSOR_REVIEW_BINDING_REQUIRED'}
+    $parentRef=[pscustomobject]@{path=$Current.repairReviewBinding.parentPackagePath;identity=$Current.repairReviewBinding.parentPackageIdentity}
+    $facts=Get-EvWorkReviewRoot $Context $Current.requestContext $parentRef
+    if($Producer.schemaVersion-notin@(1,2)-or$Producer.taskId-cne$facts.taskId-or$Producer.owner-cne$facts.owner){throw 'WORK_PREDECESSOR_REVIEW_PRODUCER_DRIFT'}
+    $root=$ProducerRef
+    if($null-ne$Producer.PSObject.Properties['repairReviewBinding']){$root=[pscustomobject]@{path=$Producer.repairReviewBinding.parentPackagePath;identity=$Producer.repairReviewBinding.parentPackageIdentity}}
+    if(-not(Test-EvSameRef $root $parentRef $Context)){throw 'WORK_PREDECESSOR_REVIEW_PRODUCER_ROOT_DRIFT'}
+}
+
+function Get-EvSupersessionFacts($Context,$Decision,$Source){
+    $a=$Source.binding
+    foreach($reference in @($Decision.userDecisionRef,$Decision.successorRequest.requestRef)){
+        if($reference.kind-ceq'FILE'){
+            $original=Read-EvRef $Context ([pscustomobject]@{path=$reference.path;identity=$reference.identity})
+            if([string]::IsNullOrWhiteSpace([Text.UTF8Encoding]::new($false,$true).GetString([IO.File]::ReadAllBytes($original)))){throw 'WORK_PREDECESSOR_ORIGINAL_EMPTY'}
+        }
+    }
+    $taskPath=Read-EvRef $Context $Decision.predecessorTaskRef
+    $taskText=[Text.UTF8Encoding]::new($false,$true).GetString([IO.File]::ReadAllBytes($taskPath))
+    Import-Module (Join-Path $PSScriptRoot 'ControlTransition.psm1')
+    $module=(Get-Command Read-AiwControlTransitionTask).Module
+    $task=& $module {param($text)Get-TransitionTaskFacts $text} $taskText
+    if($Decision.predecessorTaskRef.identity-cne$a.taskIdentity-or$task.TaskId-cne$a.taskId-or$task.Owner-cne$a.taskOwner-or$task.TaskActor-cne$a.taskActor-or$task.Profile-cne$a.profile-or$taskText-cnotmatch'(?m)^- Range summary:[^\r\n]*lifecycle=ACTIVE;'-or$Decision.successorRequest.owner-cne$a.taskOwner-or$Decision.successorRequest.subject.repositoryId-cne'REPO_LOCAL'-or$taskText-cmatch'(?m)^(?:- )?Execution target:'){throw 'WORK_PREDECESSOR_TASK_PREIMAGE'}
+    $plan=Get-AiwAcceptancePlan $taskText
+    if($null-eq$plan-or$plan.schemaVersion-ne2){throw 'WORK_PREDECESSOR_STABLE_SUBJECT_UNPROVEN'}
+    $subject=$Decision.successorRequest.subject
+    Assert-AiwQualitySubject $subject 2
+    $subjectVersion=[int]$plan.qualityBinding.schemaVersion
+    $projected=$subject
+    if($subjectVersion-eq1){
+        # QA1 keeps its original binding and two-axis key. The Owner must have
+        # read actual original human/requirements material at the safe point;
+        # these byte/section relations cannot certify its semantic workType.
+        $projected=[pscustomobject]@{repositoryId=$subject.repositoryId;exactPaths=@($subject.exactPaths);facets=[pscustomobject]@{domain=$subject.facets.domain;deliverableType=$subject.facets.deliverableType}}
+    }
+    $subjectBinding=[pscustomobject]@{schemaVersion=$subjectVersion;policyRef=$plan.qualityBinding.policyRef;subject=$projected;effectiveStages=$plan.qualityBinding.effectiveStages}
+    if((Get-AiwQualityBindingKey $subjectBinding)-cne(Get-AiwQualityBindingKey $plan.qualityBinding)-or@($plan.stages|Where-Object{Test-EvSameRef $_.requiredBy $Decision.successorRequest.requirementsRef $Context}).Count-eq0){throw 'WORK_PREDECESSOR_SUBJECT_REQUIREMENTS_DRIFT'}
+    if($subjectVersion-eq1){
+        $originPath=Read-EvRef $Context $Decision.successorRequest.requirementsRef -Section
+        $originText=[Text.UTF8Encoding]::new($false,$true).GetString([IO.File]::ReadAllBytes($originPath))
+        if($null-ne$Decision.successorRequest.requirementsRef.PSObject.Properties['section']){
+            $tag=[regex]::Escape($Decision.successorRequest.requirementsRef.section)
+            $originText=[regex]::Match($originText,'(?s)<!-- '+$tag+':BEGIN -->(.*?)<!-- '+$tag+':END -->').Groups[1].Value
+        }
+        if([string]::IsNullOrWhiteSpace($originText)){throw 'WORK_PREDECESSOR_ORIGINAL_WORK_TYPE_UNPROVEN'}
+        $policyPath=Resolve-EvPath $Context '.ai-workspace/process-policy.json'
+        $policyRef=[pscustomobject]@{path=$policyPath;identity=(Get-EvCandidateIdentity $policyPath)}
+        $policy=Read-EvRef $Context $policyRef -Json
+        # Validate the complete current vocabulary without reclassifying old
+        # success or replacing its frozen QA1 policy/stages with today's ones.
+        $null=Get-AiwQualitySelection $policy $policyRef.identity $a.profile $subject
+    }
+    $originalFinalize=@($Decision.completedActionRefs)
+    foreach($stage in $plan.stages){
+        $consumption=Get-EvConsumption $stage evidenceConsumption
+        if($consumption.purpose-ceq'HISTORICAL_SUCCESS'){$originalFinalize+=@($consumption.originalFinalize)}
+    }
+    $tails=@();$operations=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach($pair in $Decision.completedActionRefs){
+        $tail=Read-EvCompletedTaskAction $Context $pair $a.taskId $a.taskOwner -OriginalFinalize $originalFinalize -OriginalTaskRef $Decision.predecessorTaskRef
+        if($tail.source.binding.profile-cne$a.profile-or-not$operations.Add($tail.source.contextIdentity+'|'+$tail.source.selectionIdentity)){throw 'WORK_PREDECESSOR_CONFLICTING_TAIL'}
+        $tails+=,$tail
+    }
+    $heads=[ordered]@{selfCheck=$null;review=$null}
+    foreach($name in @('selfCheck','review')){
+        if($Decision.repairHeads.$name-is[string]){continue}
+        $key=Get-EvFinalizeKey $Context $Decision.repairHeads.$name
+        $heads[$name]=@($tails|Where-Object{(Get-EvFinalizeKey $Context $_.pair)-ceq$key})[0]
+    }
+    $selfTails=@($tails|Where-Object{$null-ne$_.package.PSObject.Properties['selfCheckRepairLimit']})
+    if($selfTails.Count-and$null-eq$heads.selfCheck){throw 'WORK_PREDECESSOR_SELF_HEAD_REQUIRED'}
+    $selfRoot=$null;$cycle=0;$limit=0
+    foreach($tail in $selfTails){
+        $root=$tail.packageRef
+        if($null-ne$tail.package.PSObject.Properties['repairReviewBinding']){$root=[pscustomobject]@{path=$tail.package.repairReviewBinding.parentPackagePath;identity=$tail.package.repairReviewBinding.parentPackageIdentity}}
+        if($null-ne$selfRoot-and-not(Test-EvSameRef $selfRoot $root $Context)){throw 'WORK_PREDECESSOR_SELF_ROOT_AMBIGUOUS'}
+        $selfRoot=$root
+    }
+    if($null-ne$heads.selfCheck){
+        $head=$heads.selfCheck;$producer=$head.package;$authority=$head.source.binding
+        if($null-eq$producer.PSObject.Properties['selfCheckRepairLimit']){throw 'WORK_PREDECESSOR_SELF_HEAD_INVALID'}
+        $limit=[int]$producer.selfCheckRepairLimit
+        if($null-ne$head.result.PSObject.Properties['continuationReceipt']-and$null-ne$head.result.continuationReceipt){$cycle=Assert-AiwSelfRepairChain $head.context $producer $head.result.continuationReceipt}
+        elseif($null-ne$authority.PSObject.Properties['continuationReceiptPath']-and$authority.continuationReceiptPath-cne'NOT_REQUIRED'){
+            $leaf=Read-EvRef $head.context ([pscustomobject]@{path=$authority.continuationReceiptPath;identity=$authority.continuationReceiptIdentity}) -Json
+            $cycle=Assert-AiwSelfRepairChain $head.context $producer $leaf
+        }else{$cycle=Get-AiwSelfRepairOriginCycle $head.context $producer}
+        if($cycle-lt0-or$cycle-gt$limit){throw 'WORK_PREDECESSOR_SELF_CYCLE'}
+        $sources=Get-EvSelfHeadSourceKeys $head
+        foreach($tail in $selfTails){if(-not$sources.Contains($tail.source.contextIdentity+'|'+$tail.source.selectionIdentity)){throw 'WORK_PREDECESSOR_SELF_HEAD_FORK'}}
+    }
+    $review=Get-EvSupersessionReviewFacts $Context $a $tails $heads.review $selfRoot $Decision.predecessorTaskRef
+    return [pscustomobject]@{decision=$Decision;taskId=$a.taskId;owner=$a.taskOwner;plan=$plan;tails=$tails;selfRoot=$selfRoot;selfCycle=$cycle;selfLimit=$limit;review=$review}
+}
+function Assert-EvPredecessorStages($Context,$OldPlan,$Request){
+    $current=Get-AiwProjectWorkPlan $Request
+    if($null-eq$current){throw 'WORK_PREDECESSOR_PLAN_REQUIRED'}
+    foreach($old in $OldPlan.stages){
+        $matches=@($current.stages|Where-Object id -CEQ $old.id)
+        if($matches.Count-ne1){throw 'WORK_PREDECESSOR_STAGE_REMOVED'}
+        $stage=$matches[0]
+        if($stage.kind-cne$old.kind-or-not(Test-EvSameRef $stage.requiredBy $old.requiredBy $Context)-or(@($stage.dependsOn|Sort-Object -CaseSensitive)-join'|')-cne(@($old.dependsOn|Sort-Object -CaseSensitive)-join'|')){throw 'WORK_PREDECESSOR_STAGE_DEFINITION_DRIFT'}
+        if($old.evidenceRefs.Count){
+            Assert-EvSameCandidates $stage.candidateRef $old.candidateRef $Context
+            foreach($ref in $old.evidenceRefs){if(@($stage.evidenceRefs|Where-Object{$_.kind-ceq$ref.kind-and(Test-EvSameRef $_ $ref $Context)}).Count-ne1){throw 'WORK_PREDECESSOR_STAGE_EVIDENCE_REMOVED'}}
+            if($null-ne$old.PSObject.Properties['evidenceConsumption']-and(Get-AiwContentDescriptorIdentity $stage.evidenceConsumption)-cne(Get-AiwContentDescriptorIdentity $old.evidenceConsumption)){throw 'WORK_PREDECESSOR_ORIGINAL_FINALIZE_DRIFT'}
+        }
+    }
+}
+function Get-EvWorkPredecessor($Context,$Request){
+    if($null-eq$Request.PSObject.Properties['predecessorRef']){return $null}
+    Import-Module (Join-Path $PSScriptRoot 'ProcessRequirementComposition.psm1')
+    Import-Module (Join-Path $PSScriptRoot 'ContentSources.psm1')
+    Assert-AiwProjectWorkContext $Request
+    $state=Get-EvReadState $Context
+    if($null-eq$state.PSObject.Properties['predecessors']){
+        $state|Add-Member predecessors ([Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal))
+        $state|Add-Member predecessorReading ([Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal))
+    }
+    $key=Get-AiwContentDescriptorIdentity $Request
+    if($state.predecessors.ContainsKey($key)){return $state.predecessors[$key]}
+    if(-not$state.predecessorReading.Add($key)){throw 'WORK_PREDECESSOR_REFERENCE_CYCLE'}
+    try{
+        $pair=$Request.predecessorRef.closureFinalize
+        $input=Read-EvRef $Context $pair.inputRef -Json;$result=Read-EvRef $Context $pair.resultRef -Json
+        $source=Read-EvProcessOperation $Context $input $result
+        if($source.schemaVersion-ne5-or$source.construction.entry-cne'ADMIT_ACTION'-or$source.binding.contextType-cne'TASK'-or$source.intentEnvelope.requestedActionKind-cne'CONTROL_WRITE'){throw 'WORK_PREDECESSOR_ORIGINAL_ADMIT_REQUIRED'}
+        $admit=Read-EvRef $Context $source.construction.boundaryRef -Json
+        if($admit.mode-cne'ADMIT_ACTION'-or$admit.schemaVersion-ne4-or$null-eq$admit.PSObject.Properties['currentOperation']){throw 'WORK_PREDECESSOR_ORIGINAL_ADMIT_REQUIRED'}
+        if($admit.currentOperation.expectedTaskIdentity-cne$source.binding.taskIdentity-or$admit.currentOperation.authorizationRef.identity-cne$source.binding.authorizationIdentity-or$admit.currentOperation.observedActor-cne$source.binding.actor){throw 'WORK_PREDECESSOR_ADMIT_BINDING_DRIFT'}
+        $closed=Read-EvCompletedTaskAction $Context $pair $source.binding.taskId $Request.owner
+        $package=$closed.package;$relative=$source.sourceLocators.taskRelativePath
+        if($relative-cnotmatch'^\.ai-workspace/tasks/active/[^/]+\.md$'-or$package.schemaVersion-ne1-or@($package.actions).Count-ne1-or$package.actions[0]-cne'CONTROL_WRITE'-or$source.binding.actor-cne$Request.owner){throw 'WORK_PREDECESSOR_CLOSE_SCOPE'}
+        $archive=$relative.Replace('/active/','/archive/')
+        if(@($package.exactPaths|Where-Object{$_-cnotin@($relative,$archive)}).Count-or$relative-cnotin$package.exactPaths){throw 'WORK_PREDECESSOR_CLOSE_SCOPE'}
+        $preimages=@($package.objectIdentities|Where-Object path -CEQ $relative)
+        if($preimages.Count-ne1-or$preimages[0].identity-cne$source.binding.taskIdentity){throw 'WORK_PREDECESSOR_CLOSE_PREIMAGE'}
+        foreach($name in @('transitionPlan','continuationPlan','sourcePublicationBinding','repairReviewPlan','repairReviewBinding')){if($null-ne$package.PSObject.Properties[$name]){throw 'WORK_PREDECESSOR_CLOSE_SCOPE'}}
+        $posts=@($closed.postimages|Where-Object{$_.path-ceq$relative})
+        if($posts.Count-ne1){throw 'WORK_PREDECESSOR_CLOSE_POSTIMAGE'}
+        $post=$posts[0]
+        if($post.identity-ceq'MISSING'){
+            $archive=$relative.Replace('/active/','/archive/');$posts=@($closed.postimages|Where-Object path -CEQ $archive)
+            if($posts.Count-ne1-or$posts[0].identity-ceq'MISSING'){throw 'WORK_PREDECESSOR_CLOSE_ARCHIVE'}
+            $post=$posts[0]
+        }elseif(-not[IO.File]::Exists((Resolve-EvPath $Context $relative -Candidate -AllowMissing))){$post=[pscustomobject]@{path=$relative.Replace('/active/','/archive/');identity=$post.identity}}
+        $closedPath=Read-EvRef $Context $post -Candidate
+        $text=[Text.UTF8Encoding]::new($false,$true).GetString([IO.File]::ReadAllBytes($closedPath))
+        $closure=Get-AiwTaskClosureFields $text -RequireComplete
+        if($closure.Outcome-cne'SUPERSEDED'-or$text-cnotmatch('(?m)^# '+[regex]::Escape($source.binding.taskId)+' (?:—|-)')-or[regex]::Match($text,'(?m)^- Owner:\s*(\S+)\s*$').Groups[1].Value-cne$Request.owner){throw 'WORK_PREDECESSOR_NOT_SUPERSEDED'}
+        $decision=Read-EvSupersessionDecision $Context $closure.ClosureDecision
+        if($null-eq$decision){throw 'WORK_PREDECESSOR_STRICT_DECISION_REQUIRED'}
+        $facts=Get-EvSupersessionFacts $Context $decision $source
+        if($Request.profile-cne$source.binding.profile){throw 'WORK_PREDECESSOR_PROFILE_DRIFT'}
+        if($source.binding.context.workRoute.role-cne([regex]::Match($text,'(?m)^- Work route: actor=[^;]+; role=([^;]+);').Groups[1].Value)-or$source.binding.context.workRoute.phase-cne([regex]::Match($text,'(?m)^- Work route: actor=[^;]+; role=[^;]+; phase=(\S+)').Groups[1].Value)){throw 'WORK_PREDECESSOR_CLOSE_ROUTE_DRIFT'}
+        if((Get-AiwContentDescriptorIdentity $decision.userDecisionRef)-cne(Get-AiwContentDescriptorIdentity $Request.userDecisionRef)){throw 'WORK_PREDECESSOR_USER_DECISION_DRIFT'}
+        $successor=[pscustomobject]@{requestRef=$Request.requestRef;owner=$Request.owner;subject=$Request.subject;requirementsRef=$Request.requirementsRef}
+        if((Get-AiwContentDescriptorIdentity $decision.successorRequest)-cne(Get-AiwContentDescriptorIdentity $successor)){throw 'WORK_PREDECESSOR_SUCCESSOR_DRIFT'}
+        Assert-EvPredecessorStages $Context $facts.plan $Request
+        $state.predecessors.Add($key,$facts)
+        return $facts
+    }finally{$null=$state.predecessorReading.Remove($key)}
+}
+function Assert-AiwWorkPredecessor($Context,$Request){$null=Get-EvWorkPredecessor $Context $Request}
+function Assert-AiwWorkPredecessorPackage($Context,$Request,$Package){
+    $facts=Get-EvWorkPredecessor $Context $Request
+    if($null-eq$facts){return}
+    $production=@($Package.actions|Where-Object{$_-cin@('SOURCE_WRITE','TEST_WRITE','TEST_RUN')}).Count-gt0
+    if($production-and$null-ne$facts.selfRoot-and($null-eq$Package.PSObject.Properties['selfCheckRepairLimit']-or$Package.selfCheckRepairLimit-ne$facts.selfLimit)){throw 'WORK_PREDECESSOR_SELF_LIMIT_DRIFT'}
+    $plannedAction=@($Package.actions|Where-Object{$_-cin@('SOURCE_WRITE','TEST_WRITE','TEST_RUN','REVIEW_ROUTE','REVIEW_EXECUTE')}).Count-gt0
+    if($plannedAction-and$null-ne$facts.review){
+        if($null-ne$Package.PSObject.Properties['repairReviewPlan']-or$null-eq$Package.PSObject.Properties['repairReviewBinding']){throw 'WORK_PREDECESSOR_REVIEW_BINDING_REQUIRED'}
+        $binding=$Package.repairReviewBinding
+        $null=Get-EvWorkReviewRoot $Context $Request ([pscustomobject]@{path=$binding.parentPackagePath;identity=$binding.parentPackageIdentity})
+        if($facts.review.state-ceq'APPROVED'){throw 'WORK_PREDECESSOR_REVIEW_ALREADY_APPROVED'}
+        if($binding.phase-ceq'INITIAL_REVIEW'){
+            if($facts.review.state-cne'INITIAL_READY'-or$binding.cycle-ne0){throw 'WORK_PREDECESSOR_REVIEW_CYCLE_RESET'}
+        }elseif($binding.phase-cin@('REPAIR','REREVIEW')){
+            $minimum=[int]$facts.review.cycle+$(if($facts.review.state-ceq'CHANGES_REQUESTED'){1}else{0})
+            if($binding.cycle-lt$minimum-or$binding.cycle-lt1-or$binding.cycle-gt$facts.review.parent.repairReviewPlan.maxCycles){throw 'WORK_PREDECESSOR_REVIEW_CYCLE_RESET'}
+        }else{throw 'WORK_PREDECESSOR_REVIEW_PHASE'}
+    }
+}
+function Get-EvPredecessorResultBinding($Context,$Request,$Reference,$Record,$Candidates,$Requirements){
+    $facts=Get-EvWorkPredecessor $Context $Request
+    if($null-eq$facts-or$Record.taskId-cne$facts.taskId){throw 'EVIDENCE_TASK_DRIFT'}
+    $matches=@($facts.plan.stages|Where-Object{@($_.evidenceRefs|Where-Object{$_.kind-ceq$Reference.kind-and(Test-EvSameRef $_ $Reference $Context)}).Count})
+    if($matches.Count-ne1){throw 'WORK_PREDECESSOR_STAGE_UNBOUND'}
+    $stage=$matches[0]
+    Assert-EvSameCandidates $stage.candidateRef $Candidates $Context
+    if(-not(Test-EvSameRef $stage.requiredBy $Requirements $Context)){throw 'EVIDENCE_REQUIREMENTS_DRIFT'}
+    $pairs=@($facts.tails|ForEach-Object{$_.pair})
+    $consumption=Get-EvConsumption $stage evidenceConsumption HISTORICAL_SUCCESS $pairs
+    if($consumption.purpose-cne'HISTORICAL_SUCCESS'){throw 'WORK_PREDECESSOR_STAGE_ORIGINAL_FINALIZE_REQUIRED'}
+    return [pscustomobject]@{taskId=$facts.taskId;plan=$facts.plan;originalFinalize=$consumption.originalFinalize}
+}
+Export-ModuleMember -Function Assert-AiwWorkPredecessor,Assert-AiwWorkPredecessorPackage

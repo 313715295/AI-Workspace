@@ -539,6 +539,46 @@ try{
     $obBatch.rules.FIRST.graph.units[0].unit.body='caller mutation'
     $obFresh=& $obInvoke $obModule $obRoot $obRules $null
     Check ($obFresh.rules.FIRST.graph.units[0].unit.body-ceq'D') 'owned-batch-output-mutation-cannot-pollute-next-independent-call'
+    # Reuse the actual private context, then mutate every returned adoption
+    # carrier. Fresh graph meaning and permissions must remain independent.
+    $obOwned=& $obInvoke $obModule $obRoot $obRules $obContext
+    $obOwned.rules.FIRST.snapshot.descriptor.documents[0].locator='forged.md'
+    $obOwned.rules.FIRST.snapshot.facts.documents[0].document.identity='forged'
+    $obOwned.rules.FIRST.graph.units[0].document.sourceId='FORGED'
+    $obOwned.contextFacts.Config.sourceBindings[0].allowedPaths=@()
+    $obOwnedAgain=& $obInvoke $obModule $obRoot $obRules $obContext
+    Check ($obOwnedAgain.rules.FIRST.graph.identity-ceq$obFresh.rules.FIRST.graph.identity-and$obOwnedAgain.contextFacts.Config.sourceBindings[0].allowedPaths.Count-eq3) 'owned-reused-context-result-descriptor-and-permission-aliases-are-isolated'
+    $obPublicPolicy=$obContext.Policy;$obContext.Policy=Clone $obPublicPolicy
+    $obContext.Policy.rules[0].resultRequirements=@('FORGED')
+    try{Reject {& $obInvoke $obModule $obRoot $obRules $obContext} 'CONTENT_IDENTITY_DRIFT|CONTEXT' 'owned-fast-context-still-rejects-nested-public-policy-mutation'}finally{$obContext.Policy=$obPublicPolicy}
+    $obReordered=[ordered]@{}
+    $obNames=@($obPublicPolicy.PSObject.Properties.Name);[array]::Reverse($obNames)
+    foreach($obName in $obNames){$obReordered[$obName]=$obPublicPolicy.$obName}
+    $obContext.Policy=[pscustomobject]$obReordered
+    try{
+        $obOrderBatch=& $obInvoke $obModule $obRoot $obRules $obContext
+        Check ($obOrderBatch.rules.FIRST.graph.identity-ceq$obFresh.rules.FIRST.graph.identity) 'owned-fast-context-preserves-ordinal-equivalence-for-reordered-members'
+    }finally{$obContext.Policy=$obPublicPolicy}
+    & $obModule {
+        $script:OwnedWholePolicyCopies=0;$script:OwnedCanonicalContextComparisons=0
+        $script:OwnedSavedCopy=(Get-Command Copy-CsValue).ScriptBlock
+        $script:OwnedSavedSignature=(Get-Command Get-CsContextSignature).ScriptBlock
+        Set-Item Function:script:Copy-CsValue -Value {
+            param($Value)
+            if($null-ne$Value-and$null-ne$Value.PSObject.Properties['rules']){$script:OwnedWholePolicyCopies++}
+            & $script:OwnedSavedCopy $Value
+        }
+        Set-Item Function:script:Get-CsContextSignature -Value {
+            param($Context,[switch]$Canonical)
+            if($Canonical){$script:OwnedCanonicalContextComparisons++}
+            & $script:OwnedSavedSignature $Context -Canonical:$Canonical
+        }
+    }
+    try{
+        $obMeasured=& $obInvoke $obModule $obRoot @($obRules[0]) $obContext
+        $obCounts=& $obModule {@($script:OwnedWholePolicyCopies,$script:OwnedCanonicalContextComparisons)}
+        Check ($obMeasured.rules.Count-eq1-and$obCounts[0]-eq0-and$obCounts[1]-eq0) 'owned-current-batch-does-not-deep-copy-whole-policy-or-canonicalize-unchanged-context'
+    }finally{& $obModule {Set-Item Function:script:Copy-CsValue -Value $script:OwnedSavedCopy;Set-Item Function:script:Get-CsContextSignature -Value $script:OwnedSavedSignature}}
     $obPolicy=Join-Path $obRoot '.ai-workspace/process-policy.json';$obPolicyBefore=[IO.File]::ReadAllBytes($obPolicy)
     & $obModule {
         param($path)

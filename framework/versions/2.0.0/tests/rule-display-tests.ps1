@@ -57,7 +57,7 @@ try{
  $selectedIds=@($result.selectedRuleBlocks.requirementId)
  $hostDelivery=@($result.selectedRuleBlocks|Where-Object requirementId -CEQ 'framework:PR_COMPACT_NON_INTERRUPT_DELIVERY')
  $ordinaryOwner=@($result.selectedRuleBlocks|Where-Object requirementId -CEQ 'framework:PR_PROCESS_REQUIREMENTS_PROGRESSIVE_BOUNDARIES')
- Check ($hostDelivery.Count-eq1-and$ordinaryOwner.Count-eq1-and$ordinaryOwner[0].fullText.Contains('无正式Review/接受、TASK_MESSAGE、关闭/责任转换或continuation消费者')-and$ordinaryOwner[0].fullText.Contains('不产生假PASS')-and[regex]::Matches($projection.text,'仅本次实际NONE、无包无副作用').Count-eq1) 'host-delivery-selection-includes-one-complete-ordinary-user-exception-owner'
+ Check ($hostDelivery.Count-eq1-and$ordinaryOwner.Count-eq1-and$ordinaryOwner[0].fullText.Contains('无正式Review/接受、TASK_MESSAGE、关闭/责任转换或continuation消费者')-and$ordinaryOwner[0].fullText.Contains('不生成后继执行许可')-and[regex]::Matches($projection.text,'仅实际NONE、无包无副作用').Count-eq1) 'host-delivery-selection-includes-one-complete-ordinary-user-exception-owner'
 
  Check ([string]::Join('|',@($projection.currentRules.requirementId))-ceq[string]::Join('|',$selectedIds)) 'projection-keeps-exact-current-selection-and-order'
  Check (($result|ConvertTo-Json -Depth 100 -Compress)-ceq$original) 'projection-does-not-mutate-resolver-result'

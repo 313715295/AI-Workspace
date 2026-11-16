@@ -23,7 +23,7 @@ try{
  # Real checker/DISCOVER/FINALIZE integration is in authorization-receipt tests.
  $evidence=[pscustomobject]@{references=@([pscustomobject]@{kind='REVIEW_VERDICT'});records=@([pscustomobject]@{outcome='APPROVED'})}
  Save $hostPath (HostResult owner)
- $boundary=[pscustomobject]@{mode='FINALIZE_OUTPUT';publicDecisionIdentity='NOT_REQUIRED';deliveryReceipts=@();deliveryContext=[pscustomobject]@{channel='TASK_MESSAGE';stage='OBSERVE';expectedRecipient='owner';observedRecipient='owner';outcome='SUCCESS';evidence=($hostPath+'#'+(Id $hostPath))}}
+ $boundary=[pscustomobject]@{schemaVersion=3;mode='FINALIZE_OUTPUT';publicDecisionIdentity='NOT_REQUIRED';deliveryReceipts=@();deliveryContext=[pscustomobject]@{channel='TASK_MESSAGE';stage='OBSERVE';expectedRecipient='owner';observedRecipient='owner';outcome='SUCCESS';evidence=($hostPath+'#'+(Id $hostPath))}}
  $good=Get-AiwBoundDelivery $receipt $boundary $evidence
  Check ($good.consumer.recipient-ceq'owner'-and$good.closureSatisfied-and$good.delivery.delivered-and-not$good.consumer.userAuthorizationProven-and-not$good.consumer.recipientWorkProven) 'approved-host-acceptance-goes-to-owner-with-exact-ceiling'
  $bad=Clone $boundary;$bad.PSObject.Properties.Remove('deliveryContext');$bad.deliveryReceipts=@('DELIVERED')
@@ -97,7 +97,7 @@ try{
  $package.repairReviewPlan.reviewer='DEFERRED_VISIBLE_REVIEWER';Save $authPath $package;$route.authorityContext.authorizationIdentity=Id $authPath
  Reject {Get-AiwBoundDelivery $route $sent $routeEvidence} 'deferred-reviewer-needs-real-creation-binding'
  # No host result or Reviewer identity is needed to reject a wrong author.
- $early=[pscustomobject]@{mode='ADMIT_ACTION';publicDecisionIdentity='NOT_REQUIRED'}
+ $early=[pscustomobject]@{schemaVersion=3;mode='ADMIT_ACTION';publicDecisionIdentity='NOT_REQUIRED'}
  $null=Assert-AiwReviewRoutePreparation $route $early $routeEvidence
  Check $true 'deferred-precreation-known-writer-and-self-validated'
  $badAuthor=Clone $routeEvidence;$badAuthor.records[0].actor='owner'
@@ -218,8 +218,8 @@ try{
   Check (($null-ne$parent.PSObject.Properties['repairReviewPlan'])-eq($organization-ceq'DIRECT_REVIEW')) ('same-source-organization-review-authority-'+$organization)
  }
  $organization='UNKNOWN';Reject {& $example} 'organization-unknown-does-not-invent-a-route' 'ORGANIZATION_ROUTE_REQUIRED'
- # Retention observes JSON values, whereas action inputs remain Objects.
- # Drive the real follower with an array behind a normalized project reference.
+ # Strict JSON supports values, but retention follows declared format fields;
+ # arbitrary JSON attachments and command strings are dependency leaves.
  Import-Module (Join-Path $PSScriptRoot '../scripts/StrictJsonInput.psm1')
  Import-Module (Join-Path $PSScriptRoot '../scripts/ResultEvidence.psm1')
  $retentionRoot=Join-Path $temp '.ai-workspace/runtime/DELIVERY-001/owner'
@@ -246,18 +246,23 @@ try{
  })
  [IO.File]::WriteAllText($linkedPath,(ConvertTo-Json -InputObject $retentionLeaves -Depth 5 -Compress),$utf8)
  $observed=& $deliveryOwner {param($p,$s,$v,$c)Get-DeliveryRuntimeReferences $p $s $v $c} $temp $retentionRoot @('.ai-workspace/reports/unused/../linked.json') $retentionContext
- Check ($observed.retained.Count-eq3-and@($retentionLeaves.path|Where-Object{$_-cnotin$observed.retained}).Count-eq0) 'retention-normalized-relative-reference-follows-all-three-array-leaves'
+ Check ($observed.retained.Count-eq0) 'retention-does-not-open-arbitrary-JSON-attachment-as-a-dependency-program'
+ $observed=& $deliveryOwner {param($p,$s,$v,$c)Get-DeliveryRuntimeReferences $p $s $v $c} $temp $retentionRoot $retentionLeaves $retentionContext
+ Check ($observed.retained.Count-eq3-and@($retentionLeaves.path|Where-Object{$_-cnotin$observed.retained}).Count-eq0) 'retention-explicit-consumed-reference-handoff-keeps-all-three-leaves'
  Reject {Resolve-AiwEvidenceObservationPath $retentionContext '.ai-workspace/reports/../../../outside.json'} 'observation-dot-segments-cannot-escape-bound-root' 'EVIDENCE_PATH_OUTSIDE_BOUND_ROOTS'
  $evidenceOwner=(Get-Command New-AiwEvidenceContext).Module
  Reject {& $evidenceOwner {param($c)Resolve-EvPath $c 'folder/../candidate.md' -Candidate} $retentionContext} 'candidate-path-syntax-is-not-relaxed' 'EVIDENCE_PATH_INVALID'
  $deniedContext=New-AiwEvidenceContext $temp '' '' @($leaf)
- Reject {& $deliveryOwner {param($p,$s,$v,$c)Get-DeliveryRuntimeReferences $p $s $v $c} $temp $retentionRoot @('.ai-workspace/reports/unused/../linked.json') $deniedContext} 'normalized-array-reference-still-honors-leaf-protection' 'EVIDENCE_PATH_FORBIDDEN'
+ Reject {& $deliveryOwner {param($p,$s,$v,$c)Get-DeliveryRuntimeReferences $p $s $v $c} $temp $retentionRoot $retentionLeaves $deniedContext} 'explicit-reference-handoff-still-honors-leaf-protection' 'EVIDENCE_PATH_FORBIDDEN'
  [IO.File]::WriteAllText($linkedPath,'[{"nested":{"a":1,"\u0061":2}}]',$utf8)
- Reject {& $deliveryOwner {param($p,$s,$v,$c)Get-DeliveryRuntimeReferences $p $s $v $c} $temp $retentionRoot @($linkedPath) $retentionContext} 'array-rejects-decoded-duplicate-member-with-original-cause' 'INPUT_FIELD_COUNT|a'
+ Reject {Read-AiwStrictJsonValue $linkedPath} 'strict-array-parser-keeps-decoded-duplicate-member-rejection' 'INPUT_FIELD_COUNT|a'
+ $prose=[pscustomobject]@{command=$leaf+'|'+$retentionLeaves[1].path;reason=$retentionLeaves[2].path;evidenceLocators=@([pscustomobject]@{path=$linkedPath;identity=(Id $linkedPath)})}
+ $observed=& $deliveryOwner {param($p,$s,$v,$c)Get-DeliveryRuntimeReferences $p $s $v $c} $temp $retentionRoot @($prose) $retentionContext
+ Check ($observed.retained.Count-eq0) 'retention-does-not-turn-command-prose-or-old-attachments-into-current-execution-dependencies'
  # A locked, malformed history node distinguishes zero work from a traversal
  # that merely swallows an error. Explicit work must still report that error.
- $cleanupEvidence=[pscustomobject]@{retentionContext=$retentionContext;retentionValues=@([pscustomobject]@{path=$linkedPath;identity=(Id $linkedPath)})}
- $cleanupBoundary=[pscustomobject]@{mode='FINALIZE_OUTPUT'}
+ $cleanupEvidence=[pscustomobject]@{retentionContext=$retentionContext;retentionValues=@([pscustomobject]@{previousReceiptPath=$linkedPath;previousReceiptIdentity=(Id $linkedPath)})}
+ $cleanupBoundary=[pscustomobject]@{schemaVersion=3;mode='FINALIZE_OUTPUT'}
  $cleanupResult=[pscustomobject]@{status='PASS';actionOutcome='OBSERVED'}
  $list=Join-Path $retentionRoot 'expired-list.json';Save $list @($leaf)
  $empty=Join-Path $retentionRoot 'empty';[IO.Directory]::CreateDirectory($empty)|Out-Null
@@ -265,6 +270,8 @@ try{
  try{
   $zero=Complete-AiwRuntimeConsumption $cleanupResult $cleanupBoundary $receipt $hostPath -Evidence $cleanupEvidence
   Check ($null-eq$zero-and[IO.File]::Exists($leaf)) 'zero-candidate-does-not-read-locked-malformed-history'
+  $leaves=& $deliveryOwner {param($p,$s,$v,$c)Get-DeliveryRuntimeReferences $p $s $v $c} $temp $retentionRoot @([pscustomobject]@{path=$linkedPath;identity='1|'+('A'*64)}) $retentionContext
+  Check ($leaves.retained.Count-eq0) 'optional-reference-is-not-opened-even-when-locked-and-malformed'
   $failed=Complete-AiwRuntimeConsumption $cleanupResult $cleanupBoundary $receipt $hostPath -ConsumedRuntimePath @($leaf) -ConsumedRuntimePathList $list -EmptyRuntimeDirectory @($empty) -Evidence $cleanupEvidence
   Check ($failed.status-ceq'REJECTED'-and$failed.reason.Contains('RUNTIME_PROOF_JSON_UNREADABLE')-and$leaf-in$failed.remaining-and$list-in$failed.remaining-and$empty-in$failed.remaining-and-not$failed.pathListMembersKnown-and[IO.File]::Exists($leaf)) 'retention-failure-preserves-complete-known-set-and-unknown-list-members'
  }finally{$hold.Dispose()}

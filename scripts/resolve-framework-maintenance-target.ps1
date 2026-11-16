@@ -53,12 +53,14 @@ try{
     Assert-ControlPathWithoutReparse $control '.ai-workspace/process-policy.json' 'PROCESS_POLICY_REPARSE';$policyPath=Join-Path $control '.ai-workspace/process-policy.json';$policy=Read-Json $policyPath 'PROCESS_POLICY'
     $policyFields=@('schemaVersion','contractVersion','projectId','rules');if($policySchema-eq1){$policyFields+='selectedRulePackBytes'};if($null-ne$policy.PSObject.Properties['facetVocabulary']){$policyFields+='facetVocabulary'}
     if($null-ne$policy.PSObject.Properties['qualityAssurance']){if($policySchema-ne3){throw 'QUALITY_POLICY_SCHEMA'};$policyFields+='qualityAssurance'}
+    if($null-ne$policy.PSObject.Properties['taskCards']){if($policySchema-ne3){throw 'TASK_CARD_POLICY_SCHEMA'};$policyFields+='taskCards'}
     Assert-Fields $policy $policyFields 'PROCESS_POLICY'
-    if($null-ne$policy.PSObject.Properties['qualityAssurance']-or@($policy.rules|Where-Object{$null-ne$_.PSObject.Properties['qualityStages']}).Count){
+    if($null-ne$policy.PSObject.Properties['qualityAssurance']-or$null-ne$policy.PSObject.Properties['taskCards']-or@($policy.rules|Where-Object{$null-ne$_.PSObject.Properties['qualityStages']-or$null-ne$_.PSObject.Properties['taskCardMode']}).Count){
         if($policySchema-ne3){throw 'QUALITY_POLICY_SCHEMA'}
         $policySchemaPath=Join-Path $frameworkWorkspace ('framework/versions/'+[string]$config.frameworkVersion+'/PROCESS_POLICY_SCHEMA.json')
         if(-not(Test-Json -Json ($policy|ConvertTo-Json -Depth 100 -Compress) -SchemaFile $policySchemaPath -ErrorAction SilentlyContinue)){throw 'PROCESS_POLICY_QUALITY_INVALID'}
         if($null-ne$policy.PSObject.Properties['qualityAssurance']-and-not(Test-Integer $policy.qualityAssurance.schemaVersion)){throw 'PROCESS_POLICY_QUALITY_INVALID'}
+        if($null-ne$policy.PSObject.Properties['taskCards']-and-not(Test-Integer $policy.taskCards.schemaVersion)){throw 'PROCESS_POLICY_QUALITY_INVALID'}
     }
     if(-not(Test-Integer $policy.schemaVersion)-or[int]$policy.schemaVersion-ne$policySchema-or[string]$policy.contractVersion-cne[string]$config.frameworkVersion-or[string]$policy.projectId-cne[string]$config.id-or($policySchema-eq1-and(-not(Test-Integer $policy.selectedRulePackBytes)-or[int64]$policy.selectedRulePackBytes-lt1))-or-not($policy.rules-is[Array])-or@($policy.rules|Where-Object{[string]$_.ruleId-ceq'FRAMEWORK_MAINTENANCE_SIBLING_TOPOLOGY'}).Count-ne1){throw 'PROCESS_POLICY_VALUES'}
     Assert-ControlPathWithoutReparse $control '.ai-workspace/controller.json' 'CONTROLLER_REPARSE';$controllerPath=Join-Path $control '.ai-workspace/controller.json';$controller=Read-Json $controllerPath 'CONTROLLER'

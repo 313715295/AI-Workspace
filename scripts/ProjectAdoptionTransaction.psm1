@@ -745,7 +745,7 @@ Export-ModuleMember -Function Invoke-AiwProjectRuleActionRecovery
 
 
 
-function Invoke-AiwProjectSourcePublicationRecovery {
+function Invoke-AiwProjectSourcePublicationRecoveryCore {
     [CmdletBinding()]param([Parameter(Mandatory)][string]$RepositoryRoot,[Parameter(Mandatory)]$PlanDocument,[Parameter(Mandatory)][string]$ObservedActor,[ValidateSet('COMPLETE','ROLLBACK')][string]$Direction='COMPLETE',[switch]$Apply,[int]$InterruptAfterWrite=-1)
     $root=Resolve-AiwRepositoryRoot $RepositoryRoot
     if((Get-AiwCurrentIdentity $PlanDocument.Path)-cne$PlanDocument.Identity){throw 'SOURCE_PUBLICATION_RECOVERY_PLAN_DRIFT'}
@@ -785,6 +785,7 @@ function Invoke-AiwProjectSourcePublicationRecovery {
         # When a decision is pending its real FINALIZE performs this check;
         # real writes validate inside SetContext under the owned guard.
         $boundary=$original.admissions.SOURCE.input|ConvertTo-Json -Depth 100|ConvertFrom-Json -Depth 100
+        $boundary=& $publication {param($value) Convert-PubBoundaryView $value} $boundary
         $boundary.preparationReceipts=@($boundary.preparationReceipts)+@('PROJECT_SOURCE_PUBLICATION_ADMISSIONS|'+$PlanDocument.Path+'|'+$PlanDocument.Identity)
         $null=& $composer.ExportedCommands['Get-AiwProjectSourcePublicationCandidate'] $original.receipts.SOURCE $boundary $recovery.candidateRef RECOVERY -Rollback:($Direction-ceq'ROLLBACK')
     }
@@ -792,7 +793,7 @@ function Invoke-AiwProjectSourcePublicationRecovery {
     try{
         if($needsWrites){
             $lease=Enter-AiwRootProjectSourceScope -ProjectRoot $root -Mode PUBLICATION
-            $proof=& $publication.ExportedCommands['Set-AiwProjectSourcePublicationContext'] $lease $recovery
+            $proof=& $publication {param($scope,$recovery,$original) Set-PubPublicationContextCore $scope $recovery $original} $lease $recovery $original
             $state=& $publication.ExportedCommands['Get-AiwProjectSourcePublicationReachability'] $root $plan $proof.facts.CONTROL.eligibility.forbidden
             while(($Direction-ceq'COMPLETE'-and-not$state.allNew)-or($Direction-ceq'ROLLBACK'-and-not$state.allOld)){
                 if($InterruptAfterWrite-eq0-or($InterruptAfterWrite-ge0-and$writes-ge$InterruptAfterWrite)){throw 'SOURCE_PUBLICATION_INJECTED_INTERRUPTION'}
@@ -876,7 +877,11 @@ function Invoke-AiwProjectSourcePublicationRecovery {
     }else{
         foreach($member in @('SOURCE','CONTROL')){
             if(-not$pending.ContainsKey($member)){continue}
-            $response=& $core.ExportedCommands['Invoke-AiwProcessRequirementBoundary'] -InputPath $pending[$member] -AsJson
+            # A missing-side continuation gets its own fresh full members;
+            # the already durable side is read back, never executed again.
+            $currentMembers=& $publication {param($members,$planRef) Get-AiwProjectSourcePublicationMembers (Get-PubMemberReceiptRef $members[1]) (Get-PubMemberReceiptRef $members[0]) $planRef} $recovery.members $recovery.planRef
+            $publicationContext=[pscustomobject]@{root=$root;mode='FINALIZE_OUTPUT';facts=$currentMembers;targets=$null;member=$member;inputRef=[pscustomobject]@{path=$pending[$member];identity=(Get-AiwCurrentIdentity $pending[$member])}}
+            $response=& $core {param($path,$context) Invoke-AiwProcessRequirementBoundaryCore -InputPath $path -AsJson -PublicationContext $context} $pending[$member] $publicationContext
             & $saveResult $member $pending[$member] $response $resultState
         }
     }
@@ -2921,17 +2926,27 @@ function Invoke-AiwOriginalSourceFinalize {
         $delivery=& $oldDelivery.ExportedCommands['Get-AiwBoundDelivery'] $evidenceReceipt $b $evidence
         $stopDeliveryPending=$stopOriginalSource-and$null-ne$delivery-and-not$delivery.closureSatisfied
         if($null-ne$delivery-and-not$delivery.closureSatisfied-and-not$stopOriginalSource){throw 'ORIGINAL_SOURCE_DELIVERY_NOT_CONFIRMED'}
+        $evidenceKinds=@($evidence.references|ForEach-Object kind)
+        $admissionKinds=@($admissionEvidence.references|ForEach-Object kind)
+        $acceptedInstallation=$null-ne$packageDoc.Value.PSObject.Properties['acceptedOutcomeBinding']
+        if($acceptedInstallation){
+            # O's strict B consumer has already verified the complete original Q,
+            # current purpose, selected targets and original producer results.
+            # Reserved gates derive from that observation, never caller strings.
+            $evidenceKinds+=@($evidence.acceptedCoverage)
+            $admissionKinds+=@($admissionEvidence.acceptedCoverage)
+        }
         $prepared=@($b.preparationReceipts|Where-Object{$_-cnotin@('SELF_CHECK_BOUND','REVIEW_VERDICT_BOUND','RESULT_ACCEPT_RECORDED')})
-        if('SELF_CHECK'-cin@($evidence.references|ForEach-Object kind)){$prepared+='SELF_CHECK_BOUND'}
+        if('SELF_CHECK'-cin$evidenceKinds){$prepared+='SELF_CHECK_BOUND'}
         $originalPrepared=@($a.preparationReceipts|Where-Object{$_-cnotin@('SELF_CHECK_BOUND','REVIEW_VERDICT_BOUND','RESULT_ACCEPT_RECORDED')})
-        if('SELF_CHECK'-cin@($admissionEvidence.references|ForEach-Object kind)){$originalPrepared+='SELF_CHECK_BOUND'}
+        if('SELF_CHECK'-cin$admissionKinds){$originalPrepared+='SELF_CHECK_BOUND'}
         if(@($r.selectedObligations.preparationRequirements|Where-Object{$_-cnotin$originalPrepared}).Count){throw 'ORIGINAL_SOURCE_ADMISSION_PREPARATION_INCOMPLETE'}
         $missingPrep=@($r.selectedObligations.preparationRequirements|Where-Object{$_-cnotin$prepared})
         $requiredResult=@($r.selectedObligations.resultRequirements)
         if($null-ne$delivery){$requiredResult=@($requiredResult|Where-Object{$_-cne'DELIVERY_RECEIPT'})}
         $providedResult=@($b.resultReceipts|Where-Object{$_-cnotin@('SELF_CHECK_BOUND','REVIEW_VERDICT_BOUND','RESULT_ACCEPT_RECORDED')})
-        if('REVIEW_VERDICT'-cin@($evidence.references|ForEach-Object kind)){$providedResult+='REVIEW_VERDICT_BOUND'}
-        if('RESULT_ACCEPTANCE'-cin@($evidence.references|ForEach-Object kind)){$providedResult+='RESULT_ACCEPT_RECORDED'}
+        if('REVIEW_VERDICT'-cin$evidenceKinds){$providedResult+='REVIEW_VERDICT_BOUND'}
+        if('RESULT_ACCEPTANCE'-cin$evidenceKinds){$providedResult+='RESULT_ACCEPT_RECORDED'}
         $missingResult=@($requiredResult|Where-Object{$_-cnotin$providedResult})
         if($missingPrep.Count-or$missingResult.Count){throw 'ORIGINAL_SOURCE_OBLIGATIONS_INCOMPLETE'}
         if($null-eq$delivery-and$r.resultKind-cin@('USER_RESPONSE','TERMINAL','HANDOFF','REVIEW_VERDICT','RESULT_ACCEPTANCE')-and@($b.deliveryReceipts).Count-eq0){throw 'ORIGINAL_SOURCE_DELIVERY_REQUIRED'}
@@ -2941,6 +2956,7 @@ function Invoke-AiwOriginalSourceFinalize {
             foreach($field in $r.sourceBindings.PSObject.Properties){if([string]$last.($field.Name)-cne[string]$currentRuleBindings.($field.Name)){throw ('ORIGINAL_SOURCE_CURRENT_RULE_DRIFT_DURING_CHECK|'+$field.Name)}}
         }
         $result=[ordered]@{status='PASS';mode='FINALIZE_OUTPUT';reason=$(if($ruleCompletion){'ORIGINAL_SOURCE_FINALIZED_AFTER_RULE_PUBLICATION'}elseif($CompleteOriginalSourceAfterAgentsChange){'ORIGINAL_SOURCE_FINALIZED_AFTER_SAME_PIN_AGENTS_CHANGE'}else{'ORIGINAL_SOURCE_FINALIZED_AFTER_COMPLETED_ADOPTION'});originalDiscoverReceiptIdentity=$rd.Identity;originalAdmitDecisionIdentity=$ad.decisionIdentity;decisionIdentity=(& $oldComposer.ExportedCommands['Get-AiwProcessDecisionIdentity'] $raw $b);originalRuntimeRoot=$oldRuntime;targetRuntimeRoot=$targetBinding.runtimeRoot;executionRuntimeRoot=$toolRoot;actionOutcome='OBSERVED';successorState='NONE';missingPreparation=@();missingResult=@();authorityGranted=$false;semanticCorrectnessProven=$false;hostInvocationProven=$false;evidenceGrade='INSTRUCTION_BOUND'}
+        if($acceptedInstallation){$result.selectionIdentity=$raw.selectionIdentity}
         if($stopOriginalSource){
             $result.actionOutcome=$self
             $result.reason='ORIGINAL_SOURCE_STOPPED_AFTER_SAME_PIN_AGENTS_CHANGE'
@@ -3272,3 +3288,18 @@ function Invoke-AiwOriginalExternalResultCompletion {
     } finally {& $state.ExportedCommands['Exit-AiwRootProjectSourceScope'] $lease}
 }
 Export-ModuleMember -Function Invoke-AiwOriginalExternalResultCompletion
+
+function Invoke-AiwProjectSourcePublicationRecovery {
+
+    [CmdletBinding()]param([Parameter(Mandatory)][string]$RepositoryRoot,[Parameter(Mandatory)]$PlanDocument,[Parameter(Mandatory)][string]$ObservedActor,[ValidateSet('COMPLETE','ROLLBACK')][string]$Direction='COMPLETE',[switch]$Apply,[int]$InterruptAfterWrite=-1)
+ $owner=$ExecutionContext.SessionState.Module
+ $publication=@(Import-Module (Join-Path $PSScriptRoot '../framework/versions/2.0.0/scripts/ProjectSourcePublication.psm1') -PassThru -ErrorAction Stop)[0]
+ & $publication {
+  param($owner,$parameters)
+  Invoke-PubClosureObservationScope -Body {
+   param($owner,$parameters)
+   & $owner {param($parameters) Invoke-AiwProjectSourcePublicationRecoveryCore @parameters} $parameters
+  } -Arguments @($owner,$parameters)
+ } $owner $PSBoundParameters
+}
+Export-ModuleMember -Function Invoke-AiwProjectSourcePublicationRecovery

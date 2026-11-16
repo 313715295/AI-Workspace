@@ -36,7 +36,7 @@ function Test-CurrentRuleLoadingContract {
  $body=Get-RequirementBlock (Join-Path $versionRoot 'RECOVERY_CORE.md') 'PR_PROCESS_REQUIREMENTS_PROGRESSIVE_BOUNDARIES'
  $tool=Get-Content (Join-Path $versionRoot 'TOOL_CONTRACT.md') -Raw
  Assert-True ($budget.candidate.catalogIdentity-ceq(Get-Identity $catalogPath)) 'rule-loading-budget-binds-current-generated-catalog'
- Assert-True (@($catalog.requirements|Where-Object requirementId -CEQ 'PR_PROCESS_REQUIREMENTS_PROGRESSIVE_BOUNDARIES').Count-eq1-and$body.Contains('同次去重')-and$body.Contains('不调用正文装配或显示')-and$body.Contains('summary、hash、旧receipt或机械PASS不能替代实际缺失正文')-and$tool.Contains('RULE_LOAD_PRELOAD_RETIRED')-and$tool.Contains('actionRebind')) 'rule-loading-contract-preserves-complete-body-and-current-action-boundary'
+ Assert-True (@($catalog.requirements|Where-Object requirementId -CEQ 'PR_PROCESS_REQUIREMENTS_PROGRESSIVE_BOUNDARIES').Count-eq1-and$body.Contains('同次去重')-and$body.Contains('不调用正文assembler或renderer')-and$body.Contains('不用摘要、hash或旧收据替代未读正文')-and$tool.Contains('RULE_LOAD_PRELOAD_RETIRED')-and$tool.Contains('actionRebind')) 'rule-loading-contract-preserves-complete-body-and-current-action-boundary'
 }
 Test-CurrentRuleLoadingContract
 if($RuleLoadingOnly){Write-Output 'GOVERNANCE_RULE_LOADING_PASS|scope=current-contract-and-generated-catalog-consumer';return}
@@ -59,12 +59,12 @@ if($catalogCheck.Code-ne0){
  $script:govFailureChild=$script:govLastNative
  throw ('GOVERNANCE_GENERATOR_CHECK_FAILED|native='+$catalogCheck.Code+'|'+$catalogCheck.StdoutText.Trim())
 }
-Assert-True ($catalogCheck.Code-eq0-and$catalogCheck.Text.Contains('PASS|requirements=40|fragments=8')) 'process-requirements-canonical-fragments-match-generated-catalog'
+Assert-True ($catalogCheck.Code-eq0-and$catalogCheck.Text.Contains('PASS|requirements=46|fragments=8')) 'process-requirements-canonical-fragments-match-generated-catalog'
 $script:govFailureStage='CONTRACT_BODY'
 $blockProjectionValid=-not$catalogText.Contains('"fullText"')
 foreach($fragmentPath in Get-ChildItem -LiteralPath (Join-Path $versionRoot 'requirements\fragments') -File -Filter '*.json'){if((Get-Content -Raw -Encoding utf8 -LiteralPath $fragmentPath.FullName).Contains('"fullText"')){$blockProjectionValid=$false}}
 foreach($requirement in @($catalog.requirements)){$ownerPath=Join-Path $versionRoot ([string]$requirement.ownerModule);try{$body=Get-RequirementBlock $ownerPath ([string]$requirement.requirementId)}catch{$blockProjectionValid=$false;continue};if([string]$requirement.exactBlockLocator-cne('AIW-REQUIREMENT:'+[string]$requirement.requirementId)-or[string]::IsNullOrWhiteSpace($body)){$blockProjectionValid=$false}}
-Assert-True ($blockProjectionValid-and@($catalog.requirements).Count-eq40) 'process-requirements-metadata-only-catalog-exact-markdown-blocks-nonempty'
+Assert-True ($blockProjectionValid-and@($catalog.requirements).Count-eq46) 'process-requirements-metadata-only-catalog-exact-markdown-blocks-nonempty'
 
 # The nested runner supports a temp parent of at most 100 characters. Keep
 # this owned directory below that limit before any copying or nested calls.
@@ -233,16 +233,16 @@ $script:govFailureStage='CONTRACT_BODY'
 $recoveryPath=Join-Path $versionRoot 'RECOVERY_CORE.md'
 $recoveryBlock=Get-RequirementBlock $recoveryPath 'PR_PROCESS_REQUIREMENTS_PROGRESSIVE_BOUNDARIES'
 $taskBlock=Get-RequirementBlock (Join-Path $versionRoot 'TASK_AND_SCOPE.md') 'PR_TASK_SCOPE_AND_FORBIDDEN'
-$authorizationBlock=Get-RequirementBlock (Join-Path $versionRoot 'AUTHORIZATION_MODEL.md') 'PR_ACTION_AUTHORIZATION_INDEPENDENT'
+$authorizationBlock=@((Get-RequirementBlock (Join-Path $versionRoot 'AUTHORIZATION_MODEL.md') 'PR_ACTION_AUTHORIZATION_INDEPENDENT'),(Get-RequirementBlock (Join-Path $versionRoot 'AUTHORIZATION_MODEL.md') 'PR_BOUNDED_TASK_ACTIONS'))-join"`n`n"
 $hostBlock=Get-RequirementBlock (Join-Path $versionRoot 'HOST_CODEX.md') 'PR_CODEX_ROUTER_REACTIVATION'
 $routerText=Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $repositoryRoot 'skills\ai-workspace-router-v2\SKILL.md')
 $starterText=Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $versionRoot 'project-starter\BOOTSTRAP.md')
 $maintenanceText=Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $repositoryRoot 'framework\maintenance-overlay\BOOTSTRAP.md')
 $toolContractText=Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $versionRoot 'TOOL_CONTRACT.md')
 $mainTestText=Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $versionRoot 'tests\run-framework-tests.ps1')
-Assert-True ($recoveryBlock.Contains('来源组合、当前动作决定及正文可用性')-and$recoveryBlock.Contains('有序依赖')-and$recoveryBlock.Contains('权限、任务路线、阶段、决定或执行目标')-and$recoveryBlock.Contains('fresh包')-and$recoveryBlock.Contains('完整字节严格核对')) 'recovery-core-owns-composition-decision-and-model-body-availability-contract'
+Assert-True ($recoveryBlock.Contains('完整有效声明')-and$recoveryBlock.Contains('有序依赖')-and$recoveryBlock.Contains('权限、范围、真实路线及适用要求')-and$recoveryBlock.Contains('普通文件、包或本地配套操作')-and$recoveryBlock.Contains('历史动作沿原冻结义务')) 'recovery-core-owns-composition-decision-and-model-body-availability-contract'
 Assert-True ($taskBlock.Contains('按RECOVERY恢复原事务')-and$hostBlock.Contains('PROJECT_BOOTSTRAP')-and$routerText.Contains('pinned RECOVERY_CORE')-and$starterText.Contains('RECOVERY_CORE')-and$maintenanceText.Contains('RECOVERY_CORE')-and$hostBlock.Contains('原FINALIZE完成后')) 'recovery-router-host-task-and-bootstraps-use-one-owner-with-thin-pointers'
-Assert-True ($recoveryBlock.Contains('首次、压缩、换主体或正文不确定请求FULL')-and$recoveryBlock.Contains('真实来源拒绝、撤权、保护或未完采用不能以FULL变成PASS')-and$recoveryBlock.Contains('不要求宿主提供不存在的')-and$recoveryBlock.Contains('summary、hash、旧receipt或机械PASS不能替代实际缺失正文')) 'recovery-static-contract-does-not-claim-model-fulltext-read-from-mechanical-evidence'
+Assert-True ($recoveryBlock.Contains('首次项目工作、压缩、换主体、正文不确定')-and$recoveryBlock.Contains('FULL不使这些条件通过')-and$recoveryBlock.Contains('不得预载未来活动')-and$recoveryBlock.Contains('机器PASS证明模型记忆/attention')-and$recoveryBlock.Contains('不用摘要、hash或旧收据替代未读正文')) 'recovery-static-contract-does-not-claim-model-fulltext-read-from-mechanical-evidence'
 Assert-True ($taskBlock.Contains('可验收有界批次')-and$taskBlock.Contains('必需诊断、依赖和局部修复不拆成新决定')-and$taskBlock.Contains('Executor自主选择方法、工具和顺序')-and$authorizationBlock.Contains('独立Review、接受、Git、设备、外部、发行和采用不由连续写测自动取得')-and$toolContractText.Contains('continuationPlan')-and$toolContractText.Contains('RESULT_ACCEPT')) 'task-contract-batches-predictable-work-without-merging-independent-gates'
 Assert-True ($authorizationBlock.Contains('真实原FINALIZE后像')-and$authorizationBlock.Contains('TOOL_CONTRACT')-and$authorizationBlock.Contains('INSTRUCTION_BOUND')-and$toolContractText.Contains('AUTHORIZED_ACTION_CONTINUATION')-and$toolContractText.Contains('原 package、source action/step、next step 与 current objects')-and$toolContractText.Contains('continuationReceiptPath + expectedContinuationReceiptIdentity')-and$toolContractText.Contains('不保存无法由 checker 复验的 finalize hash')-and-not$toolContractText.Contains('sourceFinalizeDecisionIdentity')-and$maintenanceText.Contains('check-framework-maintenance-authorization.ps1')) 'authorization-continuation-has-one-postimage-bound-consumer-contract'
 # The schema owns the optional coordinates. Actual missing-invalidator and

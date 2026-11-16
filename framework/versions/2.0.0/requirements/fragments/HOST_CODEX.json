@@ -145,7 +145,8 @@
           "*"
         ],
         "contextTypes": [
-          "TASK"
+          "TASK",
+          "PROJECT_WORK"
         ],
         "facets": {}
       }
@@ -154,7 +155,7 @@
       "requirementId": "PR_CODEX_TOOL_OPERATION_RESOLUTION",
       "legacyAliases": [],
       "title": "Sealed tool operation resolution",
-      "description": "Resolve exact fixed operations and actual host creation, identity and initial delegation while reusing healthy bindings.",
+      "description": "Resolve the exact fixed operation and sequence independent reads and dependent mechanical steps with real failure propagation.",
       "selectors": {
         "profiles": [
           "*"
@@ -286,6 +287,44 @@
       "resultRequirements": [
         "PROJECT_ENTRY_FINAL_READBACK"
       ]
+    },
+    {
+      "requirementId": "PR_CODEX_SESSION_ORGANIZATION",
+      "legacyAliases": [],
+      "title": "Codex session organization",
+      "description": "Apply actual host creation, receiver identity, title and archive operations at their task organization boundary.",
+      "selectors": {
+        "profiles": [
+          "*"
+        ],
+        "roles": [
+          "*"
+        ],
+        "phases": [
+          "*"
+        ],
+        "actionKinds": [
+          "*"
+        ],
+        "resultKinds": [
+          "*"
+        ],
+        "pathPrefixes": [],
+        "capabilities": [],
+        "semanticTerms": [],
+        "facets": {
+          "workType": [
+            "aiw:task-organization",
+            "aiw:collaboration",
+            "aiw:controller-handoff",
+            "aiw:closure",
+            "aiw:recovery"
+          ]
+        }
+      },
+      "exactBlockLocator": "AIW-REQUIREMENT:PR_CODEX_SESSION_ORGANIZATION",
+      "preparationRequirements": [],
+      "resultRequirements": []
     }
   ],
   "facetVocabulary": []

@@ -259,113 +259,262 @@
       "type": "array"
     },
     "qualityBinding": {
-      "type": "object",
-      "required": [
-        "schemaVersion",
-        "policyRef",
-        "subject",
-        "effectiveStages"
-      ],
-      "properties": {
-        "effectiveStages": {
-          "type": "array",
-          "items": {
-            "enum": [
-              "SELF_CHECK",
-              "RESULT_REVIEW",
-              "RESULT_ACCEPT"
-            ]
-          },
-          "uniqueItems": true
-        },
-        "policyRef": {
+      "oneOf": [
+        {
           "type": "object",
           "required": [
-            "path",
-            "identity"
+            "schemaVersion",
+            "policyRef",
+            "subject",
+            "effectiveStages"
           ],
           "properties": {
-            "identity": {
-              "type": "string",
-              "pattern": "^\\d+\\|[A-F0-9]{64}$"
+            "effectiveStages": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "SELF_CHECK",
+                  "RESULT_REVIEW",
+                  "RESULT_ACCEPT"
+                ]
+              },
+              "uniqueItems": true
             },
-            "path": {
-              "const": ".ai-workspace/process-policy.json"
+            "policyRef": {
+              "type": "object",
+              "required": [
+                "path",
+                "identity"
+              ],
+              "properties": {
+                "identity": {
+                  "type": "string",
+                  "pattern": "^\\d+\\|[A-F0-9]{64}$"
+                },
+                "path": {
+                  "const": ".ai-workspace/process-policy.json"
+                }
+              },
+              "additionalProperties": false
+            },
+            "schemaVersion": {
+              "const": 1
+            },
+            "subject": {
+              "type": "object",
+              "required": [
+                "repositoryId",
+                "exactPaths",
+                "facets"
+              ],
+              "properties": {
+                "exactPaths": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "minItems": 1,
+                  "uniqueItems": true
+                },
+                "repositoryId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "facets": {
+                  "type": "object",
+                  "required": [
+                    "domain",
+                    "deliverableType"
+                  ],
+                  "properties": {
+                    "deliverableType": {
+                      "type": "object",
+                      "required": [
+                        "state",
+                        "values"
+                      ],
+                      "properties": {
+                        "state": {
+                          "const": "KNOWN"
+                        },
+                        "values": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "minItems": 1,
+                          "uniqueItems": true
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "domain": {
+                      "type": "object",
+                      "required": [
+                        "state",
+                        "values"
+                      ],
+                      "properties": {
+                        "state": {
+                          "const": "KNOWN"
+                        },
+                        "values": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "minItems": 1,
+                          "uniqueItems": true
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
             }
           },
           "additionalProperties": false
         },
-        "schemaVersion": {
-          "const": 1
-        },
-        "subject": {
+        {
           "type": "object",
           "required": [
-            "repositoryId",
-            "exactPaths",
-            "facets"
+            "schemaVersion",
+            "policyRef",
+            "subject",
+            "effectiveStages"
           ],
           "properties": {
-            "exactPaths": {
+            "effectiveStages": {
               "type": "array",
               "items": {
-                "type": "string",
-                "minLength": 1
+                "enum": [
+                  "SELF_CHECK",
+                  "RESULT_REVIEW",
+                  "RESULT_ACCEPT"
+                ]
               },
-              "minItems": 1,
               "uniqueItems": true
             },
-            "repositoryId": {
-              "type": "string",
-              "minLength": 1
-            },
-            "facets": {
+            "policyRef": {
               "type": "object",
               "required": [
-                "domain",
-                "deliverableType"
+                "path",
+                "identity"
               ],
               "properties": {
-                "deliverableType": {
-                  "type": "object",
-                  "required": [
-                    "state",
-                    "values"
-                  ],
-                  "properties": {
-                    "state": {
-                      "const": "KNOWN"
-                    },
-                    "values": {
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "minItems": 1,
-                      "uniqueItems": true
-                    }
-                  },
-                  "additionalProperties": false
+                "identity": {
+                  "type": "string",
+                  "pattern": "^\\d+\\|[A-F0-9]{64}$"
                 },
-                "domain": {
+                "path": {
+                  "const": ".ai-workspace/process-policy.json"
+                }
+              },
+              "additionalProperties": false
+            },
+            "schemaVersion": {
+              "const": 2
+            },
+            "subject": {
+              "type": "object",
+              "required": [
+                "repositoryId",
+                "exactPaths",
+                "facets"
+              ],
+              "properties": {
+                "exactPaths": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "minItems": 1,
+                  "uniqueItems": true
+                },
+                "repositoryId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "facets": {
                   "type": "object",
                   "required": [
-                    "state",
-                    "values"
+                    "domain",
+                    "workType",
+                    "deliverableType"
                   ],
                   "properties": {
-                    "state": {
-                      "const": "KNOWN"
-                    },
-                    "values": {
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "minLength": 1
+                    "deliverableType": {
+                      "type": "object",
+                      "required": [
+                        "state",
+                        "values"
+                      ],
+                      "properties": {
+                        "state": {
+                          "const": "KNOWN"
+                        },
+                        "values": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "minItems": 1,
+                          "uniqueItems": true
+                        }
                       },
-                      "minItems": 1,
-                      "uniqueItems": true
+                      "additionalProperties": false
+                    },
+                    "domain": {
+                      "type": "object",
+                      "required": [
+                        "state",
+                        "values"
+                      ],
+                      "properties": {
+                        "state": {
+                          "const": "KNOWN"
+                        },
+                        "values": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "minItems": 1,
+                          "uniqueItems": true
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "workType": {
+                      "type": "object",
+                      "required": [
+                        "state",
+                        "values"
+                      ],
+                      "properties": {
+                        "state": {
+                          "const": "KNOWN"
+                        },
+                        "values": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "minItems": 1,
+                          "uniqueItems": true
+                        }
+                      },
+                      "additionalProperties": false
                     }
                   },
                   "additionalProperties": false
@@ -376,8 +525,7 @@
           },
           "additionalProperties": false
         }
-      },
-      "additionalProperties": false
+      ]
     }
   },
   "allOf": [

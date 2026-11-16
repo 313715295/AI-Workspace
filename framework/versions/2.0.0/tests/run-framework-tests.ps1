@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([switch]$SkipManifest,[switch]$SkipBaseline,[switch]$SkipPerformanceSmoke,[switch]$ToolContractOnly,[switch]$SelectorOnly,[switch]$MainIntegrationOnly,[ValidateSet('All','RuleSelection','SourceChangeRecovery','KnowledgeEnable')][string]$StandardPresetsGroup,[switch]$MaintenanceFixture,[string[]]$Groups=@(),[string[]]$ResumeEvidence=@(),[string]$EvidenceDirectory,[string]$SourceViewPath,[ValidateSet('PREPACKAGE','POSTBUILD')][string]$Phase='PREPACKAGE',[string]$PackagePath,[string]$BuildCommandPath,[string]$AcceptedBaselinePath,[string]$ExpectedAcceptedBaselineIdentity,[ValidateSet(1,2,3)][int]$ProofSchemaVersion=3,[switch]$InternalLegacyRun,[string]$ControlRoot,[string]$TaskPath,[string]$ExecutionTargetRef,[string]$ExpectedTargetState)
+param([switch]$SkipManifest,[switch]$SkipBaseline,[switch]$SkipPerformanceSmoke,[switch]$ToolContractOnly,[switch]$SelectorOnly,[switch]$MainIntegrationOnly,[ValidateSet('All','RuleSelection','SourceChangeRecovery','KnowledgeEnable')][string]$StandardPresetsGroup,[switch]$MaintenanceFixture,[string[]]$Groups=@(),[string[]]$ResumeEvidence=@(),[string]$EvidenceDirectory,[string]$SourceViewPath,[ValidateSet('PREPACKAGE','POSTBUILD')][string]$Phase='PREPACKAGE',[string]$PackagePath,[string]$ExtractedPackagePath,[string]$BuildCommandPath,[string]$AcceptedBaselinePath,[string]$ExpectedAcceptedBaselineIdentity,[ValidateSet(1,2,3,4)][int]$ProofSchemaVersion=3,[string]$ChangePlanPath,[string]$ExpectedChangePlanIdentity,[switch]$InternalLegacyRun,[string]$ControlRoot,[string]$TaskPath,[string]$ExecutionTargetRef,[string]$ExpectedTargetState)
 
 # Script-body boundary: keep the original script scope and PSBoundParameters.
 $runnerPrimaryError=$null;$runnerPrimaryStage=$null;$runnerCleanupError=$null;$runnerFirstFailureChild=$null;$runnerStage='INITIALIZATION'
@@ -13,12 +13,14 @@ if([string]::IsNullOrWhiteSpace($script:pwshExecutable)){throw 'POWERSHELL7_PROC
 
 
 Import-Module (Join-Path $PSScriptRoot 'TestHarness.psm1')
+if($InternalLegacyRun-and($ChangePlanPath-or$ExpectedChangePlanIdentity-or$ProofSchemaVersion-eq4)){throw 'TEST_CHANGE_INPUT_COMBINATION'}
 if(-not$InternalLegacyRun){
  if(-not$PSBoundParameters.ContainsKey('ProofSchemaVersion')-and($AcceptedBaselinePath-or$ExpectedAcceptedBaselineIdentity)){$ProofSchemaVersion=1} # Existing explicit v1 baseline calls, including the summary frontdoor.
  $resumeScopeOwner=@(Import-Module (Join-Path $PSScriptRoot 'TestGroupEvidence.psm1') -PassThru)[0]
  $resumePreviousScope=& $resumeScopeOwner {Enter-TestResumeReadScope}
  $releaseReader=Import-Module (Join-Path $PSScriptRoot '../scripts/ReleaseValidation.psm1') -PassThru
- foreach($command in @('Get-AiwReleaseFileIdentity','Expand-AiwReleasePackage','Get-AiwReleaseQualification','Assert-AiwReleaseBuildEvidence','Get-AiwReleasePackageFacts')){if(-not$releaseReader.ExportedCommands.ContainsKey($command)-or$releaseReader.ExportedCommands[$command].Module.Path-cne$releaseReader.Path){throw ('RELEASE_READER_OWNER_COMMAND|'+$command)}}
+ foreach($command in @('Get-AiwReleaseFileIdentity','Expand-AiwReleasePackage','Get-AiwReleaseQualification','Assert-AiwReleaseBuildEvidence','Get-AiwReleasePackageFacts','Get-AiwReleasePostbuildQualification')){if(-not$releaseReader.ExportedCommands.ContainsKey($command)-or$releaseReader.ExportedCommands[$command].Module.Path-cne$releaseReader.Path){throw ('RELEASE_READER_OWNER_COMMAND|'+$command)}}
+  if($Phase-ceq'PREPACKAGE'-and$ExtractedPackagePath){throw 'PREPACKAGE_CANNOT_USE_EXTRACTED_PACKAGE'}
   if($Phase-ceq'PREPACKAGE'-and$PackagePath){throw 'PREPACKAGE_CANNOT_READ_FINAL_PACKAGE'}
   if($Phase-ceq'POSTBUILD'-and-not$PackagePath){throw 'POSTBUILD_ACTUAL_PACKAGE_REQUIRED'}
  $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../../..'))
@@ -37,8 +39,12 @@ if(-not$InternalLegacyRun){
  }
 
  $definitionPath=Join-Path $PSScriptRoot 'test-groups.json';$definition=Read-AiwTestGroupDefinition $definitionPath
+ $change=[bool]($ChangePlanPath-or$ExpectedChangePlanIdentity-or$ProofSchemaVersion-eq4)
+ if($change-and(-not$ChangePlanPath-or-not$ExpectedChangePlanIdentity-or$Phase-cne'PREPACKAGE'-or$definition.schemaVersion-ne3-or-not$Groups.Count-or$ResumeEvidence.Count-or$AcceptedBaselinePath-or$ExpectedAcceptedBaselineIdentity-or$isolatedRun-or$SkipManifest-or$SkipBaseline-or$SkipPerformanceSmoke-or$MaintenanceFixture-or($PSBoundParameters.ContainsKey('ProofSchemaVersion')-and$ProofSchemaVersion-ne4))){throw 'TEST_CHANGE_INPUT_COMBINATION'}
+
  if(-not$PSBoundParameters.ContainsKey('ProofSchemaVersion')-and-not($AcceptedBaselinePath-or$ExpectedAcceptedBaselineIdentity)){$ProofSchemaVersion=if($definition.schemaVersion-eq3){3}elseif($definition.schemaVersion-eq2){2}else{1}}
- if($Phase-ceq'PREPACKAGE'-and(($definition.schemaVersion-eq3-and$ProofSchemaVersion-ne3)-or($definition.schemaVersion-ne3-and$ProofSchemaVersion-eq3))){throw 'TEST_DEFINITION_PROOF_VERSION_MISMATCH'}
+ if($change){$ProofSchemaVersion=4}
+ if($Phase-ceq'PREPACKAGE'-and(($definition.schemaVersion-eq3-and$ProofSchemaVersion-notin@(3,4))-or($definition.schemaVersion-ne3-and$ProofSchemaVersion-in@(3,4)))){throw 'TEST_DEFINITION_PROOF_VERSION_MISMATCH'}
  $legacy=@(@('ToolContractOnly','SelectorOnly','MainIntegrationOnly','StandardPresetsGroup')|Where-Object{$PSBoundParameters.ContainsKey($_)-and[bool]$PSBoundParameters[$_]})
  if($legacy.Count-gt1-or($Groups.Count-and$legacy.Count)){throw 'TEST_GROUP_SCOPE_FLAGS_CONFLICT'}
  if($StandardPresetsGroup){
@@ -50,7 +56,6 @@ if(-not$InternalLegacyRun){
  if(-not$Groups.Count){$Groups=@($required)}else{$Groups=@($Groups|ForEach-Object{$_-split','})}
  $seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
   foreach($id in $Groups){if(-not$seen.Add($id)-or$id-cnotin@($definition.groups|Where-Object phase -CEQ $Phase|ForEach-Object id)){throw ('TEST_UNKNOWN_DUPLICATE_OR_MIXED_PHASE_GROUP|'+$id)}}
- $fullPrepackage=$Phase-ceq'PREPACKAGE'-and$Groups.Count-eq$required.Count-and@($required|Where-Object{$_-cnotin$Groups}).Count-eq0
  $ResumeEvidence=@($ResumeEvidence|ForEach-Object{$_-split','})
  if($Phase-ceq'PREPACKAGE'-and$definition.schemaVersion-in@(2,3)){
   if($ProofSchemaVersion-in@(2,3)-and($AcceptedBaselinePath-or$ExpectedAcceptedBaselineIdentity)){throw 'TEST_CURRENT_COVERAGE_BASELINE_FORBIDDEN'}
@@ -60,6 +65,12 @@ if(-not$InternalLegacyRun){
    if($resumeRoots.Count-ne1){throw 'TEST_RESUME_ROOT_AMBIGUOUS'};$SourceViewPath=@($resumeRoots)[0]
    if(-not(Test-Path -LiteralPath $SourceViewPath -PathType Container)-or-not(Test-Path -LiteralPath ($SourceViewPath+'.owner.json') -PathType Leaf)){throw 'TEST_RESUME_OWNED_ROOT_REQUIRED'}
   }
+ }
+ if($Phase-ceq'POSTBUILD'-and$ResumeEvidence.Count-and-not$ExtractedPackagePath){
+  $resumeRoots=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+  foreach($resumePath in $ResumeEvidence){$original=Read-AiwTestJson $resumePath;if($original.executionKind-cne'EXECUTED'-or$original.phase-cne'POSTBUILD'-or$original.after.facts.rootSensitive-isnot[bool]-or-not$original.after.facts.rootSensitive-or$original.after.facts.root-isnot[string]){throw 'TEST_POSTBUILD_RESUME_ORIGINAL_ROOT_REQUIRED'};$null=$resumeRoots.Add((Assert-AiwTestPath $original.after.facts.root))}
+  if($resumeRoots.Count-ne1){throw 'TEST_POSTBUILD_RESUME_ROOT_AMBIGUOUS'};$ExtractedPackagePath=@($resumeRoots)[0]
+  if(-not[IO.Directory]::Exists($ExtractedPackagePath)-or-not[IO.File]::Exists(($ExtractedPackagePath+'.owner.json'))){throw 'TEST_POSTBUILD_RESUME_OWNED_ROOT_REQUIRED'}
  }
  if($SourceViewPath-and($Phase-cne'PREPACKAGE'-or$definition.schemaVersion-notin@(2,3))){throw 'TEST_SOURCE_VIEW_PREPACKAGE_SCHEMA2_ONLY'}
  if($MaintenanceFixture-and@($Groups|Where-Object{$_-cnotlike'presets.*'}).Count){throw 'MAINTENANCE_FIXTURE_REQUIRES_PRESET_GROUPS'}
@@ -71,7 +82,7 @@ if(-not$InternalLegacyRun){
   $options=[ordered]@{SkipManifest=[bool]$SkipManifest;SkipBaseline=[bool]$SkipBaseline;SkipPerformanceSmoke=[bool]$SkipPerformanceSmoke;MaintenanceFixture=[bool]$MaintenanceFixture}
   foreach($name in $targetOptions.Keys){$options[$name]=$targetOptions[$name]}
   $sourceView=$null
-  $sourceViewLease=$null
+  $sourceViewLease=$null;$packageViewLease=$null
   $sourceReadRoot=$root;$sourceReadDefinitionPath=$definitionPath
   $runnerStage='SOURCE_VIEW_AND_EXECUTION'
   try{
@@ -82,19 +93,18 @@ if(-not$InternalLegacyRun){
    $closure=Join-Path $root 'source-inputs.json'
    $sourceView=[pscustomobject]@{Root=$root;ClosurePath=$closure;ClosureIdentity=(Get-AiwTestFileIdentity $closure)}
   }elseif($Phase-ceq'PREPACKAGE'-and$definition.schemaVersion-in@(2,3)){
-   $null=Assert-AiwTestSourceViewReadClosure $sourceReadRoot $sourceReadDefinitionPath $definition $Groups -Stage BeforeEnter
    $viewWatch=[Diagnostics.Stopwatch]::StartNew()
-   if($SourceViewPath){$sourceViewLease=Enter-AiwTestSourceView -SourceRoot $root -DestinationRoot $SourceViewPath -Definition $definition -EvidenceRoot $evidenceRoot -ResumeEvidence $ResumeEvidence;$sourceView=$sourceViewLease.View}
-   else{$sourceViewLease=Enter-AiwTestSourceView -SourceRoot $root -DestinationRoot (Join-Path $evidenceRoot 'source-view') -Definition $definition -EvidenceRoot (Join-Path $evidenceRoot 'group-evidence') -ResumeEvidence $ResumeEvidence;$sourceView=$sourceViewLease.View}
+   if($SourceViewPath){$sourceViewLease=Enter-AiwTestSourceView -SourceRoot $root -DestinationRoot $SourceViewPath -Definition $definition -ReadClosureGroupIds $Groups -EvidenceRoot $evidenceRoot -ResumeEvidence $ResumeEvidence;$sourceView=$sourceViewLease.View}
+   else{$sourceViewLease=Enter-AiwTestSourceView -SourceRoot $root -DestinationRoot (Join-Path $evidenceRoot 'source-view') -Definition $definition -ReadClosureGroupIds $Groups -EvidenceRoot (Join-Path $evidenceRoot 'group-evidence') -ResumeEvidence $ResumeEvidence;$sourceView=$sourceViewLease.View}
    $viewWatch.Stop();$viewMilliseconds=$viewWatch.Elapsed.TotalMilliseconds
-   $null=Assert-AiwTestSourceViewReadClosure $sourceReadRoot $sourceReadDefinitionPath $definition $Groups -Stage AfterConstruction -ViewRoot $sourceView.Root
    $root=$sourceView.Root;$definitionPath=Join-Path $root 'framework/versions/2.0.0/tests/test-groups.json'
   }
   if($Phase-ceq'POSTBUILD'){
-   if($legacy.Count-or$SkipManifest-or$SkipBaseline-or$SkipPerformanceSmoke-or$MaintenanceFixture-or$ResumeEvidence.Count-or-not$BuildCommandPath){throw 'POSTBUILD_FRESH_EXISTING_INPUTS_REQUIRED'}
+   if($legacy.Count-or$SkipManifest-or$SkipBaseline-or$SkipPerformanceSmoke-or$MaintenanceFixture-or-not$BuildCommandPath){throw 'POSTBUILD_EXISTING_INPUTS_REQUIRED'}
    $PackagePath=Assert-AiwTestPath $PackagePath;$BuildCommandPath=Assert-AiwTestPath $BuildCommandPath
    $packageRef=@{path=$PackagePath;identity=(& $releaseReader.ExportedCommands['Get-AiwReleaseFileIdentity'] $PackagePath)};$buildRef=@{path=$BuildCommandPath;identity=(& $releaseReader.ExportedCommands['Get-AiwReleaseFileIdentity'] $BuildCommandPath)}
-   $packageRoot=Join-Path $evidenceRoot 'package-view';$packageFacts=& $releaseReader.ExportedCommands['Expand-AiwReleasePackage'] $PackagePath $packageRoot
+   $packageRoot=if($ExtractedPackagePath){Assert-AiwTestPath $ExtractedPackagePath}else{Join-Path $evidenceRoot 'package-view'}
+   $packageViewLease=Enter-AiwTestPackageView -SourceRoot $root -PackagePath $PackagePath -DestinationRoot $packageRoot -EvidenceRoot $evidenceRoot -ResumeEvidence $ResumeEvidence;$packageFacts=$packageViewLease.Facts
    $qualified=& $releaseReader.ExportedCommands['Get-AiwReleaseQualification'] -VersionRoot (Join-Path $packageRoot 'framework/versions/2.0.0') -RuntimeRoot $packageRoot
    $null=& $releaseReader.ExportedCommands['Assert-AiwReleaseBuildEvidence'] $BuildCommandPath $PackagePath $packageFacts $qualified
    $currentSource=& $releaseReader.ExportedCommands['Get-AiwReleaseQualification'] -VersionRoot (Join-Path $root 'framework/versions/2.0.0') -SourceRoot $root -AllowPending
@@ -105,10 +115,35 @@ if(-not$InternalLegacyRun){
    $options.PackageIdentity=$packageRef.identity;$options.ExtractedTreeCanonical=$packageFacts.Canonical;$options.BuildCommandIdentity=$buildRef.identity
    $packageInputs=@{packageRef=$packageRef;packageManifestRef=@{path=(Join-Path $root 'PACKAGE_MANIFEST.json');identity=$packageFacts.ManifestIdentity};extractedTreeCanonical=$packageFacts.Canonical;sourceManifestRef=@{path=(Join-Path $root 'framework/versions/2.0.0/RELEASE_MANIFEST.json');identity=$qualified.ManifestIdentity};prepackageProofRef=@{path=(Join-Path $root ('framework/versions/2.0.0/'+$qualified.Manifest.validationProof.proofBundleRef.path));identity=$qualified.Manifest.validationProof.proofBundleRef.identity};buildCommandRef=$buildRef}
   }
+ $targeted=@()
+ $historicalGroups=@()
+ $runGroups=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal)
+ if($change){
+  $plan=Get-AiwTestChangePreparation $ChangePlanPath $ExpectedChangePlanIdentity $sourceView.ClosurePath $sourceView.ClosureIdentity $definition (Split-Path -Parent (Split-Path -Parent $definitionPath))
+  $targeted=@($plan.Plan.targetedGroupIds)
+  $plannedGroups=@($plan.Plan.freshGroupIds)+$targeted
+  if($Groups.Count-ne$plannedGroups.Count-or@($Groups|Where-Object{$_-cnotin$plannedGroups}).Count){throw 'TEST_CHANGE_GROUP_SCOPE_DRIFT'}
+  $historicalGroups=@($required|Where-Object{$_-cnotin$plan.Plan.freshGroupIds})
+  $plan.Historical.MemberBytes.Clear()
+  $plan=$null
+ }
+ $wholeGroups=@($Groups|Where-Object{$_-cnotin$targeted})
+ $allRequiredWholeGroups=@($required|Where-Object{$_-cnotin$wholeGroups}).Count-eq0
+ $fullPrepackage=$Phase-ceq'PREPACKAGE'-and-not$change-and$Groups.Count-eq$required.Count-and$allRequiredWholeGroups
+ foreach($id in $Groups){
+  $group=@($definition.groups|Where-Object id -CEQ $id)[0]
+  $runGroups.Add($id,(Get-AiwReleaseChangeGroup $group $targeted))
+ }
  $nativeOverrides=@{};$nativeFixtures=@{}
  foreach($id in $Groups){
   $base=Assert-AiwTestPath ([IO.Path]::GetTempPath());$fixture=Assert-AiwTestPath (Join-Path $base ('g-'+[guid]::NewGuid().ToString('N').Substring(0,8)));$nativeFixtures[$id]=$fixture
   $nativeOverrides[$id]=@{TMP=$fixture;TEMP=$fixture;AIW_TEST_RAW_DIRECTORY=(Join-Path (Join-Path $evidenceRoot $id) 'raw');AIW_TEST_HOST='ISOLATED_GROUP';AIW_TEST_GROUP_ID=$id;AIW_TEST_SOURCE_VIEW=$(if($sourceView){'SOURCE_PAYLOAD_V1'}else{'LEGACY_SCHEMA2'})}
+  if($definition.schemaVersion-eq3){
+   $nativeGroup=$runGroups[$id]
+   foreach($name in $nativeGroup.environmentPolicy.influentialVariables){
+    if($name-cne'tempBase'-and-not$nativeOverrides[$id].ContainsKey($name)){$nativeOverrides[$id][$name]=[Environment]::GetEnvironmentVariable($name,'Process')}
+   }
+  }
  }
   function Get-RunnerOriginalEnvironment($OriginalRef,$Group,$FreshEnvironment){
    if((Get-AiwTestFileIdentity $OriginalRef.path)-cne$OriginalRef.identity){throw 'TEST_PLAN_ORIGINAL_DRIFT'}
@@ -134,33 +169,41 @@ if(-not$InternalLegacyRun){
  $planWatch=[Diagnostics.Stopwatch]::StartNew();$executionPlan=@();$shortExit=@('publication.phase-evidence','non-git.preflight-ast')
  foreach($id in $Groups){
    $selectionEnvironments[$id]=$nativeOverrides[$id]
-  $plannedGroup=@($definition.groups|Where-Object id -CEQ $id)[0];$snapshot=Get-AiwTestDependencySnapshot $root $definitionPath $definition $plannedGroup $options -NativeEnvironment $nativeOverrides[$id]
+  $plannedGroup=$runGroups[$id];$snapshot=Get-AiwTestDependencySnapshot $root $definitionPath $definition $plannedGroup $options -NativeEnvironment $nativeOverrides[$id]
   $plannedChoice=Select-AiwTestGroupExecution $plannedGroup $snapshot $ResumeEvidence -PlanOnly
    # Historical comparison never changes the native launch map.
-   if($definition.schemaVersion-eq3-and$plannedChoice.selection-ceq'EXECUTE'-and$plannedGroup.environmentPolicy.mode-cin@('EXACT','EFFECTIVE_TOOLS')-and$null-ne$plannedChoice.original){
+   if($definition.schemaVersion-eq3-and$plannedChoice.selection-cin@('EXECUTE','NEEDS_IMPACT_ASSESSMENT')-and$plannedGroup.environmentPolicy.mode-cin@('EXACT','EFFECTIVE_TOOLS')-and$null-ne$plannedChoice.original){
     $originalRef=$plannedChoice.original;$historicalEnvironment=Get-RunnerOriginalEnvironment $originalRef $plannedGroup $nativeOverrides[$id]
     if($null-ne$historicalEnvironment){
      $historicalSnapshot=Get-AiwTestDependencySnapshot $root $definitionPath $definition $plannedGroup $options -NativeEnvironment $historicalEnvironment
      $historicalChoice=Select-AiwTestGroupExecution $plannedGroup $historicalSnapshot $ResumeEvidence -PlanOnly
      if($null-eq$historicalChoice.original-or$historicalChoice.original.path-cne$originalRef.path-or$historicalChoice.original.identity-cne$originalRef.identity){throw 'TEST_PLAN_ORIGINAL_DRIFT'}
      if($historicalChoice.selection-ceq'REUSE_WITH_REVALIDATION'){$snapshot=$historicalSnapshot;$plannedChoice=$historicalChoice;$selectionEnvironments[$id]=$historicalEnvironment}
-     else{
-      # A rejected historical execution falls back to newly observed launch facts.
-      $snapshot=Get-AiwTestDependencySnapshot $root $definitionPath $definition $plannedGroup $options -NativeEnvironment $nativeOverrides[$id]
-      $plannedChoice=Select-AiwTestGroupExecution $plannedGroup $snapshot $ResumeEvidence -PlanOnly
-      if($null-eq$plannedChoice.original-or$plannedChoice.original.path-cne$originalRef.path-or$plannedChoice.original.identity-cne$originalRef.identity){throw 'TEST_PLAN_ORIGINAL_DRIFT'}
-     }
+
     }
    }
   $priority=if($id-cin$shortExit){[Array]::IndexOf($shortExit,$id)}else{2}
   $executionPlan+=@{groupId=$id;selection=$plannedChoice.selection;reason=$plannedChoice.reason;priority=$priority;snapshotIdentity=$snapshot.identity;original=$plannedChoice.original}
  }
  if($fullPrepackage){$null=Assert-AiwTestPrepackageProofRoute $ProofSchemaVersion @($executionPlan|Where-Object selection -CEQ REUSE_WITH_REVALIDATION|ForEach-Object original) $AcceptedBaselinePath $ExpectedAcceptedBaselineIdentity}
- $executionPlan=@($executionPlan|Sort-Object priority -Stable);Write-AiwTestJson (Join-Path $evidenceRoot 'execution-plan.json') @{schemaVersion=1;phase=$Phase;proofSchemaVersion=$ProofSchemaVersion;sourceRoot=$root;groups=$executionPlan}
+ $executionPlan=@($executionPlan|Sort-Object priority -Stable)
+ $planOutput=@{schemaVersion=1;phase=$Phase;proofSchemaVersion=$ProofSchemaVersion;sourceRoot=$root;groups=$executionPlan}
+ if($change){
+  $planOutput.schemaVersion=2
+  $planOutput.changePlanRef=@{path=$ChangePlanPath;identity=$ExpectedChangePlanIdentity}
+  $planOutput.historicalGroupIds=$historicalGroups
+  $planOutput.targetedGroupIds=$targeted
+ }
+ Write-AiwTestJson (Join-Path $evidenceRoot 'execution-plan.json') $planOutput
  $planWatch.Stop();$planMilliseconds=$planWatch.Elapsed.TotalMilliseconds
  foreach($planned in $executionPlan){Write-Output ('PLAN|'+$planned.groupId+'|'+$planned.selection+'|reason='+$planned.reason)}
+ $stopped=@($executionPlan|Where-Object{$_.selection-cnotin@('EXECUTE','REUSE_WITH_REVALIDATION')})
+ if($stopped.Count){
+  throw ('TEST_EXECUTION_PLAN_BLOCKED|'+(($stopped|ForEach-Object{$_.groupId+'='+$_.selection}) -join ','))
+ }
+ if($change-and(Get-AiwTestFileIdentity $ChangePlanPath)-cne$ExpectedChangePlanIdentity){throw 'TEST_CHANGE_PLAN_DRIFT'}
  foreach($planned in $executionPlan){$id=$planned.groupId
-  $group=@($definition.groups|Where-Object id -CEQ $id)[0];$groupRoot=Join-Path $evidenceRoot $id;$null=[IO.Directory]::CreateDirectory($groupRoot)
+  $group=$runGroups[$id];$groupRoot=Join-Path $evidenceRoot $id;$null=[IO.Directory]::CreateDirectory($groupRoot)
    $before=Get-AiwTestDependencySnapshot $root $definitionPath $definition $group $options -NativeEnvironment $selectionEnvironments[$id]
   if($before.identity-cne$planned.snapshotIdentity){throw 'TEST_PLAN_CURRENT_INPUT_DRIFT'}
   $choiceWatch=[Diagnostics.Stopwatch]::StartNew()
@@ -172,6 +215,7 @@ if(-not$InternalLegacyRun){
    $records+=@{groupId=$id;path=$choice.original.path;identity=$choice.original.identity;executionKind='REVALIDATED';revalidation=$choice.revalidation}
    Write-Output ('GROUP|'+$id+'|REVALIDATED|'+$choice.original.path);continue
   }
+  if($choice.selection-cne'EXECUTE'){throw 'TEST_EXECUTION_SELECTION_UNRECOGNIZED'}
   # Keep native cwd below Windows' path limit; durable raw stays in groupRoot.
   $tempBase=[IO.Path]::TrimEndingDirectorySeparator((Assert-AiwTestPath ([IO.Path]::GetTempPath())))
   $fixtureRoot=$nativeFixtures[$id];if(Test-Path -LiteralPath $fixtureRoot){throw 'TEST_NATIVE_FIXTURE_EXISTS'};$null=[IO.Directory]::CreateDirectory($fixtureRoot)
@@ -216,7 +260,8 @@ if(-not$InternalLegacyRun){
   Write-Output ('GROUP|'+$id+'|END|outcome='+$record.outcome+'|wallMs='+$process.Record.timing.wallMilliseconds+'|record='+$path)
   if($fullPrepackage-and$id-ceq'release.prepackage-readers'-and$record.outcome-cne'PASS'){break}
  }
- $coverage=if($outcome-ceq'PASS'-and@($required|Where-Object{$_-cnotin$Groups}).Count-eq0-and-not($SkipManifest-or$SkipBaseline-or$SkipPerformanceSmoke)){'COMPLETE'}else{'PARTIAL'}
+ $coverage=if($outcome-ceq'PASS'-and$allRequiredWholeGroups-and-not($SkipManifest-or$SkipBaseline-or$SkipPerformanceSmoke)){'COMPLETE'}else{'PARTIAL'}
+ if($packageViewLease){Assert-AiwTestPackageView $packageViewLease}
  if($Phase-ceq'POSTBUILD'-and((& $releaseReader.ExportedCommands['Get-AiwReleaseFileIdentity'] $PackagePath)-cne$packageInputs.packageRef.identity-or(& $releaseReader.ExportedCommands['Get-AiwReleasePackageFacts'] $root).Canonical-cne$packageInputs.extractedTreeCanonical-or(& $releaseReader.ExportedCommands['Get-AiwReleaseFileIdentity'] $BuildCommandPath)-cne$packageInputs.buildCommandRef.identity)){$outcome='INCOMPLETE';$coverage='PARTIAL'}
  if($sourceView){$null=Assert-AiwTestSourceViewReadClosure $sourceReadRoot $sourceReadDefinitionPath $definition $Groups -Stage BeforeExport -ViewRoot $sourceView.Root}
  $suitePath=Join-Path $evidenceRoot 'suite.json'
@@ -225,18 +270,41 @@ if(-not$InternalLegacyRun){
   if($definition.schemaVersion-eq3){$suiteValue.schemaVersion=3;$suiteValue.verifierRef=@{path='scripts/TestEvidenceValidation.psm1';identity=(Get-AiwTestFileIdentity (Join-Path $PSScriptRoot '../scripts/TestEvidenceValidation.psm1'))}}
   Write-AiwTestJson $suitePath $suiteValue
   $suiteCreatedIdentity=Get-AiwTestFileIdentity $suitePath
- if($outcome-cin@('PASS','PARTIAL')){try{$null=Assert-AiwTestSuiteEvidence $suitePath $root $definitionPath -AllowPartial -CurrentCoverage:($Phase-ceq'PREPACKAGE'-and$definition.schemaVersion-in@(2,3)-and$ProofSchemaVersion-in@(2,3))}catch{Write-Output ('SUITE_INVALID|'+$_.Exception.Message);$outcome='INCOMPLETE';$coverage='PARTIAL';$suiteValue.outcome=$outcome;$suiteValue.coverage=$coverage;if((Get-AiwTestFileIdentity $suitePath)-cne$suiteCreatedIdentity){throw 'TEST_SUITE_UNPUBLISHED_DRIFT'};$suiteReplacementPath=$suitePath+'.finalizing-'+[guid]::NewGuid().ToString('N')+'.json';try{Write-AiwTestJson $suiteReplacementPath $suiteValue;[IO.File]::Move($suiteReplacementPath,$suitePath,$true)}finally{if([IO.File]::Exists($suiteReplacementPath)){[IO.File]::Delete($suiteReplacementPath)}}}}
+ if($outcome-cin@('PASS','PARTIAL')){try{$null=Assert-AiwTestSuiteEvidence $suitePath $root $definitionPath -AllowPartial -CurrentCoverage:($Phase-ceq'PREPACKAGE'-and$definition.schemaVersion-in@(2,3)-and$ProofSchemaVersion-in@(2,3,4)) -TargetedGroupIds $targeted}catch{Write-Output ('SUITE_INVALID|'+$_.Exception.Message);$outcome='INCOMPLETE';$coverage='PARTIAL';$suiteValue.outcome=$outcome;$suiteValue.coverage=$coverage;if((Get-AiwTestFileIdentity $suitePath)-cne$suiteCreatedIdentity){throw 'TEST_SUITE_UNPUBLISHED_DRIFT'};$suiteReplacementPath=$suitePath+'.finalizing-'+[guid]::NewGuid().ToString('N')+'.json';try{Write-AiwTestJson $suiteReplacementPath $suiteValue;[IO.File]::Move($suiteReplacementPath,$suitePath,$true)}finally{if([IO.File]::Exists($suiteReplacementPath)){[IO.File]::Delete($suiteReplacementPath)}}}}
  Write-Output ('SUITE_EVIDENCE|path='+$suitePath+'|identity='+(Get-AiwTestFileIdentity $suitePath))
-  if($Phase-ceq'PREPACKAGE'-and$definition.schemaVersion-in@(2,3)-and$outcome-ceq'PASS'-and$coverage-ceq'COMPLETE'){$bundle=Export-AiwTestPrepackageBundle $suitePath (Join-Path $evidenceRoot 'prepackage-proof') -AcceptedBaselinePath $AcceptedBaselinePath -ExpectedAcceptedBaselineIdentity $ExpectedAcceptedBaselineIdentity -ProofSchemaVersion $ProofSchemaVersion;Write-Output ('PREPACKAGE_PROOF|path='+$bundle.ProofPath+'|identity='+$bundle.ProofIdentity)}
+  if($Phase-ceq'PREPACKAGE'-and$definition.schemaVersion-in@(2,3)-and$outcome-ceq'PASS'-and($coverage-ceq'COMPLETE'-or$change)){
+   $bundle=Export-AiwTestPrepackageBundle $suitePath (Join-Path $evidenceRoot 'prepackage-proof') -AcceptedBaselinePath $AcceptedBaselinePath -ExpectedAcceptedBaselineIdentity $ExpectedAcceptedBaselineIdentity -ProofSchemaVersion $ProofSchemaVersion -ChangePlanPath $ChangePlanPath -ExpectedChangePlanIdentity $ExpectedChangePlanIdentity
+   if($change){Write-Output ('CHANGE_COVERAGE|historicalGroups='+$historicalGroups.Count+'|targetedGroups='+$targeted.Count+'|currentFullGroups='+$wholeGroups.Count)}
+   Write-Output ('PREPACKAGE_PROOF|path='+$bundle.ProofPath+'|identity='+$bundle.ProofIdentity)
+  }
   if($Phase-ceq'POSTBUILD'){
    $post=[ordered]@{schemaVersion=1;phase='POSTBUILD';packageRef=$packageInputs.packageRef;packageManifestRef=$packageInputs.packageManifestRef;extractedTreeCanonical=$packageInputs.extractedTreeCanonical;sourceManifestRef=$packageInputs.sourceManifestRef;prepackageProofRef=$packageInputs.prepackageProofRef;buildCommandRef=$packageInputs.buildCommandRef;postBuildDefinitionIdentity=(Get-AiwTestFileIdentity $definitionPath);requiredGroupIds=$required;groupRecordRefs=$records;runtime=(Get-AiwTestEnvironment);options=$options;outcome=$(if($outcome-ceq'PASS'-and$coverage-ceq'COMPLETE'){'PASS'}else{$outcome});rawRefs=@($records|ForEach-Object{(Read-AiwTestJson $_.path).processResult})}
+   if($definition.schemaVersion-eq3){$post.schemaVersion=2;$post.currentSuiteRef=@{path=$suitePath;identity=(Get-AiwTestFileIdentity $suitePath)};$post.verifierRef=$suiteValue.verifierRef}
    if($coverage-cne'COMPLETE'-and$post.outcome-ceq'PASS'){$post.outcome='INCOMPLETE'}
-   $postPath=Join-Path $evidenceRoot 'postbuild-proof.json';Write-AiwTestJson $postPath $post;Write-Output ('POSTBUILD_PROOF|path='+$postPath+'|identity='+(Get-AiwTestFileIdentity $postPath))
+   $postPath=Join-Path $evidenceRoot 'postbuild-proof.json';Write-AiwTestJson $postPath $post
+   if($outcome-cin@('PASS','PARTIAL')){
+    try{$postQualified=& $releaseReader.ExportedCommands['Get-AiwReleasePostbuildQualification'] -Path $postPath -PackagePath $PackagePath -ExtractedPackagePath $root -BuildCommandPath $BuildCommandPath -AllowPartial;if($coverage-ceq'COMPLETE'-and$postQualified.State-cne'PACKAGE_VALIDATED'){throw 'POSTBUILD_QUALIFICATION_REQUIRED'}}catch{
+     $qualificationFailure=$_;$postCreatedIdentity=Get-AiwTestFileIdentity $postPath;$suiteCreatedIdentity=Get-AiwTestFileIdentity $suitePath
+     $outcome='INCOMPLETE';$coverage='PARTIAL';$suiteValue.outcome=$outcome;$suiteValue.coverage=$coverage;$post.outcome=$outcome
+     $temporarySuite=$suitePath+'.invalidating-'+[guid]::NewGuid().ToString('N')+'.json';$temporaryPost=$postPath+'.invalidating-'+[guid]::NewGuid().ToString('N')+'.json'
+     try{
+      Write-AiwTestJson $temporarySuite $suiteValue
+      if((Get-AiwTestFileIdentity $suitePath)-cne$suiteCreatedIdentity-or(Get-AiwTestFileIdentity $postPath)-cne$postCreatedIdentity){throw 'POSTBUILD_UNPUBLISHED_DRIFT'}
+      [IO.File]::Move($temporarySuite,$suitePath,$true)
+      if($post.schemaVersion-eq2){$post.currentSuiteRef.identity=Get-AiwTestFileIdentity $suitePath}
+      Write-AiwTestJson $temporaryPost $post
+      if((Get-AiwTestFileIdentity $postPath)-cne$postCreatedIdentity){throw 'POSTBUILD_UNPUBLISHED_DRIFT'}
+      [IO.File]::Move($temporaryPost,$postPath,$true)
+     }finally{foreach($temporary in @($temporarySuite,$temporaryPost)){if([IO.File]::Exists($temporary)){[IO.File]::Delete($temporary)}}}
+     throw $qualificationFailure
+    }
+   }
+   Write-Output ('POSTBUILD_PROOF|path='+$postPath+'|identity='+(Get-AiwTestFileIdentity $postPath))
   }
   Write-Output ('RESULT|outcome='+$outcome+'|coverage='+$coverage+'|phase='+$Phase+'|qualification='+$suiteValue.qualification)
- $totalWatch.Stop();Write-AiwTestJson (Join-Path $evidenceRoot 'execution-cost.json') @{schemaVersion=1;sourceViewMilliseconds=$viewMilliseconds;preflightMilliseconds=$planMilliseconds;revalidationMilliseconds=$revalidationMilliseconds;affectedNativeMilliseconds=$affectedMilliseconds;integrationNativeMilliseconds=$integrationMilliseconds;totalMilliseconds=$totalWatch.Elapsed.TotalMilliseconds;newGroupChildCount=$newChildCount;timingSemantics='Native group times include their nested work; total also includes view, planning, record validation and export. Do not add overlapping parent/child timings.'}
+ $totalWatch.Stop();Write-AiwTestJson (Join-Path $evidenceRoot 'execution-cost.json') @{schemaVersion=1;sourceViewMilliseconds=$viewMilliseconds;preflightMilliseconds=$planMilliseconds;revalidationMilliseconds=$revalidationMilliseconds;affectedNativeMilliseconds=$affectedMilliseconds;integrationNativeMilliseconds=$integrationMilliseconds;totalMilliseconds=$totalWatch.Elapsed.TotalMilliseconds;newGroupChildCount=$newChildCount;timingSemantics='Source view time includes capture, construction, read closure and the preparation drift guard. Native group times include their nested work; total also includes planning, record validation and export. Do not add overlapping parent/child timings.'}
   }catch{$runnerPrimaryError=$_;$runnerPrimaryStage=$runnerStage;throw}finally{
-   try{$runnerStage='OWNED_LEASE_CLEANUP';if($sourceViewLease){$sourceViewLease.Lease.Dispose()}}
+   try{$runnerStage='OWNED_LEASE_CLEANUP';if($sourceViewLease){$sourceViewLease.Lease.Dispose()};if($packageViewLease){Exit-AiwTestPackageView $packageViewLease}}
    catch{$runnerCleanupError=$_;if($null-eq$runnerPrimaryError){throw}}
   }
   if($outcome-cnotin@('PASS','PARTIAL')){exit 1};return

@@ -1,13 +1,67 @@
 [CmdletBinding()]
-param([ValidateSet('All','HistoricalInputs','QualityAssurance','QualityMaintenance','RuntimeMaintenance','OperationRebind')][string]$Group='All',[switch]$KeepFixture)
+param([ValidateSet('All','HistoricalInputs','QualityAssurance','QualityMaintenance','RuntimeMaintenance','OperationRebind','ClosureFields','CompletionGraph','CompletionScale','AcceptedUse','AcceptedPurpose','AcceptedInstallation')][string]$Group='All',[switch]$KeepFixture)
 Import-Module (Join-Path $PSScriptRoot 'TestNativeOutput.psm1')
 Initialize-AiwTestNativeOutput
+# Explicit conservative runtime members for these existing protocol fixtures.
+# Narrowing individual mechanisms requires separate execution and dependency evidence.
+$fixtureVersionPaths=@(
+ 'ACCEPTANCE_PLAN_SCHEMA.json','ADOPTION_PROFILE.json','AUTHORITY_CONTEXT_SCHEMA.json',
+ 'AUTHORIZATION_MODEL.md','CHANGELOG.md','CONTENT_CATALOG_SCHEMA.json',
+ 'CONTROL_TRANSITION_SCHEMA.json','CONTROLLER_SCHEMA.json','EVIDENCE_RECORD_SCHEMA.json',
+ 'EXAMPLES.md','GIT_AND_EXTERNAL.md','HOST_CODEX.md',
+ 'host/skills/ai-workspace-router-v2/SKILL.md','INTENT_ENVELOPE_SCHEMA.json','KNOWLEDGE_AND_REFERENCE.md',
+ 'KNOWLEDGE_SCHEMA.json','knowledge/cross-domain/ARTIFACT_CLASSIFICATION.md','knowledge/cross-domain/PROBLEM_DRIVEN_IMPROVEMENT.md',
+ 'knowledge/game/BEHAVIOR_AND_PERFORMANCE.md','knowledge/game/PRESENTATION_AUTHORITY.md','knowledge/game/UI_INPUT_CANCELLATION.md',
+ 'knowledge/index.json','knowledge/README.md','knowledge/software/BEHAVIOR_SPEC_CHANGE.md',
+ 'LOAD_MANIFEST.json','MIGRATION_MATRIX.md','NORMATIVE_SURFACE_INVENTORY.json',
+ 'object-formats/adapters/knowledge-index-1-to-2.ps1','object-formats/adapters/knowledge-index-2-to-3.ps1','object-formats/adapters/process-policy-1-to-2.ps1',
+ 'object-formats/adapters/project-config-4-to-5.ps1','object-formats/adapters/project-config-5-to-6.ps1','object-formats/adapters/project-corrections-1-to-2.ps1',
+ 'object-formats/adapters/project-corrections-2-to-3.ps1','object-formats/ASSEMBLY.json','PERSPECTIVE_LENSES.md',
+ 'PROCESS_POLICY_SCHEMA.json','PROCESS_REQUIREMENTS_EVALUATION.md','PROCESS_REQUIREMENTS.json',
+ 'PROJECT_CONFIG_SCHEMA.json','PROJECT_CONTROL.md','PROJECT_CORRECTIONS_SCHEMA.json',
+ 'project-starter/.gitattributes','project-starter/AGENTS.md','project-starter/BOOTSTRAP.md',
+ 'project-starter/controller.json','project-starter/corrections.json','project-starter/process-policy.json',
+ 'project-starter/project.json','project-starter/PROJECT.md','project-starter/STATUS.md',
+ 'project-starter/tasks/README.md','PROMPTS.md','README.md',
+ 'RECOVERY_CORE.md','requirements/fragments/AUTHORIZATION_MODEL.json','requirements/fragments/GIT_AND_EXTERNAL.json',
+ 'requirements/fragments/HOST_CODEX.json','requirements/fragments/KNOWLEDGE_AND_REFERENCE.json','requirements/fragments/PROJECT_CONTROL.json',
+ 'requirements/fragments/RECOVERY_CORE.json','requirements/fragments/REVIEW_AND_EVIDENCE.json','requirements/fragments/TASK_AND_SCOPE.json',
+ 'REVIEW_AND_EVIDENCE.md','scripts/AuthorizationCheck.psm1','scripts/bind-receiver-authorization.ps1',
+ 'scripts/build-process-requirements.ps1','scripts/check-authorization.ps1','scripts/check-knowledge-entry.ps1',
+ 'scripts/check-knowledge-impact.ps1','scripts/check-project-corrections.ps1','scripts/check-task-card.ps1',
+ 'scripts/ContentSources.psm1','scripts/ControlTransition.psm1','scripts/invoke-protected-safe-git.ps1',
+ 'scripts/KnowledgeSources.psm1','scripts/ObjectFormats.psm1','scripts/ProcessRequirementBoundary.psm1',
+ 'scripts/ProcessRequirementComposition.psm1','scripts/ProcessRequirementDisplay.psm1','scripts/ProjectSourcePublication.psm1',
+ 'scripts/resolve-control-transition.ps1','scripts/resolve-load-plan.ps1','scripts/resolve-process-requirements.ps1',
+ 'scripts/resolve-workflow-route.ps1','scripts/ResultEvidence.psm1','scripts/StrictJsonInput.psm1',
+ 'scripts/WorkflowDelivery.psm1','standards/presets/software.json','standards/README.md',
+ 'standards/software/DESIGN.md','standards/software/IMPLEMENTATION.md','standards/software/VALIDATION.md',
+ 'STATIC_COMPARISON.md','TASK_AND_SCOPE.md','TASK_TEMPLATE.md',
+ 'TOOL_CONTRACT.md','TOOLCHAIN.json','VERSION.json',
+ 'scripts/ReleaseValidation.psm1','tests/TestExecutionRuntime.psm1','scripts/TestEvidenceValidation.psm1',
+ 'scripts/ExecutionTargetContext.psm1','EXECUTION_TARGET_SCHEMA.json','object-formats/adapters/project-config-6-to-7.ps1',
+ 'object-formats/adapters/process-policy-2-to-3.ps1','tests/PROCESS_REQUIREMENTS_FIXTURES.json','tests/PROCESS_REQUIREMENTS_BUDGETS.json',
+ 'tests/measure-process-requirements.ps1','tests/TestNativeOutput.psm1'
+)
+$fixtureRootPaths=@(
+ 'scripts/register-project.ps1','scripts/upgrade-project.ps1','scripts/ProjectAdoptionState.psm1',
+ 'scripts/ProjectAdoptionProjection.psm1','scripts/ProjectAdoptionTransaction.psm1','scripts/ProjectCorrectionLifecycle.psm1',
+ 'scripts/MaintenanceOverlay.psm1','skills/ai-workspace-router-v2/SKILL.md'
+)
+$fixtureMaintenancePaths=@(
+ 'scripts/resolve-framework-maintenance-target.ps1','scripts/resolve-framework-maintenance-process-requirements.ps1','scripts/check-framework-maintenance-authorization.ps1',
+ 'scripts/invoke-framework-maintenance-safe-git.ps1','framework/user-package/README.md','framework/user-package/AGENTS.md',
+ 'framework/maintenance-overlay/AGENTS.md','framework/maintenance-overlay/BOOTSTRAP.md','framework/maintenance-overlay/process-policy.json',
+ 'framework/maintenance-overlay/PROJECT_CONFIG_SCHEMA.json','framework/maintenance-overlay/OVERLAY.json'
+)
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 $versionRoot=Split-Path -Parent $PSScriptRoot
 Import-Module (Join-Path $versionRoot 'scripts/ResultEvidence.psm1') -Force
 $utf8=[Text.UTF8Encoding]::new($false)
 $temp=Join-Path ([IO.Path]::GetTempPath()) ('aiw-result-evidence-'+[guid]::NewGuid().ToString('N'))
+$gitFixture=@(Import-Module (Join-Path $PSScriptRoot 'IntegrationFixture.psm1') -Prefix FixtureGit -PassThru)[0]
+$gitScope=$null
 $savedLocation=(Get-Location).Path;$savedCurrent=[Environment]::CurrentDirectory
 $script:passed=0;$script:serial=0;$completed=$false
 function Put([string]$Relative,[string]$Text){$p=Join-Path $temp $Relative;[IO.Directory]::CreateDirectory((Split-Path -Parent $p))|Out-Null;[IO.File]::WriteAllText($p,$Text,$utf8);return $p}
@@ -39,18 +93,20 @@ function Check-Card([string]$Text){
     return [pscustomobject]@{Code=$LASTEXITCODE;Text=($lines-join"`n")}
 }
 function With-Plan([string]$Text,$Plan){return $Text+'```aiw-acceptance-plan'+"`n"+($Plan|ConvertTo-Json -Depth 70 -Compress)+"`n"+'```'+"`n"}
-function Test-QualityAssuranceConsumers([string]$Root,[switch]$Maintenance,[switch]$RuntimeMaintenanceOnly,[switch]$OperationRebindOnly){
+function Test-QualityAssuranceConsumers([string]$Root,[switch]$Maintenance,[switch]$RuntimeMaintenanceOnly,[switch]$OperationRebindOnly,[switch]$CompletionGraphOnly,[switch]$CompletionScaleOnly,[switch]$AcceptedUseOnly,[switch]$AcceptedInstallationOnly,[switch]$AcceptedPurposeOnly){
     # Original public project operations, using synthetic package qualification
     # and host delivery only. The fixture never qualifies the real Source.
     Import-Module (Join-Path $PSScriptRoot 'TestHarness.psm1')
     Import-Module (Join-Path $versionRoot 'scripts/ProcessRequirementComposition.psm1')
     $temp=if($Maintenance){Join-Path $Root 'workspace/CONTROL'}else{Join-Path $Root 'project'};[IO.Directory]::CreateDirectory($temp)|Out-Null
     $objectRoot=if($Maintenance){Join-Path $Root 'workspace/TARGET'}else{$temp}
-    if($Maintenance){[IO.Directory]::CreateDirectory($objectRoot)|Out-Null;foreach($repo in @($temp,$objectRoot)){& git -C $repo init -q;if($LASTEXITCODE-ne0){throw 'QUALITY_MAINTENANCE_GIT_INIT'}}}
+    if($Maintenance){[IO.Directory]::CreateDirectory($objectRoot)|Out-Null;foreach($repo in @($temp,$objectRoot)){& $gitFixture {param($root) New-GitRepo $root} $repo}}
     [IO.File]::WriteAllText((Join-Path $objectRoot 'unchanged.md'),'Previously existing anonymous member.',$utf8)
     Set-Location -LiteralPath $temp;[Environment]::CurrentDirectory=$temp
     $framework=Join-Path $Root 'runtime';$source=[IO.Path]::GetFullPath((Join-Path $versionRoot '../../..'))
-    $fixtureVersion=New-AiwTestMechanismFixture $source $framework (Join-Path $PSScriptRoot 'test-groups.json') -Maintenance
+    $rootPaths=@($fixtureRootPaths);if($Maintenance){$rootPaths+=@($fixtureMaintenancePaths)}
+    $fixtureVersion=New-AiwTestRuntimeFixture -SourceRoot $source -DestinationRoot $framework -VersionPaths $fixtureVersionPaths -RootPaths $rootPaths
+    if($Maintenance){foreach($name in @('README.md','AGENTS.md')){[IO.File]::Copy((Join-Path $framework ('framework/user-package/'+$name)),(Join-Path $framework $name),$false)}}
     $trace=Join-Path $Root 'actual-checker-calls.jsonl'
     $checkerModule=Join-Path $fixtureVersion 'scripts/AuthorizationCheck.psm1'
     $checkerText=[IO.File]::ReadAllText($checkerModule)
@@ -58,16 +114,58 @@ function Test-QualityAssuranceConsumers([string]$Root,[switch]$Maintenance,[swit
     if($checkerText.Split($anchor).Count-ne2){throw 'QUALITY_CHECKER_TRACE_ANCHOR'}
     $hook="[IO.File]::AppendAllText('"+$trace.Replace("'","''")+"', (([ordered]@{action=@(`$ObservedAction);actor=`$ObservedActor;paths=@(`$ObservedPath);package=`$PackagePath;task=`$ExpectedTaskIdentity;continuation=`$ContinuationReceiptPath;parameters=`$PSBoundParameters}|ConvertTo-Json -Depth 30 -Compress)+[char]10))"+[char]10
     [IO.File]::WriteAllText($checkerModule,$checkerText.Replace($anchor,$hook+$anchor),$utf8)
+    if($CompletionScaleOnly){
+        # Install observation in the fresh private runtime before its first
+        # qualification/registration. It observes the real implementation;
+        # none of the result, authorization or closure decisions are replaced.
+        $scaleTrace=Join-Path $Root 'completion-observations.jsonl';$scaleMarker=Join-Path $Root 'completion-observation-phase.txt'
+        $evidencePath=Join-Path $fixtureVersion 'scripts/ResultEvidence.psm1';$observedText=[IO.File]::ReadAllText($evidencePath)
+        $observer=@'
+function Write-ScaleObservation([string]$Kind,[string]$Path='',[long]$Bytes=0){
+    if([IO.File]::Exists('__MARKER__')){
+        $row=[ordered]@{phase=[IO.File]::ReadAllText('__MARKER__');kind=$Kind;path=$Path;bytes=$Bytes}
+        [IO.File]::AppendAllText('__TRACE__',(($row|ConvertTo-Json -Compress)+[char]10),[Text.UTF8Encoding]::new($false))
+    }
+}
+'@
+        $observer=$observer.Replace('__MARKER__',$scaleMarker.Replace("'","''")).Replace('__TRACE__',$scaleTrace.Replace("'","''"))
+        foreach($probe in @(
+            @{name='New-EvCompletionGraph';code='Write-ScaleObservation FINITE_GRAPH'},
+            @{name='Read-AiwResultEvidence';code='Write-ScaleObservation PUBLIC_RESULT_READER'},
+            @{name='Read-EvResultEvidenceCore';code='if($null-ne$Completion){Write-ScaleObservation COMPLETION_TYPED}'},
+            @{name='Get-EvHistoricalFinalize';code='Write-ScaleObservation ORIGINAL_PRODUCER'},
+            @{name='Get-EvTaskArchiveObservation';code='Write-ScaleObservation ARCHIVE_LOCATOR'},
+            @{name='New-EvCandidateIndex';code='Write-ScaleObservation CANDIDATE_INDEX'},
+            @{name='Read-EvObservationLocator';code='Write-ScaleObservation OBSERVATION_LOCATOR'}
+        )){
+            $headers=[regex]::Matches($observedText,('(?m)^function '+[regex]::Escape($probe.name)+'(?:\([^\r\n]*\))?[ \t]*\{\r?$'))
+            if($headers.Count-ne1){throw ('SCALE_OBSERVER_HEADER|'+$probe.name)}
+            $header=$headers[0].Value;$observedText=$observedText.Replace($header,$header+"`n    "+$probe.code)
+        }
+        $replacements=@(
+            @{old='$full=Get-EvLogicalPath $Context $Path -Candidate:$Candidate -Observation:$Observation';new='$full=Get-EvLogicalPath $Context $Path -Candidate:$Candidate -Observation:$Observation; if($Candidate){Write-ScaleObservation CANDIDATE_RESOLVE $full}'},
+            @{old='$bytes=[IO.File]::ReadAllBytes($ResolvedPath)';new='$bytes=[IO.File]::ReadAllBytes($ResolvedPath); Write-ScaleObservation CANDIDATE_READ $ResolvedPath $bytes.Length'},
+            @{old='$bytes=[IO.File]::ReadAllBytes($full)';new='$bytes=[IO.File]::ReadAllBytes($full); Write-ScaleObservation FORMAL_READ $full $bytes.Length'},
+            @{old='if($CandidateIndex.TryGetValue($full,[ref]$candidate)-and$candidate.identity-ceq$Reference.identity){$null=Resolve-EvPath';new='if($CandidateIndex.TryGetValue($full,[ref]$candidate)-and$candidate.identity-ceq$Reference.identity){Write-ScaleObservation OBSERVATION_CANDIDATE $full; $null=Resolve-EvPath'},
+            @{old='$null=Read-EvRef $Context $Reference';new='Write-ScaleObservation OBSERVATION_DIRECT; $null=Read-EvRef $Context $Reference'}
+        )
+        foreach($probe in $replacements){if($observedText.Split($probe.old).Count-ne2){throw ('SCALE_OBSERVER_ANCHOR|'+$probe.old)};$observedText=$observedText.Replace($probe.old,$probe.new)}
+        [IO.File]::WriteAllText($evidencePath,$observer+"`n"+$observedText,$utf8)
+    }
     Set-AiwTestFixtureQualification $fixtureVersion -Candidate
     $integration=@(Import-Module (Join-Path $PSScriptRoot 'IntegrationFixture.psm1') -PassThru)[0]
     & $integration {param($r)$script:utf8=[Text.UTF8Encoding]::new($false);Seal-MaintenanceRuntimeFixture $r;$p=Join-Path $r 'PACKAGE_MANIFEST.json';$m=Get-Content -LiteralPath $p -Raw|ConvertFrom-Json -Depth 100;$m.provisional=$true;$m.distributionId='2.0.0-snapshot.999';Write-Utf8 $p ($m|ConvertTo-Json -Depth 100)} $framework
+    $activeTaskId='EVIDENCE-001'
     $taskRelative='.ai-workspace/tasks/active/EVIDENCE-001.md';$taskPath=Join-Path $temp $taskRelative
     $baseCard="# EVIDENCE-001 — anonymous quality result`n- Task schema: 2.0.0`n- Profile: CRITICAL; reason=quality policy fixture`n- Owner: owner`n- Work route: actor=owner; role=TASK_OWNER; phase=IMPLEMENT`n- Status: ACTIVE`n- Phase gate: FALSE`n- Range summary: profile=CRITICAL; lifecycle=ACTIVE; current_exact=result.md; expected_paths=[result.md]; actual_paths=[result.md]`n"
     if($RuntimeMaintenanceOnly){$baseCard="# EVIDENCE-001 — release known expired fixture inputs`n- Task schema: 2.0.0`n- Profile: STANDARD; reason=bounded local runtime maintenance`n- Owner: owner`n- Work route: actor=owner; role=TASK_OWNER; phase=IMPLEMENT`n- Status: ACTIVE`n- Phase gate: FALSE`n- Range summary: profile=STANDARD; lifecycle=ACTIVE; current_exact=EXPIRED_RUNTIME_INPUTS; expected_paths=[.ai-workspace/runtime/OLD-ONE/previous-actor/expired.txt|.ai-workspace/runtime/OLD-TWO/previous-actor/expired.txt|.ai-workspace/tmp/old-expired.txt]; actual_paths=[.ai-workspace/runtime/OLD-ONE/previous-actor/expired.txt|.ai-workspace/runtime/OLD-TWO/previous-actor/expired.txt|.ai-workspace/tmp/old-expired.txt]`n- Expiry: Last consumers of the explicitly named anonymous inputs have ended; formal originals remain in retained references. No old task or actor grants current authority.`n"}
     if($OperationRebindOnly){$baseCard=$baseCard.Replace('result.md','.ai-workspace/reports/operation-result.txt')}
     $initial=Join-Path $Root 'initial-task.md';[IO.File]::WriteAllText($initial,$baseCard,$utf8)
+    $nativeRuns=[Collections.Generic.List[object]]::new()
     function QNative([string]$Entry,[string[]]$Arguments,[string]$Name){
+        $started=[DateTime]::UtcNow.ToString('o');$watch=[Diagnostics.Stopwatch]::StartNew()
         $run=Invoke-AiwTestProcess ([Environment]::ProcessPath) (@('-NoProfile','-NonInteractive','-File',$Entry)+$Arguments) -WorkingDirectory $temp -GroupId 'result-quality'
+        $watch.Stop();$nativeRuns.Add([pscustomobject]@{name=$Name;entry=$Entry;arguments=$Arguments;startedUtc=$started;finishedUtc=[DateTime]::UtcNow.ToString('o');elapsedMs=$watch.Elapsed.TotalMilliseconds;exitCode=$run.Code})
         $null=Put ('.ai-workspace/runtime/EVIDENCE-001/owner/'+$Name+'-raw.txt') ($run.Output-join"`n")
         $null=Json ('.ai-workspace/runtime/EVIDENCE-001/owner/'+$Name+'-command.json') ([pscustomobject]@{entry=$Entry;arguments=$Arguments;exitCode=$run.Code})
         return $run
@@ -89,7 +187,7 @@ function Test-QualityAssuranceConsumers([string]$Root,[switch]$Maintenance,[swit
     function QPackage([string]$Action,[string[]]$Paths,[string]$Actor='owner',$Quality=$null){
         $text=[IO.File]::ReadAllText($taskPath);$profile=[regex]::Match($text,'(?m)^- Range summary: profile=(MICRO|STANDARD|CRITICAL);').Groups[1].Value
         $repositoryRoot=if($Maintenance-and$Action-cne'CONTROL_WRITE'){$objectRoot}else{$temp}
-        $p=[pscustomobject]@{schemaVersion=1;frameworkVersion='2.0.0';taskId='EVIDENCE-001';profile=$profile;lifecycle='ACTIVE';owner='owner';issuer='owner';issuerRole='TASK_OWNER';grantee=$Actor;bundle='quality-'+$Action;decisionClass='ROUTINE_LOCAL';userConfirmation='NOT_REQUIRED';reviewIndependence='NOT_APPLICABLE';delegatedGitCloser=$false;taskIdentity=(Id $taskPath);actions=@($Action);exactPaths=$Paths;objectIdentities=@(foreach($path in $Paths){$full=Join-Path $repositoryRoot $path;[pscustomobject]@{path=$path;identity=$(if([IO.File]::Exists($full)){Id $full}else{'NEW'})}});invalidatesOn=@('TASK_CHANGE','OWNER_CHANGE','GRANTEE_CHANGE','ACTION_CHANGE','PATHSET_CHANGE','OBJECT_DRIFT','USER_DECISION_CHANGE','PROJECT_CONFIG_DRIFT');projectConfigIdentity=(Id $configPath)}
+        $p=[pscustomobject]@{schemaVersion=1;frameworkVersion='2.0.0';taskId=$activeTaskId;profile=$profile;lifecycle='ACTIVE';owner='owner';issuer='owner';issuerRole='TASK_OWNER';grantee=$Actor;bundle='quality-'+$Action;decisionClass='ROUTINE_LOCAL';userConfirmation='NOT_REQUIRED';reviewIndependence='NOT_APPLICABLE';delegatedGitCloser=$false;taskIdentity=(Id $taskPath);actions=@($Action);exactPaths=$Paths;objectIdentities=@(foreach($path in $Paths){$full=Join-Path $repositoryRoot $path;[pscustomobject]@{path=$path;identity=$(if([IO.File]::Exists($full)){Id $full}else{'NEW'})}});invalidatesOn=@('TASK_CHANGE','OWNER_CHANGE','GRANTEE_CHANGE','ACTION_CHANGE','PATHSET_CHANGE','OBJECT_DRIFT','USER_DECISION_CHANGE','PROJECT_CONFIG_DRIFT');projectConfigIdentity=(Id $configPath)}
         if($Maintenance){$p.schemaVersion=2;$p|Add-Member repositoryId $(if($Action-ceq'CONTROL_WRITE'){'CONTROL'}else{'ai-workspace-framework'});$p.invalidatesOn+=@('REPOSITORY_CHANGE')}
         if($null-ne$Quality){$p|Add-Member qualityBinding (Clone $Quality)}
         return $p
@@ -111,6 +209,9 @@ function Test-QualityAssuranceConsumers([string]$Root,[switch]$Maintenance,[swit
         $work=switch($act){REVIEW_ROUTE{'aiw:review'};REVIEW_EXECUTE{'aiw:review'};RESULT_ACCEPT{'aiw:acceptance'};TEST_RUN{'aiw:verification'};default{'aiw:implementation'}}
         $i=[pscustomobject]@{schemaVersion=5;mode='DISCOVER';contextType='TASK';readOnlyContext='NOT_APPLICABLE';ruleLoad=@{mode='FULL'};projectRoot=$temp;frameworkRoot=$framework;taskPath=$taskPath;expectedProjectConfigIdentity=(Id $configPath);expectedCorrectionsIdentity=(Id (Join-Path $temp '.ai-workspace/corrections.json'));expectedTaskIdentity=(Id $taskPath);observedActor=$Package.grantee;capabilities=@();exactPaths=$Package.exactPaths;forbiddenPaths=@();protectedPaths=@();authorizationPackagePath=$packagePath;expectedAuthorizationIdentity=(Id $packagePath);userDecision=$Package.userConfirmation;recoveryState='WARM';hostEnforcementGrade='INSTRUCTION_BOUND';invocationState='PROVEN_EXPLICIT';evaluationOnly=$false;intentEnvelope=@{schemaVersion=2;objective='Validate original anonymous quality policy and result consumers';requestedActionKind=$act;requestedResultKind=$result;semanticHints=@();pathHints=$Package.exactPaths;capabilityHints=@();mutationHints=@();externalHints=@();ambiguityState='CLEAR';facets=@{domain=@{state='KNOWN';values=@('aiw:software')};workType=@{state='KNOWN';values=@($work)};deliverableType=@{state='KNOWN';values=@('aiw:code')};stage=@{state='KNOWN';values=@('aiw:implementation')}}}}
         if($Continuation){$i|Add-Member continuationReceiptPath $Continuation;$i|Add-Member expectedContinuationReceiptIdentity (Id $Continuation)}
+        # Hints classify the intent; the complete exact authority remains in
+        # the package and DISCOVER.exactPaths, including all 463 objects.
+        if($Package.exactPaths.Count-gt128){$i.intentEnvelope.pathHints=@($Package.exactPaths[0])}
         $d=QProcess $i ($Name+'-discover');$compact=Json ($runtime+$Name+'-compact.json') $d.value.compactReceipt
         $b=[pscustomobject]@{schemaVersion=3;mode='ADMIT_ACTION';discoverReceiptPath=$compact;expectedDiscoverReceiptIdentity=(Id $compact);preparationReceipts=@($d.value.compactReceipt.selectedObligations|ForEach-Object{$_.preparationRequirements}|Sort-Object -Unique);resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='BOUND';evidenceRefs=@()}
         [pscustomobject]@{package=$Package;packagePath=$packagePath;receipt=$d.value.compactReceipt;compact=$compact;boundary=$b;name=$Name}
@@ -122,8 +223,8 @@ function Test-QualityAssuranceConsumers([string]$Root,[switch]$Maintenance,[swit
         if($null-ne$Delivery){$f|Add-Member deliveryContext $Delivery -Force}
         QProcess $f ($Action.name+'-finalize') -InputSharingFailure:$InputSharingFailure
     }
-    function QCard($Plan,[string]$Name,[string]$Text=$baseCard,[switch]$Archive){
-        $archiveRelative='.ai-workspace/tasks/archive/EVIDENCE-001.md'
+    function QCard($Plan,[string]$Name,[string]$Text=$baseCard,[switch]$Archive,[switch]$PassThru){
+        $archiveRelative='.ai-workspace/tasks/archive/'+$activeTaskId+'.md'
         $paths=if($Archive){@($taskRelative,$archiveRelative)}else{@($taskRelative)}
         $a=QStart (QPackage CONTROL_WRITE $paths) $Name;$null=QProcess $a.boundary ($Name+'-admit')
         $textOut=if($null-eq$Plan){$Text}else{With-Plan $Text $Plan}
@@ -131,16 +232,18 @@ function Test-QualityAssuranceConsumers([string]$Root,[switch]$Maintenance,[swit
             $archivePath=Put $archiveRelative $textOut
             if([IO.File]::ReadAllText($archivePath)-cne$textOut){throw 'QUALITY_ARCHIVE_READBACK'}
             $checkerWrapper=Put ($runtime+'archive-card-check.ps1') 'param([string]$Entry,[string]$Task,[string]$PathsJson); $paths=Get-Content -LiteralPath $PathsJson -Raw|ConvertFrom-Json; & $Entry -TaskPath $Task -ObservedActualPath ([string[]]@($paths)); exit $LASTEXITCODE'
-            $pathsJson=Json ($runtime+'archive-card-paths.json') $Plan.qualityBinding.subject.exactPaths
+            $observedPaths=if($Plan.schemaVersion-eq2){@($Plan.qualityBinding.subject.exactPaths)}else{@([regex]::Match($textOut,'actual_paths=\[(?<paths>[^\]]*)\]').Groups['paths'].Value.Split('|'))}
+            $pathsJson=Json ($runtime+'archive-card-paths.json') $observedPaths
             $checked=QNative $checkerWrapper @('-Entry',(Join-Path $fixtureVersion 'scripts/check-task-card.ps1'),'-Task',$archivePath,'-PathsJson',$pathsJson) 'archive-card-check'
             if($checked.Code-ne0){throw ('QUALITY_ARCHIVE_CARD|'+($checked.Output-join"`n"))}
             $archiveContext=if($Maintenance){New-AiwPackageEvidenceContext $temp ([pscustomobject]@{schemaVersion=2;repositoryId='CONTROL'}) $framework -TaskPath $taskRelative}else{$ctx}
-            Assert-AiwTaskClosure $archiveContext ([IO.File]::ReadAllText($archivePath)) 'EVIDENCE-001' $a.boundary -RequireExplicitClosure
+            Assert-AiwTaskClosure $archiveContext ([IO.File]::ReadAllText($archivePath)) $activeTaskId $a.boundary -RequireExplicitClosure
             $original=@($a.package.objectIdentities|Where-Object path -CEQ $taskRelative)[0]
             if((Id $taskPath)-cne$original.identity){throw 'QUALITY_ARCHIVE_ACTIVE_DRIFT'}
             [IO.File]::Delete($taskPath)
         }else{$null=Put $taskRelative $textOut}
-        $null=QFinish $a
+        $finished=QFinish $a
+        if($PassThru){return [pscustomobject]@{action=$a;finished=$finished;context=$archiveContext}}
     }
     function QPolicy($Policy,[string]$Name){
         $a=QStart (QPackage CONTROL_WRITE @('.ai-workspace/process-policy.json')) $Name
@@ -350,6 +453,177 @@ Write-Output 'Observed current isolated stop record and retained unknown histori
         }finally{$env:CODEX_THREAD_ID=$oldActor}
         return
     }
+    if($CompletionScaleOnly){
+        # Anonymous original-scale reproduction: four independent triples,
+        # source versions with 463 identical path keys (281 equal identities,
+        # 182 changed, three MISSING), and two distinct distribution results.
+        # Every typed result below is produced by real public D/A/F calls.
+        Import-Module (Join-Path $fixtureVersion 'scripts/ResultEvidence.psm1') -Force
+        $ctx=New-AiwPackageEvidenceContext $temp ([pscustomobject]@{schemaVersion=2;repositoryId='ai-workspace-framework'}) $framework -TaskPath $taskRelative
+        $sourcePaths=@(0..462|ForEach-Object{'candidate/member-'+$_.ToString('000')+'.md'})
+        $distributionPaths=@('distribution/first-observation.json','distribution/second-observation.json')
+        $allPaths=@($sourcePaths+$distributionPaths)
+        $baseCard=$baseCard.Replace('current_exact=result.md; expected_paths=[result.md]; actual_paths=[result.md]',('current_exact=FINITE_COMPLETE_DELIVERABLES; expected_paths=['+($allPaths-join'|')+']; actual_paths=['+($allPaths-join'|')+']'))
+        foreach($path in $sourcePaths){$full=Join-Path $objectRoot $path;[IO.Directory]::CreateDirectory((Split-Path $full))|Out-Null;[IO.File]::WriteAllText($full,'Actual initial preimage.',$utf8)}
+        $scalePlan=[pscustomobject]@{schemaVersion=1;stages=@()}
+        $groups=@('source-first','distribution-first','source-second','distribution-second')
+        foreach($name in $groups){
+            $reqPath=Put ($runtime+$name+'-requirements.md') ('The complete anonymous '+$name+' deliverable, independently checked and accepted. This is a distinct original purpose.')
+            $req=[pscustomobject]@{path=$reqPath;identity=(Id $reqPath)}
+            $scalePlan.stages+=@([pscustomobject]@{id=$name+'-self';kind='SELF_CHECK';requiredBy=$req;dependsOn=@();candidateRef=@();evidenceRefs=@()},[pscustomobject]@{id=$name+'-review';kind='RESULT_REVIEW';requiredBy=$req;dependsOn=@($name+'-self');candidateRef=@();evidenceRefs=@()},[pscustomobject]@{id=$name+'-accept';kind='RESULT_ACCEPT';requiredBy=$req;dependsOn=@($name+'-review');candidateRef=@();evidenceRefs=@()})
+        }
+        QCard $scalePlan 'scale-bind-original-twelve-stages'
+        $originals=[Collections.Generic.List[object]]::new();$sourceVersions=[Collections.Generic.List[object]]::new()
+        $finalSource=$null
+        foreach($name in $groups){
+            $stages=@($scalePlan.stages|Where-Object{$_.id.StartsWith($name+'-')});$requirements=$stages[0].requiredBy
+            $isSource=$name.StartsWith('source-');$version=if($name.EndsWith('second')){1}else{0}
+            $paths=if($isSource){$sourcePaths}else{@($distributionPaths[$version])}
+            $write=QStart (QPackage SOURCE_WRITE $paths) ($name+'-production');$null=QProcess $write.boundary ($name+'-production-admit')
+            if($isSource){
+                foreach($i in 0..462){
+                    $full=Join-Path $objectRoot $sourcePaths[$i]
+                    if($i-ge460){[IO.File]::Delete($full)}else{$content=if($i-lt182){'Version '+$version+' member '+$i+'.'}else{'Stable member '+$i+'.'};[IO.File]::WriteAllText($full,$content,$utf8)}
+                }
+            }else{
+                $full=Join-Path $objectRoot $paths[0];[IO.Directory]::CreateDirectory((Split-Path $full))|Out-Null
+                [IO.File]::WriteAllText($full,('{"anonymousOriginalVersion":'+$version+'}'),$utf8)
+            }
+            $candidate=@(foreach($path in $paths){$full=Join-Path $objectRoot $path;[pscustomobject]@{path=$path;identity=$(if([IO.File]::Exists($full)){Id $full}else{'MISSING'})}})
+            $selfRecord=Record owner
+            if($isSource){
+                $matched=@(0..24|ForEach-Object{[pscustomobject]@{path=(Join-Path $objectRoot $candidate[$_].path);identity=$candidate[$_].identity}})
+                $unmatched=@(0..30|ForEach-Object{$audit=Put ($runtime+$name+'-audit-'+$_.ToString('00')+'.txt') ('An original optional audit member '+$name+' '+$_+'.');[pscustomobject]@{path=$audit;identity=(Id $audit)}})
+                $selfRecord.evidenceLocators=@($matched+$unmatched)
+            }
+            $self=Typed $selfRecord SELF_CHECK;$selfF=QFinish $write @($self)
+            $stages[0].candidateRef=@($candidate);$stages[0].evidenceRefs=@($self)
+            $stages[0]|Add-Member evidenceConsumption ([pscustomobject]@{purpose='HISTORICAL_SUCCESS';originalFinalize=@($selfF.pair)})
+            $stages[1].candidateRef=@($candidate);$stages[2].candidateRef=@($candidate)
+            QCard $scalePlan ($name+'-bind-self')
+            $reviewPackage=QPackage REVIEW_EXECUTE $paths reviewer
+            $reviewPackage.reviewIndependence='INDEPENDENT';$reviewPackage|Add-Member candidateWriter owner;$reviewPackage|Add-Member materialContributors @();$reviewPackage.invalidatesOn+=@('CONTRIBUTOR_SET_CHANGE')
+            $reviewAction=QStart $reviewPackage ($name+'-review')
+            $reviewAction.boundary.evidenceRefs=@($self)
+            $null=QProcess $reviewAction.boundary ($name+'-review-admit')
+            $reviewRecord=Record reviewer APPROVED;$reviewRecord|Add-Member authorizationRef ([pscustomobject]@{path=$reviewAction.packagePath;identity=(Id $reviewAction.packagePath)})
+            $review=Typed $reviewRecord REVIEW_VERDICT
+            $ownerHost=Json ($runtime+$name+'-synthetic-owner-delivery.json') ([pscustomobject]@{isError=$false;content=@([pscustomobject]@{type='text';text='{"threadId":"owner"}'})})
+            $ownerDelivery=[pscustomobject]@{channel='TASK_MESSAGE';stage='OBSERVE';expectedRecipient='owner';observedRecipient='owner';outcome='SUCCESS';evidence=($ownerHost+'#'+(Id $ownerHost))}
+            $reviewF=QFinish $reviewAction @($self,$review) @() @() $ownerDelivery
+            $stages[1].evidenceRefs=@($review);$stages[1]|Add-Member evidenceConsumption ([pscustomobject]@{purpose='HISTORICAL_SUCCESS';originalFinalize=@($selfF.pair,$reviewF.pair)})
+            QCard $scalePlan ($name+'-bind-review')
+            $acceptPackage=QPackage RESULT_ACCEPT $paths
+            $acceptPackage|Add-Member acceptanceBinding ([pscustomobject]@{candidateObjects=@($candidate);requirementsRef=$requirements;prerequisiteEvidenceRefs=@($self,$review);reservedUserDecisionRefs=@();prerequisiteConsumption=[pscustomobject]@{purpose='HISTORICAL_SUCCESS';originalFinalize=@($selfF.pair,$reviewF.pair)}})
+            $acceptAction=QStart $acceptPackage ($name+'-accept');$null=QProcess $acceptAction.boundary ($name+'-accept-admit')
+            $acceptRecord=Record owner ACCEPTED;$acceptRecord|Add-Member authorizationRef ([pscustomobject]@{path=$acceptAction.packagePath;identity=(Id $acceptAction.packagePath)})
+            $accepted=Typed $acceptRecord RESULT_ACCEPTANCE
+            $delivery=[pscustomobject]@{channel='NATIVE_RESPONSE';stage='PREPARE';expectedRecipient='USER';observedRecipient='NOT_APPLICABLE';outcome='NOT_SENT';evidence='NOT_APPLICABLE'}
+            $acceptF=QFinish $acceptAction @($accepted) @() @() $delivery
+            $stages[2].evidenceRefs=@($accepted);$stages[2]|Add-Member evidenceConsumption ([pscustomobject]@{purpose='HISTORICAL_SUCCESS';originalFinalize=@($selfF.pair,$reviewF.pair,$acceptF.pair)})
+            $originals.Add([pscustomobject]@{name=$name;self=$self;review=$review;accepted=$accepted;pairs=@($selfF.pair,$reviewF.pair,$acceptF.pair)})
+            if($isSource){$sourceVersions.Add(@($candidate));if($version-eq1){$finalSource=$accepted}}
+            QCard $scalePlan ($name+'-bind-acceptance')
+        }
+        True ($scalePlan.stages.Count-eq12-and$sourceVersions[0].Count-eq463-and$sourceVersions[1].Count-eq463-and@($sourceVersions[0]|Where-Object identity -CEQ MISSING).Count-eq3) 'completion-original-twelve-stage-463-candidate-scale-is-real'
+        $same=0;foreach($i in 0..462){if($sourceVersions[0][$i].identity-ceq$sourceVersions[1][$i].identity){$same++}}
+        True ($same-eq281) 'completion-original-source-versions-have-182-real-differences'
+        # Check only the finite originals actually bound above. Do not search
+        # directories or follow arbitrary prose/JSON attachments as references.
+        $privateRoot=[IO.Path]::GetFullPath($Root).TrimEnd('\','/')
+        function Assert-ScalePrivatePath([string]$Path){
+            $full=[IO.Path]::GetFullPath($Path,$temp)
+            if(-not$full.Equals($privateRoot,[StringComparison]::OrdinalIgnoreCase)-and-not$full.StartsWith($privateRoot+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)){throw ('SCALE_REFERENCE_ESCAPED_PRIVATE_ROOT|'+$Path)}
+        }
+        function Assert-ScaleDocumentRoots($Value){
+            if($Value-is[pscustomobject]){
+                foreach($property in $Value.PSObject.Properties){
+                    if($property.Value-is[string]-and$property.Name-cin@('path','projectRoot','controlRoot','targetRoot','executionRoot','objectRoot','repositoryGitTop','frameworkRoot','discoverReceiptPath','authorizationPackagePath')-and[IO.Path]::IsPathFullyQualified($property.Value)){Assert-ScalePrivatePath $property.Value}
+                    Assert-ScaleDocumentRoots $property.Value
+                }
+            }elseif($Value-is[Array]){foreach($item in $Value){Assert-ScaleDocumentRoots $item}}
+        }
+        $formalDocuments=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+        function Read-ScaleOriginal($Reference){
+            Assert-ScalePrivatePath $Reference.path
+            $artifact=[pscustomobject]@{path=$Reference.path;identity=$Reference.identity}
+            $document=Read-AiwEvidenceReference $ctx $artifact -Json
+            Assert-ScaleDocumentRoots $document
+            $null=$formalDocuments.Add(([IO.Path]::GetFullPath($Reference.path,$temp))+'|'+$Reference.identity)
+            return $document
+        }
+        foreach($original in $originals){
+            foreach($typed in @($original.self,$original.review,$original.accepted)){$null=Read-ScaleOriginal $typed}
+            foreach($pair in $original.pairs){
+                $input=Read-ScaleOriginal $pair.inputRef;$null=Read-ScaleOriginal $pair.resultRef
+                $compact=Read-ScaleOriginal ([pscustomobject]@{path=$input.discoverReceiptPath;identity=$input.expectedDiscoverReceiptIdentity})
+                $null=Read-ScaleOriginal ([pscustomobject]@{path=$compact.sourceLocators.authorizationPackagePath;identity=$compact.binding.authorizationIdentity})
+            }
+        }
+        True ($formalDocuments.Count-ge60) 'completion-all-bound-originals-task-package-producer-and-runtime-roots-are-private'
+        [IO.File]::WriteAllText($scaleMarker,'HISTORY_ATTACHMENT_SAMPLE',$utf8)
+        $sampleWatch=[Diagnostics.Stopwatch]::StartNew()
+        try{
+            $firstStage=$scalePlan.stages[0]
+            Good {Read-AiwResultEvidence $ctx $originals[0].self EVIDENCE-001 $firstStage.candidateRef $firstStage.requiredBy -RequireSuccess -EvidencePurpose HISTORICAL_SUCCESS -OriginalFinalize $originals[0].pairs} 'completion-original-56-locators-use-real-historical-index-after-source-evolves'
+        }finally{$sampleWatch.Stop();[IO.File]::Delete($scaleMarker)}
+        $closed=$baseCard.Replace('lifecycle=ACTIVE;','lifecycle=CLOSED;').Replace('- Status: ACTIVE','- Status: CLOSED')+"- Closure outcome: SUCCESS`n- Closure basis: Current complete source and purpose: "+$finalSource.path+'#'+$finalSource.identity+"`n- Output disposition: All complete final deliverables retained in anonymous TARGET.`n- Git disposition: DEFERRED; isolated reproduction only.`n- Unresolved obligations: NONE`n- Writer: RELEASED`n- Reviewer: RELEASED`n- Authorization: RELEASED`n"
+        $boundary=[pscustomobject]@{publicDecisionIdentity='NOT_REQUIRED'}
+        Good {Assert-AiwTaskClosure $ctx (With-Plan $closed $scalePlan) EVIDENCE-001 $boundary -RequireExplicitClosure} 'completion-twelve-real-originals-and-current-whole-version-close'
+        $shuffled=Clone $scalePlan;$shuffled.stages=@($shuffled.stages|Sort-Object id -Descending)
+        Good {Assert-AiwTaskClosure $ctx (With-Plan $closed $shuffled) EVIDENCE-001 $boundary -RequireExplicitClosure} 'completion-stage-order-cannot-select-current-version'
+        $renamed=Clone $scalePlan;$names=@{};$number=0
+        foreach($stage in $renamed.stages){$names[$stage.id]='unlabelled-'+($number++).ToString('00')}
+        foreach($stage in $renamed.stages){$stage.id=$names[$stage.id];$stage.dependsOn=@($stage.dependsOn|ForEach-Object{$names[$_]})}
+        Good {Assert-AiwTaskClosure $ctx (With-Plan $closed $renamed) EVIDENCE-001 $boundary -RequireExplicitClosure} 'completion-stage-names-cannot-select-current-version'
+        Bad {Assert-AiwTaskClosure $ctx (With-Plan $closed $scalePlan) EVIDENCE-001 $boundary -RequireExplicitClosure -ExcludedReviewActors @('reviewer')} 'EVIDENCE_REVIEW_INDEPENDENCE' 'completion-frozen-original-review-independence-is-still-consumed'
+        $unbound=$closed.Replace($finalSource.path+'#'+$finalSource.identity,'No original current result binding.')
+        Bad {Assert-AiwTaskClosure $ctx (With-Plan $unbound $scalePlan) EVIDENCE-001 $boundary -RequireExplicitClosure} 'ACCEPTANCE_CURRENT_DELIVERABLE_BINDING_REQUIRED' 'completion-current-purpose-cannot-be-guessed-from-two-DAG-leaves'
+        $changedPath=Join-Path $objectRoot $sourcePaths[0];$currentBytes=[IO.File]::ReadAllBytes($changedPath)
+        try{
+            [IO.File]::WriteAllText($changedPath,'Version 0 member 0.',$utf8)
+            Bad {Assert-AiwTaskClosure $ctx (With-Plan $closed $scalePlan) EVIDENCE-001 $boundary -RequireExplicitClosure} 'EVIDENCE_IDENTITY_DRIFT' 'completion-per-file-old-new-mixture-is-not-a-completed-version'
+        }finally{[IO.File]::WriteAllBytes($changedPath,$currentBytes)}
+        $changedBefore=@{}
+        try{
+            foreach($i in 0..181){$full=Join-Path $objectRoot $sourcePaths[$i];$changedBefore[$full]=[IO.File]::ReadAllBytes($full);[IO.File]::WriteAllText($full,('Version 0 member '+$i+'.'),$utf8)}
+            Bad {Assert-AiwTaskClosure $ctx (With-Plan $closed $scalePlan) EVIDENCE-001 $boundary -RequireExplicitClosure} 'EVIDENCE_IDENTITY_DRIFT' 'completion-whole-old-success-cannot-replace-explicit-new-deliverable-and-purpose'
+        }finally{foreach($full in $changedBefore.Keys){[IO.File]::WriteAllBytes($full,$changedBefore[$full])}}
+        $missingPath=Join-Path $objectRoot $sourcePaths[462]
+        try{
+            [IO.File]::WriteAllText($missingPath,'A deleted original member reappeared.',$utf8)
+            Bad {Assert-AiwTaskClosure $ctx (With-Plan $closed $scalePlan) EVIDENCE-001 $boundary -RequireExplicitClosure} 'EVIDENCE_IDENTITY_DRIFT' 'completion-current-whole-version-retains-original-MISSING-members'
+        }finally{[IO.File]::Delete($missingPath)}
+        $firstResult=$originals[0].pairs[0].resultRef.path;$firstBytes=[IO.File]::ReadAllBytes($firstResult)
+        try{
+            [IO.File]::Delete($firstResult)
+            Bad {Assert-AiwTaskClosure $ctx (With-Plan $closed $scalePlan) EVIDENCE-001 $boundary -RequireExplicitClosure} 'EVIDENCE_OBJECT_MISSING' 'completion-current-version-cannot-hide-a-missing-required-historical-F'
+        }finally{[IO.File]::WriteAllBytes($firstResult,$firstBytes)}
+        $null=Json ($runtime+'original-scale-facts.json') ([pscustomobject]@{stageCount=12;sourceCandidateCount=463;equalSourceIdentities=$same;changedSourceIdentities=(463-$same);missingPerSourceVersion=3;groups=$groups;originals=$originals.ToArray();currentSource=$finalSource;ceiling='ISOLATED_REAL_PROCESS_OPERATIONS; synthetic model judgments and package qualification'})
+        $expired=Put ($runtime+'known-expired-scale-scratch.txt') 'A finite scratch input whose only consumer finishes before archival.'
+        True ([IO.File]::ReadAllText($expired).StartsWith('A finite scratch input')) 'completion-known-scratch-last-consumer-actually-finished'
+        [IO.File]::WriteAllText($scaleMarker,'ARCHIVE_AND_CLEANUP',$utf8);$nativeOffset=$nativeRuns.Count;$closeWatch=[Diagnostics.Stopwatch]::StartNew()
+        try{
+            $archived=QCard $scalePlan 'scale-real-control-archive' $closed -Archive -PassThru
+            True (-not[IO.File]::Exists($taskPath)-and[IO.File]::Exists((Join-Path $temp '.ai-workspace/tasks/archive/EVIDENCE-001.md'))) 'completion-original-scale-real-archive-and-original-root-F-complete'
+            $evidenceModule=(Get-Command Assert-AiwTaskClosure).Module
+            $handoff=& $evidenceModule {param($c)Get-EvRetentionHandoff $c} $archived.context
+            $evidence=[pscustomobject]@{retentionContext=$handoff.context;retentionValues=@($scalePlan)+@($handoff.references);retentionProducers=$handoff.producers}
+            Import-Module (Join-Path $fixtureVersion 'scripts/WorkflowDelivery.psm1')
+            $clean=Complete-AiwRuntimeConsumption $archived.finished.value $archived.finished.input $archived.action.receipt $archived.finished.inputPath -ConsumedRuntimePath @($expired) -Evidence $evidence
+        }finally{$closeWatch.Stop();[IO.File]::Delete($scaleMarker)}
+        True ($clean.status-ceq'PASS'-and$expired-in$clean.removed-and-not[IO.File]::Exists($expired)) 'completion-original-scale-known-expired-file-is-actually-released'
+        True (@($originals|ForEach-Object{$_.pairs}|ForEach-Object{$_.inputRef.path;$_.resultRef.path}|Where-Object{-not[IO.File]::Exists($_)}).Count-eq0) 'completion-original-scale-required-originals-remain-after-cleanup'
+        $observations=@(Get-Content -LiteralPath $scaleTrace|ForEach-Object{$_|ConvertFrom-Json})
+        foreach($row in $observations){if($row.path){Assert-ScalePrivatePath $row.path}}
+        $sample=@($observations|Where-Object phase -CEQ HISTORY_ATTACHMENT_SAMPLE);$closing=@($observations|Where-Object phase -CEQ ARCHIVE_AND_CLEANUP)
+        True (@($sample|Where-Object kind -CEQ CANDIDATE_INDEX).Count-eq1-and@($sample|Where-Object kind -CEQ OBSERVATION_CANDIDATE).Count-eq25-and@($sample|Where-Object kind -CEQ CANDIDATE_RESOLVE).Count-eq25-and@($sample|Where-Object kind -CEQ OBSERVATION_DIRECT).Count-eq32) 'completion-31-unmatched-attachments-never-scan-463-candidate-physical-paths'
+        True (@($closing|Where-Object kind -CEQ FINITE_GRAPH).Count-eq2-and@($closing|Where-Object kind -CEQ COMPLETION_TYPED).Count-eq24-and@($closing|Where-Object kind -CEQ PUBLIC_RESULT_READER).Count-eq0-and@($closing|Where-Object kind -CEQ OBSERVATION_LOCATOR).Count-eq0) 'completion-predelete-and-original-F-each-consume-one-finite-graph-without-production-reentry'
+        $metrics=[pscustomobject]@{scope='ResultEvidence guarded reads and actual public native calls in this isolated case; observer overhead included, not whole-system IO';stageCount=12;sourceCandidateCount=463;formalOriginalDocuments=$formalDocuments.Count;historicalAttachmentSampleMs=$sampleWatch.Elapsed.TotalMilliseconds;closeAndCleanupMs=$closeWatch.Elapsed.TotalMilliseconds;closingNativeCalls=@($nativeRuns.ToArray()|Select-Object -Skip $nativeOffset);allNativeCalls=$nativeRuns.ToArray();graphExpansions=@($closing|Where-Object kind -CEQ FINITE_GRAPH).Count;typedExpansions=@($closing|Where-Object kind -CEQ COMPLETION_TYPED).Count;publicResultReentries=@($closing|Where-Object kind -CEQ PUBLIC_RESULT_READER).Count;archiveLocatorCalls=@($closing|Where-Object kind -CEQ ARCHIVE_LOCATOR).Count;candidatePhysicalResolutions=@($closing|Where-Object kind -CEQ CANDIDATE_RESOLVE).Count;guardedReadCalls=@($closing|Where-Object{$_.kind-cin@('FORMAL_READ','CANDIDATE_READ')}).Count;guardedReadBytes=($closing|Measure-Object bytes -Sum).Sum;uniqueReadFiles=@($closing|Where-Object{$_.kind-cin@('FORMAL_READ','CANDIDATE_READ')}|ForEach-Object path|Sort-Object -Unique).Count;modelCallsWithinFixture=0;modelJudgments='SYNTHETIC_INPUTS_ONLY';traceRef=[pscustomobject]@{path=$scaleTrace;identity=(Id $scaleTrace)};cleanup=$clean}
+        $metricsPath=Json ($runtime+'original-scale-cost-observations.json') $metrics
+        Write-Output ('OBSERVATION|'+$metricsPath+'#'+(Id $metricsPath))
+        Write-Output ('FIXTURE|'+$Root+'|scope=original-scale-completion|stages=12|sourceCandidates=463|qualification=SYNTHETIC_TEST_FIXTURE_ONLY|model=SYNTHETIC');return
+    }
     $subject=[pscustomobject]@{repositoryId=$(if($Maintenance){'ai-workspace-framework'}else{'REPO_LOCAL'});exactPaths=@('result.md');facets=[pscustomobject]@{domain=[pscustomobject]@{state='KNOWN';values=@('aiw:software')};deliverableType=[pscustomobject]@{state='KNOWN';values=@('aiw:code')}}}
     $legacy=QPrepare $subject 'legacy-prepare';True ($legacy.mode-ceq'LEGACY'-and-not$legacy.authorityGranted-and$null-eq$legacy.plan) 'quality-unenabled-project-remains-legacy'
     True (Test-AiwPackageReviewRequired (QPackage RESULT_ACCEPT @('result.md'))) 'quality-legacy-critical-retains-independent-review'
@@ -401,7 +675,13 @@ Write-Output 'Observed current isolated stop record and retained unknown histori
         True ($blockedCommand.exitCode-eq3-and$blocked.value.status-ceq'BLOCKED'-and$blocked.value.reason-ceq'PREPARATION_INCOMPLETE'-and$blocked.value.missingPreparation.Count-gt0-and$blocked.value.missingResult.Count-gt0) 'quality-B-explicit-incomplete-F-remains-strictly-blocked'
     }
     $candidate=QProduct 'The approved anonymous sentence.'
-    $self=Typed (Record owner) SELF_CHECK;$produced=QFinish $production @($self)
+    $selfRecord=Record owner
+    if($CompletionGraphOnly-or$AcceptedUseOnly){
+        $optionalPath=Put ($runtime+'optional-original-audit.txt') 'An optional original audit attachment, present during actual production.'
+        $optionalRef=[pscustomobject]@{path=$optionalPath;identity=(Id $optionalPath)}
+        $selfRecord.evidenceLocators+=@($optionalRef);$selfRecord.checks[0].evidenceLocators+=@($optionalRef)
+    }
+    $self=Typed $selfRecord SELF_CHECK;$produced=QFinish $production @($self)
     $plan.stages[0].candidateRef=@($candidate);$plan.stages[0].evidenceRefs=@($self);$plan.stages[1].candidateRef=@($candidate)
     QCard $plan 'bind-self-evidence'
     $accept=QPackage RESULT_ACCEPT @('result.md') owner $plan.qualityBinding
@@ -415,6 +695,310 @@ Write-Output 'Observed current isolated stop record and retained unknown histori
     $plan.stages[1].evidenceRefs=@($accepted)
     $historical=[pscustomobject]@{purpose='HISTORICAL_SUCCESS';originalFinalize=@($acceptedF.pair,$produced.pair)}
     $plan.stages[1]|Add-Member evidenceConsumption $historical
+    if($AcceptedUseOnly){
+        $owner=(Get-Command Read-AiwResultEvidence).Module
+        $preparedPath=Put ($runtime+'install-prepared.md') ([IO.File]::ReadAllText((Join-Path $objectRoot $candidate.path)))
+        $prepared=[pscustomobject]@{path=$preparedPath;identity=(Id $preparedPath)}
+        $currentPurpose=if($AcceptedPurposeOnly){'Install the exact original accepted sentence at installed/result.md as a current governed responsibility statement. This new purpose must receive independent review against the original Q and this frozen mapping; original Q alone lacks that review.'}else{'Install this exact original accepted sentence at installed/result.md; original purpose retained.'}
+        $currentRequirementsPath=Put ($runtime+'installation-requirements.md') $currentPurpose
+        $currentRequirements=[pscustomobject]@{path=$currentRequirementsPath;identity=(Id $currentRequirementsPath)}
+        $use=[pscustomobject]@{schemaVersion=1;kind='ACCEPTED_OUTCOME_USE';requirementsRef=$currentRequirements;assuranceEvidence=@($accepted);assuranceConsumption=$historical;basisRefs=@($requirements);mappings=@([pscustomobject]@{operation='WRITE';sourcePath=$candidate.path;preparedRef=$prepared;targetPath='installed/result.md';basisIndexes=@(0)})}
+        $usePath=Json ($runtime+'accepted-use.json') $use
+        $binding=[pscustomobject]@{schemaVersion=1;useRef=[pscustomobject]@{path=$usePath;identity=(Id $usePath)};additionalEvidence=@();additionalConsumption=[pscustomobject]@{purpose='CURRENT_CANDIDATE';originalFinalize=@()}}
+        $objects=@([pscustomobject]@{path='installed/result.md';identity=$candidate.identity})
+        function Use-Core($B=$binding,$C=$ctx,$A=$objects,$Kinds=@('SELF_CHECK','RESULT_ACCEPTANCE')){
+            & $owner {param($c,$b,$a,$k) Get-EvAcceptedOutcomeCore $c $b $a $k INSTALL-001} $C $B $A $Kinds
+        }
+        $first=Use-Core
+        True ($first.objects.Count-eq1-and$first.original.anchor.record.taskId-ceq'EVIDENCE-001'-and$first.coveredKinds-ccontains'SELF_CHECK') 'accepted-use-real-original-acceptance-anchors-complete-Q-and-selected-subset'
+        $originalText=[IO.File]::ReadAllText((Join-Path $objectRoot $candidate.path))
+        try{
+            $null=QProduct 'A later production directory value, outside the original accepted Q.'
+            Good {Use-Core} 'accepted-use-historical-Q-selects-actual-prepared-bytes-after-live-production-evolves'
+            Bad {Read-AiwResultEvidence $ctx $accepted INSTALL-001 $objects $currentRequirements -RequireSuccess -EvidencePurpose HISTORICAL_SUCCESS -OriginalFinalize $historical.originalFinalize} 'EVIDENCE_TASK_DRIFT' 'accepted-use-does-not-relax-public-cross-task-reader'
+        }finally{$null=QProduct $originalText}
+        Bad {Use-Core -Kinds @('REVIEW_VERDICT')} 'ACCEPTED_USE_REQUIRED_STAGE_UNCOVERED' 'accepted-use-missing-current-required-review-is-not-invented'
+        if($AcceptedPurposeOnly){
+            # A fresh repo-local case retains the original accepted Q. Only
+            # its new use is assessed here; all model/host judgments below
+            # are explicitly synthetic inputs to the real public consumers.
+            if($Maintenance-or$AcceptedInstallationOnly){throw 'ACCEPTED_PURPOSE_REPO_LOCAL_ONLY'}
+            $originalAccepted=$accepted;$originalPairs=@($historical.originalFinalize)
+            $originalRefs=@($self,$accepted)+@($originalPairs|ForEach-Object{$_.inputRef;$_.resultRef})
+            $originalIdentities=@(foreach($ref in $originalRefs){[pscustomobject]@{path=$ref.path;identity=(Id ([IO.Path]::GetFullPath($ref.path,$temp)));writeUtc=[IO.File]::GetLastWriteTimeUtc([IO.Path]::GetFullPath($ref.path,$temp)).Ticks}})
+            $activeTaskId='INSTALL-001';$taskRelative='.ai-workspace/tasks/active/INSTALL-001.md';$taskPath=Join-Path $temp $taskRelative
+            $paths=@([IO.Path]::GetRelativePath($temp,$usePath).Replace('\','/'),[IO.Path]::GetRelativePath($temp,$preparedPath).Replace('\','/'))
+            # Explicit synthetic starting task, followed by normal card and
+            # quality operations. No current production is retroactively
+            # claimed for these already frozen inputs.
+            $baseCard="# INSTALL-001 — isolated changed-purpose assurance`n- Task schema: 2.0.0`n- Profile: CRITICAL; reason=actual purpose increment requires independent review`n- Owner: owner`n- Work route: actor=owner; role=TASK_OWNER; phase=IMPLEMENT`n- Status: ACTIVE`n- Phase gate: FALSE`n- Range summary: profile=CRITICAL; lifecycle=ACTIVE; current_exact=FROZEN_USE_AND_PREPARED; expected_paths=["+($paths-join'|')+"]; actual_paths=["+($paths-join'|')+"]`n"
+            $null=Put $taskRelative $baseCard
+            $requirements=$currentRequirements
+            $purposeSubject=[pscustomobject]@{repositoryId='REPO_LOCAL';exactPaths=$paths;facets=[pscustomobject]@{domain=[pscustomobject]@{state='KNOWN';values=@('aiw:software')};deliverableType=[pscustomobject]@{state='KNOWN';values=@('aiw:code')}}}
+            $purposePlan=(QPrepare $purposeSubject 'purpose-quality-prepare').plan
+            QCard $purposePlan 'purpose-bind-quality-plan'
+            $candidate=@(foreach($path in $paths){[pscustomobject]@{path=$path;identity=(Id (Join-Path $temp $path))}})
+            $purposeTest=QStart (QPackage TEST_RUN $paths owner $purposePlan.qualityBinding) 'purpose-real-self'
+            $null=QProcess $purposeTest.boundary 'purpose-real-self-admit'
+            $entry=Put ($runtime+'purpose-check-frozen-inputs.ps1') @'
+param([string]$UsePath,[string]$PreparedPath,[string]$ExpectedUse,[string]$ExpectedPrepared)
+$ErrorActionPreference='Stop'
+function Identity([string]$Path){$bytes=[IO.File]::ReadAllBytes($Path);$bytes.Length.ToString()+'|'+[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes))}
+if((Identity $UsePath)-cne$ExpectedUse-or(Identity $PreparedPath)-cne$ExpectedPrepared){throw 'FROZEN_INPUT_DRIFT'}
+$use=Get-Content -LiteralPath $UsePath -Raw|ConvertFrom-Json
+if($use.mappings.Count-ne1-or$use.mappings[0].targetPath-cne'installed/result.md'){throw 'CURRENT_MAPPING_DRIFT'}
+Write-Output 'ACTUAL_FROZEN_USE_AND_PREPARED_BYTES_MATCH; semantic purpose judgment is a separate synthetic fixture input.'
+exit 0
+'@
+            $run=QNative $entry @('-UsePath',$usePath,'-PreparedPath',$preparedPath,'-ExpectedUse',(Id $usePath),'-ExpectedPrepared',(Id $preparedPath)) 'purpose-native-self-command'
+            True ($run.Code-eq0) 'accepted-purpose-self-executes-real-frozen-input-check'
+            $rawRef=Ref ($runtime+'purpose-native-self-command-raw.txt')
+            $commandPath=Json ($runtime+'purpose-native-command-evidence.json') ([pscustomobject]@{command=('pwsh -File '+$entry);exitCode=$run.Code;output=$rawRef})
+            $selfRecord=Record owner;$selfRecord.taskId=$activeTaskId
+            $selfRecord.checks=@([pscustomobject]@{id='frozen-inputs';method='COMMAND';outcome='PASS';reason='Actual native process verified this frozen U and prepared bytes.';evidenceLocators=@([pscustomobject]@{path=$commandPath;identity=(Id $commandPath)})},[pscustomobject]@{id='changed-purpose';method='MODEL_JUDGMENT';outcome='PASS';reason='SYNTHETIC_FIXTURE_INPUT: the new responsibility use is assessed against current requirements and original Q; this is not a natural model judgment.';evidenceLocators=@($currentRequirements,$binding.useRef)})
+            $purposeSelf=Typed $selfRecord SELF_CHECK
+            $selfF=QFinish $purposeTest @($purposeSelf)
+            $purposePlan.stages[0].candidateRef=@($candidate);$purposePlan.stages[0].evidenceRefs=@($purposeSelf)
+            $purposePlan.stages[0]|Add-Member evidenceConsumption ([pscustomobject]@{purpose='HISTORICAL_SUCCESS';originalFinalize=@($selfF.pair)})
+            $purposePlan.stages[-1].candidateRef=@($candidate)
+            QCard $purposePlan 'purpose-bind-current-self'
+            $reviewPackage=QPackage REVIEW_EXECUTE $paths reviewer $purposePlan.qualityBinding
+            $reviewPackage.reviewIndependence='INDEPENDENT';$reviewPackage|Add-Member candidateWriter owner;$reviewPackage|Add-Member materialContributors @();$reviewPackage.invalidatesOn+=@('CONTRIBUTOR_SET_CHANGE')
+            $reviewAction=QStart $reviewPackage 'purpose-independent-review';$reviewAction.boundary.evidenceRefs=@($purposeSelf)
+            $null=QProcess $reviewAction.boundary 'purpose-independent-review-admit'
+            $reviewRecord=Record reviewer APPROVED;$reviewRecord.taskId=$activeTaskId
+            $reviewRecord|Add-Member authorizationRef ([pscustomobject]@{path=$reviewAction.packagePath;identity=(Id $reviewAction.packagePath)})
+            $reviewRecord.checks[0].reason='SYNTHETIC_FIXTURE_INPUT: independent reviewer assessed the actual frozen U, prepared object and stated purpose increment; validators and original F are real.'
+            $purposeReview=Typed $reviewRecord REVIEW_VERDICT
+            $ownerHost=Json ($runtime+'purpose-synthetic-owner-delivery.json') ([pscustomobject]@{isError=$false;content=@([pscustomobject]@{type='text';text='{"threadId":"owner"}'})})
+            $ownerDelivery=[pscustomobject]@{channel='TASK_MESSAGE';stage='OBSERVE';expectedRecipient='owner';observedRecipient='owner';outcome='SUCCESS';evidence=($ownerHost+'#'+(Id $ownerHost))}
+            $reviewF=QFinish $reviewAction @($purposeSelf,$purposeReview) @() @() $ownerDelivery
+            $acceptPackage=QPackage RESULT_ACCEPT $paths owner $purposePlan.qualityBinding
+            $acceptPackage|Add-Member acceptanceBinding ([pscustomobject]@{candidateObjects=@($candidate);requirementsRef=$currentRequirements;prerequisiteEvidenceRefs=@($purposeSelf,$purposeReview);reservedUserDecisionRefs=@();prerequisiteConsumption=[pscustomobject]@{purpose='HISTORICAL_SUCCESS';originalFinalize=@($selfF.pair,$reviewF.pair)}})
+            $acceptAction=QStart $acceptPackage 'purpose-current-acceptance';$null=QProcess $acceptAction.boundary 'purpose-current-acceptance-admit'
+            $acceptRecord=Record owner ACCEPTED;$acceptRecord.taskId=$activeTaskId;$acceptRecord|Add-Member authorizationRef ([pscustomobject]@{path=$acceptAction.packagePath;identity=(Id $acceptAction.packagePath)})
+            $purposeAccepted=Typed $acceptRecord RESULT_ACCEPTANCE
+            $acceptF=QFinish $acceptAction @($purposeAccepted) @() @() $nativeDelivery
+            $supplemented=Clone $binding;$supplemented.additionalEvidence=@($purposeAccepted)
+            $supplemented.additionalConsumption=[pscustomobject]@{purpose='HISTORICAL_SUCCESS';originalFinalize=@($selfF.pair,$reviewF.pair,$acceptF.pair)}
+            $result=Use-Core $supplemented -Kinds @('SELF_CHECK','REVIEW_VERDICT','RESULT_ACCEPTANCE')
+            True ($result.coveredKinds-ccontains'REVIEW_VERDICT'-and$result.additional.nodes.Count-eq3-and$result.original.anchor.reference.identity-ceq$originalAccepted.identity) 'accepted-purpose-real-completed-supplement-covers-new-required-review-with-original-Q-retained'
+            foreach($mutation in @('TASK','REQUIREMENTS','U','PREPARED')){
+                $bad=Clone $acceptRecord
+                switch($mutation){
+                    TASK {$bad.taskId='OTHER-CURRENT-TASK';$reason='ACCEPTED_USE_ADDITIONAL_PURPOSE_DRIFT'}
+                    REQUIREMENTS {$bad.requirementsRef=$first.original.anchor.record.requirementsRef;$reason='ACCEPTED_USE_ADDITIONAL_PURPOSE_DRIFT'}
+                    U {$bad.candidateObjects=@($candidate|Where-Object path -CNE $paths[0]);$reason='ACCEPTED_USE_ADDITIONAL_U_UNBOUND'}
+                    PREPARED {$bad.candidateObjects=@($candidate|Where-Object path -CNE $paths[1]);$reason='ACCEPTED_USE_ADDITIONAL_PREPARED_UNBOUND'}
+                }
+                $invalid=Typed $bad RESULT_ACCEPTANCE;$badBinding=Clone $supplemented;$badBinding.additionalEvidence=@($invalid)
+                Bad {Use-Core $badBinding -Kinds @('REVIEW_VERDICT')} $reason ('accepted-purpose-rejects-unbound-additional-'+$mutation)
+            }
+            $withoutF=Clone $supplemented;$withoutF.additionalConsumption.originalFinalize=@($selfF.pair,$reviewF.pair)
+            Bad {Use-Core $withoutF -Kinds @('REVIEW_VERDICT')} 'EVIDENCE_HISTORICAL_FINALIZE_UNBOUND' 'accepted-purpose-current-acceptance-needs-its-own-real-original-F'
+            foreach($ref in $originalIdentities){$full=[IO.Path]::GetFullPath($ref.path,$temp);if((Id $full)-cne$ref.identity-or[IO.File]::GetLastWriteTimeUtc($full).Ticks-ne$ref.writeUtc){throw 'PURPOSE_TEST_CHANGED_ORIGINAL_Q'}}
+            True $true 'accepted-purpose-original-Q-typed-and-F-bytes-and-times-unchanged'
+            $null=Json ($runtime+'purpose-increment-observation.json') ([pscustomobject]@{originalAcceptance=$originalAccepted;originalFinalize=$originalPairs;useRef=$binding.useRef;preparedRef=$use.mappings[0].preparedRef;supplementalEvidence=@($purposeSelf,$purposeReview,$purposeAccepted);supplementalFinalize=@($selfF.pair,$reviewF.pair,$acceptF.pair);binding=$supplemented;qualification='SYNTHETIC_TEST_FIXTURE_ONLY';modelJudgments='SYNTHETIC_INPUTS_ONLY';nativeSelfExit=$run.Code;currentUseConsumer='ACTUAL_PRIVATE_CORE';currentInstallation='NOT_TESTED_IN_THIS_FOCUSED_CASE'})
+            Write-Output ('FIXTURE|'+$Root+'|scope=accepted-purpose-increment|qualification=SYNTHETIC_TEST_FIXTURE_ONLY|model=SYNTHETIC')
+            return
+        }
+
+        foreach($mutation in @('UNKNOWN','DUPLICATE','SAME_HASH_OTHER_PATH','UNBOUND_BASIS','WRONG_PREPARED','NO_ORIGINAL','ALIAS_BASIS','ALIAS_ASSURANCE')){
+            $badUse=Clone $use
+            switch($mutation){
+                UNKNOWN {$badUse|Add-Member accepted $true;$reason='EVIDENCE_FIELD_SET'}
+                DUPLICATE {$badUse.mappings+=@($badUse.mappings[0]);$reason='ACCEPTED_USE_MAPPING_DUPLICATE'}
+                SAME_HASH_OTHER_PATH {$badUse.mappings[0].sourcePath='same-hash-other-path.md';$reason='ACCEPTED_USE_SOURCE_NOT_IN_Q'}
+                UNBOUND_BASIS {$badUse.basisRefs=@($currentRequirements);$reason='ACCEPTED_USE_ORIGINAL_BASIS_UNBOUND'}
+                WRONG_PREPARED {$badUse.mappings[0].preparedRef.identity='1|'+('A'*64);$reason='ACCEPTED_USE_FROZEN_BYTES_DRIFT'}
+                NO_ORIGINAL {$badUse.assuranceConsumption.originalFinalize=@();$reason='EVIDENCE_HISTORICAL_FINALIZE_UNBOUND'}
+                ALIAS_BASIS {$alias=Clone $requirements;$alias.path=[IO.Path]::GetFullPath($requirements.path,$temp);$badUse.basisRefs=@($requirements,$alias);$reason='EVIDENCE_DUPLICATE_REF'}
+                ALIAS_ASSURANCE {$alias=Clone $self;$alias.path=[IO.Path]::GetFullPath($self.path,$temp);$relative=Clone $self;$badUse.assuranceEvidence=@($accepted,$relative,$alias);$reason='EVIDENCE_DUPLICATE_REF'}
+            }
+            $path=Json ($runtime+'invalid-use-'+$mutation+'.json') $badUse
+            $badBinding=Clone $binding;$badBinding.useRef=[pscustomobject]@{path=$path;identity=(Id $path)}
+            Bad {Use-Core $badBinding} $reason ('accepted-use-strict-'+$mutation)
+        }
+        $badBinding=Clone $binding
+        $alias=Clone $self;$alias.path=[IO.Path]::GetFullPath($self.path,$temp)
+        $relative=Clone $self
+        $badBinding.additionalEvidence=@($relative,$alias);$badBinding.additionalConsumption=$historical
+        Bad {Use-Core $badBinding} 'EVIDENCE_DUPLICATE_REF' 'accepted-use-additional-evidence-rejects-canonical-path-alias'
+        $badBinding=Clone $binding;$badBinding.additionalConsumption=[pscustomobject]@{purpose='HISTORICAL_SUCCESS';originalFinalize=$historical.originalFinalize}
+        Bad {Use-Core $badBinding} 'ACCEPTED_USE_EMPTY_ADDITIONAL_CONSUMPTION' 'accepted-use-empty-additional-results-do-not-claim-history'
+        $protectedContext=New-AiwPackageEvidenceContext $temp $accept $framework @($preparedPath) -TaskPath $taskRelative
+        Bad {Use-Core -C $protectedContext} 'EVIDENCE_PATH_FORBIDDEN' 'accepted-use-prepared-protection-precedes-physical-read'
+        $shared=& $owner {
+            param($c,$b,$a)
+            Invoke-EvCompletedEvidenceScope -Body {
+                param($c,$b,$a)
+                $first=Get-EvAcceptedOutcomeCore $c $b $a @('SELF_CHECK','RESULT_ACCEPTANCE') INSTALL-001
+                $second=Get-EvAcceptedOutcomeCore $c $b $a @('SELF_CHECK','RESULT_ACCEPTANCE') INSTALL-001
+                [pscustomobject]@{same=[object]::ReferenceEquals($first.original.graph,$second.original.graph);graph=$first.original.graph}
+            } -Arguments @($c,$b,$a)
+        } $ctx $binding $objects
+        True $shared.same 'accepted-use-one-owned-boundary-shares-actual-finite-graph'
+        $guardShared=& $owner {
+            param($c,$b,$a)
+            Invoke-EvCompletedEvidenceScope -Body {
+                param($c,$b,$a)
+                $relative=$c|Select-Object * -ExcludeProperty RetentionReadState
+                $relative.ForbiddenPaths=@($c.ForbiddenPaths)+@('unused-scope/')
+                $first=Get-EvAcceptedOutcomeCore $relative $b $a @('SELF_CHECK') INSTALL-001
+                $absolute=$c|Select-Object * -ExcludeProperty RetentionReadState
+                $absolute.ForbiddenPaths=@(Get-EvAbsoluteRestrictions @($relative.ForbiddenPaths) $relative.Roots|Sort-Object -Descending)+@(Get-EvAbsoluteRestrictions @($relative.ForbiddenPaths) $relative.Roots)
+                $second=Get-EvAcceptedOutcomeCore $absolute $b $a @('SELF_CHECK') INSTALL-001
+                [object]::ReferenceEquals($first.original.graph,$second.original.graph)
+            } -Arguments @($c,$b,$a)
+        } $ctx $binding $objects
+        True $guardShared 'accepted-use-equivalent-relative-absolute-reordered-duplicate-guards-share-one-owned-graph'
+        foreach($cold in @($false,$true)){
+        foreach($guardCase in @(
+            @{id='forbidden-original-F';path=$produced.pair.resultRef.path;protected=$false},
+            # Completion does not reread optional observation attachments. The
+            # original purpose is noncandidate material actually required here.
+            @{id='protected-original-purpose';path=$requirements.path;protected=$true}
+        )){
+            $strong=$ctx|Select-Object * -ExcludeProperty RetentionReadState
+            $full=[IO.Path]::GetFullPath($guardCase.path)
+            if($guardCase.protected){$strong.CandidateProtectedPaths=@($ctx.CandidateProtectedPaths)+@($full)}else{$strong.ForbiddenPaths=@($ctx.ForbiddenPaths)+@($full)}
+            $backup=[IO.Path]::GetFullPath((Join-Path $Root ($guardCase.id+'.saved')))
+            $ownedPrefix=[IO.Path]::GetFullPath($Root).TrimEnd('\','/')+[IO.Path]::DirectorySeparatorChar
+            if(-not$full.StartsWith($ownedPrefix,[StringComparison]::OrdinalIgnoreCase)-or-not$backup.StartsWith($ownedPrefix,[StringComparison]::OrdinalIgnoreCase)-or[IO.File]::Exists($backup)){throw 'ACCEPTED_GUARD_FIXTURE_MOVE_SCOPE'}
+            $before=Id $full
+            Bad {
+                & $owner {
+                    param($c,$b,$a,$strong,$path,$backup,$cold)
+                    Invoke-EvCompletedEvidenceScope -Body {
+                        param($c,$b,$a,$strong,$path,$backup,$cold)
+                        if(-not$cold){$null=Get-EvAcceptedOutcomeCore $c $b $a @('SELF_CHECK') INSTALL-001}
+                        [IO.File]::Move($path,$backup)
+                        try{Get-EvAcceptedOutcomeCore $strong $b $a @('SELF_CHECK') INSTALL-001}
+                        finally{[IO.File]::Move($backup,$path)}
+                    } -Arguments @($c,$b,$a,$strong,$path,$backup,$cold)
+                } $ctx $binding $objects $strong $full $backup $cold
+            } 'EVIDENCE_PATH_FORBIDDEN' ('accepted-use-'+$(if($cold){'cold'}else{'warm'})+'-'+$guardCase.id+'-rejects-before-missing-path-observation')
+            True ((Id $full)-ceq$before-and-not[IO.File]::Exists($backup)) ('accepted-use-'+$guardCase.id+'-restores-exact-original-after-negative')
+        }
+
+        }
+        $fresh=Use-Core
+        True (-not[object]::ReferenceEquals($shared.graph,$fresh.original.graph)) 'accepted-use-new-boundary-has-no-resident-graph'
+        $oldF=$produced.pair.resultRef.path;$oldBytes=[IO.File]::ReadAllBytes($oldF)
+        try{
+            $cacheFailure=& $owner {
+                param($c,$b,$a,$path)
+                Invoke-EvCompletedEvidenceScope -Body {
+                    param($c,$b,$a,$path)
+                    $null=Get-EvAcceptedOutcomeCore $c $b $a @('SELF_CHECK') INSTALL-001
+                    [IO.File]::AppendAllText($path,'changed after actual first consumption')
+                    Get-EvAcceptedOutcomeCore $c $b $a @('SELF_CHECK') INSTALL-001
+                } -Arguments @($c,$b,$a,$path)
+            } $ctx $binding $objects $oldF
+            throw 'ASSERT|accepted-use-cached-original-was-not-freshly-observed'
+        }catch{
+            if(-not$_.Exception.Message.Contains('EVIDENCE_IDENTITY_DRIFT')){throw}
+            $script:passed++;Write-Output 'PASS|accepted-use-shared-parsing-still-reobserves-required-original-bytes'
+        }finally{[IO.File]::WriteAllBytes($oldF,$oldBytes)}
+        if($AcceptedInstallationOnly){
+            if($Maintenance){throw 'ACCEPTED_INSTALLATION_REPO_LOCAL_FIXTURE_REQUIRED'}
+            $activeTaskId='INSTALL-001'
+            $taskRelative='.ai-workspace/tasks/active/INSTALL-001.md';$taskPath=Join-Path $temp $taskRelative
+            $baseCard=$baseCard.Replace('# EVIDENCE-001','# INSTALL-001').Replace('result.md','installed/result.md')
+            $null=Put $taskRelative $baseCard
+            $runtime='.ai-workspace/runtime/INSTALL-001/owner/'
+            $requirements=$currentRequirements
+            $installSubject=Clone $subject;$installSubject.exactPaths=@('installed/result.md')
+            $installPlan=(QPrepare $installSubject 'install-quality-prepare').plan
+            QCard $installPlan 'install-bind-current-plan'
+            $target=Put 'installed/result.md' 'Original installation target preimage.'
+            $package=QPackage SOURCE_WRITE @('installed/result.md') owner $installPlan.qualityBinding
+            $package|Add-Member acceptedOutcomeBinding (Clone $binding)
+            $installation=QStart $package 'install-source'
+            $null=QProcess $installation.boundary 'install-source-admit'
+            [IO.File]::WriteAllBytes($target,[IO.File]::ReadAllBytes($preparedPath))
+            $changed=Clone $installation;$changed.name='install-source-third-party'
+            try{
+                [IO.File]::AppendAllText($target,'Third-party bytes after actual authorized write.',$utf8)
+                Bad {QFinish $changed} 'EVIDENCE_IDENTITY_DRIFT' 'accepted-installation-original-F-refuses-third-party-target-bytes'
+            }finally{[IO.File]::WriteAllBytes($target,[IO.File]::ReadAllBytes($preparedPath))}
+            $installed=QFinish $installation
+            True ($installed.value.status-ceq'PASS'-and$installed.value.actionOutcome-ceq'OBSERVED'-and(Id $target)-ceq$prepared.identity-and$installed.input.evidenceRefs.Count-eq0) 'accepted-installation-current-quality-D-A-write-and-original-F-use-real-U-without-foreign-typed-injection'
+            $ctx=New-AiwPackageEvidenceContext $temp $package $framework -TaskPath $taskRelative
+            foreach($stage in $installPlan.stages){
+                $stage.candidateRef=@($objects);$stage.evidenceRefs=@(if($stage.kind-ceq'SELF_CHECK'){$self}else{$accepted})
+                $stage|Add-Member evidenceConsumption ([pscustomobject]@{purpose='HISTORICAL_SUCCESS';originalFinalize=@($historical.originalFinalize)+@($installed.pair)}) -Force
+            }
+            $closed=$baseCard.Replace('lifecycle=ACTIVE;','lifecycle=CLOSED;').Replace('- Status: ACTIVE','- Status: CLOSED')+"- Closure outcome: SUCCESS`n- Closure basis: Actual current installation: "+$installed.pair.resultRef.path+'#'+$installed.pair.resultRef.identity+"`n- Output disposition: Installed reviewed bytes retained at their named target.`n- Git disposition: DEFERRED; isolated installation fixture.`n- Unresolved obligations: NONE`n- Writer: RELEASED`n- Reviewer: RELEASED`n- Authorization: RELEASED`n"
+            $boundary=[pscustomobject]@{publicDecisionIdentity='NOT_REQUIRED'}
+            Good {Assert-AiwTaskClosure $ctx (With-Plan $closed $installPlan) INSTALL-001 $boundary -RequireExplicitClosure} 'accepted-installation-original-Q-and-real-current-F-close-current-stages-without-new-typed-result'
+            $missing=Clone $installPlan
+            foreach($stage in $missing.stages){$stage.evidenceConsumption.originalFinalize=@($historical.originalFinalize)}
+            Bad {Assert-AiwTaskClosure $ctx (With-Plan $closed $missing) INSTALL-001 $boundary -RequireExplicitClosure} 'EVIDENCE_TASK_DRIFT' 'accepted-installation-foreign-Q-alone-cannot-close-current-task'
+            $failed=Clone $installed.value;$failed.status='FAIL'
+            $failedPath=Json ($runtime+'failed-installation-result.json') $failed
+            $failedPair=Clone $installed.pair;$failedPair.resultRef=[pscustomobject]@{path=$failedPath;identity=(Id $failedPath)}
+            $badPlan=Clone $installPlan
+            foreach($stage in $badPlan.stages){$stage.evidenceConsumption.originalFinalize=@($historical.originalFinalize)+@($failedPair)}
+            Bad {Assert-AiwTaskClosure $ctx (With-Plan $closed $badPlan) INSTALL-001 $boundary -RequireExplicitClosure} 'QUALITY_PRODUCTION_FINALIZE_REQUIRED' 'accepted-installation-failed-current-F-cannot-close-current-task'
+            Bad {Assert-AiwTaskClosure $ctx (With-Plan ($closed.Replace('- Owner: owner','- Owner: other-owner')) $installPlan) INSTALL-001 $boundary -RequireExplicitClosure} 'REPAIR_REVIEW_PARENT_CONTEXT_DRIFT' 'accepted-installation-current-F-must-bind-current-task-owner'
+            try{
+                [IO.File]::AppendAllText($target,'Uninstalled current target drift.',$utf8)
+                Bad {Assert-AiwTaskClosure $ctx (With-Plan $closed $installPlan) INSTALL-001 $boundary -RequireExplicitClosure} 'EVIDENCE_IDENTITY_DRIFT' 'accepted-installation-current-F-never-substitutes-for-live-target-bytes'
+            }finally{[IO.File]::WriteAllBytes($target,[IO.File]::ReadAllBytes($preparedPath))}
+            $expired=Put ($runtime+'known-expired-installation-scratch.txt') 'Finite scratch whose actual consumer finishes here.'
+            True ([IO.File]::ReadAllText($expired).StartsWith('Finite scratch')) 'accepted-installation-known-scratch-last-consumer-finished'
+            $archived=QCard $installPlan 'install-real-control-archive' $closed -Archive -PassThru
+            $archive=Join-Path $temp '.ai-workspace/tasks/archive/INSTALL-001.md'
+            True (-not[IO.File]::Exists($taskPath)-and[IO.File]::Exists($archive)-and$archived.finished.value.status-ceq'PASS') 'accepted-installation-real-current-task-archive-and-original-control-F-complete'
+            $handoff=& $owner {param($c)Get-EvRetentionHandoff $c} $archived.context
+            $retention=[pscustomobject]@{retentionContext=$handoff.context;retentionValues=@($installPlan)+@($handoff.references);retentionProducers=$handoff.producers}
+            Import-Module (Join-Path $fixtureVersion 'scripts/WorkflowDelivery.psm1')
+            $cleanup=Complete-AiwRuntimeConsumption $archived.finished.value $archived.finished.input $archived.action.receipt $archived.finished.inputPath -ConsumedRuntimePath @($expired) -Evidence $retention
+            True ($cleanup.status-ceq'PASS'-and-not[IO.File]::Exists($expired)) 'accepted-installation-last-consumer-releases-only-known-expired-scratch'
+            True (@(@($historical.originalFinalize)+@($installed.pair)|ForEach-Object{$_.inputRef.path;$_.resultRef.path}|Where-Object{-not[IO.File]::Exists($_)}).Count-eq0-and[IO.File]::Exists($usePath)-and[IO.File]::Exists($preparedPath)) 'accepted-installation-original-Q-U-prepared-and-current-F-retained-for-active-dependencies'
+
+            $null=Json ($runtime+'installation-observation.json') ([pscustomobject]@{originalTaskId='EVIDENCE-001';installationTaskId=$activeTaskId;originalAcceptance=$accepted;originalFinalize=$historical.originalFinalize;installationFinalize=$installed.pair;archiveFinalize=$archived.finished.pair;target=[pscustomobject]@{path=$target;identity=(Id $target)};modelCalls=0;qualification='SYNTHETIC';notTested=@('DELETE','CONTROL_AGENTS','ordinary-interruption-resume')})
+            Write-Output ('FIXTURE|'+$Root+'|scope=accepted-ordinary-installation|qualification=SYNTHETIC_TEST_FIXTURE_ONLY|model=SYNTHETIC')
+            return
+        }
+
+
+        Write-Output ('FIXTURE|'+$Root+'|scope=accepted-use-core|qualification=SYNTHETIC_TEST_FIXTURE_ONLY|model=SYNTHETIC|current-installation-boundary=NOT_TESTED')
+        return
+    }
+
+    if($CompletionGraphOnly){
+        $plan.stages[0]|Add-Member evidenceConsumption ([pscustomobject]@{purpose='HISTORICAL_SUCCESS';originalFinalize=@($produced.pair)})
+        $shared=Clone $plan.stages[0];$shared.id='shared-self'
+        $plan.stages[1].dependsOn+=@($shared.id);$plan.stages+=@($shared)
+        $closed=$baseCard.Replace('lifecycle=ACTIVE;','lifecycle=CLOSED;').Replace('- Status: ACTIVE','- Status: CLOSED')+"- Closure outcome: SUCCESS`n- Closure basis: Actual original SOURCE and acceptance results.`n- Output disposition: Retained anonymous target.`n- Git disposition: DEFERRED; isolated fixture.`n- Unresolved obligations: NONE`n- Writer: RELEASED`n- Reviewer: RELEASED`n- Authorization: RELEASED`n"
+        $boundary=[pscustomobject]@{publicDecisionIdentity='NOT_REQUIRED'}
+        Good {Assert-AiwTaskClosure $ctx (With-Plan $closed $plan) EVIDENCE-001 $boundary -RequireExplicitClosure} 'completion-shared-ancestor-binds-real-source-and-acceptance-F'
+        [IO.File]::Delete($optionalPath)
+        Good {Assert-AiwTaskClosure $ctx (With-Plan $closed $plan) EVIDENCE-001 $boundary -RequireExplicitClosure} 'completion-optional-old-attachment-is-not-a-new-production-gate'
+        Bad {Read-AiwResultEvidence $ctx $self EVIDENCE-001 @($candidate) $requirements -RequireSuccess -EvidencePurpose HISTORICAL_SUCCESS -OriginalFinalize @($produced.pair)} 'EVIDENCE_OBJECT_MISSING' 'completion-does-not-relax-public-history-reader-attachments'
+        $originalText=[IO.File]::ReadAllText((Join-Path $objectRoot 'result.md'))
+        try{
+            $null=QProduct 'An unaccepted later result.'
+            Bad {Assert-AiwTaskClosure $ctx (With-Plan $closed $plan) EVIDENCE-001 $boundary -RequireExplicitClosure} 'EVIDENCE_IDENTITY_DRIFT' 'completion-old-success-cannot-close-new-final-bytes'
+        }finally{$null=QProduct $originalText}
+        $resultPath=$produced.pair.resultRef.path;$bytes=[IO.File]::ReadAllBytes($resultPath)
+        try{
+            [IO.File]::Delete($resultPath)
+            Bad {Assert-AiwTaskClosure $ctx (With-Plan $closed $plan) EVIDENCE-001 $boundary -RequireExplicitClosure} 'EVIDENCE_OBJECT_MISSING' 'completion-needs-original-successful-producer-result'
+        }finally{[IO.File]::WriteAllBytes($resultPath,$bytes)}
+        $missing=Clone $plan
+        foreach($stage in $missing.stages){$stage.evidenceConsumption.originalFinalize=@($acceptedF.pair)}
+        Bad {Assert-AiwTaskClosure $ctx (With-Plan $closed $missing) EVIDENCE-001 $boundary -RequireExplicitClosure} 'EVIDENCE_HISTORICAL_FINALIZE_UNBOUND' 'completion-downstream-citation-is-not-a-self-producer'
+        $bad=Clone $plan;$bad.stages[0].candidateRef=@([pscustomobject]@{path='same-hash-other-name.md';identity=$candidate.identity})
+        Bad {Assert-AiwTaskClosure $ctx (With-Plan $closed $bad) EVIDENCE-001 $boundary -RequireExplicitClosure} 'EVIDENCE_CANDIDATE_DRIFT' 'completion-candidate-relationship-is-path-and-root-bound'
+        $userPlan=Clone $plan;$userPlan.stages+=@([pscustomobject]@{id='reserved-user';kind='USER_DECISION';requiredBy=$requirements;dependsOn=@($plan.stages[1].id);candidateRef=@($requirements);evidenceRefs=@()})
+        Bad {Assert-AiwTaskClosure $ctx (With-Plan $closed $userPlan) EVIDENCE-001 $boundary -RequireExplicitClosure} 'ACCEPTANCE_USER_DECISION_UNBOUND' 'completion-keeps-user-gate-after-successful-acceptance'
+        QCard $plan 'completion-real-control-archive' $closed -Archive
+        True (-not[IO.File]::Exists($taskPath)-and[IO.File]::Exists((Join-Path $temp '.ai-workspace/tasks/archive/EVIDENCE-001.md'))) 'completion-real-maintenance-root-archive-original-F-complete'
+        Write-Output ('FIXTURE|'+$Root+'|scope=finite-completion-graph|qualification=SYNTHETIC_TEST_FIXTURE_ONLY|host=SYNTHETIC');return
+    }
     QCard $plan 'bind-accepted-evidence'
     $pushContext=New-AiwPackageEvidenceContext $temp $accept $framework -TaskPath $taskRelative
     Good {Assert-AiwPushAcceptance $pushContext $accepted EVIDENCE-001 @($candidate) ('C'*40)} 'quality-push-evidence-consumer-uses-original-no-review-acceptance'
@@ -426,7 +1010,7 @@ Write-Output 'Observed current isolated stop record and retained unknown histori
         $policyBytes=[IO.File]::ReadAllBytes($policyPath)
         foreach($case in @('unknown','version','noninteger','null','duplicate','unknown-stage')){
             $invalid=Get-Content -LiteralPath $policyPath -Raw|ConvertFrom-Json -Depth 100
-            switch($case){unknown{$invalid.qualityAssurance|Add-Member extra $true} version{$invalid.qualityAssurance.schemaVersion=2} noninteger{$invalid.qualityAssurance.schemaVersion=[double]1.0} null{$invalid.qualityAssurance=$null} duplicate{$invalid.qualityAssurance.defaultStages=@('SELF_CHECK','SELF_CHECK')} unknown-stage{$invalid.qualityAssurance.defaultStages=@('UNKNOWN')}}
+            switch($case){unknown{$invalid.qualityAssurance|Add-Member extra $true} version{$invalid.qualityAssurance.schemaVersion=3} noninteger{$invalid.qualityAssurance.schemaVersion=[double]1.0} null{$invalid.qualityAssurance=$null} duplicate{$invalid.qualityAssurance.defaultStages=@('SELF_CHECK','SELF_CHECK')} unknown-stage{$invalid.qualityAssurance.defaultStages=@('UNKNOWN')}}
             try{
                 [IO.File]::WriteAllText($policyPath,($invalid|ConvertTo-Json -Depth 100 -Compress),$utf8)
                 $negative=QNative (Join-Path $framework 'scripts/resolve-framework-maintenance-target.ps1') @('-ControlRepositoryPath',$temp,'-ExpectedProjectConfigIdentity',(Id $configPath),'-AsJson') ('root-quality-negative-'+$case)
@@ -492,8 +1076,7 @@ Write-Output 'Observed current isolated stop record and retained unknown histori
         $badResultPath=Json ($runtime+'invalid-historical-root-result.json') $badResult
         $badPair=[pscustomobject]@{inputRef=[pscustomobject]@{path=$badInputPath;identity=(Id $badInputPath)};resultRef=[pscustomobject]@{path=$badResultPath;identity=(Id $badResultPath)}}
         Bad {Read-AiwResultEvidence $controlContext $self EVIDENCE-001 @($candidate) $requirements -EvidencePurpose HISTORICAL_SUCCESS -OriginalFinalize @($badPair)} 'EVIDENCE_HISTORICAL_ROOT_DRIFT' 'maintenance-unbound-historical-object-root-is-rejected-at-root-check'
-        $closed=$baseCard.Replace('lifecycle=ACTIVE;','lifecycle=CLOSED;').Replace('- Status: ACTIVE','- Status: CLOSED')+"- Writer / reviewer / authorization: NONE / NONE / NONE`n- Closure outcome: SUCCESS`n- Closure evidence: Original SOURCE production, review and acceptance; current CONTROL archive.`n- Remaining obligations: NONE`n- Artifact disposition: Isolated SOURCE result retained; Git DEFERRED.`n"
-        $closed+="- Closure basis: Actual original successful SOURCE evidence.`n- Output disposition: result.md retained in fixture.`n- Git disposition: DEFERRED; fixture only.`n- Unresolved obligations: NONE`n- Writer: RELEASED`n- Reviewer: RELEASED`n- Authorization: RELEASED`n"
+        $closed=$baseCard.Replace('lifecycle=ACTIVE;','lifecycle=CLOSED;').Replace('- Status: ACTIVE','- Status: CLOSED')+"- Closure outcome: SUCCESS`n- Closure basis: Actual original successful SOURCE evidence.`n- Output disposition: result.md retained in fixture.`n- Git disposition: DEFERRED; fixture only.`n- Unresolved obligations: NONE`n- Writer: RELEASED`n- Reviewer: RELEASED`n- Authorization: RELEASED`n"
         # A stopped earlier attempt left an unvalidated archive beside active.
         # The new ordinary action must bind its existing bytes, never NEW.
         $archiveRelative='.ai-workspace/tasks/archive/EVIDENCE-001.md'
@@ -531,7 +1114,7 @@ Write-Output 'Observed current isolated stop record and retained unknown histori
         switch($case){
             null {$bad.qualityAssurance=$null}
             unknown {$bad.qualityAssurance|Add-Member extra $true}
-            version {$bad.qualityAssurance.schemaVersion=2}
+            version {$bad.qualityAssurance.schemaVersion=3}
             stage {$bad.qualityAssurance.defaultStages=@('UNKNOWN')}
             duplicate {$bad.qualityAssurance.defaultStages=@('SELF_CHECK','SELF_CHECK')}
             orphan {$bad.PSObject.Properties.Remove('qualityAssurance')}
@@ -566,8 +1149,7 @@ Write-Output 'Observed current isolated stop record and retained unknown histori
     $zeroContext=New-AiwEvidenceContext $zeroRoot '' $framework
     [IO.File]::WriteAllBytes((Join-Path $zeroRoot 'requirements.md'),[IO.File]::ReadAllBytes((Join-Path $temp 'requirements.md')))
     [IO.File]::WriteAllText((Join-Path $zeroRoot 'result.md'),'An explicitly unverified anonymous unit result.',$utf8)
-    $zeroClosed=$baseCard.Replace('lifecycle=ACTIVE;','lifecycle=CLOSED;').Replace('- Status: ACTIVE','- Status: CLOSED')+"- Writer / reviewer / authorization: NONE / NONE / NONE`n- Closure outcome: SUCCESS`n- Closure evidence: Explicitly unverified anonymous unit result; zero generic stages selected.`n- Remaining obligations: NONE`n- Artifact disposition: Unit fixture only; no SELF, verdict or acceptance created.`n"
-    $zeroClosed+="- Closure basis: Actual explicitly unverified fixture result and selected zero generic stages.`n- Output disposition: result.md retained as unit fixture.`n- Git disposition: DEFERRED; fixture only.`n- Unresolved obligations: NONE`n- Writer: RELEASED`n- Reviewer: RELEASED`n- Authorization: RELEASED`n"
+    $zeroClosed=$baseCard.Replace('lifecycle=ACTIVE;','lifecycle=CLOSED;').Replace('- Status: ACTIVE','- Status: CLOSED')+"- Closure outcome: SUCCESS`n- Closure basis: Actual explicitly unverified fixture result and selected zero generic stages.`n- Output disposition: result.md retained as unit fixture.`n- Git disposition: DEFERRED; fixture only.`n- Unresolved obligations: NONE`n- Writer: RELEASED`n- Reviewer: RELEASED`n- Authorization: RELEASED`n"
     Good {Assert-AiwTaskClosure $zeroContext (With-Plan $zeroClosed $zeroPlan) EVIDENCE-001 ([pscustomobject]@{publicDecisionIdentity='NOT_REQUIRED'}) -RequireExplicitClosure} 'quality-real-zero-stage-consumer-closes-without-fabricated-evidence'
     $zeroUser=Clone $zeroPlan;$zeroUser.stages=@([pscustomobject]@{id='user';kind='USER_DECISION';requiredBy=$requirements;dependsOn=@();candidateRef=@();evidenceRefs=@()})
     Bad {Assert-AiwTaskClosure $zeroContext (With-Plan $zeroClosed $zeroUser) EVIDENCE-001 ([pscustomobject]@{publicDecisionIdentity='NOT_REQUIRED'}) -RequireExplicitClosure} 'ACCEPTANCE_' 'quality-zero-selection-retains-unfinished-user-decision'
@@ -662,8 +1244,7 @@ exit 0
     $reviewF=QFinish $reviewAction @($verdict) @() @() $ownerDelivery
     $reviewPlan.stages[0].evidenceRefs=@($verdict);$reviewPlan.stages[0]|Add-Member evidenceConsumption ([pscustomobject]@{purpose='HISTORICAL_SUCCESS';originalFinalize=@($reviewF.pair)})
     QCard $reviewPlan 'bind-review-verdict'
-    $closed=$baseCard.Replace('lifecycle=ACTIVE;','lifecycle=CLOSED;').Replace('- Status: ACTIVE','- Status: CLOSED')+"- Writer / reviewer / authorization: NONE / NONE / NONE`n- Closure outcome: SUCCESS`n- Closure evidence: Actual selected independent review and original production F.`n- Remaining obligations: NONE`n- Artifact disposition: result.md remains an anonymous fixture result; Git DEFERRED.`n"
-    $closed+="- Closure basis: Actual selected independent review and original production F.`n- Output disposition: result.md retained in fixture.`n- Git disposition: DEFERRED; fixture only.`n- Unresolved obligations: NONE`n- Writer: RELEASED`n- Reviewer: RELEASED`n- Authorization: RELEASED`n"
+    $closed=$baseCard.Replace('lifecycle=ACTIVE;','lifecycle=CLOSED;').Replace('- Status: ACTIVE','- Status: CLOSED')+"- Closure outcome: SUCCESS`n- Closure basis: Actual selected independent review and original production F.`n- Output disposition: result.md retained in fixture.`n- Git disposition: DEFERRED; fixture only.`n- Unresolved obligations: NONE`n- Writer: RELEASED`n- Reviewer: RELEASED`n- Authorization: RELEASED`n"
     QCard $reviewPlan 'close-selected-review' $closed -Archive
     True (-not[IO.File]::Exists($taskPath)-and[IO.File]::ReadAllText((Join-Path $temp '.ai-workspace/tasks/archive/EVIDENCE-001.md')).Contains('lifecycle=CLOSED;')) 'quality-selected-review-success-archived-through-original-control-F'
     Write-Output ('FIXTURE|'+$Root+'|qualification=SYNTHETIC_TEST_FIXTURE_ONLY|host=SYNTHETIC|actualCommands=YES')
@@ -677,7 +1258,7 @@ function Test-HistoricalInputConsumers([string]$Root){
         Set-Location -LiteralPath $temp;[Environment]::CurrentDirectory=$temp
         Import-Module (Join-Path $PSScriptRoot 'TestHarness.psm1')
         $fixtureFramework=Join-Path $temp 'framework'
-        $fixtureVersion=New-AiwTestMechanismFixture ([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../../..'))) $fixtureFramework (Join-Path $PSScriptRoot 'test-groups.json')
+        $fixtureVersion=New-AiwTestRuntimeFixture -SourceRoot ([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../../..'))) -DestinationRoot $fixtureFramework -VersionPaths $fixtureVersionPaths -RootPaths @()
         $configPath=Json '.ai-workspace/project.json' ([pscustomobject]@{schemaVersion=7;id='evidence-fixture';displayName='Anonymous historical inputs';controlPlaneLayout='repo-local';repositoryRoot='..';frameworkVersion='2.0.0';frameworkToolBackend='powershell7';routineExcludedPaths=@('protected.txt');frameworkCapabilities=[pscustomobject]@{};sourceBindings=@();processPolicy=@{schemaVersion=3;locator='.ai-workspace/process-policy.json'}})
         $null=Json '.ai-workspace/controller.json' ([pscustomobject]@{schemaVersion=1;projectId='evidence-fixture';controllerId='controller';controllerEpoch=1;state='CURRENT'})
         $null=Json '.ai-workspace/corrections.json' ([pscustomobject]@{schemaVersion=3;contractVersion='2.0.0';projectId='evidence-fixture';corrections=@()})
@@ -808,8 +1389,81 @@ function Test-HistoricalInputConsumers([string]$Root){
         }finally{[IO.File]::WriteAllBytes($taskPath,$originalTask)}
     }finally{Set-Location -LiteralPath $previousLocation;[Environment]::CurrentDirectory=$previousCurrent}
 }
+function Test-ClosureFieldConsumers {
+    Import-Module (Join-Path $versionRoot 'scripts/ProcessRequirementComposition.psm1')
+    $template=[IO.File]::ReadAllText((Join-Path $versionRoot 'TASK_TEMPLATE.md')).Replace("`r`n","`n")
+    $block=[regex]::Match($template,'(?s)关闭时.*?```markdown\n(?<body>.*?)\n```')
+    if(-not$block.Success){throw 'CLOSURE_TEMPLATE_BLOCK'}
+    $fields=$block.Groups['body'].Value.Replace('<SUCCESS|CANCELLED|SUPERSEDED>','SUCCESS').Replace('<验收或取消/替代决定入口>','Explicit anonymous result; zero selected generic stages.').Replace('<正式成果保留或移交位置>','result.md retained in the fixture.').Replace('<READY|DEFERRED|EXCLUDED>; <依据、实际责任和必要触发>','DEFERRED; isolated fixture; no Git operation.').Replace('<NONE或TRANSFERRED: 未完成成果的明确去向/承接任务>','NONE')+"`n"
+    $header="# CLOSE-001 — closure contract fixture`n- Task schema: 2.0.0`n- Profile: STANDARD; reason=closure protocol fixture`n- Owner: owner`n- Work route: actor=owner; role=TASK_OWNER; phase=IMPLEMENT`n- Range summary: profile=STANDARD; lifecycle=CLOSED; expected_paths=[result.md]; actual_paths=[result.md]`n"
+    $policy=[pscustomobject]@{schemaVersion=3;contractVersion='2.0.0';projectId='closure-fixture';rules=@();qualityAssurance=[pscustomobject]@{schemaVersion=1;defaultStages=@()}}
+    $policyPath=Json '.ai-workspace/process-policy.json' $policy
+    $subject=[pscustomobject]@{repositoryId='REPO_LOCAL';exactPaths=@('result.md');facets=[pscustomobject]@{domain=[pscustomobject]@{state='KNOWN';values=@('aiw:software')};deliverableType=[pscustomobject]@{state='KNOWN';values=@('aiw:code')}}}
+    $plan=[pscustomobject]@{schemaVersion=2;qualityBinding=(Get-AiwQualitySelection $policy (Id $policyPath) STANDARD $subject).qualityBinding;stages=@()}
+    $context=New-AiwEvidenceContext $temp '' (Split-Path -Parent (Split-Path -Parent $versionRoot))
+    $boundary=[pscustomobject]@{publicDecisionIdentity='NOT_REQUIRED'}
+    function Check-ClosedCard([string]$Text){
+        $path=Put '.ai-workspace/tasks/archive/closure-card.md' $Text
+        $before=Id $path
+        $raw=@(& ([Environment]::ProcessPath) -NoProfile -NonInteractive -File (Join-Path $versionRoot 'scripts/check-task-card.ps1') -TaskPath $path -ObservedActualPath 'result.md' 2>&1|ForEach-Object{[string]$_})
+        $answer=[pscustomobject]@{Code=$LASTEXITCODE;Text=($raw-join"`n")}
+        if((Id $path)-cne$before){throw 'CLOSURE_CHECK_REWROTE_BYTES'}
+        return $answer
+    }
+    foreach($ending in @('LF','CRLF')){
+        $closed=With-Plan ($header+$fields) $plan
+        if($ending-ceq'CRLF'){$closed=$closed.Replace("`n","`r`n")}
+        $parsed=Get-AiwTaskClosureFields $closed -RequireComplete
+        True ($parsed.Format-ceq'CANONICAL'-and$parsed.Outcome-ceq'SUCCESS') ('closure-template-single-format-'+$ending)
+        $checked=Check-ClosedCard $closed
+        True ($checked.Code-eq0) ('closure-native-checker-'+$ending+'|'+$checked.Text)
+        Good {Assert-AiwTaskClosure $context $closed CLOSE-001 $boundary -RequireExplicitClosure} ('closure-semantic-consumer-'+$ending)
+    }
+    $legacy="- Closure outcome: SUCCESS`n- Closure evidence: Original completed result.`n- Artifact disposition: Original retained result; Git deferred in original fixture.`n- Remaining obligations: NONE`n- Writer / reviewer / authorization: NONE / NONE / NONE`n"
+    foreach($case in @([pscustomobject]@{name='legacy-template';body=$legacy;format='LEGACY_TEMPLATE'},[pscustomobject]@{name='legacy-no-outcome';body=$legacy.Replace("- Closure outcome: SUCCESS`n",'');format='LEGACY_NO_OUTCOME'},[pscustomobject]@{name='legacy-dual';body=$fields+$legacy.Replace("- Closure outcome: SUCCESS`n",'');format='LEGACY_DUAL'})){
+        $closed=With-Plan ($header+$case.body) $plan
+        $parsed=Get-AiwTaskClosureFields $closed -RequireComplete
+        True ($parsed.Format-ceq$case.format) ('closure-explicit-'+$case.name)
+        $checked=Check-ClosedCard $closed;True ($checked.Code-eq0) ('closure-native-'+$case.name+'|'+$checked.Text)
+        Good {Assert-AiwTaskClosure $context $closed CLOSE-001 $boundary -RequireExplicitClosure} ('closure-semantic-'+$case.name)
+        if($case.format-ceq'LEGACY_DUAL'){True ($parsed.Basis.Count-eq2-and$parsed.OutputDisposition.Count-eq2) 'closure-dual-keeps-different-original-descriptions'}
+    }
+    $dual=$header+$fields+$legacy.Replace("- Closure outcome: SUCCESS`n",'')
+    Bad {Get-AiwTaskClosureFields ($dual.Replace('Remaining obligations: NONE','Remaining obligations: TRANSFERRED: successor-one')) -RequireComplete} 'ACCEPTANCE_CLOSE_OBLIGATION_CONFLICT' 'closure-dual-cannot-hide-unresolved-responsibility'
+    $transferred=$dual.Replace('Unresolved obligations: NONE','Unresolved obligations: TRANSFERRED: successor-two').Replace('Remaining obligations: NONE','Remaining obligations: TRANSFERRED: successor-one')
+    True ((Get-AiwTaskClosureFields $transferred -RequireComplete).UnresolvedObligations.Count-eq2) 'closure-dual-keeps-both-transfer-responsibilities'
+    foreach($case in @([pscustomobject]@{name='missing-canonical';text=($header+$fields).Replace("- Git disposition: DEFERRED; isolated fixture; no Git operation.`n",'');reason='ACCEPTANCE_CLOSE_FIELD'},[pscustomobject]@{name='duplicate';text=$header+$fields+"- Closure basis: duplicate`n";reason='ACCEPTANCE_CLOSE_FIELD'},[pscustomobject]@{name='invalid-outcome';text=($header+$fields).Replace('Closure outcome: SUCCESS','Closure outcome: LEGACY_SUCCESS');reason='ACCEPTANCE_CLOSE_OUTCOME'},[pscustomobject]@{name='unreleased';text=($header+$fields).Replace('Writer: RELEASED','Writer: writer');reason='ACCEPTANCE_CLOSE_LEASE_RELEASE'})){
+        Bad {Get-AiwTaskClosureFields $case.text -RequireComplete} $case.reason ('closure-rejects-'+$case.name)
+        $checked=Check-ClosedCard $case.text;True ($checked.Code-ne0-and$checked.Text.Contains($case.reason)) ('closure-checker-rejects-'+$case.name)
+    }
+    $userPlan=Clone $plan;$null=Put 'requirements.md' 'A real remaining user decision is mandatory.'
+    $userPlan.stages=@([pscustomobject]@{id='user';kind='USER_DECISION';requiredBy=(Ref 'requirements.md');dependsOn=@();candidateRef=@();evidenceRefs=@()})
+    Bad {Assert-AiwTaskClosure $context (With-Plan ($header+$fields) $userPlan) CLOSE-001 $boundary -RequireExplicitClosure} 'ACCEPTANCE_' 'closure-format-does-not-remove-required-quality'
+}
 try{
-    [IO.Directory]::CreateDirectory($temp)|Out-Null;Set-Location -LiteralPath $temp;[Environment]::CurrentDirectory=$temp
+    [IO.Directory]::CreateDirectory($temp)|Out-Null;$gitScope=& $gitFixture {param($r) Enter-IntegrationGitEnvironment $r} $temp;Set-Location -LiteralPath $temp;[Environment]::CurrentDirectory=$temp
+    if($Group-cin@('All','ClosureFields')){Test-ClosureFieldConsumers}
+    if($Group-ceq'ClosureFields'){$completed=$true;Write-Output ('RESULT|'+$script:passed+'/'+$script:passed+' passed|scope=closure-fields|evidenceCeiling=INSTRUCTION_BOUND');return}
+    if($Group-ceq'CompletionGraph'){
+        Test-QualityAssuranceConsumers (Join-Path $temp 'completion-graph') -Maintenance -CompletionGraphOnly
+        $completed=$true;Write-Output ('RESULT|'+$script:passed+'/'+$script:passed+' passed|scope=finite-completion-graph|evidenceCeiling=INSTRUCTION_BOUND');return
+    }
+    if($Group-ceq'CompletionScale'){
+        Test-QualityAssuranceConsumers (Join-Path $temp 'completion-scale') -Maintenance -CompletionScaleOnly
+        $completed=$true;Write-Output ('RESULT|'+$script:passed+'/'+$script:passed+' passed|scope=original-scale-completion|evidenceCeiling=INSTRUCTION_BOUND');return
+    }
+    if($Group-ceq'AcceptedInstallation'){
+        Test-QualityAssuranceConsumers (Join-Path $temp 'accepted-installation') -AcceptedUseOnly -AcceptedInstallationOnly
+        $completed=$true;Write-Output ('RESULT|'+$script:passed+'/'+$script:passed+' passed|scope=accepted-ordinary-installation|evidenceCeiling=INSTRUCTION_BOUND');return
+    }
+    if($Group-ceq'AcceptedPurpose'){
+        Test-QualityAssuranceConsumers (Join-Path $temp 'accepted-purpose') -AcceptedUseOnly -AcceptedPurposeOnly
+        $completed=$true;Write-Output ('RESULT|'+$script:passed+'/'+$script:passed+' passed|scope=accepted-purpose-increment|evidenceCeiling=INSTRUCTION_BOUND');return
+    }
+    if($Group-ceq'AcceptedUse'){
+        Test-QualityAssuranceConsumers (Join-Path $temp 'accepted-use') -Maintenance -AcceptedUseOnly
+        $completed=$true;Write-Output ('RESULT|'+$script:passed+'/'+$script:passed+' passed|scope=accepted-use-core|evidenceCeiling=INSTRUCTION_BOUND');return
+    }
     if($Group-ceq'OperationRebind'){
         Test-QualityAssuranceConsumers (Join-Path $temp 'operation-rebind') -OperationRebindOnly
         $completed=$true;Write-Output ('RESULT|'+$script:passed+'/'+$script:passed+' passed|scope=operation-rebind-successors|evidenceCeiling=INSTRUCTION_BOUND');return
@@ -827,8 +1481,9 @@ try{
         Test-HistoricalInputConsumers (Join-Path $temp 'historical-inputs')
         $completed=$true;Write-Output ('RESULT|'+$script:passed+'/'+$script:passed+' passed|scope=result-historical-inputs|evidenceCeiling=INSTRUCTION_BOUND');return
     }
-    & git init -q;if($LASTEXITCODE-ne0){throw 'FIXTURE_GIT_INIT'}
+    & $gitFixture {param($root) New-GitRepo $root} $temp
     $configPath=Json '.ai-workspace/project.json' ([pscustomobject]@{schemaVersion=7;id='evidence-fixture';displayName='Evidence fixture';controlPlaneLayout='repo-local';repositoryRoot='..';frameworkVersion='2.0.0';frameworkToolBackend='powershell7';routineExcludedPaths=@('protected.txt');frameworkCapabilities=[pscustomobject]@{};sourceBindings=@();processPolicy=[ordered]@{schemaVersion=3;locator='.ai-workspace/process-policy.json'}})
+    $null=Json '.ai-workspace/process-policy.json' ([pscustomobject]@{schemaVersion=3;contractVersion='2.0.0';projectId='evidence-fixture';rules=@()})
     $controllerPath=Json '.ai-workspace/controller.json' ([pscustomobject]@{schemaVersion=1;projectId='evidence-fixture';controllerId='controller';controllerEpoch=1;state='CURRENT'})
     $taskText="# EVIDENCE-001 — result evidence`n- Task schema: 2.0.0`n- Profile: STANDARD; reason=fixture`n- Owner: owner`n- Work route: actor=owner; role=TASK_OWNER; phase=IMPLEMENT`n- Range summary: profile=STANDARD; lifecycle=ACTIVE; expected_paths=[result.md]; actual_paths=[result.md]`n"
     $taskPath=Put '.ai-workspace/tasks/active/EVIDENCE-001.md' $taskText
@@ -1057,9 +1712,78 @@ try{
     Good {Get-AiwBoundaryEvidence $receipt $boundary} 'boundary-reports-real-test-failure-without-blessing-success'
     $receipt.actionKind='RESULT_ACCEPT';$receipt.actor='delegate';$boundary.evidenceRefs=@($acceptedRef)
     Good {Get-AiwBoundaryEvidence $receipt $boundary} 'boundary-finalizes-delegated-acceptance'
+    # Real isolated DISCOVER/ADMIT/FINALIZE results supply historical proof.
+    # No new field is inserted into any original typed record, plan or package.
+    Import-Module (Join-Path $PSScriptRoot 'TestHarness.psm1')
+    $historyFramework=Join-Path $temp 'history-framework'
+    $historyVersion=New-AiwTestRuntimeFixture -SourceRoot ([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../../..'))) -DestinationRoot $historyFramework -VersionPaths $fixtureVersionPaths -RootPaths @()
+    $null=Json '.ai-workspace/corrections.json' ([pscustomobject]@{schemaVersion=3;contractVersion='2.0.0';projectId='evidence-fixture';corrections=@()})
+    $null=Json '.ai-workspace/process-policy.json' ([pscustomobject]@{schemaVersion=3;contractVersion='2.0.0';projectId='evidence-fixture';rules=@()})
+    $null=Put '.ai-workspace/BOOTSTRAP.md' "<!-- PROJECT-CUSTOM:BEGIN -->`n<!-- PROJECT-CUSTOM:END -->`n"
+    $null=Put 'AGENTS.md' 'Original fixture project instructions.'
+    $null=Put '.ai-workspace/tasks/active/EVIDENCE-001.md' $taskText
+    $historyContext=New-AiwEvidenceContext $temp '' $historyFramework
+    function History-Process($Value,[string]$Name){
+        $path=Json ('.ai-workspace/runtime/EVIDENCE-001/owner/history-'+$Name+'.json') $Value
+        $run=Invoke-AiwTestProcess ([Environment]::ProcessPath) @('-NoProfile','-NonInteractive','-File',(Join-Path $historyVersion 'scripts/resolve-process-requirements.ps1'),'-InputPath',$path,'-AsJson') -WorkingDirectory $temp -GroupId 'result-history'
+        if($run.Code-ne0){throw ('HISTORY_PROCESS_FAILED|'+$Name+'|'+($run.Output-join "`n"))}
+        $value=($run.Output-join "`n")|ConvertFrom-Json -Depth 100
+        $null=Json ('.ai-workspace/runtime/EVIDENCE-001/owner/history-'+$Name+'-result.json') $value
+        return $value
+    }
+    function History-Finalize($Package,$Record,[string]$Kind,[string]$Name,[scriptblock]$BeforeFinalize=$null,[object[]]$AdditionalFinalizeEvidence=@()){
+        if($Kind-ceq'SELF_CHECK'-and$Package.actions.Count-eq1-and$Package.actions[0]-ceq'TEST_RUN'){$Record.checks+=@(Clone $observedCommandCheck)}
+        $relative='.ai-workspace/runtime/EVIDENCE-001/owner/history-'+$Name+'-package.json'
+        $packagePath=Json $relative $Package
+        if($Kind-cne'SELF_CHECK'){$Record|Add-Member authorizationRef (Ref $relative) -Force}
+        $discover=[ordered]@{schemaVersion=5;mode='DISCOVER';contextType='TASK';readOnlyContext='NOT_APPLICABLE';ruleLoad=@{mode='FULL'};projectRoot=$temp;frameworkRoot=$historyFramework;taskPath=$taskPath;expectedProjectConfigIdentity=(Id $configPath);expectedCorrectionsIdentity=(Id (Join-Path $temp '.ai-workspace/corrections.json'));expectedTaskIdentity=(Id $taskPath);observedActor=$Package.grantee;capabilities=@();exactPaths=$Package.exactPaths;forbiddenPaths=@('protected.txt');protectedPaths=@();authorizationPackagePath=$packagePath;expectedAuthorizationIdentity=(Id $packagePath);userDecision='NOT_REQUIRED';recoveryState='WARM';hostEnforcementGrade='INSTRUCTION_BOUND';invocationState='PROVEN_EXPLICIT';evaluationOnly=$false;intentEnvelope=@{schemaVersion=2;objective='Isolated original result for historical evidence regression';requestedActionKind=$Package.actions[0];requestedResultKind='IMPLEMENTATION_RESULT';semanticHints=@();pathHints=$Package.exactPaths;capabilityHints=@();mutationHints=@();externalHints=@();ambiguityState='CLEAR';facets=@{domain=@{state='KNOWN';values=@('aiw:software')};workType=@{state='KNOWN';values=@('aiw:verification')};deliverableType=@{state='KNOWN';values=@('aiw:test-result')};stage=@{state='KNOWN';values=@('aiw:verification')}}}}
+        if($Package.schemaVersion-eq4){$discover['executionTargetRef']=$Package.executionTargetRef}
+        if($Kind-ceq'REVIEW_VERDICT'){
+            $discover.intentEnvelope.requestedResultKind='REVIEW_VERDICT'
+            $discover.intentEnvelope.facets.workType.values=@('aiw:review')
+            $discover.intentEnvelope.facets.deliverableType.values=@('aiw:review-verdict')
+            $discover.intentEnvelope.facets.stage.values=@('aiw:review')
+        }
+        $resolved=History-Process $discover ($Name+'-discover')
+        $receiptRelative='.ai-workspace/runtime/EVIDENCE-001/owner/history-'+$Name+'-compact.json';$receiptPath=Json $receiptRelative $resolved.compactReceipt
+        # Protocol fixture obligations: these isolated facts are established by
+        # fixture construction, not claims about a real product or human review.
+        $prep=@($resolved.compactReceipt.selectedObligations|ForEach-Object{$_.preparationRequirements}|Sort-Object -Unique)
+        $boundary=[pscustomobject]@{schemaVersion=3;mode='ADMIT_ACTION';discoverReceiptPath=$receiptPath;expectedDiscoverReceiptIdentity=(Id $receiptPath);preparationReceipts=$prep;resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='BOUND';evidenceRefs=@()}
+        if($Kind-ceq'REVIEW_VERDICT'){
+            $boundary|Add-Member deliveryContext ([pscustomobject]@{channel='TASK_MESSAGE';stage='PREPARE';expectedRecipient=$Package.owner;observedRecipient='NOT_APPLICABLE';outcome='NOT_SENT';evidence='NOT_APPLICABLE'})
+        }
+        $null=History-Process $boundary ($Name+'-admit')
+        if($null-ne$BeforeFinalize){$null=& $BeforeFinalize $Record}
+        $typed=Typed $Record $Kind
+        $boundary.mode='FINALIZE_OUTPUT';$boundary.evidenceRefs=@($typed)+@($AdditionalFinalizeEvidence)
+        $boundary.resultReceipts=@($resolved.compactReceipt.selectedObligations|ForEach-Object{$_.resultRequirements}|Sort-Object -Unique)+@($Record.candidateObjects|ForEach-Object{'OBJECT_POSTIMAGE|'+$_.path+'|'+$_.identity})
+        if($Kind-ceq'REVIEW_VERDICT'){
+            # As in Input-Delivery, host/model inputs are synthetic protocol
+            # fixtures. D/A/F really execute; this does not send a real message.
+            $hostRelative='.ai-workspace/runtime/EVIDENCE-001/owner/history-'+$Name+'-synthetic-host.json'
+            $hostPath=Json $hostRelative ([pscustomobject]@{isError=$false;content=@([pscustomobject]@{type='text';text=(@{threadId=$Package.owner}|ConvertTo-Json -Compress)})})
+            $boundary.deliveryContext=[pscustomobject]@{channel='TASK_MESSAGE';stage='OBSERVE';expectedRecipient=$Package.owner;observedRecipient=$Package.owner;outcome='SUCCESS';evidence=($hostPath+'#'+(Id $hostPath))}
+        }
+        $actual=History-Process $boundary ($Name+'-finalize')
+        if($Kind-ceq'REVIEW_VERDICT'-and(-not$actual.delivery.delivered-or$actual.consumer.recipient-cne$Package.owner)){throw 'HISTORY_REVIEW_SYNTHETIC_DELIVERY_NOT_BOUND'}
+        return [pscustomobject]@{typed=$typed;record=$Record;package=$Package;pair=[pscustomobject]@{inputRef=(Ref ('.ai-workspace/runtime/EVIDENCE-001/owner/history-'+$Name+'-finalize.json'));resultRef=(Ref ('.ai-workspace/runtime/EVIDENCE-001/owner/history-'+$Name+'-finalize-result.json'))};result=$actual}
+    }
+    # Closure consumes actual completed producers, while the earlier direct
+    # evidence tests keep their original independent record fixtures.
+    $closingSelfPackage=Package;$closingSelfPackage.actions=@('TEST_RUN')
+    $closingSelf=History-Finalize $closingSelfPackage (Clone $record) SELF_CHECK 'closure-self'
+    $closingAcceptPackage=Clone $delegated;$closingAcceptPackage.taskIdentity=Id $taskPath
+    $closingAcceptPackage.acceptanceBinding.prerequisiteEvidenceRefs=@($closingSelf.typed)
+    $closingAccept=History-Finalize $closingAcceptPackage (Record delegate ACCEPTED) RESULT_ACCEPTANCE 'closure-accept' -AdditionalFinalizeEvidence @($closingSelf.typed)
+    $closureComplete=Clone $complete
+    foreach($stage in $closureComplete.stages){
+        if($stage.kind-ceq'SELF_CHECK'){$stage.evidenceRefs=@($closingSelf.typed);$stage|Add-Member evidenceConsumption ([pscustomobject]@{purpose='HISTORICAL_SUCCESS';originalFinalize=@($closingSelf.pair)})}
+        elseif($stage.kind-ceq'RESULT_ACCEPT'){$stage.evidenceRefs=@($closingAccept.typed);$stage|Add-Member evidenceConsumption ([pscustomobject]@{purpose='HISTORICAL_SUCCESS';originalFinalize=@($closingAccept.pair)})}
+    }
     $receipt.actionKind='CONTROL_WRITE';$receipt.actor='owner';$boundary.evidenceRefs=@()
     $receipt.exactPaths=@('.ai-workspace/tasks/active/EVIDENCE-001.md')
-    $closedText=$taskText.Replace('lifecycle=ACTIVE;','lifecycle=CLOSED;')+"`n- Closure outcome: SUCCESS`n"+'```aiw-acceptance-plan'+"`n"+($complete|ConvertTo-Json -Depth 50 -Compress)+"`n"+'```'+"`n"
+    $closedText=$taskText.Replace('lifecycle=ACTIVE;','lifecycle=CLOSED;')+"`n- Closure outcome: SUCCESS`n"+'```aiw-acceptance-plan'+"`n"+($closureComplete|ConvertTo-Json -Depth 50 -Compress)+"`n"+'```'+"`n"
     $null=Put '.ai-workspace/tasks/active/EVIDENCE-001.md' $closedText
     Bad {Get-AiwBoundaryEvidence $receipt $boundary} 'ACCEPTANCE_USER_DECISION_UNBOUND' 'actual-boundary-close-rejects-pending-user-source'
     $boundary.publicDecisionIdentity=$user.identity
@@ -1071,13 +1795,46 @@ try{
         [pscustomobject]@{name='sufficient-legacy-review';review=$legacyStrongRef;success=$true},
         [pscustomobject]@{name='current-owner-review';review=$priorOwnerRef;success=$false}
     )){
-        $historicalAccept=Clone $delegated;$historicalAccept.acceptanceBinding.prerequisiteEvidenceRefs=@($self,$case.review)
-        $historicalPath='.ai-workspace/reports/closure-'+$case.name+'-accept-package.json'
-        $null=Json $historicalPath $historicalAccept
-        $historicalRecord=Clone $accepted;$historicalRecord.authorizationRef=Ref $historicalPath
-        $historicalRef=Typed $historicalRecord RESULT_ACCEPTANCE
-        $criticalPlan=Clone $complete
-        foreach($stage in $criticalPlan.stages){if($stage.kind-ceq'RESULT_ACCEPT'){$stage.evidenceRefs=@($historicalRef)}}
+        if($case.name-ceq'weak-legacy-review'){
+            # The old record remains readable at its original ceiling above.
+            # It cannot be produced by today's review authorization contract;
+            # a closure also cannot invent its absent original acceptance F.
+            $uncompletedAcceptance=Clone $delegated
+            $uncompletedAcceptance.acceptanceBinding.prerequisiteEvidenceRefs=@($closingSelf.typed,$case.review)
+            $oldPackagePath='.ai-workspace/reports/closure-uncompleted-legacy-accept-package.json'
+            $null=Json $oldPackagePath $uncompletedAcceptance
+            $oldAcceptanceRecord=Record delegate ACCEPTED
+            $oldAcceptanceRecord|Add-Member authorizationRef (Ref $oldPackagePath)
+            $oldAcceptanceRef=Typed $oldAcceptanceRecord RESULT_ACCEPTANCE
+            $uncompletedPlan=Clone $closureComplete
+            foreach($stage in $uncompletedPlan.stages){if($stage.kind-ceq'RESULT_ACCEPT'){
+                $stage.evidenceRefs=@($oldAcceptanceRef)
+                $stage.evidenceConsumption.originalFinalize=@($closingSelf.pair)
+            }}
+            $uncompletedText=$taskText.Replace('Profile: STANDARD;','Profile: CRITICAL;').Replace('profile=STANDARD;','profile=CRITICAL;').Replace('lifecycle=ACTIVE;','lifecycle=CLOSED;')+"`n- Closure outcome: SUCCESS`n"+'```aiw-acceptance-plan'+"`n"+($uncompletedPlan|ConvertTo-Json -Depth 50 -Compress)+"`n"+'```'+"`n"
+            $null=Put '.ai-workspace/tasks/active/EVIDENCE-001.md' $uncompletedText
+            Bad {Get-AiwBoundaryEvidence $receipt $boundary} 'EVIDENCE_HISTORICAL_FINALIZE_UNBOUND' 'critical-closure-rejects-legacy-acceptance-without-original-finalize'
+            continue
+        }
+        $reviewRecordForClosure=Get-Content -LiteralPath (Join-Path $temp $case.review.path) -Raw|ConvertFrom-Json -Depth 70
+        $reviewPackageForClosure=Get-Content -LiteralPath (Join-Path $temp $reviewRecordForClosure.authorizationRef.path) -Raw|ConvertFrom-Json -Depth 70
+        $reviewTask=$taskText.Replace('- Owner: owner',('- Owner: '+$reviewPackageForClosure.owner)).Replace('actor=owner;',('actor='+$reviewPackageForClosure.owner+';'))
+        try{
+            $null=Put '.ai-workspace/tasks/active/EVIDENCE-001.md' $reviewTask
+            $reviewPackageForClosure.taskIdentity=Id $taskPath
+            $reviewPackageForClosure.invalidatesOn+=@('CONTRIBUTOR_SET_CHANGE')
+            $completedReview=History-Finalize $reviewPackageForClosure $reviewRecordForClosure REVIEW_VERDICT ('closure-review-'+$case.name)
+            # Both historical producers complete under their original Owner.
+            # Restore today's Owner only before the current closure consumer.
+            $historicalAccept=Clone $delegated
+            $historicalAccept.owner=$reviewPackageForClosure.owner
+            $historicalAccept.issuer=$reviewPackageForClosure.owner
+            $historicalAccept.taskIdentity=Id $taskPath
+            $historicalAccept.acceptanceBinding.prerequisiteEvidenceRefs=@($closingSelf.typed,$completedReview.typed)
+            $completedAcceptance=History-Finalize $historicalAccept (Record delegate ACCEPTED) RESULT_ACCEPTANCE ('closure-accept-'+$case.name) -AdditionalFinalizeEvidence @($closingSelf.typed,$completedReview.typed)
+        }finally{$null=Put '.ai-workspace/tasks/active/EVIDENCE-001.md' $taskText}
+        $criticalPlan=Clone $closureComplete
+        foreach($stage in $criticalPlan.stages){if($stage.kind-ceq'RESULT_ACCEPT'){$stage.evidenceRefs=@($completedAcceptance.typed);$stage.evidenceConsumption.originalFinalize=@($completedReview.pair,$completedAcceptance.pair)}}
         $criticalText=$taskText.Replace('Profile: STANDARD;','Profile: CRITICAL;').Replace('profile=STANDARD;','profile=CRITICAL;').Replace('lifecycle=ACTIVE;','lifecycle=CLOSED;')+"`n- Closure outcome: SUCCESS`n"+'```aiw-acceptance-plan'+"`n"+($criticalPlan|ConvertTo-Json -Depth 50 -Compress)+"`n"+'```'+"`n"
         $null=Put '.ai-workspace/tasks/active/EVIDENCE-001.md' $criticalText
         if($case.success){Good {Get-AiwBoundaryEvidence $receipt $boundary} ('critical-closure-reuses-'+$case.name)}
@@ -1295,46 +2052,6 @@ try{
     $aliasRecord=Record;$aliasRecord.candidateObjects=@($candidate,$absoluteCandidate);$aliasRef=Typed $aliasRecord SELF_CHECK
     Bad {Read-AiwResultEvidence $ctx $aliasRef EVIDENCE-001 $aliasRecord.candidateObjects $requirements} 'EVIDENCE_DUPLICATE_REF' 'physical-alias-cannot-duplicate-candidate'
 
-    # Real isolated DISCOVER/ADMIT/FINALIZE results supply historical proof.
-    # No new field is inserted into any original typed record, plan or package.
-    Import-Module (Join-Path $PSScriptRoot 'TestHarness.psm1')
-    $historyFramework=Join-Path $temp 'history-framework'
-    $historyVersion=New-AiwTestMechanismFixture ([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../../..'))) $historyFramework (Join-Path $PSScriptRoot 'test-groups.json')
-    $null=Json '.ai-workspace/corrections.json' ([pscustomobject]@{schemaVersion=3;contractVersion='2.0.0';projectId='evidence-fixture';corrections=@()})
-    $null=Json '.ai-workspace/process-policy.json' ([pscustomobject]@{schemaVersion=3;contractVersion='2.0.0';projectId='evidence-fixture';rules=@()})
-    $null=Put '.ai-workspace/BOOTSTRAP.md' "<!-- PROJECT-CUSTOM:BEGIN -->`n<!-- PROJECT-CUSTOM:END -->`n"
-    $null=Put 'AGENTS.md' 'Original fixture project instructions.'
-    $null=Put '.ai-workspace/tasks/active/EVIDENCE-001.md' $taskText
-    $historyContext=New-AiwEvidenceContext $temp '' $historyFramework
-    function History-Process($Value,[string]$Name){
-        $path=Json ('.ai-workspace/runtime/EVIDENCE-001/owner/history-'+$Name+'.json') $Value
-        $run=Invoke-AiwTestProcess ([Environment]::ProcessPath) @('-NoProfile','-NonInteractive','-File',(Join-Path $historyVersion 'scripts/resolve-process-requirements.ps1'),'-InputPath',$path,'-AsJson') -WorkingDirectory $temp -GroupId 'result-history'
-        if($run.Code-ne0){throw ('HISTORY_PROCESS_FAILED|'+$Name+'|'+($run.Output-join "`n"))}
-        $value=($run.Output-join "`n")|ConvertFrom-Json -Depth 100
-        $null=Json ('.ai-workspace/runtime/EVIDENCE-001/owner/history-'+$Name+'-result.json') $value
-        return $value
-    }
-    function History-Finalize($Package,$Record,[string]$Kind,[string]$Name,[scriptblock]$BeforeFinalize=$null,[object[]]$AdditionalFinalizeEvidence=@()){
-        if($Kind-ceq'SELF_CHECK'-and$Package.actions.Count-eq1-and$Package.actions[0]-ceq'TEST_RUN'){$Record.checks+=@(Clone $observedCommandCheck)}
-        $relative='.ai-workspace/runtime/EVIDENCE-001/owner/history-'+$Name+'-package.json'
-        $packagePath=Json $relative $Package
-        if($Kind-cne'SELF_CHECK'){$Record|Add-Member authorizationRef (Ref $relative) -Force}
-        $discover=[ordered]@{schemaVersion=5;mode='DISCOVER';contextType='TASK';readOnlyContext='NOT_APPLICABLE';ruleLoad=@{mode='FULL'};projectRoot=$temp;frameworkRoot=$historyFramework;taskPath=$taskPath;expectedProjectConfigIdentity=(Id $configPath);expectedCorrectionsIdentity=(Id (Join-Path $temp '.ai-workspace/corrections.json'));expectedTaskIdentity=(Id $taskPath);observedActor=$Package.grantee;capabilities=@();exactPaths=$Package.exactPaths;forbiddenPaths=@('protected.txt');protectedPaths=@();authorizationPackagePath=$packagePath;expectedAuthorizationIdentity=(Id $packagePath);userDecision='NOT_REQUIRED';recoveryState='WARM';hostEnforcementGrade='INSTRUCTION_BOUND';invocationState='PROVEN_EXPLICIT';evaluationOnly=$false;intentEnvelope=@{schemaVersion=2;objective='Isolated original result for historical evidence regression';requestedActionKind=$Package.actions[0];requestedResultKind='IMPLEMENTATION_RESULT';semanticHints=@();pathHints=$Package.exactPaths;capabilityHints=@();mutationHints=@();externalHints=@();ambiguityState='CLEAR';facets=@{domain=@{state='KNOWN';values=@('aiw:software')};workType=@{state='KNOWN';values=@('aiw:verification')};deliverableType=@{state='KNOWN';values=@('aiw:test-result')};stage=@{state='KNOWN';values=@('aiw:verification')}}}}
-        if($Package.schemaVersion-eq4){$discover['executionTargetRef']=$Package.executionTargetRef}
-        $resolved=History-Process $discover ($Name+'-discover')
-        $receiptRelative='.ai-workspace/runtime/EVIDENCE-001/owner/history-'+$Name+'-compact.json';$receiptPath=Json $receiptRelative $resolved.compactReceipt
-        # Protocol fixture obligations: these isolated facts are established by
-        # fixture construction, not claims about a real product or human review.
-        $prep=@($resolved.compactReceipt.selectedObligations|ForEach-Object{$_.preparationRequirements}|Sort-Object -Unique)
-        $boundary=[pscustomobject]@{schemaVersion=3;mode='ADMIT_ACTION';discoverReceiptPath=$receiptPath;expectedDiscoverReceiptIdentity=(Id $receiptPath);preparationReceipts=$prep;resultReceipts=@();deliveryReceipts=@();publicDecisionIdentity='NOT_REQUIRED';protectionState='BOUND';evidenceRefs=@()}
-        $null=History-Process $boundary ($Name+'-admit')
-        if($null-ne$BeforeFinalize){$null=& $BeforeFinalize $Record}
-        $typed=Typed $Record $Kind
-        $boundary.mode='FINALIZE_OUTPUT';$boundary.evidenceRefs=@($typed)+@($AdditionalFinalizeEvidence)
-        $boundary.resultReceipts=@($resolved.compactReceipt.selectedObligations|ForEach-Object{$_.resultRequirements}|Sort-Object -Unique)+@($Record.candidateObjects|ForEach-Object{'OBJECT_POSTIMAGE|'+$_.path+'|'+$_.identity})
-        $actual=History-Process $boundary ($Name+'-finalize')
-        return [pscustomobject]@{typed=$typed;record=$Record;package=$Package;pair=[pscustomobject]@{inputRef=(Ref ('.ai-workspace/runtime/EVIDENCE-001/owner/history-'+$Name+'-finalize.json'));resultRef=(Ref ('.ai-workspace/runtime/EVIDENCE-001/owner/history-'+$Name+'-finalize-result.json'))};result=$actual}
-    }
     $historyPackage=Package;$historyPackage.actions=@('TEST_RUN')
     $historyRecord=Record;$historyRecord.evidenceLocators+=@($candidate);$historyRecord.checks[0].evidenceLocators+=@($absoluteCandidate)
     $historicalSelf=History-Finalize $historyPackage $historyRecord SELF_CHECK 'self'
@@ -1407,8 +2124,11 @@ try{
     Bad {Assert-AiwAcceptanceStages $protectedHistory $declaredPlan EVIDENCE-001} 'EVIDENCE_PATH_FORBIDDEN' 'declared-stage-retains-current-protection'
     $badAcceptance=Clone $declaredAcceptance;$badAcceptance.acceptanceBinding.prerequisiteConsumption.purpose='CURRENT_CANDIDATE'
     Bad {Assert-AiwAcceptanceBinding $historyContext $badAcceptance $null} 'EVIDENCE_CURRENT_HISTORY_REFS' 'current-prerequisite-rejects-useless-history-refs'
-    # Real ordinary current-task CONTROL action closes SUCCESS through both
-    # TaskClosure's acceptance pre-read and its full stage validation.
+    # Close the current accepted deliverable while retaining the earlier
+    # completed stages as history; old success does not exempt live output.
+    $closeCurrentStage=Stage current-deliverable RESULT_ACCEPT @('source-self') @($currentCandidate) @($declaredResult.typed)
+    $closeCurrentStage|Add-Member evidenceConsumption ([pscustomobject]@{purpose='HISTORICAL_SUCCESS';originalFinalize=@($declaredResult.pair)})
+    $closePlan=Plan (@($stageLocalPlan.stages)+@($closeCurrentStage))
     $closePackage=Package;$closePackage.actions=@('CONTROL_WRITE')
     $closePackage.exactPaths=@('.ai-workspace/tasks/active/EVIDENCE-001.md');$closePackage.objectIdentities=@((Ref $closePackage.exactPaths[0]))
     $closePackagePath=Json '.ai-workspace/runtime/EVIDENCE-001/owner/history-close-package.json' $closePackage
@@ -1421,7 +2141,8 @@ try{
     $null=History-Process $closeBoundary 'close-admit'
     try{
         $closedTaskText=$taskText.Replace('lifecycle=ACTIVE;','lifecycle=CLOSED;')+"`n- Closure outcome: SUCCESS`n- Closure basis: Original completed acceptance consumed by its declared historical purpose.`n- Output disposition: READY; isolated fixture only.`n- Git disposition: DEFERRED; fixture only.`n- Unresolved obligations: NONE`n- Writer: RELEASED`n- Reviewer: RELEASED`n- Authorization: RELEASED`n"
-        $null=Put '.ai-workspace/tasks/active/EVIDENCE-001.md' (With-Plan $closedTaskText $stageLocalPlan)
+        $closedTaskText=$closedTaskText.Replace('Original completed acceptance consumed by its declared historical purpose.',($declaredResult.typed.path+'#'+$declaredResult.typed.identity+'; current delivered version with completed historical prerequisites.'))
+        $null=Put '.ai-workspace/tasks/active/EVIDENCE-001.md' (With-Plan $closedTaskText $closePlan)
         $closeBoundary.mode='FINALIZE_OUTPUT';$closeBoundary.resultReceipts=@($closureDiscoveryResult.compactReceipt.selectedObligations.resultRequirements|Sort-Object -Unique)+@('OBJECT_POSTIMAGE|'+$closePackage.exactPaths[0]+'|'+(Id $taskPath))
         $closedResult=History-Process $closeBoundary 'close-finalize'
         True ($closedResult.status-ceq'PASS') 'native-ordinary-SUCCESS-closure-consumes-declared-recursive-history'
@@ -1500,14 +2221,21 @@ try{
     $linkDestination=Join-Path $temp 'history-junction-target';$null=[IO.Directory]::CreateDirectory($linkDestination)
     $null=New-Item -ItemType Junction -Path $targetProduct -Target $linkDestination
     try{
-        Bad {Read-AiwResultEvidence $protectedTargetContext $targetHistory.typed EVIDENCE-001 @($targetCandidate) $requirements -EvidencePurpose HISTORICAL_SUCCESS -OriginalFinalize @($targetHistory.pair)} 'EXECUTION_TARGET_PROTECTED_PATH' 'historical-control-absolute-protection-projects-before-target-reparse-observation'
+        Bad {Read-AiwResultEvidence $protectedTargetContext $targetHistory.typed EVIDENCE-001 @($targetCandidate) $requirements -EvidencePurpose HISTORICAL_SUCCESS -OriginalFinalize @($targetHistory.pair)} 'EVIDENCE_PATH_FORBIDDEN' 'historical-control-absolute-protection-projects-before-target-reparse-observation'
         Bad {Read-AiwResultEvidence $targetContext $targetHistory.typed EVIDENCE-001 @($targetCandidate) $requirements -EvidencePurpose HISTORICAL_SUCCESS -OriginalFinalize @($targetHistory.pair)} 'EXECUTION_TARGET_REPARSE' 'historical-target-without-protection-still-rejects-reparse'
     }finally{[IO.Directory]::Delete($targetProduct)}
     Test-HistoricalInputConsumers (Join-Path $temp 'historical-inputs')
     Test-QualityAssuranceConsumers (Join-Path $temp 'operation-rebind') -OperationRebindOnly
+    Test-QualityAssuranceConsumers (Join-Path $temp 'completion-graph') -Maintenance -CompletionGraphOnly
+    Test-QualityAssuranceConsumers (Join-Path $temp 'completion-scale') -Maintenance -CompletionScaleOnly
+    Test-QualityAssuranceConsumers (Join-Path $temp 'accepted-use') -Maintenance -AcceptedUseOnly
+    Test-QualityAssuranceConsumers (Join-Path $temp 'accepted-purpose') -AcceptedUseOnly -AcceptedPurposeOnly
+    Test-QualityAssuranceConsumers (Join-Path $temp 'accepted-installation') -AcceptedUseOnly -AcceptedInstallationOnly
     $completed=$true
     Write-Output ('RESULT|'+$script:passed+'/'+$script:passed+' passed|scope=result-acceptance|evidenceCeiling=INSTRUCTION_BOUND')
 }catch{Write-Output ('DIAG|fixture='+$temp);Write-Output $_.ScriptStackTrace;throw}finally{
+ try{
     Set-Location -LiteralPath $savedLocation;[Environment]::CurrentDirectory=$savedCurrent
     if($KeepFixture){Write-Output ('FIXTURE|'+$temp)}elseif($completed){$full=[IO.Path]::GetFullPath($temp);$root=[IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\','/');if([IO.Path]::GetDirectoryName($full)-cne$root-or[IO.Path]::GetFileName($full)-cnotmatch '^aiw-result-evidence-[a-f0-9]{32}$'){throw 'FIXTURE_CLEANUP_BOUNDARY'};Remove-Item -LiteralPath $full -Recurse -Force}
+ }finally{& $gitFixture {param($scope) Restore-IntegrationGitEnvironment $scope} $gitScope}
 }

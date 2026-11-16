@@ -22,11 +22,11 @@ PASS|maintenance-register-development-execution-rejected-before-write
 PASS|maintenance-register-complete-native-JSON-fields-arrays-and-transaction
 PASS|maintenance-register-real-fixed-package-producer
 PASS|maintenance-target-rebind-keeps-original-root-checker-and-current-target-scope
-PASS|maintenance-rebound-original-finalize|{"status":"PASS","mode":"FINALIZE_OUTPUT","reason":"STRUCTURAL_REQUIREMENTS_COMPLETE","artifactStorage":"CALLER_MANAGED","selectionIdentity":"1F205155893A5252A44C7C0C68C61089C776501FF79398FDC005304DC0FE67D5","decisionIdentity":"9A28529B06380A35C7CF3F06E5DFCB125EAD14AC5CF5B7EC2D0504BEF3BD6F9E","sourceBuildCount":0,"decisionBuildCount":1,"missingPreparation":[],"missingResult":[],"authorityGranted":false,"semanticCorrectnessProven":false,"hostInvocationProven":false,"actionOutcome":"OBSERVED","successorState":"NONE"}
+PASS|maintenance-rebound-original-finalize|{"status":"PASS","mode":"FINALIZE_OUTPUT","reason":"STRUCTURAL_REQUIREMENTS_COMPLETE","artifactStorage":"CALLER_MANAGED","selectionIdentity":"3994CF18781BD2D537C7921E91C16DB2376CD53718323616C445A6D384AB070A","decisionIdentity":"9CE507EA8843CC9655E76858F57E41C9ED6B959C604B16D49D62C4ADF10533C8","sourceBuildCount":0,"decisionBuildCount":1,"missingPreparation":[],"missingResult":[],"authorityGranted":false,"semanticCorrectnessProven":false,"hostInvocationProven":false,"actionOutcome":"OBSERVED","successorState":"NONE"}
 PASS|maintenance-source-to-control-rebind-observes-current-control-root-without-body-load
-PASS|maintenance-control-rebound-original-finalize|{"status":"PASS","mode":"FINALIZE_OUTPUT","reason":"STRUCTURAL_REQUIREMENTS_COMPLETE","artifactStorage":"CALLER_MANAGED","selectionIdentity":"FAE5DBC832F559E5DBF39E63447516B63E7D353ED470E3278EC961EAB7AFB04B","decisionIdentity":"6E2C184FD001DAED072030D9788315278D5B78A4E680A9B76B8AB71301597BA7","sourceBuildCount":0,"decisionBuildCount":1,"missingPreparation":[],"missingResult":[],"authorityGranted":false,"semanticCorrectnessProven":false,"hostInvocationProven":false,"actionOutcome":"OBSERVED","successorState":"NONE"}
+PASS|maintenance-control-rebound-original-finalize|{"status":"PASS","mode":"FINALIZE_OUTPUT","reason":"STRUCTURAL_REQUIREMENTS_COMPLETE","artifactStorage":"CALLER_MANAGED","selectionIdentity":"63FEE0B725D2A4CCF924268A48E9112DC26822CD0BAAAB99703C15D7805050F5","decisionIdentity":"40102AB521FC8A7DE7B89F128978ACB3DB870E0EEFFA512BE775254EA3A667CE","sourceBuildCount":0,"decisionBuildCount":1,"missingPreparation":[],"missingResult":[],"authorityGranted":false,"semanticCorrectnessProven":false,"hostInvocationProven":false,"actionOutcome":"OBSERVED","successorState":"NONE"}
 PASS|maintenance-control-to-source-rebind-observes-current-target-root-without-body-load
-PASS|maintenance-source-back-original-finalize|{"status":"PASS","mode":"FINALIZE_OUTPUT","reason":"STRUCTURAL_REQUIREMENTS_COMPLETE","artifactStorage":"CALLER_MANAGED","selectionIdentity":"A7BFCA27A3247E5F8A24AADDE5E46E60F5E4B4FF0CEFD436BA1CD4475F7C81CB","decisionIdentity":"4D151C6AC221536F7138095CBB6D1B0D84DEEEB9116EE87385972A9A9C9A4084","sourceBuildCount":0,"decisionBuildCount":1,"missingPreparation":[],"missingResult":[],"authorityGranted":false,"semanticCorrectnessProven":false,"hostInvocationProven":false,"actionOutcome":"OBSERVED","successorState":"NONE"}
+PASS|maintenance-source-back-original-finalize|{"status":"PASS","mode":"FINALIZE_OUTPUT","reason":"STRUCTURAL_REQUIREMENTS_COMPLETE","artifactStorage":"CALLER_MANAGED","selectionIdentity":"EC0E812058DAF462E07654DC0C9E603B114A954E5B563712CBE9B0F6A1A6575D","decisionIdentity":"2001B7CF76A45C50A402E872019978A10571EC68AC246BCEBF366E2445337CAE","sourceBuildCount":0,"decisionBuildCount":1,"missingPreparation":[],"missingResult":[],"authorityGranted":false,"semanticCorrectnessProven":false,"hostInvocationProven":false,"actionOutcome":"OBSERVED","successorState":"NONE"}
 PASS|maintenance-fixed-runtime-completed-adoption-binding
 PASS|maintenance-fixed-runtime-full-sealed-fixture-installed
 PASS|maintenance-native-preview-complete-array-and-zero-write
@@ -87,10 +87,10 @@ BASELINE|maintenance|after-control-non-git
 OBSERVE|maintenance-stage|case=target|reason=TARGET_ROOT_GIT_TOP_UNAVAILABLE
 PASS|maintenance-resolver-target-non-git-rejected
 BASELINE|maintenance|after-target-non-git
-FIXTURE_RESTORED|maintenance-control-junction|tree=4927|91E962D0A8AEBEDDE4C4994FFC88CBBBA126AAD7C92ACC1057127C58DC3E07FC
+FIXTURE_RESTORED|maintenance-control-junction|tree=4927|3A2AA8D49A5AFE91D414347CAE07C45AF0F8D14E7855D44993992206D107577E
 PASS|maintenance-resolver-control-intermediate-junction-rejected
 PASS|maintenance-resolver-control-intermediate-junction-backing-unchanged
-FIXTURE_RESTORED|maintenance-runtime-junction|tree=20549|FBCD24D0E9F31B448543FC8985E8B655EFEF497E64BD6E0F6603493D68DF11CB
+FIXTURE_RESTORED|maintenance-runtime-junction|tree=20555|DBCFAF71A727DBB46A342297001E63115A90BC7B321F78ED0C3D0CF9CCE1AC93
 OBSERVE|maintenance-stage|case=runtime-intermediate|reason=PATH_REPARSE|framework/versions/2.0.0/scripts/ContentSources.psm1
 PASS|maintenance-resolver-runtime-intermediate-junction-rejected
 PASS|maintenance-resolver-runtime-intermediate-junction-backing-unchanged
@@ -128,6 +128,7 @@ PASS|maintenance-resolver-parent-traversal-rejected
 PASS|maintenance-fixture-config-restored
 FIXTURE_CLEAN|integration-private-root
 WARNING: The names of some imported commands from the module 'IntegrationFixture' include unapproved verbs that might make them less discoverable. To find the commands with unapproved verbs, run the Import-Module command again with the Verbose parameter. For a list of approved verbs, type Get-Verb.
+WARNING: The names of some imported commands from the module 'IntegrationFixture' include unapproved verbs that might make them less discoverable. To find the commands with unapproved verbs, run the Import-Module command again with the Verbose parameter. For a list of approved verbs, type Get-Verb.
 PASS|quality-anonymous-candidate-actually-registered-with-original-task
 PASS|quality-unenabled-project-remains-legacy
 PASS|quality-legacy-critical-retains-independent-review
@@ -158,6 +159,6 @@ PASS|root-existing-archive-new-preimage-rejected-during-discover
 PASS|rejected-existing-archive-actions-preserve-active-and-restored-candidate
 PASS|new-current-closure-reuses-identical-archive-and-preserves-prior-failure
 PASS|maintenance-source-history-control-success-archive-original-F-complete
-FIXTURE|C:\Users\zheng\AppData\Local\Temp\g-99d69969\aiw-result-evidence-a1172262bdfd4e81bf0491346ae0085a\quality|scope=maintenance-root-quality|qualification=SYNTHETIC_TEST_FIXTURE_ONLY
+FIXTURE|C:\Users\zheng\AppData\Local\Temp\g-ae7a71cb\aiw-result-evidence-267248e3deb340a88821709a4017dfaa\quality|scope=maintenance-root-quality|qualification=SYNTHETIC_TEST_FIXTURE_ONLY
 RESULT|32/32 passed|scope=result-quality|evidenceCeiling=INSTRUCTION_BOUND
 RESULT|97/97 passed|scope=Framework-2.0.0-maintenance|

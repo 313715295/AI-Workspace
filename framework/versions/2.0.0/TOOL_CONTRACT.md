@@ -16,9 +16,9 @@ Framework operation 是 language-independent contract。backend 是 adopting pro
 
 一个 source composer 提供三个 logical mode：
 
-- `DISCOVER` 严格绑定 project、当前 task 或显式 `PROJECT_READ_ONLY` / `PROJECT_EXTERNAL` request context、host-authenticated actor、effective role/phase、profile、project-declared capabilities、objective/action/result kind 与 normalized exact scope。task context 继续绑定 whole task、Owner 与 Work route actor；只读 context 必须绑定 session/request 且只能使用 `NONE + PLAN/USER_RESPONSE`，不能伪造任务或绕过已知冲突。PROJECT_EXTERNAL只按下文项目预授权合同取得真实EXTERNAL意图的完整规则，不产生按次动作边界。`pathHints` 必须位于 scope 内，`capabilityHints` 必须已观察，mutation/external hints 必须匹配 requested action。CLEAR contradiction 失败；UNKNOWN 保留 conservative-load ceiling，不能 admit governed action。resolver 对完整 generated metadata catalog 选择，校验 selected locator 与 owning Markdown module，一次返回每个 exact complete block，并另给 compact receipt。still-effective corrections 与 permanent project rules 保持独立 source。
+- `DISCOVER` 按下文Input6绑定当前TASK、PROJECT_READ_ONLY、PROJECT_EXTERNAL或PROJECT_WORK、实际actor/route/profile、项目能力、真实Intent及精确范围。先核全局声明与权威，再选择完整条件、依赖和正文，返回同次完整规则与compact5；加载不授权。pathHints须在精确scope内、capabilityHints须已观察，mutation/external hints须匹配当前动作；CLEAR矛盾拒绝，UNKNOWN保守加载但不能准入。旧Input4/5沿其明确兼容分支。
 - package grantee 可执行当前 action 或 `continuationPlan` 中预授予的写/测与最后一步组织 `REVIEW_ROUTE`，不改变 Owner/Work route/task identity。该路由只在真实成功生产FINALIZE及当前候选的适用准备（LEGACY/选SELF为成功typed SELF_CHECK；C无SELF为下述原productionFinalizeRef）后续接，计划绑定顺序；写测复用原整组 exact scope，最后交审可取原包预批的 reviewScope。独立 `REVIEW_EXECUTE`、`RESULT_ACCEPT`、Git、browser/device 与 external 不进入计划。
-- `ADMIT_ACTION` 只消费 exact compact DISCOVER receipt，复检 task/Framework/catalog/project/correction/policy/custom identities，按 current exact object bytes 重跑 authorization observation，并校验 selected preparation；它不授予 action。
+- `ADMIT_ACTION` 在boundary4以currentOperation构造并保存当前操作，或消费已有operationRef；重新观察当前权威、完整包/续链、精确对象和实际准备，核本活动FULL覆盖后零正文装配。旧boundary3消费原compact及可选actionRebind。准入不扩大动作授权。
 - `FINALIZE_OUTPUT` 重验 sources 与 observable result/delivery；每个 exact path 必须有唯一且匹配 current object 的 `OBJECT_POSTIMAGE`。有未完成计划时才返回 `INSTRUCTION_BOUND`、`authorityGranted=false` 的 `AUTHORIZED_ACTION_CONTINUATION`，绑定原 package、source Discover identity/action/step、task/actor/repository/config/Controller/decision/protection、下一步骤与整组 postimage；不保存无法由 checker 复验的 finalize hash。
 
 后续 `DISCOVER` 可选成对携带 `continuationReceiptPath + expectedContinuationReceiptIdentity`。resolver/checker 复证 receipt bytes、原 package、source action/step、next step 与 current objects；未知字段、错链、第三方/越界、错包、虚假或 stale postimage 均 fail closed。普通项目与 Maintenance root authorization/process adapter 共用实现，root 只补 topology/repository 验证和透传。
@@ -27,7 +27,7 @@ Framework operation 是 language-independent contract。backend 是 adopting pro
 
 continuation.exactPaths/postObjectIdentities 表示 nextAction 的范围：生产、测试及有限返工为 M，最终 REVIEW_ROUTE 为 A。已完成动作的范围从原 sourceDiscoverReceipt 读取，逐 path OBJECT_POSTIMAGE 仍只证明该完成范围。只有实际成功生产FINALIZE及适用SELF/原生产证明验证后，才把真实 M 后像与未改冻结 A\\M 合成 A；重新 hash M、伪造 FINALIZE/decision 或结构性 PASS 的失败测试均不能承接。TEST_RUN 的软件 COMMAND/SELF 绑定 M，REVIEW_ROUTE 的候选准备 SELF 绑定完整 A，二者不可互换。selfCheckRepairLimit 链始终限制返写/重测在 M，最终 A receipt 不允许倒退取得 A 写权。
 
-原 package 可选 `selfCheckRepairLimit`，值为正整数且不超过 Int32 最大值，只用于 `SOURCE_WRITE` 或 `TEST_WRITE` → `TEST_RUN` → 可选最终 `REVIEW_ROUTE` 的短计划。它预授予同主体、同整组范围的有限自检返工，与独立 finding 的 `repairReviewPlan` 分开。该值由原成果的实际范围、不确定性和验证成本确定，框架不规定两次或其他统一默认。它是原包预授的有限返工次数，不是每次失败都须重新取得Owner/用户决定的要求，也不是必须用完的重试配额；是否继续及何时因无进展停止按TASK职责判断，判断本身不增加额度。独审修复包从原 finalized verdict 所绑定的实际生产链承接已用 selfRepairCycle，不因新派生包重置；独审 cycle/maxCycles 仍独立计算。缺省仅允许原线性计划；真实预定的 SOURCE→TEST→SOURCE 可按原顺序在失败后续写，不能把预填多轮称上限或在早通过时跳步。
+原 package 可选 `selfCheckRepairLimit`，值为正整数且不超过 Int32 最大值，用于 `SOURCE_WRITE` 或 `TEST_WRITE` → `TEST_RUN` → 可选最终 `REVIEW_ROUTE` 的短计划。已验证 TASK_SUPERSEDED 前序且只有 SELF 授额根、没有 Review 根或 repairReviewBinding 时，当前包5的独立纯单次 TEST_RUN 可保留相同原 limit，不携 continuationPlan；真实已用周期仍从原 SELF 终态求得。该单次动作不新授返写或重测续权，不造一次 SOURCE_WRITE 来建立起点，也不把原失败当成功；无真实前序根、错 limit 或其他计划形状仍拒绝。它预授予同主体、同整组范围的有限自检返工，与独立 finding 的 `repairReviewPlan` 分开。该值由原成果的实际范围、不确定性和验证成本确定，框架不规定两次或其他统一默认。它是原包预授的有限返工次数，不是每次失败都须重新取得Owner/用户决定的要求，也不是必须用完的重试配额；是否继续及何时因无进展停止按TASK职责判断，判断本身不增加额度。独审修复包从原 finalized verdict 所绑定的实际生产链承接已用 selfRepairCycle，不因新派生包重置；独审 cycle/maxCycles 仍独立计算。缺省仅允许原线性计划；真实预定的 SOURCE→TEST→SOURCE 可按原顺序在失败后续写，不能把预填多轮称上限或在早通过时跳步。
 
 boundary schema3 的 `FINALIZE_OUTPUT` 可选 `continuationDisposition=ADVANCE/REPAIR/RETEST/STOP`，缺省 ADVANCE，显式值进入 decisionIdentity；其他 mode/schema 拒绝该字段。当前 TEST_RUN 的全部 SELF_CHECK 聚合为 FAIL 优先、其次 INCOMPLETE、否则 PASS；缺失、假结果、错误候选或来源仍拒绝。合法失败/不完整输出可结构性 PASS，同时返回 `actionOutcome`（TEST_RUN 为聚合值，其他动作为 OBSERVED）与 `successorState`；它不声明测试、任务或成功前置通过。successorState 为 AVAILABLE 时才有 continuationReceipt；NONE/FINISHED、SELF_CHECK_FAILED、INCOMPLETE、STOPPED、NO_REPAIR_PERMISSION、REPAIR_LIMIT_EXHAUSTED 均没有后继。FAIL 不能进入最终交审，INCOMPLETE/未知退出结果不自动返写或重测，STOP 只收口动作，未完成任务仍归 Owner。
 
@@ -59,6 +59,8 @@ source composition、progressive selection 与 boundary decision identity 分离
 
 原版本过程入口、Maintenance前门和WorkflowDelivery的Invoke-AiwDeliveryBoundary可接原调用方已知的`ConsumedRuntimePath[]`、`ConsumedRuntimePathList`（已消费的JSON绝对路径数组）、`EmptyRuntimeDirectory[]`、`RetainedRuntimePath[]`。这些调用参数不进入动作输入schema、不产生删除授权或逐任务清单；普通成功不保存完整D/正文/显示副本，集合从本批真实生成返回与原引用在内存中形成。共享释放函数留在原WorkflowDelivery模块，exact-input也复用它。普通接受和关闭/归档的原FINALIZE在实际成功后，沿当前原证据及ResultEvidence已校验的实际任务/归档验收计划，消费已链接成功producer的inputCleanup观察：removed/alreadyAbsent只描述历史结果，不授权删除重新出现的同名对象；仅业务真正成功的producer可凭同次读取字节绑定的consumedObject及明确IO_ERROR剩余，由同一释放函数在当前字节仍匹配时恢复未能删除的原输入。FINALIZE的结构PASS不代替actionOutcome成功；失败、不完整、未知、缺身份、宿主策略拒绝或未知失败均保留，不自动重试，不需要调用者重新手写输入路径数组。失败producer的原输入继续按证据保留；同一路径另有实际证明引用时保留优先。这里只读取当前显式引用的成功生成返回/必要失败原件，不生成每任务清单、扫描或推断未知材料。其他调用方已知到期集合仍可用原参数补充。TASK_MESSAGE须取得真实OBSERVE成功，失败/不完整或尚待投递时保留集合。不会从CLOSED或successorState推断整个目录到期。
 
+ResultEvidence将本次实际已读的必要引用及有限producer交给最后消费者。在用依赖按现有引用、continuation及恢复字段解释；ArtifactRef/typed原件作为引用叶保留，只对明确恢复字段继续读其严格身份绑定对象。command、reason、日志正文及任意JSON附件不会被字符串拆分或递归解释为新的执行依赖。保留及释放判断不重新调用成果验收；未知仍有消费者的材料不列入到期集合。
+
 上述自然收尾释放限当前task/request的runtime子树内精确对象；当前有限任务显式承接旧任务runtime/tmp文件时，使用下文RUNTIME_MAINTENANCE的独立CONTROL_WRITE合同，不从自然清理参数取得跨任务删除权。自然收尾整组先核范围、类型、reparse与保护；当前FINALIZE输入、仍被原compact/continuation递归验证的引用、原证据引用和调用者明确保留的后继材料不会进入释放。每条读取及删除选择复用本次已验证证据上下文的完整根相关保护（包括routineExcludedPaths和protected scopes），先拒绝禁区再访问元数据/正文；可沿reports等根内显式引用继续核在用闭包，删除范围仍仅当前task/request runtime；实际归档验收计划沿原ResultEvidence返回复用，不另写关闭校验器。不扫描项目历史；尚未给出的后继消费者由原调用方保留，未知就不列为到期。正式结果、采用/恢复及未完事务原件继续按原路径持有。已消费清单即使同时出现在普通路径数组，也只在最后清单阶段处理；只有成员全部成功释放后才释放，部分失败保原清单并返回实际remaining；空目录逐项非递归删除。结果的runtimeCleanup/inputCleanup分别给释放件数/字节/剩余/elapsedMs与FRAMEWORK_REJECTED、IO_ERROR或可观察的HOST_POLICY_REJECTED，清理失败不改已成立的业务status/exitCode。默认文本/模型输出另给紧凑AIW-CLEANUP观察，包含实际状态、剩余及失败分类；不只在AsJson中可见，不重复完整响应或正文。宿主在入口调用前拒绝时没有程序结果，应保原拒绝及UNKNOWN，不绕行或自动重试。旧固定版本仍按各自原合同，不热改运行包。
 
 compact/continuation 留到最后消费者完成。上一步 compact 与 continuation 可能在下一 DISCOVER、ADMIT、FINALIZE 全部复验；先保存新的 successor continuation 再释放前序。失效/中止后在自然收尾释放已无消费者的 artifact；不用持久收据注册表。
@@ -67,11 +69,11 @@ PROCESS_REQUIREMENTS_RESOLVE 可显式指定 `-CompactReceiptPath <absolute-path
 
 actor-storage 仅用于保存和清理的目录定位，不改变认证 actor：匹配小写 `[a-z0-9][a-z0-9._-]*` 、不以点结尾、不是 Windows 保留设备名（含扩展名），且不以保留前缀 `actor-sha256-` 开始的身份沿用原段；其他身份使用 `actor-sha256-` 加真实身份精确 UTF-8 字节的完整 SHA-256 小写十六进制。大小写、斜杠和反斜杠不归一化、不替换字符，不创建身份注册表。输入创建、compact 保存、根采用/恢复收口和 Maintenance 专用清理共用实际绑定 runtime 的映射，authority/package 中始终保留原身份。原过程边界以原 receipt 的 runtime 为准，不因采用后当前 pin 来源变化而移动旧材料；原恢复 FINALIZE 也调用该 runtime 的 resolver。旧固定包仍使用其旧目录合同，不热改包、不将旧收据迁成新布局。
 
-本W2候选新增严格DISCOVER input5 / IntentEnvelope2 → compact4 / authorityContext3；boundary input3保持。旧Input4→compact3/authority2保留明确严格分支，不能把旧收据或来源重标为新格式。TOOLCHAIN导航为3/TC4；注册/升级投影使用本目标声明的PROJECT_BOOTSTRAP，当前候选仍须独立取得实际采用资格。
+当前候选公开Input6 / IntentEnvelope3 → compact5 / authorityContext4，配boundary4和下列四上下文。现有TOOLCHAIN导航3及catalog3/version4继续定位同一入口；旧Input4/5、IntentEnvelope2、compact3/4和boundary3按原严格分支消费，不改写旧原件或将其重标为新格式。新分发仍须取得实际源码、包后和采用资格。
 
-Input5保留Input4所有字段并必需ruleLoad={mode:FULL|REUSE}。真实加载统一返回FULL：同一意图选择器确定当前完整规则、条件与依赖，单次去重并组装完整正文。旧REUSE可携previousCoverageRef，仅兼容为FULL并记LEGACY_REUSE_RETURNS_FULL；不打开该引用、不求coverage差集、不返回REUSED或DELTA。FULL不得携previousCoverageRef。真实当前权威、声明、来源许可、保护、采用完成链和checker失败独立拒绝。
+旧Input5保留Input4字段并要求ruleLoad={mode:FULL|REUSE}。REUSE仅按FULL兼容并报告LEGACY_REUSE_RETURNS_FULL，不打开previousCoverageRef；FULL不得携该引用。当前Input6只接FULL，完整条件与依赖同次去重。两分支均独立拒绝坏来源、未完采用、撤权和保护冲突。
 
-原生fragment/catalog3和policy3普通规则可选严格bodySelectors={profiles,roles,contextTypes,facets}；profiles/roles取原受控枚举，contextTypes仅TASK/PROJECT_READ_ONLY/PROJECT_EXTERNAL或单独的*，各边界数组非空且唯一。facets只允许domain/workType/stage及已声明词项，不接受phase/action/result/path/capability/semantic/deliverableType轴。composer将它规范化后交给原同一匹配器，不建立第二选择器。O按原selectors选择（包括P/R为空的行）；B=O与bodySelectors命中的并集。正文上下文取Boundary实际TASK/只读事实、snapshot实读任务或根采用已验证投影；私有未知上下文保守加载并标BODY_CONTEXT_UNKNOWN，不能声称零正文重绑。纠正、旧custom和旧格式维持原兼容选择。
+原生fragment/catalog3及policy3的普通selectors可选contextTypes=[TASK|PROJECT_READ_ONLY|PROJECT_EXTERNAL|PROJECT_WORK]或单独*。bodySelectors严格为{profiles,roles,contextTypes,facets}，数组非空且唯一，facets可用domain/workType/deliverableType/stage及声明词项，不接phase/action/result/path/capability/semantic轴。O由普通selectors选择，B=O与bodySelectors命中的并集，二者用原同一匹配器；收窄O须修改普通selectors，不能只增加bodySelectors。上下文来自真实TASK/请求或已验证采用投影，未知保守加载并报告BODY_CONTEXT_UNKNOWN；不把未知当零正文资格。旧规则沿各自兼容分支。
 
 compact4保留bodyCoverage与loadDecision作为本次来源/显示索引兼容字段。selectedRequirements/selectedRuleBlocks、bodyCoverage.rules及完整uniqueUnits覆盖B，selectedObligations和modelView.currentRules只含O，严格O⊆B；兼容正文行的P/R在O内等于当前义务，B-only为空。metadataIdentity绑定完整静态声明及有序正文引用，不随P/R临时退出而改变。units与rules保留完整身份、有序引用和metadataIdentity；anticipatedSteps、reusedUnitKeys、anticipatedUnitKeys均为空，requiredUnitKeys与returnedUnitKeys为原FULL完整单元集合，effectiveMode恒为FULL。索引不证明模型记忆。sourceObservation2精确为schemaVersion、selectionIdentity、bindings、nativeFiles、projectDocuments、loadedRuleIds、workRoute七字段：loadedRuleIds是原FULL实际完整读取的规则ID，workRoute={actor,role,phase}取真实任务主路线，区别于操作有效角色/阶段；selectionIdentity绑定该有序加载ID集合。原声明和全部已读来源仍复验，不保存正文或未来状态。sourceObservation1保留原严格分支；无观察的旧compact仍完整核对，不取得零正文重绑定资格。公开DISCOVER5和boundary3输入不变。
 
@@ -119,6 +121,8 @@ GIT_COMMIT 的 FINALIZE 只接受同一分支上实际新 HEAD 的唯一 parent 
 
 Get-AiwTestDependencySnapshot 可显式接收 ControlRoot、TaskPath、executionTargetRef、expectedTargetState，四项同时出现或由同一 options 保存；仅 definition3、声明实际 observer 依赖的 EXACT 组可用。每次重观真实关系/状态，输入根及 native cwd 为 executionRoot，拒 LOGICAL_ROOT 替换。同一已加载 producer 保留首次绑定 observation 的真实 observedUtc，前后重新验证其余完整事实；native 时间另取真实进程记录。跨加载无原观察复用证明则保守 fresh，不冒称业务改变。公开 runner 用同名四参数，ref/state 为严格 JSON 字符串，已有目标 SOURCE_PAYLOAD_V1 输入树不再投到另一个 SourceView。默认 SAME_ROOT/SourceView 和旧分支保持；生产接点不授 TEST_RUN 或发行资格。
 
+D3 的 EXACT 位置策略保留物理根、原生 argv/cwd 和实际环境。空 conditions 保留原合同；显式六项 OBSERVE 时，snapshot 实观源码根及现存 ambient 临时父目录的 volume、目录大小写标志、路径长度类别、ACL、owner 和无 reparse 条件，将两位置每项事实的 canonical SHA256 记为 OBSERVED_EXACT_V1|<UPPER_SHA256>；EXACT mappings 必须为空。不能观察、条件缺失/重复/未知或未填充时拒绝；权限等实际变化使当前行为身份失效。临时私有根尚未分配或已清理时不创建它来复证，观察现存分配父目录；这不证明未知宿主状态或换根等价。LOGICAL_ROOT 原 SAME_ROOT 映射与观察语义保持。
+
 ### 输出时序与有界修复复审
 
 以下默认消费者可由真正的人类决定显式改变；既有 `userDecisionRef` 例外消费当前输入的精确 expectedRecipient/channel：NATIVE_RESPONSE 仅 USER；TASK_MESSAGE 须为实际确定的任务消费者，拒绝 USER、NOT_APPLICABLE、NOT_REQUIRED、UNBOUND_RECEIVER、DEFERRED_VISIBLE_REVIEWER 等占位。引用须安全可读、原字节匹配，且与 boundary.publicDecisionIdentity 一致。调用者仍亲自核对原始用户来源、语义及后续撤回；文件/hash 不认证用户身份。没有引用仍按下文默认推导；PREPARE 不关闭跨任务交付，只有真实宿主结果唯一匹配才完成 OBSERVE，不追认历史发送或为补闭环重发。
@@ -135,6 +139,12 @@ WORKFLOW_ROUTE_RESOLVE 的 TERMINAL 使用 `{operation:'TERMINAL',boundaryInputR
 
 有界修复复审使用原 repairReviewPlan 和新 repairReviewBinding。binding 保留 parentPackagePath/parentPackageIdentity、phase=INITIAL_REVIEW/REPAIR/REREVIEW、cycle、verdictPath/verdictIdentity 及 repairFinalizeInputPath/repairFinalizeInputIdentity/repairFinalizeResultPath/repairFinalizeResultIdentity。INITIAL_REVIEW 的 cycle=0、verdict=NOT_APPLICABLE，四个 repairFinalize 字段绑定真实生产 FINALIZE；REPAIR 的四字段仍为 NOT_APPLICABLE，REREVIEW 绑定实际修复生产 FINALIZE。REPAIR/REREVIEW 还须有 verdictFinalizeInputPath/verdictFinalizeInputIdentity/verdictFinalizeResultPath/verdictFinalizeResultIdentity，绑定原 Reviewer 的真实审核 FINALIZE；首审不携未来字段。后建 Reviewer 的 reviewerAssignment 保持原两种 HOST 分支，已知 Reviewer 不携该字段。
 
+`REPAIR_REVIEW` 的当前输入保留 operation/repositoryRoot/binding 和原成对 controlRoot/taskPath，新增条件可选 `currentAuthorizationRef={path,identity}`。仅已验证的原 TASK 额度根经真实 SUPERSEDED 关闭转当前 PROJECT_WORK 包5时，该引用必需；普通 TASK→TASK、WORK→WORK沿原输入，其他分支不得借此扩权。binding.parentPackagePath/Identity 在输入与输出始终指原 TASK repairReviewPlan 授额根，不临时指当前包，也不把旧 TASK 改成 schema5。引用只读现有精确当前包原字节，不新增请求对象、证书、预执行或先准入载体的循环。
+
+本分支先沿 requestContext.predecessorRef 验真实原关闭 FINALIZE、唯一 successor、原 Owner/完整稳定 subject/requirements、原阶段与有限 Review head/root。原根保 writer/reviewer/contributors、maxCycles、M/A、同审独立性及已用 SELF/Review 次数；每份 finding、typed 和生产 FINALIZE 在其实际 TASK 或 WORK 上下文严格核验，只在这条已验证前序边关联。CHANGES_REQUESTED 后 REPAIR 为 c+1，已完成修复后的 REREVIEW 保同 c，真实没有首审才可 0；原 APPROVED 同候选沿原阶段消费，改候选不能借旧 PASS。多根、分叉、引用环、未知或未完成头拒绝，不搜索历史目录补链，不把失败当成功。
+
+当前包提供当前请求/配置/决定/签发和实际 actor 的独立精确权限。派生 actor/actions/scope/candidate 必须同时受当前包与原计划约束；不得由旧 TASK 继承当前 actor 权，当前额外质量门仍取并集。派生包保 predecessorRef 与原 repairReviewBinding，去旧 receiver 和 parent-only 字段，按实际 actor/role/phase/resultConsumer 生成；repairReviewPlan 与 repairReviewBinding 不共存。工厂只返回 PREPARED/authorityGranted=false，新动作继续当前 checker/ADMIT，currentAuthorizationRef 不是已准入证明或可信上下文。旧 CLOSED TASK 仍拒未来执行，旧 typed1/2/taskId、原配置/决定/冻结义务及严格成功 reader 不改写。
+
 同一次判断保留既有 flat verdict 和 typed REVIEW_VERDICT，typed.evidenceLocators 唯一引用该 flat 原件。flat 字段保持 taskId/owner/reviewer/writer/cycle/verdict/exactPaths/objectIdentities/findingPaths/scopeChanged/decisionChanged。REVIEW_EXECUTE FINALIZE 对照原计划、cycle、完整 A、实际后像、finding/边界变化和 typed outcome；APPROVED 无未解 finding/边界变化，CHANGES_REQUESTED 至少一个真实 finding。写者、工厂继续消费同一 flat 与实际成功 FINALIZE 的关联，不由 Owner 补造裁决，不给普通无计划历史 Review 派生写权。历史 finding 的冻结候选校验只复证修复来源，不满足当前成功门。
 
 materialContributors 为内部唯一的非空字符串数组，candidateWriter 不重复列入。Owner/issuer 可彼此重叠或同时为真实贡献者；另将 Owner/issuer/writer/contributors 合成 Reviewer 排除并集。计划、工厂、checker、证据、交付判定一致，父子 contributors 精确相同。范围内 finding 直 writer，扩面/决定变化或 finding 超 M 则直 Owner，APPROVED 直 Owner/有权接受者。工厂只返回 PREPARED，当前 checker/DISCOVER/ADMIT 和实际交付仍独立。
@@ -147,7 +157,7 @@ INITIAL_REVIEW/REREVIEW 的纯包及 verdict.exactPaths/objectIdentities 绑定 
 
 不在Work route的临时参与者在已知TASK内进行安全NONE读取、交付PLAN或USER_RESPONSE时，可以使用authorizationPackagePath/expectedAuthorizationIdentity=NOT_REQUIRED；TASK DISCOVER取EXECUTOR/PLAN，保留真实task Owner与Work route actor，authorizedActions为空。当前task/config/人类来源与精确路径及保护仍核验，不造PROJECT_READ_ONLY、不改Work route，不以虚构SOURCE/TEST取得正文。正式自检、TEST、Review、写入和外部动作仍须各自当前有限动作包。显式具名有限读取assignment仍可复用schema1/2/4包且actions恰为[NONE]，其当前Owner/issuer/grantee/决定、精确scope、当前对象及执行目标仍全部核验；known ID直接签有限包，unknown ID复用INVESTIGATOR原绑定。纯NONE不得混副作用、continuation/selfRepair/reviewRepair或其他动作绑定；它不授SOURCE/TEST/Review/外部动作。读取候选前经原安全路径消费者应用并透传当前ForbiddenPaths/ProtectedPaths。用户撤回仍是实际有效语义，来源漂移拒绝不冒称工具能自动理解撤回。
 
-PROJECT_READ_ONLY可使用当前真实的管理、执行或观察审核角色；临时观察者可按EXECUTOR表达实际只读职责，无须冒填管理身份或新建卡。它仅允许NONE与PLAN/USER_RESPONSE，REVIEWER标签也不授予正式Review、写入或越界读取。objective、authority context、标准文档数、纠正changes、Knowledge查询数和continuation步骤不设框架统一使用配额；任务仍绑定有限范围、具体计划及退出条件，结构、类型、唯一性和路径验证保持。
+PROJECT_READ_ONLY可使用当前真实的管理、执行或观察审核角色；临时观察者可按EXECUTOR表达实际只读职责，无须冒填管理身份或新建卡。它仅允许NONE与PLAN/USER_RESPONSE；当前Input6还可使用下表规定的纯只读HANDOFF。REVIEWER标签也不授予正式Review、写入或越界读取。objective、authority context、标准文档数、纠正changes、Knowledge查询数和continuation步骤不设框架统一使用配额；任务仍绑定有限范围、具体计划及退出条件，结构、类型、唯一性和路径验证保持。
 
 ### IntentEnvelope 构造
 
@@ -157,7 +167,7 @@ PROJECT_READ_ONLY可使用当前真实的管理、执行或观察审核角色；
 
 `DISCOVER` 前，当前主会话模型从本轮原始用户请求、仍有效的多轮上下文与已绑定任务事实，重建当前真实请求：目标、这一步实际要做的 action、当前应交付的 result、受限范围，以及仍然有效的否定、条件和先后关系。然后只填写现有 `IntentEnvelope` 字段；resolver 负责结构与 authority facts 的核对，不替模型理解原话，也不建立第二套 intent authority。
 
-构造顺序为原始目标和交付物 → 仍有效限制/纠正 → 当前决策 → 此刻动作及结果 → 已观察范围/能力 → 四维 facets → 辅助 semanticHints。这是同一次模型判断中的顺序，不为每步请求模型，不新建意图服务。授权缺失在独立authority校验中体现，不能反向抹掉清楚的目标。
+构造顺序为原始目标和交付物 → 仍有效限制/纠正 → 当前决策 → 此刻动作及结果 → 已观察范围/能力 → 三维核心及实际需要的stage → 辅助 semanticHints。这是同一次模型判断中的顺序，不为每步请求模型，不新建意图服务。授权缺失在独立authority校验中体现，不能反向抹掉清楚的目标。
 
 多轮更新按语义作用域合并：补充增加未冲突约束，收窄删除范围，纠正替换被明确修订的部分，取消终止被取消的当前动作；未被修订的上下文继续有效。报告、日志、引用指令和示例中的命令都是 data，除非用户明确把它们转成当前请求，否则不能成为 action、authorization 或 authority instruction。
 
@@ -165,9 +175,9 @@ PROJECT_READ_ONLY可使用当前真实的管理、执行或观察审核角色；
 
 否定必须绑定它实际否定的对象。明确要求正式 Review 并说“不要修改”时，当前 action 仍是 `REVIEW_EXECUTE`、result 是 `REVIEW_VERDICT`，否定只限制 repair/write；普通“帮我看看”“比较方案”没有正式 Review 请求时，不因 look/review 类词汇自动升级。`ambiguityState=UNKNOWN` 只用于真实语义不确定，`CONFLICT` 用于仍未解决的请求冲突；缺授权、缺能力或 host 不可用本身不改变清楚的 intent。
 
-IntentEnvelope2 保留原字段并增加必需 `facets={domain,workType,deliverableType,stage}`。每维仅为 `{state,values}`：KNOWN 必须是非空、唯一、已声明 token；UNKNOWN 与 NOT_APPLICABLE 的 values 必须为空。未知字段、未声明词项、重复 canonical 值及矛盾结构拒绝。native 词表来自完整生成目录，项目扩展和本地 aliases 来自 policy.facetVocabulary；条目仅有 dimension/id/description/aliases，id 是稳定命名空间 token。同维 alias 对应多个 id 时明确拒绝歧义，项目不得覆盖 native 身份。无隐含父子分类。
+当前IntentEnvelope3保留objective、requestedActionKind、requestedResultKind、pathHints、capabilityHints、semanticHints、mutationHints、externalHints及ambiguityState；facets必需domain、workType、deliverableType，stage可省。每维恰为{state,values}：KNOWN须非空、唯一且为已声明词项，UNKNOWN/NOT_APPLICABLE的values为空。省略stage按未知兼容，不推断将来活动。旧IntentEnvelope2仍要求四维。native词表取完整生成目录，项目扩展及别名取policy.facetVocabulary；歧义别名、未知字段/词项、重复及矛盾结构拒绝，项目不覆盖native身份。词表条目为dimension/id/description/aliases；无隐含父子分类。
 
-四维描述当前工作：讨论未来实现仍是当前 discussion/planning，当前 action=NONE；正式 Review 且“不要修改”仍是 review/REVIEW_EXECUTE。有效多轮限制、取消和先后条件仍由同一次模型判断对齐，不从原话关键词、任务权限或将来动作反推当前执行。semanticHints/semanticTerms 只辅助发现、理由或排序；不会覆盖确定的 NO_MATCH，也不作为 substring 执行动作触发。path/capability/mutation/external hints 仍受实际范围、已观察能力和当前 action 约束。任何分类或 hint 都不授予权限。
+facets描述当前工作：讨论未来实现仍是当前 discussion/planning，当前 action=NONE；正式 Review 且“不要修改”仍是 review/REVIEW_EXECUTE。有效多轮限制、取消和先后条件仍由同一次模型判断对齐，不从原话关键词、任务权限或将来动作反推当前执行。semanticHints/semanticTerms 只辅助发现、理由或排序；不会覆盖确定的 NO_MATCH，也不作为 substring 执行动作触发。path/capability/mutation/external hints 仍受实际范围、已观察能力和当前 action 约束。任何分类或 hint 都不授予权限。
 
 本合同继续使用当前 schema、单一 composer 与 resolver。说明性示例只证明字段可表达这些关系；在受控原始多轮回放实际观察主会话模型的输出前，不得声称自然意图识别准确率或语义 PASS，也不新增 intent-generation operation、provider/model 配置或服务。
 
@@ -175,11 +185,47 @@ selector 的 profile/role/phase/action/result/path/capability 已知边界先全
 
 ### 调用字段来源与路径
 
-显示使用版本内ProcessRequirementDisplay.Get-AiwProcessDisplay的单一 `text`，保模式、真实fallback/限制、短来源、每规则有序短引用、当前义务与一次完整必要正文。先[A]后[B,A]只显示正文[A,B]，引用分别[1]与[2,1]；独立反向链不构成全局环，不要求blockIds递增。相同文字的不同来源、条件或规范身份不混同。当前Input5 MODEL只输出FULL的当前全部必要正文；旧REUSE请求兼容为FULL。DELTA/REUSED是退役历史语义，不能用coverage差集执行或证明模型持有正文。机器原件、compact、coverage及严格身份仍由程序消费，不打印重复目录、长身份和覆盖数组，也不把整个display对象送入模型。调用前按预期完整正文分别设置外层编排和内层命令预算，只增加内层不改变外层；单次只显示官方text，不混入机器载体或其他长输出。显式-AsJson保完整MACHINE载体，处理后只显示模型text。主动分页参数、分片器和页票据已退役；真实宿主截断时从同一结果补读实际缺失的完整单元及义务，不重跑选择。AIW-END末尾标记只帮助观察末尾截断，不证明中部未裁剪、模型持有或attention；失败、未知和缺项保持可见。
+显示使用版本内ProcessRequirementDisplay.Get-AiwProcessDisplay的单一 `text`，保模式、真实fallback/限制、短来源、每规则有序短引用、当前义务与一次完整必要正文。先[A]后[B,A]只显示正文[A,B]，引用分别[1]与[2,1]；独立反向链不构成全局环，不要求blockIds递增。相同文字的不同来源、条件或规范身份不混同。当前Input6和旧Input5的MODEL只输出FULL的当前全部必要正文；旧REUSE请求兼容为FULL。DELTA/REUSED是退役历史语义，不能用coverage差集执行或证明模型持有正文。机器原件、compact、coverage及严格身份仍由程序消费，不打印重复目录、长身份和覆盖数组，也不把整个display对象送入模型。调用前按预期完整正文分别设置外层编排和内层命令预算，只增加内层不改变外层；单次只显示官方text，不混入机器载体或其他长输出。显式-AsJson保完整MACHINE载体，处理后只显示模型text。主动分页参数、分片器和页票据已退役；真实宿主截断时从同一结果补读实际缺失的完整单元及义务，不重跑选择。AIW-END末尾标记只帮助观察末尾截断，不证明中部未裁剪、模型持有或attention；失败、未知和缺项保持可见。
 
-当前TASK DISCOVER input5（兼容明确Input4分支） 使用绝对 projectRoot/frameworkRoot/taskPath 与 readOnlyContext=NOT_APPLICABLE；无任务只读使用 PROJECT_READ_ONLY，项目显式预授权的无任务外部工具规则读取使用下文 PROJECT_EXTERNAL。Maintenance CONTROL 与 TARGET 都沿根前门提交当前 pin 声明的输入；compact4/authority3 的binding.projectRoot 保持 CONTROL 项目根，TARGET 仓库由独立 topology/package 校验，不从包存储位置推断 CONTROL。旧固定 TC2 包继续其原 schema2 SOURCE / schema1 compact 限制，不重写旧包。checker 的 TaskPath 是相对已绑定项目/CONTROL 根的规范路径；同时对齐 shell cwd 与进程 cwd。ObservedIdentity 为 path=length|SHA256，新对象为 path=NEW。
+当前Input6使用下面共同字段和严格四上下文oneOf；Maintenance仍从固定runtime根前门核CONTROL/TARGET拓扑，task/policy/权限只取CONTROL。原Input4/5的TASK保留readOnlyContext=NOT_APPLICABLE及成对authorizationPackagePath/expectedAuthorizationIdentity，不能混入Input6字段。旧固定TC2继续原schema2 SOURCE/schema1 compact限制，不改旧包。checker的TaskPath相对已绑定控制根；同时对齐shell及进程cwd，ObservedIdentity为path=length|SHA256，新对象为path=NEW。
 
 有包时userDecision精确绑定仍有效的package.userConfirmation；无包只读为NOT_REQUIRED，不能由样例制造授权。boundary schema3只引用原compact并提交实际完成的preparation/result/delivery证据；publicDecisionIdentity为NOT_REQUIRED或length|SHA256，不是任意decision哈希；protectionState仅BOUND/NOT_APPLICABLE，须符合实际保护事实。不得把selected obligations自动当完成证据。输入使用严格UTF-8无BOM，接受CRLF和缺末尾LF等价格式；未知字段、重复键、错误类型、损坏文本与漂移仍拒绝。原始字节用于identity和事务前后像，不重写文件伪造原像。
+
+### 当前Input6及操作边界
+
+所有Ref恰为{path,identity}，identity为原字节length|UPPER_SHA256；FinalizeRef恰为{inputRef:Ref,resultRef:Ref}。共同输入字段如下，除表列条件外都必需；不填其他上下文占位字段。
+
+| 字段 | 当前事实和边界 |
+|---|---|
+| projectRoot、frameworkRoot | 明确的绝对控制根及已采用固定运行根 |
+| expectedProjectConfigIdentity、expectedCorrectionsIdentity | 当前原始身份；corrections缺失仅用MISSING |
+| observedActor | 实际宿主actor；非evaluation调用核CODEX_THREAD_ID |
+| intentEnvelope | 完整IntentEnvelope3；当前操作与原成果subject分别填写 |
+| capabilities、exactPaths、forbiddenPaths、protectedPaths | 当前能力、当前动作完整集合及有效保护；可合法为空，传空不撤销项目限制 |
+| authorizationRef、userDecision | 当前包Ref或精确NOT_REQUIRED；有包决定等于其userConfirmation，无包为NOT_REQUIRED |
+| recoveryState | FULL_COLD/CURRENT/WARM/UNKNOWN，零装配仅CURRENT/WARM |
+| hostEnforcementGrade、invocationState | 实际宿主能力，沿原受控枚举，不自行提高证据上限 |
+| continuationReceiptPath、expectedContinuationReceiptIdentity | 可选成对，真实后继传原FINALIZE续链；缺省不伪造后继 |
+| executionTargetRef | 仅已支持TASK目标分支；与原descriptor/包一致，其他上下文不接 |
+
+FULL另含schemaVersion=6、mode=DISCOVER、ruleLoad={mode:FULL}、evaluationOnly:boolean。currentOperation改含ruleReadRef:Ref，直接指本actor本活动实际FULL的compact5；不含schemaVersion/mode/ruleLoad/evaluationOnly，不指上一零装配操作。共同字段由同一构造器校验，当前权限与范围实观，不能由旧读取记录继承。
+
+| contextType | 唯一附加成员 | 使用条件 |
+|---|---|---|
+| TASK | taskPath、expectedTaskIdentity | 实读活动卡及原Owner/Work route/profile；临时角色不改主路线 |
+| PROJECT_READ_ONLY | readOnlyContext={sessionId,requestId,role,phase,profile} | sessionId=actor、无包、NONE，只允许PLAN/USER_RESPONSE或新Input6纯只读HANDOFF；正式消息另核真实人类来源与消费者 |
+| PROJECT_EXTERNAL | requestContext={sessionId,requestId,role,phase,profile,subject?} | 原项目预授权直接工具；需判断卡/质量时提供稳定subject，无任务/包/continuation/执行目标，不作currentOperation或逐工具A/F |
+| PROJECT_WORK | 下述requestContext | 项目允许省卡的真实有限成果，保Owner、当前权限、完整质量及交付责任 |
+
+PROJECT_WORK.requestContext必需requestRef、owner、actor、role、phase、profile、subject、requirementsRef、resultConsumer；仅可再有acceptancePlan、userDecisionRef、predecessorRef。requestRef恰为{kind:FILE,path,identity}的真实原人类材料，或{kind:HOST_MESSAGE,hostId,threadId,turnId,messageId}的实际宿主消息定位；不编造ID或把作者说明当授权。userDecisionRef沿同形状引用真实单次覆盖。requirementsRef是保留的真实成果要求Ref，可带原section。subject恰为{repositoryId,exactPaths,facets:{domain,workType,deliverableType}}，三维均KNOWN，冻结发起成果workType，不能用当前review/output-delivery替换。
+
+actor=observedActor，owner为原请求/项目授权确定的有限负责人。resultConsumer恰为{channel:NATIVE_RESPONSE,recipient:USER}或{channel:TASK_MESSAGE,recipient:实际ID}；原生USER仅Owner本人且非Reviewer；临时贡献结果直交Owner，已授权REVIEW_ROUTE按原冻结审核关系交合格独立Reviewer。存在选中质量或仍有效用户/专业阶段时，acceptancePlan必需并保完整阶段；真零不造证据。已有TASK继续原卡；确需TASK_SUPERSEDED前序只沿原真实关闭FINALIZE和明确单次决定，保原Owner、subject、要求、阶段及已用非零额度，不把关闭卡借作新权限。
+
+请求包schema5从普通包共同字段去taskId/taskIdentity/lifecycle，增加requestContext及repositoryId；当前执行限普通repo-local SAME_ROOT的NONE/SOURCE_WRITE/TEST_WRITE/TEST_RUN/REVIEW_ROUTE/REVIEW_EXECUTE/RESULT_ACCEPT，不接CONTROL/隔离目标/Git/外部/专业发布扩展。副作用须真实当前包，NONE仅在原允许边界无包。typed3以context={kind:PROJECT_WORK,requestRef,owner}替代taskId，候选、要求、实际结果、独立性及原成功链仍严格；旧包1–4、typed1/2不由此免除任务。
+
+boundary4共同必需schemaVersion=4、mode、preparationReceipts、resultReceipts、deliveryReceipts、publicDecisionIdentity、protectionState，并恰选currentOperation或operationRef:Ref。可选evidenceRefs、deliveryContext、continuationDisposition、productionFinalizeRef均沿原条件；不混旧discoverReceiptPath/expectedDiscoverReceiptIdentity/actionRebind。有包ADMIT以currentOperation构造并用-CompactReceiptPath保存操作；原执行和FINALIZE只消费其operationRef，不重新选择O。真实NONE消息可由首次FINALIZE/PREPARE构造操作并保存；PROJECT_EXTERNAL不走此分支。
+
+TASK_MESSAGE的OBSERVE还必须preparedDeliveryRef:FinalizeRef，其他情况禁止。它引用真实已返回READY_TO_SEND且仅缺DELIVERY_NOT_CONFIRMED的原PREPARE输入/结果；OBSERVE只补宿主outcome/observedRecipient/evidence及相应投递receipt，原operation、P/R、成果证据、决定和消费者保持。发送受理不证明对方完成。compact5的FULL含实际ruleRead，零装配操作只含直接ruleReadRef；operation冻结完整当前Intent、authorityContext4、当前包/续链/范围/保护、完整O及真实构造入口。恢复FULL补文后仍回原操作收口，不重建原动作。
 
 ### 选择条件与原采用准备
 
@@ -196,7 +242,7 @@ selector 的 profile/role/phase/action/result/path/capability 已知边界先全
 原采用 PREPARE 返回 selectorDifferences 及 selectorSemanticJudgmentRequired。目标义务仍须完整读取；存在差异时，在现有准备回执中明确提交 `ADOPTION_SELECTOR_SEMANTICS_CONFIRMED|<preparation identity>`，表示项目已判断当前精确差异及保守投影，之后才允许原动作 ADMIT/Apply。格式转换本身不证明新适用性已决定；该声明仍为 INSTRUCTION_BOUND，不是工具对语义或原始用户身份的证明。原 ADMIT/FINALIZE、typed evidence、独立审核、接受和事务前后像保持各自门禁。
 `LOAD_PLAN_RESOLVE` 保持 compatibility/support operation，可定位 non-rule supporting artifacts、Framework-wide maintenance/explanation context 与 bounded affected-module fallback；它不是 pre-DISCOVER catalog filter，不能静默排除 requirement。STABLE 调用保持原参数兼容。对已完成本地试点的 CANDIDATE，caller 必须同时提供 `ProjectRoot`、`ExpectedProjectConfigIdentity` 与 `ExpectedCandidatePilotStateIdentity`；loader 通过 composer 导出的薄绑定入口复用现有 local-pilot 严格读取，验证项目 pin、候选 flags、完成状态、受管投影、payload canonical 与 manifest identity，并返回 `lifecycle=CANDIDATE`、`LOCAL_CANDIDATE_PILOT` evidence ceiling 及实际 state identity。缺少、部分提供或漂移的绑定全部拒绝。该 support 读取不运行完整 DISCOVER、不读取整个 project policy selected pack，也不授予 action。
 
-当前操作按TOOLCHAIN及本节精确输入分派，Input4与Input5不互相改造执行意图。原采用/恢复仍用原固定来源，目标只读投影不授新准入。boundary3与旧typed证据保持；authority3新增controlRoot、objectRoot、repositoryId、executionContext，v1/v2保留独立历史schema，不静默丢字段。
+按已采用TOOLCHAIN和本节选择当前Input6或旧Input4/5的明确分支，不转换执行意图。Input6的authorityContext4以context判别TASK/PROJECT_WORK/只读/外部事实，旧authority1–3独立消费；采用/恢复仍取原固定来源，不从目标只读投影取得准入。
 
 机械 PASS 只证明 current identities 与 supplied structural receipts，不证明 semantic correctness、model attention、host invocation 或独立 authorization/Review/Git/external gate。
 
@@ -252,15 +298,19 @@ sourceClosure的旧/目标两项各保存identity及完整documents列表，由�
 
 同次私有调用可共享已实际核验的旧/目标闭包和两成员目标；各公共请求重新观察所需当前成员字节、路径、权限、任务和原工具，真正写前继续复证原前像、保护与两份原准入。同次共享不接受调用者可信缓存，也不延长写锁或取消部分成功恢复。
 
-原 `New-AiwProjectSourceChangePreparation` 增加成组 `PublicationPlanRef,PublicationSourceReceiptRef,SourcePostimages`。主 DiscoverReceipt 为 CONTROL，另一个为 SOURCE；SourcePostimages 是 docs 的有序 `{path,identity}` 后像列表，必须等于计划。缺省仍走原 schema1，半组拒绝。各自先以旧来源独立 checker/DISCOVER；准备投影新完整 docs 和最终 config/policy，用各原 action/intent 返回两目标全文与义务。两成员实际读完目标全文并履行各自原/新义务后，以同一 candidate token 准入。既有单成员入口保持；受限联合入口可一次提交两份原输入，各自真实 checker/权限、当前绑定和准备义务仍独立核对。单成员 PREPARED 不允许普通执行者裸写；实际整组写入由原根编排复证完整两成员准入后执行。
+沿原 `New-AiwProjectSourceChangePreparation` 提供 `PublicationPlanRef,SourcePostimages`，并分别选择两成员引用。CONTROL 严格三选一：`CurrentOperation`、`OperationRef`，或完整旧 `DiscoverReceiptPath/ExpectedDiscoverReceiptIdentity`；SOURCE 严格三选一：`PublicationSourceCurrentOperation`、`PublicationSourceOperationRef`，或旧 `PublicationSourceReceiptRef`。两成员同时使用新分支或同时使用旧分支，半组、混合格式及同成员多种输入拒绝。SourcePostimages 是 docs 的有序 `{path,identity}` 后像列表，必须等于计划；未选择联合发布时仍沿原单成员 schema1 准备。
 
-受限联合准入由既有 resolver 的 `-PublicationSourceInputPath <absolute-path> -ExpectedPublicationSourceInputIdentity <length|SHA256>` 成组参数选择，`-InputPath` 仍为 CONTROL 的原 schema3 ADMIT_ACTION，另一个为 SOURCE 的原 schema3 ADMIT_ACTION。两输入须绑定同计划、同候选、同方向及各自原收据；不接受普通动作、混合项目、半组或自报可信 facts/targets。必须 `-AsJson`，不与 `DeleteInputOnExit`、`CompactReceiptPath` 或 runtime 消费/空目录/保留清理参数混用；原件按最后消费者管理，既有单输入清理行为保持。返回 `{kind:PROJECT_SOURCE_PUBLICATION_BOUNDARY_PAIR,status,mode,reason,members,failedMember,authorityGranted:false,semanticCorrectnessProven:false}`，成员顺序 SOURCE、CONTROL，各项 `{member,inputRef,response:{exitCode,output}}` 保存实际原边界响应。仅两成员均成功时整体 PASS；失败只列实际到达的成员，不补造未执行结果。恢复材料继续保存各成员真实原准入结果，不以联合包络代替它们。
+新分支的 currentOperation 沿前述当前操作字段，引用本活动实际 FULL，分别以同一构造器核当前包、scope、权限和完整 O/B，保存真实 `SOURCE_PREPARE` compact5；不另做 DISCOVER、不装配或显示旧来源正文。已冻结 operationRef 必须指向同类准备原件，直接消费原操作。旧分支仍核各自原 checker/DISCOVER 与 discoverReceiptRef，不把旧收据转换或重标为新操作。
+
+准备仍投影完整新 docs 和最终 config/policy，按各成员实际 action/intent 返回两目标全文与义务。两成员实际读完目标全文并履行各自原/新义务后，以同一 candidate token 和各自冻结引用准入。受限联合入口可一次提交两份原输入，各自真实 checker/权限、当前绑定和准备义务仍独立核对。单成员 PREPARED 不允许普通执行者裸写；实际整组写入由原根编排复证完整两成员准入后执行。
+
+受限联合准入由既有 resolver 的 `-PublicationSourceInputPath <absolute-path> -ExpectedPublicationSourceInputIdentity <length|SHA256>` 成组参数选择，`-InputPath` 为 CONTROL 的原 ADMIT_ACTION，另一个为 SOURCE 的原 ADMIT_ACTION。新分支两输入均为 boundary4，且只含各自冻结的 operationRef；旧分支两输入均为 boundary3，保留原 discoverReceiptPath/expectedDiscoverReceiptIdentity。两输入须绑定同计划、同候选、同方向及各自原收据；不接受普通动作、混合项目、半组或自报可信 facts/targets。必须 `-AsJson`，不与 `DeleteInputOnExit`、`CompactReceiptPath` 或 runtime 消费/空目录/保留清理参数混用；原件按最后消费者管理，既有单输入清理行为保持。返回 `{kind:PROJECT_SOURCE_PUBLICATION_BOUNDARY_PAIR,status,mode,reason,members,failedMember,authorityGranted:false,semanticCorrectnessProven:false}`，成员顺序 SOURCE、CONTROL，各项 `{member,inputRef,response:{exitCode,output}}` 保存实际原边界响应。仅两成员均成功时整体 PASS；失败只列实际到达的成员，不补造未执行结果。恢复材料继续保存各成员真实原准入结果，不以联合包络代替它们。
 
 联合调用仅在本次私有生命周期复用已实际核验的不可变目标结构；进入第二成员前仍重新观察当前完整成员、路径、原件和权限，两个原边界分别核当前绑定、各自选择和准备义务。失败和调用结束释放上下文，不接受公共可信校验参数，不持久化跨请求缓存。准入合并不合并两类权限，不授予其他动作。公开联合参数仅服务 ADMIT；收口由原根恢复调用组织，既有单成员 FINALIZE 仍可消费完整原组。
 
-共同候选严格为 `schemaVersion=2,kind=PROJECT_SOURCE_PUBLICATION,planRef,userDecision,decisionRef,members,objects,writeOrder,permissionChanges,rootToolDependencies,targets`。members 固定 SOURCE、CONTROL，各为 `{member,discoverReceiptRef,authorizationRef}`；targets 同序，各为 `{member,binding:<原六项目标身份>}`。沿用 `PROJECT_SOURCE_CHANGE|<absolute candidate>|<identity>`。三个私有共同模块纳入 implementationIdentity、rootToolDependencies 和分发闭包；CLI 与同进程调用共用原 checker/boundary，不复制 resolver/composer。
+共同候选严格为 `schemaVersion=2,kind=PROJECT_SOURCE_PUBLICATION,planRef,userDecision,decisionRef,members,objects,writeOrder,permissionChanges,rootToolDependencies,targets`。members 固定 SOURCE、CONTROL；新分支各为 `{member,operationRef,authorizationRef}`，旧分支各为 `{member,discoverReceiptRef,authorizationRef}`，两种字段互斥且整对同格式；targets 同序，各为 `{member,binding:<原六项目标身份>}`。沿用 `PROJECT_SOURCE_CHANGE|<absolute candidate>|<identity>`。三个私有共同模块纳入 implementationIdentity、rootToolDependencies 和分发闭包；CLI 与同进程调用共用原 checker/boundary，不复制 resolver/composer。
 
-根 `ProjectRuleRecoveryPlanPath` schema3 严格为 `{schemaVersion:3,kind:PROJECT_SOURCE_PUBLICATION_RECOVERY,projectRoot,planRef,candidateRef,members}`；members 固定 SOURCE、CONTROL，各项 `{member,discoverReceiptRef,admitInputRef,admitResultRef,finalizeInputRef}` 保存真实原准入和已准备的最终输入/typed evidence。沿原 COMPLETE/ROLLBACK 参数调用。新批次从这两份原准入、完整候选及实际前后像复证 actor、任务/Controller、原工具、审验与全组状态，不创建全局 journal、completedWrites、previousJournalRef 或完成提交层。公开 FINALIZE 以 `PROJECT_SOURCE_PUBLICATION_ADMISSIONS|<schema3 plan absolute path>|<identity>` 引用这组原件；它不授予写权，消费者独立重验两份准入。旧已存在真实 journal 仍由原固定工具按原方向恢复，不改造、删除或迁移其历史。
+根 `ProjectRuleRecoveryPlanPath` schema3 严格为 `{schemaVersion:3,kind:PROJECT_SOURCE_PUBLICATION_RECOVERY,projectRoot,planRef,candidateRef,members}`；members 固定 SOURCE、CONTROL；新分支各项 `{member,operationRef,admitInputRef,admitResultRef,finalizeInputRef}`，旧分支以 discoverReceiptRef 替代 operationRef，严格互斥且整对同格式。保存真实原准入和已准备的最终输入/typed evidence，原收口与恢复逐成员绑定原冻结操作及准入，不重新选择或构造操作。沿原 COMPLETE/ROLLBACK 参数调用。新批次从这两份原准入、完整候选及实际前后像复证 actor、任务/Controller、原工具、审验与全组状态，不创建全局 journal、completedWrites、previousJournalRef 或完成提交层。公开 FINALIZE 以 `PROJECT_SOURCE_PUBLICATION_ADMISSIONS|<schema3 plan absolute path>|<identity>` 引用这组原件；它不授予写权，消费者独立重验两份准入。旧已存在真实 journal 仍由原固定工具按原方向恢复，不改造、删除或迁移其历史。
 
 真正改变项只接受后像前缀 N 加前像后缀 O。按 docs→实际改变的 policy→实际改变的 config 逐文件原子写并读回；原件与该有序前后像足以识别 allOld、已知 prefix 和 allNew，无 journal 的已知前缀可以沿原许可继续。第三方 bytes、不可能组合、原工具或 actor/task 漂移拒绝且保留现场。回退只在原决定许可内逆序还原本批已写的精确后像；NEW 仅删除本批 exact NEW 后像。任一成员已正式完成后不自动反向恢复，后续撤回须新决定及候选。
 
@@ -346,6 +396,14 @@ CONTROL_TRANSITION仅保留schema1真实责任转换。当前卡关闭可继续�
 
 当前卡归档后像明列Closure outcome=SUCCESS/CANCELLED/SUPERSEDED、Closure basis、Output disposition、Git disposition及依据、Unresolved obligations=NONE或TRANSFERRED:真实承接说明，Writer/Reviewer/Authorization为RELEASED。原正文ID、Owner、Work route、profile和Execution target引用保持。SUCCESS按实际acceptance plan消费全部必需阶段；取消/替代保留Unfinished work、Closure decision原件与未解承接，不冒充成功。先完整保存archive并读回、用既有Assert-AiwTaskClosure的RequireExplicitClosure核闭合与真实验收，再复核active仍为原前像后删除。每个对象完整原子替换；这一顺序不承诺跨进程CAS或跨文件原子提交。
 
+模板、结构checker及结果消费者共用关闭字段解释。新卡只生成上述canonical字段并替换旧合并租约行。完整legacy-template（Closure evidence/Artifact disposition/Remaining obligations及NONE / NONE / NONE）、合法legacy-dual和旧无outcome记录显式分派；双填两组说明均保留，不要求字面相同，NONE与实际承接冲突仍拒绝，不能把半套新字段当旧卡。LF/CRLF只在内存解析行边界，原身份不改；重复、空值、非法outcome、未释放及待定责任仍拒绝。格式兼容不补造成功，旧无outcome仍核其实际必需质量。
+
+归档定位只核当前精确包、原active前像、唯一MISSING后像、实际archive身份、CLOSED结构和原逻辑任务关联，返回实际路径、身份与正文；不在定位中验收成果。关闭结果消费者在本次调用内一次建立有限阶段及结果图，沿stage的原inputRef/resultRef核唯一真实生产者、原compact/包、冻结义务、业务成功和必要投递。下游引用不算生产者；共享祖先只消费一次，不递归重做完整生产、审核或接受。每个阶段与原任务、候选、要求及适用独立性仍一致，原qualityBinding及用户/专业额外阶段保持。缺原成功关联拒绝SUCCESS，不搜索或补造原件，不公开可信历史开关或保存跨请求PASS。
+
+原有限结果图与当前交付现场分别核对。每个必需历史阶段仍绑定自己的完整候选、要求和真实成功；旧中间版本不要求等于今天live字节。当前交付按完整规范对象键→身份映射（包括MISSING）比较，不能逐文件拼接不同成功版本，也不以DAG终点、阶段名称、顺序或时间推断最新。相同完整路径集合中的多个版本，仅在当前用途及真实终态关系已明确绑定时选择；有歧义时在既有Closure basis引用该真实stage结果的path#identity，连同该stage原requirementsRef确定当前交付，无歧义任务不增加材料。这个引用是Owner对实际交付/用途的INSTRUCTION_BOUND判断，不是自动语义覆盖证明。部分重叠集合不视为可互换成果，各自保完整义务，共享对象须一致；未绑定、混拼、漏新增对象或当前身份不符均拒绝。
+
+原typed、F input/result、compact、包、要求、必要宿主投递及专门绑定材料仍须存在；可选旧命令/审计附件不成为新一次生产门，其缺失限制相应复现声明。公开Read-AiwResultEvidence、首次Review/接受及再次接受保各自严格检查。关系比较使用根相关规范逻辑路径与身份，历史附件只读取自身实际引用，不为比对遍历全部候选物理路径。有限核心只返回本次内存中的已核原件关系，当前关闭和受限安装消费者各自核实际用途与现场，不把所有历史Q固定成今日生产目录的期望像，不输出可跨请求消费的PASS。
+
 相同完整archive可以复用；不同现存archive仅按明确原像和精确范围处理，不因同ID或CLOSED默默覆盖。active原像加archive后像可沿原动作继续；active已删且archive完整则补原FINALIZE，不补造事务。缺失/不完整archive或第三方字节不删除active、不覆盖第三方。其他已闭合卡的普通物理归档以完整原像逐字节转移，保留正文真实ID及完整接受要求，不从文件名猜ID。
 
 原FINALIZE在任何当前任务读取之前，核原包/receipt的上述精确形状、active非NEW原像与唯一MISSING后像、实际archive完整后像及原逻辑任务/Owner/actor/route/profile。只将已验证archive作为实际读取路径传给Snapshot、ExecutionTargetContext、task binding和ResultEvidence，原receipt/sourceLocators与逻辑任务不改。不提供通用missing回退或公开skip；成功验收及第三方边界照常生效。原件和实际失败保到最后消费者，关闭、宿主归档与Git分别核对。
@@ -358,9 +416,9 @@ CONTROL_TRANSITION仅保留schema1真实责任转换。当前卡关闭可继续�
 
 许可仍由被引用规则的完整effectiveRule或BOUND_SOURCE_ITEM及条件拥有，沿同一selector选择和原来源读取，不新建provider/费用表达式。正常FULL结果的`projectExternalAuthorization`投影仅显示配置模式、当前policy身份、声明及实际选中的grantRuleIds、INSTRUCTION_BOUND和perCallAuthorityGranted=false；原完整许可正文同次呈现。模式/引用可机械核对，许可覆盖、撤回、委派与安全重试不能从hash或配置枚举推断。配置或相关条件变化重绑当前读取，已知撤权/越界/未知时不调用。
 
-已存在当前任务时，真实EXTERNAL规则读取可继续使用TASK；直接模式的无包加载只由input5支持，须有ACTIVE任务、当前PROJECT_PREAUTHORIZED设置及实际选中的许可规则，临时执行者保持EXECUTOR。它只取得规则，compact不携动作包授权，不能代替按次ADMIT/FINALIZE。明确提供按次包仍沿原路，不因项目模式忽略坏包或越权。
+已存在当前任务时，真实EXTERNAL规则读取可继续使用TASK；直接模式的无包加载由当前Input6及兼容Input5支持，须有ACTIVE任务、当前PROJECT_PREAUTHORIZED设置及实际选中的许可规则，临时执行者保持EXECUTOR。它只取得规则，compact不携动作包授权，不能代替按次ADMIT/FINALIZE。明确提供按次包仍沿原路，不因项目模式忽略坏包或越权。
 
-没有适用任务的普通工具请求，DISCOVER input5支持`contextType="PROJECT_EXTERNAL"`：以`requestContext={sessionId,requestId,role:"EXECUTOR",phase:"EXTERNAL",profile}`替代readOnlyContext，sessionId必须等于observedActor，requestId沿既有有界请求定位。taskPath/expectedTaskIdentity为NOT_APPLICABLE，authorizationPackagePath/expectedAuthorizationIdentity为NOT_REQUIRED；实际actionKind必须EXTERNAL，resultKind为EXTERNAL_RESULT或USER_RESPONSE，禁止executionTargetRef和continuation。其余project/fixed source/保护/IntentEnvelope2/ruleLoad字段保原严格要求。缺省PER_ACTION、未选中许可、未知设置或坏来源不能获得此加载结果。PROJECT_READ_ONLY仍只接受NONE，不以此扩展伪装外部操作。
+兼容Input5中，没有适用任务的普通工具请求使用`contextType="PROJECT_EXTERNAL"`：以`requestContext={sessionId,requestId,role:"EXECUTOR",phase:"EXTERNAL",profile}`替代readOnlyContext，sessionId必须等于observedActor，requestId沿既有有界请求定位。taskPath/expectedTaskIdentity为NOT_APPLICABLE，authorizationPackagePath/expectedAuthorizationIdentity为NOT_REQUIRED；实际actionKind必须EXTERNAL，resultKind为EXTERNAL_RESULT或USER_RESPONSE，禁止executionTargetRef和continuation。其余project/fixed source/保护/IntentEnvelope2/ruleLoad字段保原严格要求。缺省PER_ACTION、未选中许可、未知设置或坏来源不能获得此加载结果。PROJECT_READ_ONLY仍只接受NONE，不以此扩展伪装外部操作。
 
 PROJECT_EXTERNAL不创建任务、逐次执行包、许可凭证或工具执行器；其compact不能用于ADMIT_ACTION/FINALIZE_OUTPUT，显式尝试报PROJECT_EXTERNAL_LOAD_HAS_NO_ACTION_BOUNDARY。当前模式与许可由项目原决定生效，DISCOVER的PASS只说明加载成功。首次、真实活动/要求变化或恢复需要完整读取；健康连续调用直接使用原工具，不为每次调用再跑DISCOVER、写新卡/手工包、请求模型D/A/F或重复读取未变正文。
 
@@ -399,7 +457,7 @@ REVIEW_VERDICT 与 RESULT_ACCEPTANCE 额外必需 `authorizationRef:{path,identi
 
 普通locator允许已绑定根内的安全等价拼写，不改写原文件或放松路径边界；drive-relative、逃逸、ADS、设备名及reparse仍拒绝。成功证据按实际用途显式消费：Read-AiwResultEvidence的EvidencePurpose缺省CURRENT_CANDIDATE，继续核当前候选、当前权限/目标状态及原要求；HISTORICAL_SUCCESS仅在调用者给出有限OriginalFinalize=[{inputRef,resultRef}]、原成功记录确实列在相应真实FINALIZE evidenceRefs且原compact/包/决定/要求/结果/后像链均成立时成立。原记录不回填完成字段，不搜索新证据或制造成功证书；仅-Historical不放松当前成功门。Assert-AiwAcceptanceBinding的PrerequisiteEvidencePurpose可使前置证据按历史用途递归消费，自身候选始终CURRENT；Assert-AiwAcceptanceStages及递归接受沿同一用途和原件集合，不因普通locator或递归入口而丢失。历史worktree证据可脱离后来HEAD/产品状态核原成功，但保留原已验证executionContext用于当前绝对保护的control→execution映射，保护先于任何目标IO。
 
-正常消费者在现有原件引用旁传递用途：纯接受包可选 `acceptanceBinding.prerequisiteConsumption`，验收计划的 typed stage 可选 `evidenceConsumption`，专业发布计划可选 `assuranceConsumption`。三者严格形状均为 `{purpose,originalFinalize}`；purpose 仅 `CURRENT_CANDIDATE` / `HISTORICAL_SUCCESS`，originalFinalize 为有限 `[{inputRef:{path,identity},resultRef:{path,identity}}]`。缺省为当前用途及空数组；当前用途带非空历史引用拒绝，历史用途缺原件拒绝。DESIGN / USER_DECISION 阶段不接受 evidenceConsumption。实际 RESULT_ACCEPT、SUCCESS 关闭的阶段预读/完整验证、递归接受及发布 assurance 均传同一已验证用途与有限原件；接受自身候选及发布当前 A/R/M 继续严格核当前字节。声明属于当前消费者，不回填旧证据，不从 live 漂移自动推断历史成功。
+正常消费者在现有原件引用旁传递用途：纯接受包可选 `acceptanceBinding.prerequisiteConsumption`，验收计划的 typed stage 可选 `evidenceConsumption`，专业发布计划可选 `assuranceConsumption`。三者严格形状均为 `{purpose,originalFinalize}`；purpose 仅 `CURRENT_CANDIDATE` / `HISTORICAL_SUCCESS`，originalFinalize 为有限 `[{inputRef:{path,identity},resultRef:{path,identity}}]`。缺省为当前用途及空数组；当前用途带非空历史引用拒绝，历史用途缺原件拒绝。DESIGN / USER_DECISION 阶段不接受 evidenceConsumption。实际RESULT_ACCEPT、递归接受及发布assurance沿其用途消费有限原件；SUCCESS关闭沿上述专门有限图消费原完成事实。接受自身候选及发布当前A/R/M继续严格核当前字节。声明属于当前消费者，不回填旧证据，不从live漂移自动推断历史成功。
 
 exactScope、forbiddenScope、protectedScope及boundary准备/结果/交付receipt集合无统一256项上限；仍逐项校验形状、长度、唯一性、真实成员与义务，不取消其他有语义依据的字段限制。当前Input5生产及continuation1/2/3消费共同支持规范绝对或相对的literal保护scope；绝对排除可在仓外，只校验字符串，不读取其目标。反斜线、ADS、非规范/逃逸分量、通配/控制字符、设备名等拒绝，原scope绑定和当前保护并集保持。
 
@@ -414,11 +472,13 @@ continuation的最终REVIEW_ROUTE需真实成功生产FINALIZE后像和同一质
 以上结构与身份验证的上限为 INSTRUCTION_BOUND；不声称证明模型 attention、主观判断、用户来源或恶意篡改全部本地文件的不可伪造性。
 ### 项目显式质量阶段与一次准备
 
-policy3可选`qualityAssurance={schemaVersion:1,defaultStages:[...]}`。整个对象缺省为LEGACY，保留原schema1计划、无计划和CRITICAL语义；存在则拒null、未知字段/版本、未知或重复阶段。阶段只有SELF_CHECK、RESULT_REVIEW、RESULT_ACCEPT；显式空数组是真零选择。rules中的可选`qualityStages`须非空、唯一并与合法qualityAssurance1同时存在，孤立扩展拒绝。
+新请求先独立选择卡：policy3.taskCards={schemaVersion:1,defaultMode:REQUIRED|OMIT}，缺省LEGACY；规则可带taskCardMode，同一稳定profiles/pathPrefixes及domain/workType/deliverableType匹配，其他操作轴无约束。全部命中模式必须一致，冲突拒绝；没有命中取defaultMode。仍有效人类单次指定按真实userDecisionRef处理，不由模型临时降门。REQUIRED用TASK；OMIT且有成果门、有限写入或多步成果用PROJECT_WORK；无任务只读用PROJECT_READ_ONLY；仅无需卡/成果门且许可覆盖的普通工具用PROJECT_EXTERNAL。profile不单独决定卡，已有TASK沿原卡完成。
 
-带qualityStages的规则沿原完整ruleId/理由/正文或来源/decisionLocator/selectors，不建立另一权威。只允许稳定profiles/pathPrefixes及facets.domain/deliverableType；roles/phases/actionKinds/resultKinds/capabilities须为空或无约束`*`，semanticTerms为空，不得有deterministicTriggers或workType/stage条件。唯一选择为defaultStages与全部原Test-AiwRuleMatch命中规则阶段的并集，固定顺序SELF_CHECK、RESULT_REVIEW、RESULT_ACCEPT，无减法、优先级或原生ID开关。
+policy3可选qualityAssurance={schemaVersion:1|2,defaultStages:[...]}。缺省LEGACY，保原计划及CRITICAL语义；显式选择只含SELF_CHECK/RESULT_REVIEW/RESULT_ACCEPT，空数组是真零，拒null、未知/重复字段和阶段。规则qualityStages须非空、唯一并有合法质量设置。QA1保持两维subject/binding1；QA2以domain、发起workType、deliverableType三维subject/binding2选择，不按当前审核活动重选原成果。
 
-包schema1/2/4的普通成果可带严格`qualityBinding={schemaVersion:1,policyRef:{path:".ai-workspace/process-policy.json",identity},subject:{repositoryId,exactPaths,facets:{domain:{state:"KNOWN",values:[...]},deliverableType:{state:"KNOWN",values:[...]}}},effectiveStages:[...]}`。repo-local使用REPO_LOCAL，Maintenance为CONTROL或配置TARGET ID，已绑定隔离目标为PROJECT；subject是完整有限成果单仓候选，生产M/审收A均不得越出，M可为子集。沿原路径规范、排除、保护及目标绑定；未知必要分类、空或不完整范围不产生可执行零选择。profile取任务，历史取原包，不另造profile权威。
+带qualityStages的规则保原ruleId、理由、完整正文或来源、decisionLocator及selectors。仅稳定profiles/pathPrefixes和facets参与：QA1限domain/deliverableType，QA2可含workType；roles/phases/actionKinds/resultKinds/capabilities只为空或*，semanticTerms为空，无deterministicTriggers/contextTypes/stage。由原匹配器并集defaultStages与全部命中规则阶段，固定顺序SELF_CHECK、RESULT_REVIEW、RESULT_ACCEPT，不作减法或优先覆盖。
+
+普通成果包schema1/2/4及请求包5按适用分支携qualityBinding={schemaVersion:1|2,policyRef:{path:".ai-workspace/process-policy.json",identity},subject:{repositoryId,exactPaths,facets},effectiveStages:[...]}。QA1/binding1的facets恰为domain/deliverableType，QA2/binding2再有原发起workType，各维均KNOWN且非空。subject是完整有限成果单仓候选；生产M可为子集，审收A不得越出，当前包及实际候选仍核保护。普通仓用REPO_LOCAL、Maintenance用CONTROL或配置TARGET ID、已支持隔离TASK用PROJECT；请求包5仍只REPO_LOCAL。profile取原卡或真实请求，未知/不完整subject不产生可执行零选择。
 
 当前验收计划保schema1原形；schema2严格为`{schemaVersion:2,qualityBinding,stages:[原阶段结构]}`。选中阶段不得遗漏；仍有效用户/专业DESIGN、DESIGN_REVIEW、USER_DECISION等阶段及真实依赖由Owner保留。SELF、Review、接受不自动相互蕴含。plan2可在真正零阶段时为空，实际未验证成果如实说明用途、限制和已知结果，不造SELF/VERDICT/ACCEPTED。pending candidateRef/evidenceRefs不满足交审、接受或SUCCESS。
 
@@ -426,7 +486,7 @@ subject全部路径按所选实际仓库执行原候选保护，不能只保护M
 
 既有WORKFLOW_ROUTE_RESOLVE dispatcher的只读`QUALITY_PLAN_PREPARE`严格输入为`{operation,schemaVersion:1,projectRoot,taskPath,expectedTaskIdentity,projectConfigRef,policyRef,subject,requirementsRef}`；refs沿原`{path,identity}`，requirementsRef可带原section。它核当前已采用来源、活动卡、配置/策略原件、保护及完整声明，调用同一稳定选择，返回authorityGranted=false、LEGACY或qualityBinding/effectiveStages/schema2计划候选及限制；不写卡、调模型或授执行权。requirementsRef须为已存在且长期保留的本成果要求原件，不能以可变任务卡或活动policy冒充。生成阶段引用该原件，candidateRef/evidenceRefs为空；缺分类、冲突或未知返回具体未就绪原因，不给可执行空模板。
 
-Owner以原单卡CONTROL一次绑定策略/阶段和必要额外要求，包从该原plan投影qualityBinding；实际冻结、自查、审收后补真实candidate/evidence并fresh绑定受影响当前包。显式启用而缺合法plan2或绑定时，普通生产、交审、接受、成功关闭和PUSH报QUALITY_PLAN_REQUIRED/对应绑定错误，不退LEGACY。安全只读、只读准备、原单卡管理及原严格来源维护/责任转换/采用保各自入口，不能靠自填management标志免门；普通CONTROL成果报告仍是普通成果。SOURCE出版、schema3采用、发行资格、external及用户保留等专门包不携普通qualityBinding，不降低其显式独审/assurance/许可要求。
+有TASK时Owner以原单卡CONTROL一次绑定plan2及额外要求，包从原plan投影qualityBinding；PROJECT_WORK在原requestContext内联同一必要计划，不建影子卡或强制调用卡专用QUALITY_PLAN_PREPARE。实际冻结及结果消费补真实引用，策略变化仅重绑下一动作。显式启用而缺计划/绑定时报QUALITY_PLAN_REQUIRED或对应错误，不退LEGACY。安全只读、原单卡管理、真实来源维护/责任转换/采用各走原边界；普通CONTROL报告仍是普通成果。专业发布、schema3采用、发行资格、external及用户保留门不携普通qualityBinding，不降低各自要求。
 
 选择SELF时，交审仍需当前成功作者SELF；C未选SELF且没有额外必需SELF阶段时，boundary3的REVIEW_ROUTE准备可携`productionFinalizeRef={inputRef:{path,identity},resultRef:{path,identity}}`。它绑定decisionIdentity，核真实PASS/OBSERVED（TEST_RUN为PASS）、原DISCOVER/包/决定/主体/任务/仓库、完整候选和实际后像；只有重hash、缺原F、失败/不完整、错作者/候选均拒绝。自动continuation在真实成功生产FINALIZE内生成；到达当前REVIEW_ROUTE时同样消费其原成功input/result，不能用continuation本身代准备或伪造未来引用。实际TEST_RUN始终消费真实SELF/COMMAND、退出码和输出；删SELF阶段不重写原FAIL/INCOMPLETE或产生成功后继。REVIEW_PREPARATION_BOUND由真实共享准备生成，复制义务名称不成立。
 
@@ -457,3 +517,17 @@ pwsh -NoProfile -File <FW>/scripts/check-knowledge-entry.ps1 -ProjectRoot <PROJE
 结果保留referenceOnly=true、authority=false与projectConfigIdentity。sources逐项给sourceId、libraryId、实际索引identity及状态/原因；未读索引的默认来源发现只返回配置元信息。QUERY条目在CURRENT时提供精确正文/依赖身份与locator；ContentMode=FULLTEXT才给完整fullText。STALE或UNAVAILABLE不返回正文，不替换请求的来源；未知/重复请求结构、未知source或失效项目配置整体拒绝。合法批量请求中个别来源/条目失效保留其他逐项结果，退出码0表示请求已处理，不能等同全部CURRENT；整体请求拒绝退出3，runtime不支持退出4。
 
 IMPACT入口参数为ProjectRoot、ExpectedProjectConfigIdentity、ChangedAuthorityPath[]、可选SourceId[]、ForbiddenPaths[]、AsJson；默认只读取PROJECT来源，返回来源状态和逐项DIRECT_AFFECTED/NONE_DIRECT/UNKNOWN，不写索引。实际读取的来源经ContentSources消费LOCAL_DIRECTORY、GIT_REVISION或HTTPS_RESOURCE；因此指定来源的发现、QUERY及IMPACT可能执行获准的Git或HTTPS读取，并遵守revision、凭据、传输上限、禁读边界及PINNED精确缓存验证。PINNED仅在当前许可/采用仍成立且缓存字节身份匹配时复用；FOLLOW按本次快照固定内容。默认来源元信息发现不读取索引或访问provider。相对禁读路径按当前项目根解析，绝对路径仍须合法本机路径。所有结果referenceOnly=true/authority=false；查询、缓存和分类不自动采用规范或改变动作权限。SOURCE来源、内容维护、影响采用与证据限制取KNOWLEDGE_AND_REFERENCE的唯一正文。
+
+### 已接受成果用途输入与消费绑定
+
+U1为有限用途输入，不包含成功、信任或权限开关。严格形状为`{schemaVersion:1,kind:"ACCEPTED_OUTCOME_USE",requirementsRef,assuranceEvidence,assuranceConsumption,basisRefs,mappings}`。requirementsRef为当前用途；assuranceEvidence中的唯一RESULT_ACCEPTANCE连同其实际原F锚定原完整Q，assuranceConsumption必须HISTORICAL_SUCCESS及非空原inputRef/resultRef对。原task、完整候选、要求、责任、根及冻结义务由原typed/F/compact/包求得，不复制Q或按当前policy重算原成功。basisRefs须追至原Q、原要求、原成功或其实际必要绑定材料；自然语言用途覆盖由当前责任人判断，保持INSTRUCTION_BOUND。
+
+mappings严格oneOf：WRITE为`{operation:"WRITE",sourcePath,preparedRef,targetPath,basisIndexes}`；DELETE为`{operation:"DELETE",sourcePath,targetPath,basisIndexes}`。sourcePath必须精确为原Q路径键，目标唯一，同一源不能分发至多个目标；basisIndexes非空、唯一、0起且在basisRefs内。WRITE的实际准备bytes必须等于原Q所选身份，当前目标预期身份直接取preparedRef。DELETE必须原Q该键明确MISSING，不造空正文或占位ref。原Q按原根完整逻辑核验；原生产目录后来演进不使其自动失效，也不以今天逐文件拼凑出一份新Q。实际所选准备物、必要用途依据与当前目标另外核对。
+
+B1严格为`{schemaVersion:1,useRef,additionalEvidence,additionalConsumption}`。纯覆盖用空additionalEvidence及CURRENT_CANDIDATE/空F；非空补充必须HISTORICAL_SUCCESS及实际完成的精确原F。补充候选绑定同一U及实际受影响准备物，要求绑定U.requirementsRef，原完整结果、独立性与当前必要种类仍成立。没有原用途依据、缺必要种类或来源不完整时指出具体缺项，不能以B替代新生产、Review或接受。
+
+对应结构在EVIDENCE_RECORD_SCHEMA.json的`$defs/acceptedOutcomeUse`及`$defs/acceptedOutcomeBinding`，typed1/2顶层保持原分支。有限原结果图由当前真实消费者私有创建；同一实际调用可以共享解析关系，每次消费仍观察必要原件路径、保护与完整bytes。调用者不能提交已验证图，结束或失败不留跨请求PASS。未选原Q只做完整逻辑集合核验，不逐映射扫描全部现场候选或重新执行原审受。
+
+普通绑定仅用于同项目同仓SAME_ROOT/TASK、repo-local schema1的纯SOURCE_WRITE/CONTROL_WRITE，及Maintenance CONTROL schema2的原合法纯CONTROL_WRITE；与续链、修审、转换、升级、Git/external和sourcePublicationBinding互斥。当前权限、前像、完整质量subject与必要来源采用准备不免。普通DELETE仅repo-local纯SOURCE_WRITE，须核当前全体有效规范采用及知识来源/索引已退出，并由原F观察实际MISSING；直接入口处置沿原完整成果映射和有限读回。无DELETE的动作不新增全来源编译。
+
+专业plan2保plan1全部当前任务、决定、objects/writeOrder、permission/selector变化及完整sourceClosure，用必需acceptedOutcomeBinding替换assuranceEvidence/assuranceConsumption。共同candidate2与recovery3字段不变，按planRef版分派。联合成员实际A只选WRITE，U中未选的DELETE不因此使整U非法；不得把普通AGENTS、程序或删除塞入专业R。原两权限、共同准备、两准入、根Apply/恢复、两原F及当前现场结果分别成立。原公开同任务/完整候选成功reader不放宽，原Q不能充当本次安装结果或自行关闭当前任务。

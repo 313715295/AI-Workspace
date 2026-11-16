@@ -63,9 +63,12 @@ switch ($operation) {
         $result=Invoke-AiwRuntimeMaintenance $inputObject $requestPath
     }
     'QUALITY_PLAN_PREPARE' {
-        Assert-ExactFields $inputObject $inputMemberNames @('operation','schemaVersion','projectRoot','taskPath','expectedTaskIdentity','projectConfigRef','policyRef','subject','requirementsRef')
-        if(-not(Test-JsonInteger $inputObject.schemaVersion)-or$inputObject.schemaVersion-ne1){throw 'QUALITY_PREPARE_SCHEMA'}
+        if(-not(Test-JsonInteger $inputObject.schemaVersion)-or$inputObject.schemaVersion-notin@(1,2)){throw 'QUALITY_PREPARE_SCHEMA'}
+        $work=$inputObject.schemaVersion-eq2
+        if($work){Assert-ExactFields $inputObject $inputMemberNames @('operation','schemaVersion','projectRoot','projectConfigRef','policyRef','requestContext')}
+        else{Assert-ExactFields $inputObject $inputMemberNames @('operation','schemaVersion','projectRoot','taskPath','expectedTaskIdentity','projectConfigRef','policyRef','subject','requirementsRef')}
         Import-Module (Join-Path $PSScriptRoot 'ProcessRequirementComposition.psm1')
+        Import-Module (Join-Path $PSScriptRoot 'ContentSources.psm1')
         Import-Module (Join-Path $PSScriptRoot 'ControlTransition.psm1')
         $evidenceModule=@(Import-Module (Join-Path $PSScriptRoot 'ResultEvidence.psm1') -PassThru)[0]
         $root=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Resolve-Path -LiteralPath $inputObject.projectRoot)))
@@ -77,6 +80,18 @@ switch ($operation) {
         $policy=Read-AiwEvidenceReference $ctx $inputObject.policyRef -Json
         $policyFull=Resolve-AiwEvidenceObservationPath $ctx $inputObject.policyRef.path
         if(-not$policyFull.Equals((Join-Path $root '.ai-workspace/process-policy.json'),[StringComparison]::OrdinalIgnoreCase)){throw 'QUALITY_POLICY_REF_CANONICAL'}
+        $task=$null
+        if($work){
+            $request=$inputObject.requestContext
+            Assert-AiwProjectWorkContext $request
+            if($request.actor-cne[Environment]::GetEnvironmentVariable('CODEX_THREAD_ID','Process')){throw 'QUALITY_WORK_ACTOR'}
+            $normalized=Get-AiwProjectWorkObservation $ctx $request $policy $inputObject.policyRef.identity -ShapeOnly
+            Assert-AiwProjectWorkSources $ctx $request
+            if((Get-AiwContentDescriptorIdentity $normalized)-cne(Get-AiwContentDescriptorIdentity $request)){throw 'PROJECT_WORK_CANONICAL_CONTEXT_REQUIRED'}
+            if($null-ne$request.PSObject.Properties['predecessorRef']){Assert-AiwWorkPredecessor $ctx $request}
+            $subject=$request.subject;$requirements=$request.requirementsRef;$profile=$request.profile;$owner=$request.owner;$taskIdentity='NOT_APPLICABLE';$taskRelative='NOT_APPLICABLE'
+            if($config.controlPlaneLayout-cne'repo-local'-or$subject.repositoryId-cne'REPO_LOCAL'){throw 'PROJECT_WORK_REPOSITORY_UNSUPPORTED'}
+        }else{
         $taskRelative=[IO.Path]::GetRelativePath($root,[IO.Path]::GetFullPath($inputObject.taskPath,$root)).Replace('\','/')
         if($taskRelative-cnotmatch'^\.ai-workspace/tasks/active/[^/]+\.md$'){throw 'QUALITY_ACTIVE_TASK_REQUIRED'}
         $task=Read-AiwControlTransitionTask $root $taskRelative
@@ -84,10 +99,16 @@ switch ($operation) {
         $profile=[regex]::Match($task.Text,'(?m)^- Range summary:\s*profile=(MICRO|STANDARD|CRITICAL);').Groups[1].Value
         $owner=[regex]::Match($task.Text,'(?m)^- Owner:\s*([^\s]+)\s*$').Groups[1].Value
         if(-not$profile-or-not$owner-or$task.Text-cmatch'(?m)^- Range summary:[^\r\n]*lifecycle=CLOSED;'){throw 'QUALITY_ACTIVE_TASK_REQUIRED'}
-        $null=Invoke-ProcessRequirementComposition -ProjectRoot $root -FrameworkRoot $framework -TargetVersion $config.frameworkVersion -ExpectedProjectConfigIdentity $inputObject.projectConfigRef.identity -ExpectedCorrectionsIdentity $(if([IO.File]::Exists((Join-Path $root '.ai-workspace/corrections.json'))){Get-AiwFileIdentity (Join-Path $root '.ai-workspace/corrections.json')}else{'MISSING'}) -Profile $profile -Role TASK_OWNER -Phase PLAN -Actor $owner -TaskIdentity $task.Identity -Objective 'Prepare stable finite outcome quality plan without authority or persistence' -ActionKind NONE -ResultKind PLAN -ExactPaths @() -UseDeclaredCapabilities -ValidateCompleteAdoptedSet
-        $selection=Get-AiwQualitySelection $policy $inputObject.policyRef.identity $profile $inputObject.subject
-        if($selection.mode-ceq'LEGACY'){$result=[ordered]@{status='READY';authorityGranted=$false;mode='LEGACY';plan=$null;limits=@('No policy qualityAssurance is enabled; original LEGACY gates apply.')} ;break}
-        $repo=$inputObject.subject.repositoryId
+            $subject=$inputObject.subject;$requirements=$inputObject.requirementsRef;$taskIdentity=$task.Identity
+        }
+        $null=Invoke-ProcessRequirementComposition -ProjectRoot $root -FrameworkRoot $framework -TargetVersion $config.frameworkVersion -ExpectedProjectConfigIdentity $inputObject.projectConfigRef.identity -ExpectedCorrectionsIdentity $(if([IO.File]::Exists((Join-Path $root '.ai-workspace/corrections.json'))){Get-AiwFileIdentity (Join-Path $root '.ai-workspace/corrections.json')}else{'MISSING'}) -Profile $profile -Role TASK_OWNER -Phase PLAN -Actor $owner -TaskIdentity $taskIdentity -Objective 'Prepare stable finite outcome quality plan without authority or persistence' -ActionKind NONE -ResultKind PLAN -ExactPaths @() -UseDeclaredCapabilities -ValidateCompleteAdoptedSet
+        $selection=Get-AiwQualitySelection $policy $inputObject.policyRef.identity $profile $subject
+        if($selection.mode-ceq'LEGACY'){
+            $retainedPlan=$null
+            if($work-and$null-ne$request.PSObject.Properties['predecessorRef']){$oldPlan=Get-AiwProjectWorkPlan $request;$retainedPlan=[ordered]@{schemaVersion=1;stages=@($oldPlan.stages)}}
+            $result=[ordered]@{status='READY';authorityGranted=$false;mode='LEGACY';plan=$retainedPlan;limits=@('No policy qualityAssurance is enabled; original LEGACY gates and inherited user/professional stages apply.')} ;break
+        }
+        $repo=$subject.repositoryId
         if($config.controlPlaneLayout-ceq'repo-local'){
             Import-Module (Join-Path $PSScriptRoot 'ExecutionTargetContext.psm1')
             $execution=Resolve-AiwExecutionTargetContext -ProjectRoot $root -ProjectId $config.id -TaskPath $taskRelative
@@ -103,25 +124,34 @@ switch ($operation) {
             $package=[pscustomobject]@{schemaVersion=2;repositoryId=$repo}
         }else{throw 'QUALITY_PREPARE_EXECUTION_TARGET_UNSUPPORTED'}
         $subjectContext=New-AiwPackageEvidenceContext $root $package $framework -TaskPath $taskRelative
-        foreach($path in $inputObject.subject.exactPaths){$null=& $evidenceModule {param($c,$p) Resolve-EvPath $c $p -Candidate -AllowMissing} $subjectContext $path}
-        $requirementsFull=Resolve-AiwEvidenceObservationPath $ctx $inputObject.requirementsRef.path
-        if($requirementsFull.Equals($policyFull,[StringComparison]::OrdinalIgnoreCase)-or$requirementsFull.Equals($task.Path,[StringComparison]::OrdinalIgnoreCase)-or$requirementsFull.Replace('\','/')-cmatch'/\.ai-workspace/tasks/'){throw 'QUALITY_IMMUTABLE_REQUIREMENTS_REQUIRED'}
-        $null=& $evidenceModule {param($c,$r) Read-EvRef $c $r -Section} $ctx $inputObject.requirementsRef
+        foreach($path in $subject.exactPaths){$null=& $evidenceModule {param($c,$p) Resolve-EvPath $c $p -Candidate -AllowMissing} $subjectContext $path}
+        $requirementsFull=Resolve-AiwEvidenceObservationPath $ctx $requirements.path
+        if($requirementsFull.Equals($policyFull,[StringComparison]::OrdinalIgnoreCase)-or($null-ne$task-and$requirementsFull.Equals($task.Path,[StringComparison]::OrdinalIgnoreCase))-or$requirementsFull.Replace('\','/')-cmatch'/\.ai-workspace/tasks/'){throw 'QUALITY_IMMUTABLE_REQUIREMENTS_REQUIRED'}
+        $null=& $evidenceModule {param($c,$r) Read-EvRef $c $r -Section} $ctx $requirements
         $stages=@();$preceding=@()
+        if($work-and$null-ne$request.PSObject.Properties['predecessorRef']){
+            $retained=Get-AiwProjectWorkPlan $request
+            $stages=@($retained.stages);$preceding=@($stages.id)
+        }
         foreach($kind in $selection.effectiveStages){
+            if(@($stages|Where-Object kind -CEQ $kind).Count){continue}
             $id='quality-'+$kind.ToLowerInvariant().Replace('_','-')
-            $stages+=[pscustomobject]@{id=$id;kind=$kind;requiredBy=$inputObject.requirementsRef;dependsOn=@($preceding);candidateRef=@();evidenceRefs=@()}
+            $stages+=[pscustomobject]@{id=$id;kind=$kind;requiredBy=$requirements;dependsOn=@($preceding);candidateRef=@();evidenceRefs=@()}
             $preceding+=@($id)
         }
-        $result=[ordered]@{status='READY';authorityGranted=$false;mode='EXPLICIT';effectiveStages=$selection.effectiveStages;qualityBinding=$selection.qualityBinding;plan=[ordered]@{schemaVersion=2;qualityBinding=$selection.qualityBinding;stages=$stages};limits=@('Read-only candidate; original CONTROL authorization must bind the task.','Owner must retain real user/professional stages and dependencies.','Pending candidate/evidence arrays do not satisfy Review, acceptance or SUCCESS.','No SELF, verdict, acceptance or permission is generated.')}
+        $result=[ordered]@{status='READY';authorityGranted=$false;mode='EXPLICIT';effectiveStages=$selection.effectiveStages;qualityBinding=$selection.qualityBinding;plan=[ordered]@{schemaVersion=2;qualityBinding=$selection.qualityBinding;stages=$stages};limits=@($(if($work){'Read-only candidate; the original request and exact package must bind the inline plan.'}else{'Read-only candidate; original CONTROL authorization must bind the task.'}),'Owner must retain real user/professional stages and dependencies.','Pending candidate/evidence arrays do not satisfy Review, acceptance or SUCCESS.','No SELF, verdict, acceptance or permission is generated.')}
     }
 
     'REPAIR_REVIEW' {
-        Import-Module (Join-Path $PSScriptRoot 'ResultEvidence.psm1') -Force
+        Import-Module (Join-Path $PSScriptRoot 'ContentSources.psm1')
+        Import-Module (Join-Path $PSScriptRoot 'ProcessRequirementComposition.psm1')
+        $repairEvidence=@(Import-Module (Join-Path $PSScriptRoot 'ResultEvidence.psm1') -Force -PassThru)[0]
         $fields=@('operation','repositoryRoot','binding')
         $explicitControl=$null-ne$inputObject.PSObject.Properties['controlRoot'];$explicitTask=$null-ne$inputObject.PSObject.Properties['taskPath']
         if($explicitControl-ne$explicitTask){throw 'REPAIR_REVIEW_CONTROL_TASK_PAIR_REQUIRED'}
         if($explicitControl){$fields+=@('controlRoot','taskPath')}
+        $hasCurrentAuthorization=$null-ne$inputObject.PSObject.Properties['currentAuthorizationRef']
+        if($hasCurrentAuthorization){$fields+='currentAuthorizationRef'}
         Assert-ExactFields $inputObject $inputMemberNames $fields
         $binding=$inputObject.binding
         $parentDoc=Read-AiwStrictInputJson $binding.parentPackagePath
@@ -136,6 +166,30 @@ switch ($operation) {
         if($candidate.schemaVersion-eq4-and-not$explicitControl){throw 'REPAIR_REVIEW_CONTROL_TASK_PAIR_REQUIRED'}
         $writeScope=@($candidate.exactPaths)
         $reviewScope=@(Get-AiwPlannedReviewScope $candidate)
+        $currentCarrier=$null
+        if($hasCurrentAuthorization){
+            if($parent.schemaVersion-notin@(1,2)){throw 'REPAIR_REVIEW_CURRENT_AUTHORIZATION_UNEXPECTED'}
+            $currentControl=if($explicitControl){$inputObject.controlRoot}else{(Get-Location).Path}
+            $currentContext=New-AiwEvidenceContext $currentControl $inputObject.repositoryRoot ([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../../..')))
+            $currentCarrier=Read-AiwEvidenceReference $currentContext $inputObject.currentAuthorizationRef -Json
+            if($currentCarrier.schemaVersion-ne5){throw 'REPAIR_REVIEW_CURRENT_WORK_AUTHORIZATION_REQUIRED'}
+            Assert-AiwProjectWorkContext $currentCarrier.requestContext
+            $bridgeFacts=& $repairEvidence {param($c,$r,$ref)Get-EvWorkReviewRoot $c $r $ref} $currentContext $currentCarrier.requestContext ([pscustomobject]@{path=$binding.parentPackagePath;identity=$binding.parentPackageIdentity})
+            if($currentCarrier.owner-cne$parent.owner-or$currentCarrier.profile-cne$parent.profile-or$currentCarrier.owner-cne$currentCarrier.requestContext.owner-or$currentCarrier.grantee-cne$currentCarrier.requestContext.actor-or$currentCarrier.repositoryId-cne$currentCarrier.requestContext.subject.repositoryId){throw 'REPAIR_REVIEW_CURRENT_AUTHORIZATION_CONTEXT'}
+            if($null-ne$currentCarrier.PSObject.Properties['repairReviewPlan']-and(Get-AiwContentDescriptorIdentity $currentCarrier.repairReviewPlan)-cne(Get-AiwContentDescriptorIdentity $plan)){throw 'WORK_PREDECESSOR_REVIEW_PLAN_DRIFT'}
+            if($null-ne$currentCarrier.PSObject.Properties['repairReviewBinding']){
+                $carrierRoot=[pscustomobject]@{path=$currentCarrier.repairReviewBinding.parentPackagePath;identity=$currentCarrier.repairReviewBinding.parentPackageIdentity}
+                $null=& $repairEvidence {param($c,$r,$ref)Get-EvWorkReviewRoot $c $r $ref} $currentContext $currentCarrier.requestContext $carrierRoot
+            }
+            $candidate=$currentCarrier|ConvertTo-Json -Depth 100 -Compress|ConvertFrom-Json -Depth 100
+            foreach($obsolete in @('receiverBinding','repairReviewPlan','repairReviewBinding')){$candidate.PSObject.Properties.Remove($obsolete)}
+            $neededScope=if($binding.phase-ceq'REPAIR'){$writeScope}else{@($reviewScope.path)}
+            if(@($neededScope|Where-Object{$_-cnotin$currentCarrier.exactPaths}).Count){throw 'REPAIR_REVIEW_CURRENT_AUTHORIZATION_SCOPE'}
+            if($binding.phase-ceq'REPAIR'){
+                if(@($candidate.actions|Where-Object{$_-cnotin$parent.actions}).Count){throw 'REPAIR_REVIEW_CURRENT_AUTHORIZATION_ACTION'}
+            }elseif('REVIEW_EXECUTE'-cnotin$currentCarrier.actions){throw 'REPAIR_REVIEW_CURRENT_AUTHORIZATION_ACTION'}
+            $candidate.exactPaths=@($neededScope)
+        }
         # A child is anchored to the original through repairReviewBinding. Its
         # parent-only receiver binding cannot be reused by another grantee.
         $candidate.PSObject.Properties.Remove('receiverBinding')
@@ -143,34 +197,59 @@ switch ($operation) {
         if($reviewerActor-ceq'DEFERRED_VISIBLE_REVIEWER'){
             if($null-eq$binding.PSObject.Properties['reviewerAssignment']){throw 'REVIEWER_ASSIGNMENT_REQUIRED'}
             $assignment=$binding.reviewerAssignment
-            Assert-ExactFields $assignment @($assignment.PSObject.Properties.Name) @('source','createdBy','threadId','hostId','taskId','parentPackageIdentity')
-            foreach($name in @('source','createdBy','threadId','hostId','taskId','parentPackageIdentity')){Assert-String $assignment.$name $name}
+            $assignmentStrings=@('source','createdBy','threadId','hostId','parentPackageIdentity')
+            $assignmentFields=$assignmentStrings+$(if($parent.schemaVersion-eq5){@('context')}else{@('taskId')})
+            Assert-ExactFields $assignment @($assignment.PSObject.Properties.Name) $assignmentFields
+            if($parent.schemaVersion-ne5){$assignmentStrings+='taskId'}
+            foreach($name in $assignmentStrings){Assert-String $assignment.$name $name}
+            $assignmentContextMatches=if($parent.schemaVersion-eq5){Test-AiwSameResultContext $assignment.context $parent}else{$assignment.taskId-ceq$parent.taskId}
             $hostAssigned=$assignment.source-ceq'HOST_CREATE_THREAD_RESULT'
             $initialDelegation=$assignment.source-ceq'HOST_INITIAL_DELEGATION'-and(($assignment.threadId-ceq'UNBOUND_RECEIVER'-and$binding.phase-ceq'INITIAL_REVIEW')-or($assignment.threadId-cne'UNBOUND_RECEIVER'-and$binding.phase-cin@('REPAIR','REREVIEW')))
-            if(-not($hostAssigned-or$initialDelegation)-or$assignment.createdBy-cne$plan.writer-or$assignment.taskId-cne$candidate.taskId-or$assignment.parentPackageIdentity-cne$identity-or$assignment.threadId-cin@($candidate.owner,$candidate.issuer,$plan.writer)-or$assignment.threadId-cin@($plan.materialContributors)){throw 'REVIEWER_ASSIGNMENT_BINDING'}
+            if(-not($hostAssigned-or$initialDelegation)-or$assignment.createdBy-cne$plan.writer-or-not$assignmentContextMatches-or$assignment.parentPackageIdentity-cne$identity-or$assignment.threadId-cin@($candidate.owner,$candidate.issuer,$plan.writer)-or$assignment.threadId-cin@($plan.materialContributors)){throw 'REVIEWER_ASSIGNMENT_BINDING'}
             $reviewerActor=[string]$assignment.threadId
         }elseif($null-ne$binding.PSObject.Properties['reviewerAssignment']){throw 'REVIEWER_ASSIGNMENT_UNEXPECTED'}
         $candidate.PSObject.Properties.Remove('repairReviewPlan')
         $candidate.grantee=if($binding.phase-ceq'REPAIR'){$plan.writer}else{$reviewerActor}
+        if($hasCurrentAuthorization-and$candidate.grantee-cne$currentCarrier.grantee){throw 'REPAIR_REVIEW_CURRENT_AUTHORIZATION_ACTOR'}
+        if($hasCurrentAuthorization-and$binding.phase-ceq'REPAIR'){
+            $parentLimit=$null-ne$parent.PSObject.Properties['selfCheckRepairLimit'];$currentLimit=$null-ne$candidate.PSObject.Properties['selfCheckRepairLimit']
+            if($parentLimit-ne$currentLimit-or($parentLimit-and$parent.selfCheckRepairLimit-ne$candidate.selfCheckRepairLimit)){throw 'REPAIR_REVIEW_SELF_LIMIT_DRIFT'}
+        }
+        if($hasCurrentAuthorization-and$binding.phase-cin@('INITIAL_REVIEW','REREVIEW')){
+            if($null-eq$currentCarrier.PSObject.Properties['candidateWriter']-or$null-eq$currentCarrier.PSObject.Properties['materialContributors']-or$currentCarrier.candidateWriter-cne$plan.writer-or(@($currentCarrier.materialContributors|Sort-Object)-join'|')-cne(@($plan.materialContributors|Sort-Object)-join'|')){throw 'REPAIR_REVIEW_CURRENT_AUTHORIZATION_CONTRIBUTORS'}
+        }
         if($binding.phase-cin@('INITIAL_REVIEW','REREVIEW')){
             $candidate.PSObject.Properties.Remove('continuationPlan')
             $candidate.PSObject.Properties.Remove('selfCheckRepairLimit')
             $candidate.actions=@('REVIEW_EXECUTE');$candidate.reviewIndependence='INDEPENDENT'
             if('CONTRIBUTOR_SET_CHANGE'-cnotin$candidate.invalidatesOn){$candidate.invalidatesOn+=@('CONTRIBUTOR_SET_CHANGE')}
-            $candidate|Add-Member candidateWriter $plan.writer
-            $candidate|Add-Member materialContributors @($plan.materialContributors)
+            $candidate|Add-Member candidateWriter $plan.writer -Force
+            $candidate|Add-Member materialContributors @($plan.materialContributors) -Force
         }
+        if($hasCurrentAuthorization){$candidate|Add-Member repairReviewBinding $binding}
         $root=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($inputObject.repositoryRoot))
         if($explicitControl){
             $evidenceContext=New-AiwEvidenceContext $inputObject.controlRoot '' ([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../../..')))
             $scopeInputRef=if($binding.phase-ceq'REPAIR'){[pscustomobject]@{path=$binding.verdictFinalizeInputPath;identity=$binding.verdictFinalizeInputIdentity}}else{[pscustomobject]@{path=$binding.repairFinalizeInputPath;identity=$binding.repairFinalizeInputIdentity}}
             $scopeInput=Read-AiwEvidenceReference $evidenceContext $scopeInputRef -Json
-            $scopeSource=Read-AiwEvidenceReference $evidenceContext ([pscustomobject]@{path=$scopeInput.discoverReceiptPath;identity=$scopeInput.expectedDiscoverReceiptIdentity}) -Json
+            $scopeResultRef=if($binding.phase-ceq'REPAIR'){[pscustomobject]@{path=$binding.verdictFinalizeResultPath;identity=$binding.verdictFinalizeResultIdentity}}else{[pscustomobject]@{path=$binding.repairFinalizeResultPath;identity=$binding.repairFinalizeResultIdentity}}
+            $scopeResult=Read-AiwEvidenceReference $evidenceContext $scopeResultRef -Json
+            $scopeSource=& $repairEvidence {param($c,$b,$r)Read-EvProcessOperation $c $b $r} $evidenceContext $scopeInput $scopeResult
             $scopeAuthority=if($scopeSource.schemaVersion-eq1){$scopeSource.authorityContext}else{$scopeSource.binding}
-            if($scopeAuthority.projectRoot-cne$inputObject.controlRoot-or$scopeAuthority.taskIdentity-cne$parent.taskIdentity){throw 'REPAIR_REVIEW_CONTROL_AUTHORITY_DRIFT'}
-            $evidenceContext=New-AiwPackageEvidenceContext $inputObject.controlRoot $parent ([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../../..'))) $scopeAuthority.forbiddenScope -TaskPath $inputObject.taskPath -ProtectedPaths $scopeAuthority.protectedScope
+            if($scopeAuthority.projectRoot-cne$inputObject.controlRoot){throw 'REPAIR_REVIEW_CONTROL_AUTHORITY_DRIFT'}
+            if($hasCurrentAuthorization){
+                $scopeProducerRef=[pscustomobject]@{path=$scopeSource.sourceLocators.authorizationPackagePath;identity=$scopeAuthority.authorizationIdentity}
+                $scopeProducer=Read-AiwEvidenceReference $evidenceContext $scopeProducerRef -Json
+                & $repairEvidence {param($c,$current,$producer,$ref)Assert-EvReviewProducerRelation $c $current $producer $ref} $currentContext $candidate $scopeProducer $scopeProducerRef
+            }elseif($(if($parent.schemaVersion-eq5){-not(Test-AiwSameResultContext $scopeAuthority $parent)}else{$scopeAuthority.taskIdentity-cne$parent.taskIdentity})){throw 'REPAIR_REVIEW_CONTROL_AUTHORITY_DRIFT'}
+            $contextPackage=if($hasCurrentAuthorization){$currentCarrier}else{$parent}
+            $evidenceContext=New-AiwPackageEvidenceContext $inputObject.controlRoot $contextPackage ([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../../..'))) $scopeAuthority.forbiddenScope -TaskPath $inputObject.taskPath -ProtectedPaths $scopeAuthority.protectedScope
             if($evidenceContext.RepositoryRoot-cne$root){throw 'REPAIR_REVIEW_OBJECT_ROOT_DRIFT'}
-        }else{$evidenceContext=New-AiwEvidenceContext (Get-Location).Path $root ([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../../..')))}
+        }else{
+            if($hasCurrentAuthorization){
+                $evidenceContext=New-AiwPackageEvidenceContext (Get-Location).Path $currentCarrier ([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../../..')))
+            }else{$evidenceContext=New-AiwEvidenceContext (Get-Location).Path $root ([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../../..')))}
+        }
         if($binding.phase-ceq'REPAIR'){
             $null=Assert-AiwFinalizedReviewFinding $evidenceContext $parent $binding
             $verdict=Read-AiwEvidenceReference $evidenceContext ([pscustomobject]@{path=$binding.verdictPath;identity=$binding.verdictIdentity}) -Json
@@ -183,17 +262,24 @@ switch ($operation) {
             $finalInput=Read-AiwEvidenceReference $evidenceContext ([pscustomobject]@{path=$binding.repairFinalizeInputPath;identity=$binding.repairFinalizeInputIdentity}) -Json
             $finalResult=Read-AiwEvidenceReference $evidenceContext ([pscustomobject]@{path=$binding.repairFinalizeResultPath;identity=$binding.repairFinalizeResultIdentity}) -Json
             if($finalInput.mode-cne'FINALIZE_OUTPUT'-or$finalResult.mode-cne'FINALIZE_OUTPUT'-or$finalResult.status-cne'PASS'){throw 'REPAIR_REVIEW_FINALIZE_REQUIRED'}
-            $source=Read-AiwEvidenceReference $evidenceContext ([pscustomobject]@{path=$finalInput.discoverReceiptPath;identity=$finalInput.expectedDiscoverReceiptIdentity}) -Json
+            $source=& $repairEvidence {param($c,$b,$r)Read-EvProcessOperation $c $b $r} $evidenceContext $finalInput $finalResult
             $sourceContext=if($source.schemaVersion-eq1){$source.authorityContext}else{$source.binding}
             $sourceAction=if($source.schemaVersion-eq1){$source.actionKind}else{$source.intentEnvelope.requestedActionKind}
             $producer=Read-AiwEvidenceReference $evidenceContext ([pscustomobject]@{path=$source.sourceLocators.authorizationPackagePath;identity=$sourceContext.authorizationIdentity}) -Json
+            if($hasCurrentAuthorization){
+                & $repairEvidence {param($c,$current,$producer,$ref)Assert-EvReviewProducerRelation $c $current $producer $ref} $evidenceContext $candidate $producer ([pscustomobject]@{path=$source.sourceLocators.authorizationPackagePath;identity=$sourceContext.authorizationIdentity})
+            }
             $projectRoot=if($source.schemaVersion-eq1){$source.sourceLocators.projectRoot}else{$sourceContext.projectRoot}
-            $evidenceContext=New-AiwPackageEvidenceContext $projectRoot $producer $source.sourceLocators.frameworkRoot $sourceContext.forbiddenScope -TaskPath $source.sourceLocators.taskRelativePath -ProtectedPaths $sourceContext.protectedScope
+            $producerTaskPath=$source.sourceLocators.taskRelativePath
+            if($hasCurrentAuthorization-and$producer.schemaVersion-in@(1,2)){
+                $producerTaskPath=Read-AiwEvidenceReference $evidenceContext $bridgeFacts.decision.predecessorTaskRef
+            }
+            $evidenceContext=New-AiwPackageEvidenceContext $projectRoot $producer $source.sourceLocators.frameworkRoot $sourceContext.forbiddenScope -TaskPath $producerTaskPath -ProtectedPaths $sourceContext.protectedScope
             if($producer.grantee-cne$plan.writer-or$sourceAction-cnotin@('SOURCE_WRITE','TEST_WRITE','TEST_RUN','CONTROL_WRITE')-or
                (@($producer.exactPaths|Sort-Object)-join'|')-cne(@($writeScope|Sort-Object)-join'|')){throw 'REPAIR_REVIEW_PRODUCTION_SCOPE_DRIFT'}
             $postimages=@(Get-AiwFinalizedObjectPostimages $finalInput $writeScope)
             if($sourceAction-ceq'TEST_RUN'){
-                Assert-AiwReviewSelfCheck $evidenceContext $finalInput.evidenceRefs $producer.taskId @(Get-AiwPackageCandidateReferences ([pscustomobject]@{objectIdentities=$postimages}))
+                Assert-AiwReviewSelfCheck $evidenceContext $finalInput.evidenceRefs (Get-AiwEvidenceSubject $producer) @(Get-AiwPackageCandidateReferences ([pscustomobject]@{objectIdentities=$postimages}))
             }
             if($binding.phase-ceq'REREVIEW'){
                 foreach($field in @('verdictFinalizeInputPath','verdictFinalizeInputIdentity','verdictFinalizeResultPath','verdictFinalizeResultIdentity')){if($null-eq$binding.PSObject.Properties[$field]-or$null-eq$producer.repairReviewBinding.PSObject.Properties[$field]-or$binding.$field-cne$producer.repairReviewBinding.$field){throw 'REPAIR_REVIEW_VERDICT_FINALIZE_LINK_DRIFT'}}
@@ -206,7 +292,25 @@ switch ($operation) {
             $candidate.exactPaths=@($reviewScope.path)
             $candidate.objectIdentities=@(Get-AiwComposedReviewCandidate $evidenceContext $producer $postimages)
         }
-        $candidate|Add-Member repairReviewBinding $binding
+        if($hasCurrentAuthorization){
+            $permissionObjects=@($currentCarrier.objectIdentities|Where-Object{$_.path-cin$candidate.exactPaths})
+            if((@($permissionObjects|ForEach-Object{$_.path+'='+$_.identity}|Sort-Object)-join'|')-cne(@($candidate.objectIdentities|ForEach-Object{$_.path+'='+$_.identity}|Sort-Object)-join'|')){throw 'REPAIR_REVIEW_CURRENT_AUTHORIZATION_CANDIDATE'}
+        }
+        if($candidate.schemaVersion-eq5){
+            $candidate.requestContext.actor=$candidate.grantee
+            $candidate.requestContext.phase=if($binding.phase-ceq'REPAIR'){'IMPLEMENT'}else{'REVIEW'}
+            $candidate.requestContext.role=if($binding.phase-ceq'REPAIR'){$(if($hasCurrentAuthorization){$currentCarrier.requestContext.role}else{$parent.requestContext.role})}else{'REVIEWER'}
+            $candidate.requestContext.resultConsumer=if($candidate.grantee-ceq$candidate.owner){[pscustomobject]@{channel='NATIVE_RESPONSE';recipient='USER'}}else{[pscustomobject]@{channel='TASK_MESSAGE';recipient=$candidate.owner}}
+            if($candidate.grantee-ceq'UNBOUND_RECEIVER'){
+                # This existing initial-delegation template remains non-executable.
+                # Its real parent request is validated; the receiver validates the
+                # complete projected request after binding its actual host actor.
+                if($binding.phase-cne'INITIAL_REVIEW'-or$assignment.source-cne'HOST_INITIAL_DELEGATION'){throw 'PENDING_WORK_REVIEWER_TEMPLATE'}
+                Assert-AiwProjectWorkContext $parent.requestContext
+            }else{Assert-AiwProjectWorkContext $candidate.requestContext}
+        }
+        if(-not$hasCurrentAuthorization){$candidate|Add-Member repairReviewBinding $binding}
+        if($hasCurrentAuthorization){Assert-AiwWorkPredecessorPackage $currentContext $candidate.requestContext $candidate}
         $result=[ordered]@{status='PREPARED';authorityGranted=$false;requiresCurrentAdmission=$true;package=$candidate}
     }
     'DELIVERY' {

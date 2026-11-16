@@ -124,6 +124,9 @@ function Test-SelectorMatching([string]$VersionRoot) {
     foreach($line in @($result.Output|Where-Object{[string]$_-clike'PASS|*'})){Assert-True $true ('selector-'+([string]$line).Substring(5))}
     $module=Import-Module (Join-Path $VersionRoot 'scripts/ProcessRequirementComposition.psm1') -Force -PassThru
     $catalog=Get-Content -LiteralPath (Join-Path $VersionRoot 'PROCESS_REQUIREMENTS.json') -Raw|ConvertFrom-Json
+    $nativeManifest=Get-Content -LiteralPath (Join-Path $VersionRoot 'LOAD_MANIFEST.json') -Raw|ConvertFrom-Json
+    $declaredNativeIds=@($nativeManifest.requirementFragments|ForEach-Object{(Get-Content -LiteralPath (Join-Path $VersionRoot $_.sidecar) -Raw|ConvertFrom-Json).requirements.requirementId})
+    $nativeIds=@($catalog.requirements.requirementId)
     $lenses=@($catalog.requirements|Where-Object requirementId -CEQ 'PR_REVIEW_QUALIFICATION_AND_PLANNING')[0].selectors|ConvertTo-Json -Depth 30|ConvertFrom-Json
     $lenses.actionKinds=@('REVIEW_EXECUTE');$lenses.resultKinds=@('REVIEW_VERDICT')
     $lenses.deterministicTriggers=[pscustomobject]@{actionKinds=@('REVIEW_EXECUTE');resultKinds=@('REVIEW_VERDICT')}
@@ -137,12 +140,10 @@ function Test-SelectorMatching([string]$VersionRoot) {
     & $module {param($s)Assert-AiwSelectorContract $s 'UNIT'} $oneAxis
     Assert-True ($oneAxis.deterministicTriggers.resultKinds.Count-eq1) 'selector-single-trigger-axis-remains-valid'
     foreach($rule in $catalog.requirements){& $module {param($s)Assert-AiwSelectorContract $s 'NATIVE'} $rule.selectors}
-    Assert-True ($catalog.requirements.Count-eq40-and@($catalog.requirements.requirementId|Sort-Object -Unique).Count-eq40) 'selector-all-original-native-contracts-valid'
+    Assert-True ($nativeIds.Count-gt0-and@($nativeIds|Sort-Object -Unique).Count-eq$nativeIds.Count-and@($declaredNativeIds|Sort-Object -Unique).Count-eq$declaredNativeIds.Count-and$nativeIds.Count-eq$declaredNativeIds.Count-and(($nativeIds|Sort-Object)-join"`n")-ceq(($declaredNativeIds|Sort-Object)-join"`n")) 'selector-all-original-native-contracts-valid'
 }
 $candidateRoot = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..')))
-Test-SelectorMatching $candidateRoot
-Test-OrdinaryReplyBoundary $candidateRoot
-if($SelectorOnly){Write-Output 'EVIDENCE_CEILING|selector-group-only';Write-Output ('RESULT|'+(Get-IntegrationCheckCount)+'/'+(Get-IntegrationCheckCount)+' passed|scope=selector-matching');exit 0}
+if($SelectorOnly){Test-SelectorMatching $candidateRoot;Test-OrdinaryReplyBoundary $candidateRoot;Write-Output 'EVIDENCE_CEILING|selector-group-only';Write-Output ('RESULT|'+(Get-IntegrationCheckCount)+'/'+(Get-IntegrationCheckCount)+' passed|scope=selector-matching');exit 0}
 $actual = @(Get-ChildItem -LiteralPath $candidateRoot -Recurse -Force -File | ForEach-Object { $_.FullName.Substring($candidateRoot.Length + 1).Replace('\','/') })
 [Array]::Sort($actual,[StringComparer]::Ordinal)
 $inventoryPath=Join-Path $candidateRoot 'NORMATIVE_SURFACE_INVENTORY.json';$inventory=Get-Content -Raw -Encoding utf8 -LiteralPath $inventoryPath|ConvertFrom-Json
@@ -228,7 +229,7 @@ if($platform-notin$declaredPlatforms){
     if($IsWindows){
       # Exercise rejection before either extracted core can import or inspect a
       # project. A guard string alone cannot detect the import-order regression.
-      $legacyPowerShell=(Get-Command powershell.exe -CommandType Application -ErrorAction Stop).Source
+      $legacyPowerShell=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
       $guardProject=Join-Path $platformTemp 'runtime-guard-project';New-Item -ItemType Directory -Path $guardProject|Out-Null
       $guardSentinel=Join-Path $guardProject 'preserved.txt';Write-Utf8 $guardSentinel 'preserve original project bytes'
       $guardSentinelIdentity=Get-Identity $guardSentinel
@@ -273,6 +274,8 @@ if($platform-notin$declaredPlatforms){
 }
 
 if($ToolContractOnly){
+    Test-SelectorMatching $candidateRoot
+    Test-OrdinaryReplyBoundary $candidateRoot
     Write-Output 'EVIDENCE_CEILING|tool-contract-group-only'
     $contractTempParent=[IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath([IO.Path]::GetTempPath()));$contractTemp=Join-Path $contractTempParent ('aiw-tool-contract-'+[guid]::NewGuid().ToString('N'));$contractTempCleanup=Get-PrivateFixtureCleanupPath $contractTemp $contractTempParent '^aiw-tool-contract-[0-9a-f]{32}$' 'TOOL_CONTRACT';New-Item -ItemType Directory -Path $contractTemp|Out-Null
     try{
@@ -327,7 +330,13 @@ $intentSchema=Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $candidate
 $fixtureContractPath=Join-Path $candidateRoot 'tests\PROCESS_REQUIREMENTS_FIXTURES.json';$measurementHarnessPath=Join-Path $candidateRoot 'tests\measure-process-requirements.ps1';$fixtureContract=Get-Content -Raw -Encoding utf8 -LiteralPath $fixtureContractPath|ConvertFrom-Json
 $adoptionProfile=Get-Content -Raw -Encoding utf8 -LiteralPath (Join-Path $candidateRoot 'ADOPTION_PROFILE.json')|ConvertFrom-Json
 Assert-True ([string]$adoptionProfile.frameworkVersion-ceq'2.0.0'-and[bool]$adoptionProfile.registrationEligible-and[bool]$adoptionProfile.localCandidatePilotEligible-and(@($adoptionProfile.sourceCompatibility.projectFormats)-join'|')-ceq'repo-local/project-config-4|repo-local/project-config-5|repo-local/project-config-6|repo-local/project-config-7'-and@($adoptionProfile.sourceCompatibility.requiredCapabilities).Count-eq0-and$null-eq$adoptionProfile.PSObject.Properties['directSourceVersions']-and[int]$adoptionProfile.projectControl.schemaVersion-eq7-and[string]$adoptionProfile.projectControl.processCarrierContractVersion-ceq'2.0.0'-and[string]$adoptionProfile.projectControl.frameworkToolBackend-ceq'powershell7'-and[string]$adoptionProfile.projectControl.navigationProjection-ceq'PROJECT_BOOTSTRAP_MANAGED_AGENTS'-and[string]$adoptionProfile.projectControl.runtimeArtifactRoot-ceq'.ai-workspace/runtime'-and[string]$adoptionProfile.projectControl.runtimeGitIgnoreRule-ceq'/.ai-workspace/runtime/'-and[bool]$adoptionProfile.projectControl.taskLastWriteRequired-and[string]$adoptionProfile.projectControl.capabilityBinding-ceq'EXACT_ENABLED_IDS'-and$null-eq$adoptionProfile.PSObject.Properties['processBudget']) 'adoption-profile-current-formats-without-rule-pack-quota'
-Assert-True (@($authoritySchema.oneOf).Count-eq3-and(@($authoritySchema.oneOf|ForEach-Object{$_.properties.schemaVersion.const})-join'|')-ceq'1|2|3'-and(@($authoritySchema.oneOf|ForEach-Object{@($_.required).Count})-join'|')-ceq'25|29|33'-and[int]$budgetContract.candidate.legacyAuthorityContextFieldCount-eq25-and[int]$budgetContract.candidate.compactAuthorityBindingFieldCount-eq33-and@($intentSchema.required).Count-eq11-and[int]$budgetContract.candidate.intentEnvelopeFieldCount-eq11-and[int]$budgetContract.candidate.receiptSourceBindingFieldCount-eq16-and[int]$budgetContract.candidate.compactBoundaryInputFieldCount-eq9-and[int]$budgetContract.candidate.toolContractVersion-eq4-and[int]$budgetContract.candidate.discoverInputVersion-eq5-and[int]$budgetContract.candidate.compactReceiptVersion-eq4) 'process-current-contract-field-counts'
+$authorityRequiredBase=@('schemaVersion','projectId','projectRoot','repositoryGitTop','frameworkVersion','frameworkSealIdentity','controllerIdentity','taskIdentity','taskActor','actor','role','phase','profile','exactScope','forbiddenScope','protectedScope','authorizationIdentity','authorizedActions','observedCapabilities','projectConfigIdentity','correctionsIdentity','policyIdentity','userDecision','recoveryState','hostEnforcementGrade')
+$authorityRequired2=$authorityRequiredBase+@('contextType','contextLocator','taskId','taskOwner');$authorityRequired3=$authorityRequired2+@('controlRoot','objectRoot','repositoryId','executionContext');$authorityRequired4=$authorityRequired3+@('context')
+$authorityRequiredSets=@(,$authorityRequiredBase;,$authorityRequired2;,$authorityRequired3;,$authorityRequired4);$authorityShapeValid=@($authoritySchema.oneOf).Count-eq4
+if($authorityShapeValid){for($armIndex=0;$armIndex-lt4;$armIndex++){$arm=$authoritySchema.oneOf[$armIndex];$fields=@($arm.required);if([int]$arm.properties.schemaVersion.const-ne($armIndex+1)-or@($fields|Sort-Object -Unique).Count-ne$fields.Count-or(($fields|Sort-Object)-join'|')-cne(($authorityRequiredSets[$armIndex]|Sort-Object)-join'|')){$authorityShapeValid=$false}}}
+$intentRequired=@('schemaVersion','objective','requestedActionKind','requestedResultKind','semanticHints','pathHints','capabilityHints','mutationHints','externalHints','ambiguityState','facets');$intentShapeValid=@($intentSchema.oneOf).Count-eq2
+if($intentShapeValid){for($armIndex=0;$armIndex-lt2;$armIndex++){$arm=$intentSchema.oneOf[$armIndex];$fields=@($arm.required);if([int]$arm.properties.schemaVersion.const-ne($armIndex+2)-or@($fields|Sort-Object -Unique).Count-ne$fields.Count-or(($fields|Sort-Object)-join'|')-cne(($intentRequired|Sort-Object)-join'|')){$intentShapeValid=$false}}}
+Assert-True ($authorityShapeValid-and$intentShapeValid-and[int]$budgetContract.candidate.legacyAuthorityContextFieldCount-eq25-and[int]$budgetContract.candidate.compactAuthorityBindingFieldCount-eq33-and[int]$budgetContract.candidate.intentEnvelopeFieldCount-eq11-and[int]$budgetContract.candidate.receiptSourceBindingFieldCount-eq16-and[int]$budgetContract.candidate.compactBoundaryInputFieldCount-eq9-and[int]$budgetContract.candidate.toolContractVersion-eq4-and[int]$budgetContract.candidate.discoverInputVersion-eq5-and[int]$budgetContract.candidate.compactReceiptVersion-eq4) 'process-current-contract-field-counts'
 $fixtureIds=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal);$fixtureBudgetsValid=$true;foreach($fixture in @($budgetContract.fixtures)){if(-not$fixtureIds.Add([string]$fixture.fixtureId)-or[int]$fixture.selectedPackEstimatedTokens-ne[int][math]::Ceiling([int]$fixture.selectedPackBytes/4.0)-or[int]$fixture.selectedPackBytes-lt1-or[int]$fixture.selectedRequirementCount-lt1){$fixtureBudgetsValid=$false};foreach($modeName in @('DISCOVER','ADMIT_ACTION','FINALIZE_OUTPUT')){$runtime=$fixture.observedRuntimeMs.$modeName;if([double]$runtime.median-le0-or[double]$runtime.p95-lt[double]$runtime.median){$fixtureBudgetsValid=$false}}}
 Assert-True ($fixtureBudgetsValid-and$fixtureIds.Count-eq6-and[string]$budgetContract.fixtureObservationsContract-ceq'TC2_HISTORICAL'-and[string]$budgetContract.candidate.measurementObservation.status-ceq'PENDING'-and@($budgetContract.measurementContract.statistics)-contains'median'-and@($budgetContract.measurementContract.statistics)-contains'nearest-rank-p95'-and[int]$budgetContract.measurementContract.warmupsPerModeAndFixture-eq1-and[int]$budgetContract.measurementContract.measuredRunsPerModeAndFixture-eq5-and[string]$budgetContract.candidate.fixtureContractIdentity-ceq(Get-Identity $fixtureContractPath)-and[string]$budgetContract.candidate.measurementHarnessIdentity-ceq(Get-Identity $measurementHarnessPath)-and[int]$budgetContract.historicalCandidate.measurementObservation.warmups-eq1-and[int]$budgetContract.historicalCandidate.measurementObservation.measuredRuns-eq1) 'current-fixture-contract-and-historical-observations-remain-separate'
 $fixtureIdentitiesValid=$true;foreach($fixture in @($fixtureContract.fixtures)){$ordered=[ordered]@{};foreach($property in @($fixture.PSObject.Properties)){if($property.Name-cne'fixtureIdentity'){$ordered[$property.Name]=$property.Value}};$computed=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($utf8.GetBytes(($ordered|ConvertTo-Json -Depth 30 -Compress))));if([string]$fixture.fixtureIdentity-cne$computed){$fixtureIdentitiesValid=$false}}
@@ -393,7 +402,7 @@ foreach($documentRule in @(@{Id='PR_CORRECTION_ADOPTION_ANALYSIS';Text=$projectC
 }
 $correctionAdoptionText=$documentGuardBlocks['PR_CORRECTION_ADOPTION_ANALYSIS']
 $reviewQualificationText=$documentGuardBlocks['PR_REVIEW_QUALIFICATION_AND_PLANNING']
-Assert-True ($correctionAdoptionText.Contains('规则ID、近似文案、changelog或对象hash本身不证明覆盖')-and$correctionAdoptionText.Contains('工具只检查精确投影，不能替代语义判断')-and$reviewQualificationText.Contains('提出finding不自动成为贡献者，测试通过不取消有效质量问题。')) 'correction-adoption-identities-and-tests-do-not-prove-semantic-coverage'
+Assert-True ($correctionAdoptionText.Contains('规则ID、近似文案、changelog或对象hash本身不证明覆盖')-and$correctionAdoptionText.Contains('工具只检查精确投影，不能替代语义判断')-and$reviewQualificationText.Contains('基于证据指出问题本身不构成实质设计贡献；实际参与修复设计或实现者不能独审同一贡献。')-and$reviewQualificationText.Contains('测试通过不取消有效质量问题。')) 'correction-adoption-identities-and-tests-do-not-prove-semantic-coverage'
 Assert-True ($correctionAdoptionText.Contains('不登记消费者纠正ID或hash来抑制项目规则')-and$correctionAdoptionText.Contains('完整覆盖退出重复，部分覆盖保留增量，未覆盖保留，冲突明确解决')-and$correctionAdoptionText.Contains('旧有效、旧抑制及停用历史都要承接')-and$correctionAdoptionText.Contains('需要新版本才能成立的退出与目标运行绑定同一采用事务')-and$correctionAdoptionText.Contains('失败回到匹配旧包及完整前像')-and$correctionAdoptionText.Contains('不建中央/本地吸收台账')-and$reviewQualificationText.Contains('真实finding直接交仍负责修复的writer，finding本身不授写权；当前修复包准入后修复，由原仍独立Reviewer按受影响范围复审。')-and$reviewQualificationText.Contains('实际修正、直接消费者和必要相邻回归须复证，未变完整Review与有效证据保留；扩面或决定/主体变化回Owner。')) 'correction-adoption-project-analysis-atomic-migration-history-and-independent-review-without-registry'
 Assert-True ($evaluationText.Contains('显式采用 stable `2.0.0` 后才开始 observation')-and$evaluationText.Contains('使用正常 project task')-and$evaluationText.Contains('来源 task 保留一条 compact record')-and$evaluationText.Contains('不规定固定 sample count/time window')-and$evaluationText.Contains('不是 release gate')-and$evaluationText.Contains('不替代 conformance、independent Review、`RESULT_ACCEPT` 或 release sealing')-and-not$evaluationText.Contains('exactly 20 admitted samples')-and-not$evaluationText.Contains('INSUFFICIENT_SAMPLE / NO_ADVANCE')) 'post-release-project-observation-nonblocking-no-synthetic-work'
 Assert-True (-not$processCatalogText.Contains('level_test2')-and-not$processCatalogText.Contains('Pocket')) 'process-catalog-generic-no-consumer-paths'
@@ -489,6 +498,8 @@ Assert-True (-not$processCatalogText.Contains('level_test2')-and-not$processCata
         if (-not $manifestOk) { Write-Output ('DIAG|manifest|initial=' + $initialPayloadFacts.FileCount + '|' + $initialPayloadFacts.TotalBytes + '|' + $initialPayloadFacts.Canonical + '|finalRowsStable=' + $payloadRowsStable + '|declared=' + $manifest.fileCount + '|' + $manifest.totalBytes + '|' + $manifest.canonical) }
         Assert-True $manifestOk 'release-manifest-canonical'
     } else {Write-Output 'SKIP|release-manifest-payload-validation|reason=SkipManifest'}
+Test-SelectorMatching $candidateRoot
+Test-OrdinaryReplyBoundary $candidateRoot
 $resultManifest=Get-Content -LiteralPath (Join-Path $candidateRoot 'RELEASE_MANIFEST.json') -Raw -Encoding utf8|ConvertFrom-Json
 $resultState=Get-ReleaseValidationState $version $resultManifest (Get-ReleasePayloadFacts $candidateRoot) ([bool]$SkipManifest)
 Assert-True ($resultState-ceq$initialReleaseState-and(Get-Identity $initialManifestPath)-ceq$initialManifestIdentity) 'result-lifecycle-and-manifest-bytes-preserved'

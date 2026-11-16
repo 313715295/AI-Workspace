@@ -5,7 +5,7 @@ param(
  [switch]$ToolContractOnly,[switch]$SelectorOnly,[switch]$MainIntegrationOnly,
  [ValidateSet('All','RuleSelection','SourceChangeRecovery','KnowledgeEnable')][string]$StandardPresetsGroup,
  [switch]$MaintenanceFixture,[string[]]$Groups=@(),[string[]]$ResumeEvidence=@(),
- [string]$EvidenceDirectory,[string]$SourceViewPath,[ValidateSet('PREPACKAGE','POSTBUILD')][string]$Phase='PREPACKAGE',[string]$PackagePath,[string]$BuildCommandPath,[string]$AcceptedBaselinePath,[string]$ExpectedAcceptedBaselineIdentity,[ValidateSet(1,2,3)][int]$ProofSchemaVersion=3
+ [string]$EvidenceDirectory,[string]$SourceViewPath,[ValidateSet('PREPACKAGE','POSTBUILD')][string]$Phase='PREPACKAGE',[string]$PackagePath,[string]$ExtractedPackagePath,[string]$BuildCommandPath,[string]$AcceptedBaselinePath,[string]$ExpectedAcceptedBaselineIdentity,[ValidateSet(1,2,3,4)][int]$ProofSchemaVersion=3,[string]$ChangePlanPath,[string]$ExpectedChangePlanIdentity
 )
 $summaryStage='INITIALIZATION';$summaryProcess=$null
 try {
@@ -45,7 +45,7 @@ $process=Invoke-AiwTestProcess ([Environment]::ProcessPath) @('-NoProfile','-Non
 $summaryProcess=$process;$summaryStage='EVIDENCE_COPY_AND_SUMMARY'
 [IO.File]::Copy($process.Record.stdout.path,$full,$false)
 [IO.File]::Copy($process.Record.stderr.path,($full+'.stderr.raw'),$false)
-$status='FAIL';$coverage='PARTIAL';$suite=$null;$executed=0;$revalidated=0
+$status='FAIL';$coverage='PARTIAL';$suite=$null;$executed=0;$revalidated=0;$targetedCases=0;$historicalGroups=0;$targeted=@()
 try{
  if($process.Code-ne0){throw ('RUNNER_EXIT|'+$process.Code)}
  $references=@($process.StdoutText-split'\r?\n'|Where-Object{$_-cmatch'^SUITE_EVIDENCE\|path=(.+)\|identity=(\d+\|[A-F0-9]{64})$'})
@@ -53,15 +53,48 @@ try{
  $match=[regex]::Match($references[0],'^SUITE_EVIDENCE\|path=(.+)\|identity=(\d+\|[A-F0-9]{64})$')
  $suitePath=$match.Groups[1].Value
  if((Get-AiwTestFileIdentity $suitePath)-cne$match.Groups[2].Value){throw 'SUITE_IDENTITY_DRIFT'}
- $suite=Assert-AiwTestSuiteEvidence $suitePath $sourceRoot (Join-Path $PSScriptRoot 'test-groups.json') -AllowPartial
- foreach($ref in $suite.records){$record=Read-AiwTestJson $ref.path;if($ref.executionKind-ceq'EXECUTED'){$executed+=@($record.cases).Count}else{$revalidated+=@($record.cases).Count}}
+ if($ChangePlanPath){
+  $proofRefs=@($process.StdoutText-split'\r?\n'|Where-Object{$_-cmatch'^PREPACKAGE_PROOF\|path=(.+)\|identity=(\d+\|[A-F0-9]{64})$'})
+  if($proofRefs.Count-ne1){throw 'STRUCTURED_CHANGE_PROOF_REQUIRED'}
+  $proofMatch=[regex]::Match($proofRefs[0],'^PREPACKAGE_PROOF\|path=(.+)\|identity=(\d+\|[A-F0-9]{64})$')
+  $proofPath=$proofMatch.Groups[1].Value
+  $proof=Read-AiwTestJson $proofPath
+  if((Get-AiwTestFileIdentity $proofPath)-cne$proofMatch.Groups[2].Value-or$proof.schemaVersion-ne4-or$proof.changePlanRef.identity-cne$ExpectedChangePlanIdentity-or$proof.currentSuiteRef.identity-cne$match.Groups[2].Value){throw 'STRUCTURED_CHANGE_PROOF_DRIFT'}
+  $planPath=Join-Path (Split-Path -Parent $proofPath) $proof.changePlanRef.path
+  $plan=Read-AiwTestJson $planPath
+  if((Get-AiwTestFileIdentity $planPath)-cne$ExpectedChangePlanIdentity){throw 'TEST_CHANGE_PLAN_DRIFT'}
+  $targeted=@($plan.targetedGroupIds)
+  $historicalGroups=$proof.requiredGroupIds.Count-$plan.freshGroupIds.Count
+ }
+ $suite=Assert-AiwTestSuiteEvidence $suitePath $sourceRoot (Join-Path $PSScriptRoot 'test-groups.json') -AllowPartial -TargetedGroupIds $targeted
+ if($suite.phase-ceq'POSTBUILD'){
+  $postRefs=@($process.StdoutText-split'\r?\n'|Where-Object{$_-cmatch'^POSTBUILD_PROOF\|path=(.+)\|identity=(\d+\|[A-F0-9]{64})$'})
+  if($postRefs.Count-ne1){throw 'STRUCTURED_POSTBUILD_REQUIRED'}
+  $postMatch=[regex]::Match($postRefs[0],'^POSTBUILD_PROOF\|path=(.+)\|identity=(\d+\|[A-F0-9]{64})$')
+  if((Get-AiwTestFileIdentity $postMatch.Groups[1].Value)-cne$postMatch.Groups[2].Value){throw 'POSTBUILD_IDENTITY_DRIFT'}
+  $readerPath=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../scripts/ReleaseValidation.psm1'));$reader=@(Import-Module $readerPath -PassThru)[0];$consume=$reader.ExportedCommands['Get-AiwReleasePostbuildQualification']
+  if($null-eq$consume-or$consume.Module.Path-cne$readerPath){throw 'POSTBUILD_READER_OWNER'}
+  $postQualified=& $consume -Path $postMatch.Groups[1].Value -PackagePath $suite.options.PackagePath -ExtractedPackagePath $suite.sourceRoot -BuildCommandPath $suite.options.BuildCommandPath -AllowPartial
+  if($suite.coverage-ceq'COMPLETE'-and$postQualified.State-cne'PACKAGE_VALIDATED'){throw 'POSTBUILD_QUALIFICATION_REQUIRED'}
+ }
+ foreach($ref in $suite.records){
+  $record=Read-AiwTestJson $ref.path
+  switch -CaseSensitive ($ref.executionKind){
+   'EXECUTED'{
+    if($ref.groupId-cin$targeted){$targetedCases+=@($record.cases).Count}
+    else{$executed+=@($record.cases).Count}
+   }
+   'REVALIDATED'{$revalidated+=@($record.cases).Count}
+   default{throw 'TEST_EXECUTION_KIND_UNKNOWN'}
+  }
+ }
  $status=$suite.outcome;$coverage=$suite.coverage
 }catch{
  # Keep the existing DETAIL framing; escape only non-ASCII UTF-16 code units.
  $detail=[regex]::Replace([string]$_.Exception.Message,'[^\x00-\x7F]',{param($m) '\u{0:x4}' -f [int][char]$m.Value})
  Write-Output ('DETAIL|'+$detail)
 }
-Write-Output ('SUMMARY|status='+$status+'|coverage='+$coverage+'|exit='+$process.Code+'|executedCases='+$executed+'|revalidatedOriginalCases='+$revalidated+'|phase='+$Phase+'|qualification='+$(if($suite){$suite.qualification}else{'UNKNOWN'}))
+Write-Output ('SUMMARY|status='+$status+'|coverage='+$coverage+'|exit='+$process.Code+'|executedCases='+$executed+'|revalidatedOriginalCases='+$revalidated+'|phase='+$Phase+'|qualification='+$(if($suite){$suite.qualification}else{'UNKNOWN'})+'|targetedCases='+$targetedCases+'|historicalGroups='+$historicalGroups)
 Write-Output ('FULL_EVIDENCE|path='+$full+'|identity='+(Get-AiwTestFileIdentity $full))
 Write-Output ('PROCESS_EVIDENCE|path='+$process.ResultPath+'|identity='+(Get-AiwTestFileIdentity $process.ResultPath))
 if($null-ne$suite){Write-Output ('SUMMARY_SUITE|path='+$suitePath+'|identity='+(Get-AiwTestFileIdentity $suitePath))}

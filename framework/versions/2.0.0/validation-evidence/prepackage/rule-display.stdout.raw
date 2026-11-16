@@ -37,6 +37,8 @@ PASS|complete-mapping-framework:PR_CODEX_RESOURCE_ROUTE
 PASS|whole-fulltext-reconstructed-framework:PR_CODEX_RESOURCE_ROUTE
 PASS|complete-mapping-framework:PR_CODEX_ROUTER_REACTIVATION
 PASS|whole-fulltext-reconstructed-framework:PR_CODEX_ROUTER_REACTIVATION
+PASS|complete-mapping-framework:PR_CODEX_SESSION_ORGANIZATION
+PASS|whole-fulltext-reconstructed-framework:PR_CODEX_SESSION_ORGANIZATION
 PASS|complete-mapping-framework:PR_CODEX_TOOL_OPERATION_RESOLUTION
 PASS|whole-fulltext-reconstructed-framework:PR_CODEX_TOOL_OPERATION_RESOLUTION
 PASS|complete-mapping-framework:PR_COMPACT_NON_INTERRUPT_DELIVERY
@@ -69,16 +71,20 @@ PASS|complete-mapping-framework:PR_REVIEW_QUALIFICATION_AND_PLANNING
 PASS|whole-fulltext-reconstructed-framework:PR_REVIEW_QUALIFICATION_AND_PLANNING
 PASS|complete-mapping-framework:PR_TASK_CHANGED_OUTPUT_DISPOSITION
 PASS|whole-fulltext-reconstructed-framework:PR_TASK_CHANGED_OUTPUT_DISPOSITION
+PASS|complete-mapping-framework:PR_TASK_CLOSURE_AND_ARCHIVAL
+PASS|whole-fulltext-reconstructed-framework:PR_TASK_CLOSURE_AND_ARCHIVAL
 PASS|complete-mapping-framework:PR_TASK_COLLABORATION_BOUNDARY
 PASS|whole-fulltext-reconstructed-framework:PR_TASK_COLLABORATION_BOUNDARY
+PASS|complete-mapping-framework:PR_TASK_DESIGN_AND_SPECIFICATION
+PASS|whole-fulltext-reconstructed-framework:PR_TASK_DESIGN_AND_SPECIFICATION
 PASS|complete-mapping-framework:PR_TASK_IMPLEMENTATION_JUDGMENT
 PASS|whole-fulltext-reconstructed-framework:PR_TASK_IMPLEMENTATION_JUDGMENT
 PASS|complete-mapping-framework:PR_TASK_LAUNCH_AND_ROUTE
 PASS|whole-fulltext-reconstructed-framework:PR_TASK_LAUNCH_AND_ROUTE
+PASS|complete-mapping-framework:PR_TASK_PROBLEM_DRIVEN_IMPROVEMENT
+PASS|whole-fulltext-reconstructed-framework:PR_TASK_PROBLEM_DRIVEN_IMPROVEMENT
 PASS|complete-mapping-framework:PR_TASK_RESOURCE_SELECTION
 PASS|whole-fulltext-reconstructed-framework:PR_TASK_RESOURCE_SELECTION
-PASS|complete-mapping-framework:PR_TASK_SCOPE_AND_FORBIDDEN
-PASS|whole-fulltext-reconstructed-framework:PR_TASK_SCOPE_AND_FORBIDDEN
 PASS|complete-mapping-framework:PR_USER_DECISION_DRIFT
 PASS|whole-fulltext-reconstructed-framework:PR_USER_DECISION_DRIFT
 PASS|complete-mapping-project:display-fixture:FIRST
@@ -104,4 +110,4 @@ PASS|display-create-new-refuses-existing-official-copy
 PASS|display-protection-refuses-output-without-writing
 PASS|failure-fixture-is-an-actual-resolver-rejection
 PASS|failure-reason-is-not-hidden-by-projection
-RULE_DISPLAY_TESTS_PASS|checks=106|evidence=OUTPUT_PROJECTION_NOT_MODEL_LOAD
+RULE_DISPLAY_TESTS_PASS|checks=112|evidence=OUTPUT_PROJECTION_NOT_MODEL_LOAD
